@@ -181,28 +181,48 @@
     <div class="head-top">
       <div>
         <div class="title">AI Picks 診断ビュー</div>
+
+        <!-- モード / ユニバース -->
         <div class="meta">
           <span>モード: {{ meta.style|default:"aggressive" }}/{{ meta.horizon|default:"short" }}</span>
           <span>ユニバース: {{ meta.universe|default:"(不明)" }}</span>
-          <span>銘柄数: {{ meta.total|default:0|intcomma }} 件</span>
+        </div>
+
+        <!-- 件数まわり（総件数 / 対象件数 / TopK） -->
+        <div class="meta">
           {% if meta.stockmaster_total %}
-            <span>StockMaster: {{ meta.stockmaster_total|intcomma }} 件</span>
+            <span>総件数（StockMaster）: {{ meta.stockmaster_total|intcomma }} 件</span>
           {% endif %}
+          <span>対象件数（フィルタ後）: {{ meta.total|default:0|intcomma }} 件</span>
           <span>TopK: {{ meta.topk|default:0 }}</span>
         </div>
+
+        <!-- フィルタ削除件数（日本語ラベル） -->
+        {% if filter_stats %}
+          <div class="meta">
+            削除された銘柄:
+            {% for key, val in filter_stats.items %}
+              {% if key == "LOW_TURNOVER" %}
+                出来高不足
+              {% elif key == "PRICE_TOO_LOW" %}
+                株価基準未満
+              {% elif key == "NO_TREND" %}
+                トレンド基準未達
+              {% elif key == "NG_SECTOR" %}
+                除外セクター
+              {% else %}
+                {{ key }}
+              {% endif %}
+              = {{ val|intcomma }} 件{% if not forloop.last %} ／{% endif %}
+            {% endfor %}
+          </div>
+        {% endif %}
+
         {% if updated_at_label %}
           <div class="meta">最終更新: {{ updated_at_label }}</div>
         {% endif %}
         {% if source_file %}
           <div class="meta">ソース: <code style="font-size:11px">{{ source_file }}</code></div>
-        {% endif %}
-        {% if filter_stats %}
-          <div class="meta">
-            フィルタ削除件数:
-            {% for key, val in filter_stats.items %}
-              {{ key }}={{ val|intcomma }} 件{% if not forloop.last %} ／{% endif %}
-            {% endfor %}
-          </div>
         {% endif %}
       </div>
       <div class="badge">DEBUG / INTERNAL</div>
