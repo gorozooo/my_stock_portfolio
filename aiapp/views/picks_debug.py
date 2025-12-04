@@ -15,6 +15,7 @@ JST = timezone(timedelta(hours=9))
 
 PICKS_DIR = Path("media/aiapp/picks")
 
+
 # picks_debug.html 側で attribute アクセスしやすいように軽いラッパを用意
 @dataclass
 class PickDebugItem:
@@ -44,7 +45,9 @@ class PickDebugItem:
     est_loss_matsui: float | None = None
 
 
-def _load_json(kind: str = "all") -> tuple[Dict[str, Any], List[PickDebugItem], str | None, str | None]:
+def _load_json(
+    kind: str = "all",
+) -> tuple[Dict[str, Any], List[PickDebugItem], str | None, str | None]:
     """
     latest_full_all.json / latest_full.json を読み込んで
     (meta, items, updated_at_label, source_file) を返す。
@@ -127,10 +130,25 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
 
     meta, items, updated_at_label, source_file = _load_json(kind=kind)
 
+    # 総StockMaster件数（picks_build 側で universe_count として埋めている想定）
+    master_total = meta.get("universe_count")
+
+    # フィルタ別削除件数（dict: reason_code -> count）
+    raw_filter_stats = meta.get("filter_stats") or {}
+    filter_stats: Dict[str, int] = {}
+    if isinstance(raw_filter_stats, dict):
+        for k, v in raw_filter_stats.items():
+            try:
+                filter_stats[str(k)] = int(v)
+            except Exception:
+                continue
+
     ctx: Dict[str, Any] = {
         "meta": meta,
         "items": items,
         "updated_at_label": updated_at_label,
         "source_file": source_file,
+        "master_total": master_total,
+        "filter_stats": filter_stats,
     }
     return render(request, "aiapp/picks_debug.html", ctx)
