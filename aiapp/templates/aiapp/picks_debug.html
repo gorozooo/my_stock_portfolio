@@ -33,27 +33,143 @@
     gap:8px;
     margin-bottom:6px;
   }
-  .title{font-size:18px;font-weight:700;}
+  .title{
+    font-size:18px;
+    font-weight:700;
+  }
   .badge{
-    font-size:11px;padding:4px 8px;border-radius:999px;
+    font-size:11px;
+    padding:4px 8px;
+    border-radius:999px;
     border:1px solid rgba(148,163,184,.6);
     background:rgba(15,23,42,.9);
     white-space:nowrap;
   }
-  .meta{font-size:12px;color:var(--sub);line-height:1.5;}
-  .meta span+span::before{content:" / ";margin:0 2px;}
+  .meta{
+    font-size:12px;
+    color:var(--sub);
+    line-height:1.5;
+  }
+  .meta span+span::before{
+    content:" / ";
+    margin:0 2px;
+  }
 
   .filter-row{
-    display:flex;gap:8px;margin:8px 0 12px;
+    display:flex;
+    gap:8px;
+    margin:8px 0 12px;
   }
   .filter-input{
-    flex:1;padding:10px;border-radius:12px;border:1px solid var(--line);
-    background:rgba(15,23,42,.9);color:var(--fg);font-size:14px;
+    flex:1;
+    padding:10px;
+    border-radius:12px;
+    border:1px solid var(--line);
+    background:rgba(15,23,42,.9);
+    color:var(--fg);
+    font-size:14px;
   }
+  .filter-input::placeholder{color:#64748b;}
   .pill{
-    font-size:11px;padding:6px 10px;border-radius:999px;
-    border:1px solid var(--line);color:var(--sub);
-    background:rgba(15,23,42,.9);white-space:nowrap;
+    font-size:11px;
+    padding:6px 10px;
+    border-radius:999px;
+    border:1px solid var(--line);
+    color:var(--sub);
+    background:rgba(15,23,42,.9);
+    white-space:nowrap;
+  }
+
+  .table-wrap{
+    border:1px solid var(--line);
+    border-radius:16px;
+    background:rgba(15,23,42,.9);
+    overflow:hidden;
+  }
+  .table-scroller{
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+  }
+  table{
+    width:100%;
+    min-width:820px;
+    border-collapse:collapse;
+    font-size:12px;
+  }
+  thead{
+    background:rgba(15,23,42,1);
+    position:sticky;
+    top:0;
+    z-index:1;
+  }
+  th,td{
+    padding:6px 8px;
+    border-bottom:1px solid rgba(30,41,59,.9);
+    text-align:right;
+    white-space:nowrap;
+  }
+  th:first-child,
+  td:first-child{text-align:left;}
+  th:nth-child(2),
+  td:nth-child(2){text-align:left;}
+  th{
+    font-size:11px;
+    color:#9ca3af;
+    background:rgba(15,23,42,0.98);
+    backdrop-filter:blur(10px);
+  }
+  tbody tr:nth-child(odd){
+    background:rgba(15,23,42,0.9);
+  }
+  tbody tr:nth-child(even){
+    background:rgba(15,23,42,0.96);
+  }
+  tbody tr:hover{
+    background:rgba(30,64,175,.7);
+  }
+  .code{font-feature-settings:"tnum";font-weight:600;}
+  .sector{color:var(--sub);font-size:11px;}
+  .score{font-weight:700;}
+  .score-high{color:#bfdbfe;}
+  .score-mid{color:#a3e635;}
+  .score-low{color:#f97316;}
+  .stars{text-align:center;font-size:13px;}
+  .pos{color:var(--ok);}
+  .neg{color:var(--bad);}
+  .zero{color:#64748b;}
+
+  .foot-note{
+    margin-top:8px;
+    font-size:11px;
+    color:var(--sub);
+    line-height:1.5;
+  }
+
+  /* ===== スマホ幅調整 ===== */
+  @media (max-width: 480px){
+    .head-top{
+      align-items:flex-start;
+      flex-wrap:wrap;
+    }
+    .badge{
+      margin-left:auto;
+      margin-top:4px;
+      font-size:10px;
+      padding:3px 7px;
+      white-space:normal;
+    }
+    .filter-row{
+      flex-direction:column;
+      align-items:stretch;
+    }
+    .pill{
+      align-self:flex-end;
+      font-size:10px;
+      padding:4px 8px;
+      max-width:100%;
+      white-space:normal;
+      text-align:right;
+    }
   }
 </style>
 {% endblock %}
@@ -64,62 +180,49 @@
   <div class="head-card">
     <div class="head-top">
       <div>
-
         <div class="title">AI Picks 診断ビュー</div>
-
-        <!-- ======= 基本メタ ======= -->
         <div class="meta">
-          <span>モード: {{ meta.style }}/{{ meta.horizon }}</span>
-          <span>ユニバース: {{ meta.universe }}</span>
-        </div>
-
-        <!-- ======= 件数メタ ======= -->
-        <div class="meta">
+          <span>モード: {{ meta.style|default:"aggressive" }}/{{ meta.horizon|default:"short" }}</span>
+          <span>ユニバース: {{ meta.universe|default:"(不明)" }}</span>
+          <span>銘柄数: {{ meta.total|default:0|intcomma }} 件</span>
           {% if meta.stockmaster_total %}
-            <div>総件数（StockMaster）: {{ meta.stockmaster_total|intcomma }} 件</div>
+            <span>StockMaster: {{ meta.stockmaster_total|intcomma }} 件</span>
           {% endif %}
-          <div>対象件数（フィルタ後）: {{ meta.total|intcomma }} 件</div>
-          <div>TopK: {{ meta.topk }}</div>
+          <span>TopK: {{ meta.topk|default:0 }}</span>
         </div>
-
-        <!-- ======= フィルタ削除件数 ======= -->
-        {% if filter_stats_jp %}
-          <div class="meta">
-            削除された銘柄:
-            <ul style="margin:4px 0 0 12px;padding:0;list-style:disc;">
-              {% for row in filter_stats_jp %}
-                <li>{{ row.label }}: {{ row.count|intcomma }} 件</li>
-              {% endfor %}
-            </ul>
-          </div>
-        {% endif %}
-
-        <!-- ======= 更新日時 ======= -->
         {% if updated_at_label %}
           <div class="meta">最終更新: {{ updated_at_label }}</div>
         {% endif %}
         {% if source_file %}
-          <div class="meta">ソース: <code>{{ source_file }}</code></div>
+          <div class="meta">ソース: <code style="font-size:11px">{{ source_file }}</code></div>
         {% endif %}
-
+        {% if filter_stats %}
+          <div class="meta">
+            フィルタ削除件数:
+            {% for key, val in filter_stats.items %}
+              {{ key }}={{ val|intcomma }} 件{% if not forloop.last %} ／{% endif %}
+            {% endfor %}
+          </div>
+        {% endif %}
       </div>
       <div class="badge">DEBUG / INTERNAL</div>
     </div>
 
     <div class="meta">
-      ※ picks_build が出力した JSON をそのまま表示しています。<br>
-      ※ 並び順は score_100 → 株価 の降順です。
+      ※ picks_build が出力した JSON（PickItem 相当）をそのまま一覧表示します。<br>
+      ※ 並び順は score_100 降順 → 株価降順です。
     </div>
   </div>
 
-  <!-- ======= フィルタ UI ======= -->
   <div class="filter-row">
-    <input id="filterInput" class="filter-input" type="search"
+    <input
+      id="filterInput"
+      class="filter-input"
+      type="search"
       placeholder="コード・銘柄名・業種でフィルタ（例: 7203 / トヨタ / 保険）">
     <div class="pill">score 0-100 ／ qty・PL は楽天+松井の合計</div>
   </div>
 
-  <!-- ======= テーブル ======= -->
   <div class="table-wrap">
     <div class="table-scroller">
       <table id="picksTable">
@@ -135,42 +238,87 @@
             <th>TP</th>
             <th>SL</th>
             <th>数量 合計</th>
-            <th>想定利益</th>
-            <th>想定損失</th>
+            <th>想定利益 合計</th>
+            <th>想定損失 合計</th>
           </tr>
         </thead>
         <tbody>
 
-{% for it in items %}
-  <tr>
-    <td class="code">{{ it.code }}</td>
+        {% for it in items %}
+          <tr>
+            <td class="code">{{ it.code }}</td>
 
-    <td>
-      <div>{{ it.name }}</div>
-      <div class="sector">{{ it.sector_display }}</div>
-    </td>
+            <td>
+              <div>{{ it.name|default:"(銘柄名なし)" }}</div>
+              <div class="sector">{{ it.sector_display|default:"業種不明" }}</div>
+            </td>
 
-    <td>{{ it.score_100 }}</td>
-    <td>{% if it.stars %}{{ it.stars }}★{% else %}–{% endif %}</td>
+            <td class="score
+              {% if it.score_100 and it.score_100|floatformat:0 >= 80 %}score-high
+              {% elif it.score_100 and it.score_100|floatformat:0 >= 60 %}score-mid
+              {% else %}score-low{% endif %}">
+              {% if it.score_100 is not None %}
+                {{ it.score_100|floatformat:0 }}
+              {% else %}
+                –
+              {% endif %}
+            </td>
 
-    <td>{{ it.last_close|floatformat:0|intcomma }}</td>
-    <td>{{ it.atr|floatformat:0|intcomma }}</td>
-    <td>{{ it.entry|floatformat:0|intcomma }}</td>
-    <td>{{ it.tp|floatformat:0|intcomma }}</td>
-    <td>{{ it.sl|floatformat:0|intcomma }}</td>
+            <td class="stars">
+              {% if it.stars %}{{ it.stars }}★{% else %}–{% endif %}
+            </td>
 
-    <td>{{ it.qty_total|default:0|intcomma }}</td>
+            <td>{% if it.last_close %}{{ it.last_close|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
+            <td>{% if it.atr %}{{ it.atr|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
+            <td>{% if it.entry %}{{ it.entry|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
+            <td>{% if it.tp %}{{ it.tp|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
+            <td>{% if it.sl %}{{ it.sl|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
 
-    <td>{{ it.pl_total|default:0|intcomma }}</td>
-    <td>{{ it.loss_total|default:0|intcomma }}</td>
-  </tr>
-{% empty %}
-  <tr><td colspan="12" style="text-align:center;">items が空です。</td></tr>
-{% endfor %}
+            <td>
+              {% if it.qty_total %}
+                {{ it.qty_total|floatformat:0|intcomma }}
+              {% else %}
+                <span class="zero">0</span>
+              {% endif %}
+            </td>
+
+            <td>
+              {% if it.pl_total and it.pl_total != 0 %}
+                <span class="{% if it.pl_total > 0 %}pos{% else %}neg{% endif %}">
+                  {{ it.pl_total|floatformat:0|intcomma }}
+                </span>
+              {% else %}
+                <span class="zero">0</span>
+              {% endif %}
+            </td>
+
+            <td>
+              {% if it.loss_total and it.loss_total != 0 %}
+                <span class="{% if it.loss_total < 0 %}neg{% else %}pos{% endif %}">
+                  {{ it.loss_total|floatformat:0|intcomma }}
+                </span>
+              {% else %}
+                <span class="zero">0</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="12" style="text-align:center;color:#9ca3af;padding:16px 8px;">
+              items が空です。picks_build がまだ走っていないか、ファイル読み込みに失敗しています。
+            </td>
+          </tr>
+        {% endfor %}
 
         </tbody>
       </table>
     </div>
+  </div>
+
+  <div class="foot-note">
+    ・この画面は開発者向けの診断ビューです。<br>
+    ・score / ⭐ / 数量 / 想定PL が想定とズレていないか確認できます。<br>
+    ・コード・銘柄名・業種で瞬間フィルタが可能です。
   </div>
 
 </div>
@@ -178,11 +326,20 @@
 <script>
 (function(){
   const input = document.getElementById("filterInput");
-  const rows = document.querySelectorAll("#picksTable tbody tr");
-  input.addEventListener("input", () => {
-    const q = input.value.toLowerCase();
+  const table = document.getElementById("picksTable");
+  if (!input || !table) return;
+
+  const rows = Array.from(table.querySelectorAll("tbody tr"));
+
+  input.addEventListener("input", function(){
+    const q = this.value.trim().toLowerCase();
+    if (!q){
+      rows.forEach(r => r.style.display = "");
+      return;
+    }
     rows.forEach(r => {
-      r.style.display = r.textContent.toLowerCase().includes(q) ? "" : "none";
+      const text = r.textContent.toLowerCase();
+      r.style.display = text.includes(q) ? "" : "none";
     });
   });
 })();
