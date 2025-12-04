@@ -158,12 +158,17 @@ document.addEventListener("DOMContentLoaded", () => {
     // 🧠 AIタブ → aiapp メニュー
     advisor: [
       { section:"AI" },
-      { label:"AIダッシュボード", href: URLS.aiapp_dashboard,     icon:"🧠", tone:"info" },
-      { label:"AIピック",         href: URLS.aiapp_picks,         icon:"🎯", tone:"info" },
-      { label:"行動分析",         href: URLS.aiapp_behavior,      icon:"📊", tone:"info" },
-      { label:"シミュレ一覧",     href: URLS.aiapp_simulate_list, icon:"🧪", tone:"info" },
-      { label:"AI設定",           href: URLS.aiapp_settings,      icon:"⚙️", tone:"info" },
+      { label:"ダッシュボード", href: URLS.aiapp_dashboard,     icon:"🧠", tone:"info" },
+      { label:"ピックアップ10選",         href: URLS.aiapp_picks,         icon:"🎯", tone:"info" },
+      { label:"シミュレーション",     href: URLS.aiapp_simulate_list, icon:"🧪", tone:"info" },
+      { label:"分析",         href: URLS.aiapp_behavior,      icon:"📊", tone:"info" },
+      
+      { section:"設定" },
+      { label:"設定",           href: URLS.aiapp_settings,      icon:"⚙️", tone:"info" },
+      { label:"ピックアップ診断(ALL)",           href: "/aiapp/debug/picks",      icon:"⚙️", tone:"info" },
+      { label:"ピックアップ診断(Top10)",           href: "aiapp/debug/picks/?kind=top",      icon:"⚙️", tone:"info" },
     ],
+    
     holdings: [
       { section:"保有" },
       { label:"新規登録",        href: URLS.holding_create,       icon:"➕", tone:"add" },
