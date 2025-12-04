@@ -115,8 +115,6 @@
   th{
     font-size:11px;
     color:#9ca3af;
-    position:sticky;
-    top:0;
     background:rgba(15,23,42,0.98);
     backdrop-filter:blur(10px);
   }
@@ -131,9 +129,7 @@
   }
   .code{font-feature-settings:"tnum";font-weight:600;}
   .sector{color:var(--sub);font-size:11px;}
-  .score{
-    font-weight:700;
-  }
+  .score{font-weight:700;}
   .score-high{color:#bfdbfe;}
   .score-mid{color:#a3e635;}
   .score-low{color:#f97316;}
@@ -153,18 +149,16 @@
 
 {% block content %}
 <div class="wrap">
+
   <div class="head-card">
     <div class="head-top">
       <div>
         <div class="title">AI Picks 診断ビュー</div>
         <div class="meta">
-          <span>
-            モード:
-            {{ meta.style|default:"aggressive" }}/{{ meta.horizon|default:"short" }}
-          </span>
-          <span>ユニバース: {{ meta.universe|default:"(不明)" }}</span>
-          <span>銘柄数: {{ meta.total|default:0|intcomma }} 件</span>
-          <span>TopK: {{ meta.topk|default:0 }}</span>
+          <span>モード: {{ meta.style }}/{{ meta.horizon }}</span>
+          <span>ユニバース: {{ meta.universe }}</span>
+          <span>銘柄数: {{ meta.total|intcomma }} 件</span>
+          <span>TopK: {{ meta.topk }}</span>
         </div>
         {% if updated_at_label %}
           <div class="meta">最終更新: {{ updated_at_label }}</div>
@@ -173,12 +167,11 @@
           <div class="meta">ソース: <code style="font-size:11px">{{ source_file }}</code></div>
         {% endif %}
       </div>
-      <div class="badge">
-        DEBUG / INTERNAL
-      </div>
+      <div class="badge">DEBUG / INTERNAL</div>
     </div>
+
     <div class="meta">
-      ※ picks_build が書き出した JSON（PickItem 相当）をそのまま一覧表示します。<br>
+      ※ picks_build が出力した JSON（PickItem 相当）をそのまま一覧表示します。<br>
       ※ 並び順は score_100 降順 → 株価降順です。
     </div>
   </div>
@@ -189,9 +182,7 @@
       class="filter-input"
       type="search"
       placeholder="コード・銘柄名・業種でフィルタ（例: 7203 / トヨタ / 保険）">
-    <div class="pill">
-      score: 0〜100 ／ qty・PLは楽天/松井の合計
-    </div>
+    <div class="pill">score 0-100 ／ qty・PL は楽天+松井の合計</div>
   </div>
 
   <div class="table-wrap">
@@ -214,134 +205,108 @@
           </tr>
         </thead>
         <tbody>
-          {% for it in items %}
-            {% with
-              qty_total=it.qty_rakuten|default_if_none:0|add:it.qty_matsui|default_if_none:0
-              pl_total=it.est_pl_rakuten|default_if_none:0|add:it.est_pl_matsui|default_if_none:0
-              loss_total=it.est_loss_rakuten|default_if_none:0|add:it.est_loss_matsui|default_if_none:0
-            %}
-            <tr>
-              <td class="code">
-                {{ it.code }}
-              </td>
-              <td>
-                <div>{{ it.name|default:"(銘柄名なし)" }}</div>
-                <div class="sector">
-                  {{ it.sector_display|default:"業種不明" }}
-                </div>
-              </td>
-              <td class="score
-                {% if it.score_100 >= 80 %}score-high
-                {% elif it.score_100 >= 60 %}score-mid
-                {% else %}score-low{% endif %}">
-                {% if it.score_100 is not None %}
-                  {{ it.score_100|floatformat:0 }}
-                {% else %}
-                  —
-                {% endif %}
-              </td>
-              <td class="stars">
-                {% if it.stars %}{{ it.stars }}★{% else %}–{% endif %}
-              </td>
-              <td>
-                {% if it.last_close %}
-                  {{ it.last_close|floatformat:0|intcomma }}
-                {% else %}
-                  —
-                {% endif %}
-              </td>
-              <td>
-                {% if it.atr %}
-                  {{ it.atr|floatformat:0|intcomma }}
-                {% else %}
-                  —
-                {% endif %}
-              </td>
-              <td>
-                {% if it.entry %}
-                  {{ it.entry|floatformat:0|intcomma }}
-                {% else %}
-                  —
-                {% endif %}
-              </td>
-              <td>
-                {% if it.tp %}
-                  {{ it.tp|floatformat:0|intcomma }}
-                {% else %}
-                  —
-                {% endif %}
-              </td>
-              <td>
-                {% if it.sl %}
-                  {{ it.sl|floatformat:0|intcomma }}
-                {% else %}
-                  —
-                {% endif %}
-              </td>
-              <td>
-                {% if qty_total %}
-                  {{ qty_total|intcomma }}
-                {% else %}
-                  <span class="zero">0</span>
-                {% endif %}
-              </td>
-              <td>
-                {% if pl_total and pl_total != 0 %}
-                  <span class="{% if pl_total > 0 %}pos{% else %}neg{% endif %}">
-                    {{ pl_total|floatformat:0|intcomma }}
-                  </span>
-                {% else %}
-                  <span class="zero">0</span>
-                {% endif %}
-              </td>
-              <td>
-                {% if loss_total and loss_total != 0 %}
-                  <span class="{% if loss_total < 0 %}neg{% else %}pos{% endif %}">
-                    {{ loss_total|floatformat:0|intcomma }}
-                  </span>
-                {% else %}
-                  <span class="zero">0</span>
-                {% endif %}
-              </td>
-            </tr>
-            {% endwith %}
-          {% empty %}
-            <tr>
-              <td colspan="12" style="text-align:center;color:#9ca3af;padding:16px 8px;">
-                items が空です。picks_build がまだ走っていないか、ファイル読み込みに失敗しています。
-              </td>
-            </tr>
-          {% endfor %}
+
+        {% for it in items %}
+          {% with
+            qty_total=it.qty_rakuten|default_if_none:0|add:it.qty_matsui|default_if_none:0
+            pl_total=it.est_pl_rakuten|default_if_none:0|add:it.est_pl_matsui|default_if_none:0
+            loss_total=it.est_loss_rakuten|default_if_none:0|add:it.est_loss_matsui|default_if_none:0
+          %}
+          <tr>
+            <td class="code">{{ it.code }}</td>
+
+            <td>
+              <div>{{ it.name|default:"(銘柄名なし)" }}</div>
+              <div class="sector">{{ it.sector_display|default:"業種不明" }}</div>
+            </td>
+
+            <td class="score
+              {% if it.score_100 >= 80 %}score-high
+              {% elif it.score_100 >= 60 %}score-mid
+              {% else %}score-low{% endif %}">
+              {{ it.score_100|default:"–" }}
+            </td>
+
+            <td class="stars">
+              {% if it.stars %}{{ it.stars }}★{% else %}–{% endif %}
+            </td>
+
+            <td>{% if it.last_close %}{{ it.last_close|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
+            <td>{% if it.atr %}{{ it.atr|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
+            <td>{% if it.entry %}{{ it.entry|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
+            <td>{% if it.tp %}{{ it.tp|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
+            <td>{% if it.sl %}{{ it.sl|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
+
+            <td>
+              {% if qty_total %}
+                {{ qty_total|intcomma }}
+              {% else %}
+                <span class="zero">0</span>
+              {% endif %}
+            </td>
+
+            <td>
+              {% if pl_total %}
+                <span class="{% if pl_total > 0 %}pos{% else %}neg{% endif %}">
+                  {{ pl_total|floatformat:0|intcomma }}
+                </span>
+              {% else %}
+                <span class="zero">0</span>
+              {% endif %}
+            </td>
+
+            <td>
+              {% if loss_total %}
+                <span class="{% if loss_total < 0 %}neg{% else %}pos{% endif %}">
+                  {{ loss_total|floatformat:0|intcomma }}
+                </span>
+              {% else %}
+                <span class="zero">0</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endwith %}
+        {% empty %}
+          <tr>
+            <td colspan="12" style="text-align:center;color:#9ca3af;padding:16px 8px;">
+              items が空です。picks_build がまだ走っていないか、ファイル読み込みに失敗しています。
+            </td>
+          </tr>
+        {% endfor %}
+
         </tbody>
       </table>
     </div>
   </div>
 
   <div class="foot-note">
-    ・この画面は開発者向けの診断用ビューです。<br>
-    ・score / ⭐ / 数量 / 想定PL が「頭の中のイメージ」とズレていないか確認する用途を想定しています。<br>
-    ・フィルタ欄にコード・銘柄名・業種の一部を入れると、その行だけ絞り込みできます。
+    ・この画面は開発者向けの診断ビューです。<br>
+    ・score / ⭐ / 数量 / 想定PL が想定とズレていないか確認できます。<br>
+    ・コード・銘柄名・業種で瞬間フィルタが可能です。
   </div>
+
 </div>
 
 <script>
-  (function(){
-    const input = document.getElementById("filterInput");
-    const table = document.getElementById("picksTable");
-    if (!input || !table) return;
-    const rows = Array.from(table.querySelectorAll("tbody tr"));
+(function(){
+  const input = document.getElementById("filterInput");
+  const table = document.getElementById("picksTable");
+  if (!input || !table) return;
 
-    input.addEventListener("input", function(){
-      const q = this.value.trim().toLowerCase();
-      if (!q){
-        rows.forEach(r => r.style.display = "");
-        return;
-      }
-      rows.forEach(r => {
-        const text = r.textContent.toLowerCase();
-        r.style.display = text.includes(q) ? "" : "none";
-      });
+  const rows = Array.from(table.querySelectorAll("tbody tr"));
+
+  input.addEventListener("input", function(){
+    const q = this.value.trim().toLowerCase();
+    if (!q){
+      rows.forEach(r => r.style.display = "");
+      return;
+    }
+    rows.forEach(r => {
+      const text = r.textContent.toLowerCase();
+      r.style.display = text.includes(q) ? "" : "none";
     });
-  })();
+  });
+})();
 </script>
+
 {% endblock %}
