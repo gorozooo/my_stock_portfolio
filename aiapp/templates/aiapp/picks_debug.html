@@ -187,7 +187,8 @@
         <!-- モード / ユニバース -->
         <div class="meta">
           <span>モード: {{ meta.style|default:"aggressive" }}/{{ meta.horizon|default:"short" }}</span>
-          <span>ユニバース: {{ meta.universe|default:"(不明)" }}</span>
+          <span>分野: {{ meta.universe|default:"(不明)" }}</span>
+          <span>TopK: {{ meta.topk|default:0 }}</span>
         </div>
 
         <!-- 件数まわり（総件数 / 対象件数 / TopK） -->
@@ -198,8 +199,6 @@
         </div>
         
         <div class="meta">対象件数（フィルタ後）: {{ meta.total|default:0|intcomma }} 件</div>
-        
-        <div class="meta">TopK: {{ meta.topk|default:0 }}</div>
 
         <!-- フィルタ削除件数（日本語ラベル） -->
         {% if filter_stats %}
