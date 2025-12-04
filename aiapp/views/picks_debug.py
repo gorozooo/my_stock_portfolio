@@ -132,23 +132,41 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
 
     # 総StockMaster件数（picks_build 側で universe_count として埋めている想定）
     master_total = meta.get("universe_count")
+    if master_total is not None:
+        # テンプレ側の {{ meta.stockmaster_total }} で拾えるようにコピー
+        meta["stockmaster_total"] = master_total
 
     # フィルタ別削除件数（dict: reason_code -> count）
     raw_filter_stats = meta.get("filter_stats") or {}
-    filter_stats: Dict[str, int] = {}
+    filter_stats_raw: Dict[str, int] = {}
     if isinstance(raw_filter_stats, dict):
         for k, v in raw_filter_stats.items():
             try:
-                filter_stats[str(k)] = int(v)
+                filter_stats_raw[str(k)] = int(v)
             except Exception:
                 continue
+
+    # 理由コード → 日本語ラベル
+    LABELS: Dict[str, str] = {
+        "LOW_TURNOVER": "出来高が少なく除外",
+        "PRICE_ANOMALY": "価格が異常と判定され除外",
+        "NO_PRICE": "価格データが取得できず除外",
+        "SKIP": "その他の条件で除外",
+        "filter_error": "フィルタ処理でエラー",
+        "work_error": "銘柄処理中にエラー",
+    }
+
+    filter_stats_jp: Dict[str, int] = {}
+    for code, cnt in filter_stats_raw.items():
+        label = LABELS.get(code, f"その他（{code}）")
+        # 同じラベルに複数コードがマップされても合算されるように
+        filter_stats_jp[label] = filter_stats_jp.get(label, 0) + cnt
 
     ctx: Dict[str, Any] = {
         "meta": meta,
         "items": items,
         "updated_at_label": updated_at_label,
         "source_file": source_file,
-        "master_total": master_total,
-        "filter_stats": filter_stats,
+        "filter_stats": filter_stats_jp,
     }
     return render(request, "aiapp/picks_debug.html", ctx)
