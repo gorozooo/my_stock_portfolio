@@ -166,7 +166,7 @@ document.addEventListener("DOMContentLoaded", () => {
       { section:"設定" },
       { label:"設定",           href: URLS.aiapp_settings,      icon:"⚙️", tone:"info" },
       { label:"ピックアップ診断(ALL)",           href: "/aiapp/debug/picks",      icon:"⚙️", tone:"info" },
-      { label:"ピックアップ診断(Top10)",           href: "aiapp/debug/picks/?kind=top",      icon:"⚙️", tone:"info" },
+      { label:"ピックアップ診断(Top10)",           href: "/aiapp/debug/picks/?kind=top",      icon:"⚙️", tone:"info" },
     ],
     
     holdings: [
