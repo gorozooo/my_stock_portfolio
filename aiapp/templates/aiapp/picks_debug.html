@@ -237,11 +237,9 @@
         <tbody>
 
         {% for it in items %}
-          {% with
-            qty_total=it.qty_rakuten|default_if_none:0|add:it.qty_matsui|default_if_none:0
-            pl_total=it.est_pl_rakuten|default_if_none:0|add:it.est_pl_matsui|default_if_none:0
-            loss_total=it.est_loss_rakuten|default_if_none:0|add:it.est_loss_matsui|default_if_none:0
-          %}
+          {% with qty_total=it.qty_rakuten|default_if_none:0|add:it.qty_matsui|default_if_none:0 %}
+          {% with pl_total=it.est_pl_rakuten|default_if_none:0|add:it.est_pl_matsui|default_if_none:0 %}
+          {% with loss_total=it.est_loss_rakuten|default_if_none:0|add:it.est_loss_matsui|default_if_none:0 %}
           <tr>
             <td class="code">{{ it.code }}</td>
 
@@ -295,6 +293,8 @@
               {% endif %}
             </td>
           </tr>
+          {% endwith %}
+          {% endwith %}
           {% endwith %}
         {% empty %}
           <tr>
