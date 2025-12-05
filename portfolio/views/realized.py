@@ -1409,18 +1409,43 @@ def create(request):
 
 # ============================================================
 #  削除（テーブル＋サマリーを同時更新して返す）
+#  ★ CashLedger の紐づく行も同時削除に対応した完全版
 # ============================================================
 @login_required
 @require_POST
 def delete(request, pk: int):
+    """
+    RealizedTrade を削除する際に、
+    1) RealizedTrade (pk) を削除
+    2) CashLedger の source_type=REALIZED かつ source_id=pk を全削除
+    3) テーブルとサマリーを再描画して返す（HTMX）
+    """
+
+    # --- RealizedTrade が存在するかチェック（存在しなくてもLedgerクリーンのため取る） ---
+    trade = RealizedTrade.objects.filter(pk=pk, user=request.user).first()
+
+    # --- Ledger 削除 ---
+    try:
+        from ..models_cash import CashLedger
+        if trade:
+            CashLedger.objects.filter(
+                source_type=CashLedger.SourceType.REALIZED,
+                source_id=trade.id,
+            ).delete()
+    except Exception:
+        # Ledgerモデル未使用の環境でも落ちないように防御
+        pass
+
+    # --- RealizedTrade 削除 ---
     RealizedTrade.objects.filter(pk=pk, user=request.user).delete()
 
+    # --- 再描画 ---
     q = (request.POST.get("q") or "").strip()
     qs = RealizedTrade.objects.filter(user=request.user).order_by(
         "-trade_at", "-id"
     )
     if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains?q))
 
     rows = _with_metrics(qs)
     agg = _aggregate(qs)
@@ -1431,8 +1456,8 @@ def delete(request, pk: int):
     summary_html = render_to_string(
         "realized/_summary.html", {"agg": agg}, request=request
     )
-    return JsonResponse({"ok": True, "table": table_html, "summary": summary_html})
 
+    return JsonResponse({"ok": True, "table": table_html, "summary": summary_html})
 
 # ============================================================
 #  CSV（両方を出力：現金ベースと手入力PnL）
