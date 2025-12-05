@@ -18,7 +18,7 @@
       <th class="px-3 py-2 text-left">銘柄</th>
       <th class="px-3 py-2 text-center" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">Side</th>
       <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">数量</th>
-      <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">約定単価</th>
+      <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">約定単価 / 取得単価</th>
       <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">💰実損(現金)</th>
       <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">📈実現損益</th>
       <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">手数料</th>
@@ -31,7 +31,18 @@
       <tr class="border-b border-white/10">
         <td class="px-3 py-2 text-slate-200"
             style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
-          {{ t.trade_at|date:"Y-m-d" }}
+          <div>{{ t.trade_at|date:"Y-m-d" }}</div>
+          {# 保有開始日＋保有日数 #}
+          {% if t.opened_at or t.hold_days %}
+            <div class="text-[11px] text-slate-400 leading-tight">
+              {% if t.opened_at %}
+                保有開始 {{ t.opened_at|date:"Y-m-d" }}
+              {% endif %}
+              {% if t.hold_days %}
+                （{{ t.hold_days|intcomma }}日）
+              {% endif %}
+            </div>
+          {% endif %}
         </td>
 
         <td class="px-3 py-2">
@@ -40,6 +51,8 @@
               {{ t.ticker }}
             </div>
             <div class="text-slate-200 font-semibold truncate">{{ t.name|default:"" }}</div>
+
+            {# ブローカー / 口座バッジ #}
             <div class="mt-1 flex items-center gap-1 text-[10px] leading-none">
               {% with b=t.broker|default:"OTHER" %}
                 <span class="px-1.5 py-0.5 rounded-md ring-1"
@@ -61,6 +74,58 @@
                 </span>
               {% endwith %}
             </div>
+
+            {# 33業種（コード＋名称） #}
+            {% if t.sector33_name or t.sector33_code %}
+              <div class="mt-0.5 flex items-center gap-1 text-[11px] text-slate-400 leading-tight">
+                {% if t.sector33_name %}
+                  <span class="truncate">{{ t.sector33_name }}</span>
+                {% endif %}
+                {% if t.sector33_code %}
+                  <span class="text-slate-500">({{ t.sector33_code }})</span>
+                {% endif %}
+              </div>
+            {% endif %}
+
+            {# 国・通貨・FXレート #}
+            {% if t.country or t.currency or t.fx_rate %}
+              <div class="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500 leading-tight">
+                {% if t.country %}
+                  <span style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">{{ t.country }}</span>
+                {% endif %}
+                {% if t.currency %}
+                  <span style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">{{ t.currency }}</span>
+                {% endif %}
+                {% if t.fx_rate %}
+                  <span style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">Fx {{ t.fx_rate }}</span>
+                {% endif %}
+              </div>
+            {% endif %}
+
+            {# 戦略ラベル / AIシグナル #}
+            {% if t.strategy_label or t.is_ai_signal %}
+              <div class="mt-0.5 flex items-center gap-1 text-[10px] leading-none">
+                {% if t.strategy_label %}
+                  <span class="px-1.5 py-0.5 rounded-md bg-white/5 text-slate-200 max-w-[140px] truncate"
+                        style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
+                    {{ t.strategy_label }}
+                  </span>
+                {% endif %}
+                {% if t.is_ai_signal %}
+                  <span class="px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-200"
+                        style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
+                    AI
+                  </span>
+                {% endif %}
+              </div>
+            {% endif %}
+
+            {# メモ（あれば） #}
+            {% if t.memo %}
+              <div class="mt-0.5 text-[11px] text-slate-400 line-clamp-2">
+                {{ t.memo }}
+              </div>
+            {% endif %}
           </div>
         </td>
 
@@ -77,12 +142,26 @@
             style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
           {{ t.qty|intcomma }}
         </td>
+
         <td class="px-3 py-2 text-right font-mono"
             style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
+          {# 約定単価 #}
           {% if t.currency and t.currency != "JPY" %}
             {{ t.price|floatformat:2|intcomma }} {{ t.currency }}
           {% else %}
             ¥{{ t.price|floatformat:0|intcomma }}
+          {% endif %}
+
+          {# 取得単価（basis） #}
+          {% if t.basis %}
+            <div class="text-[11px] opacity-70">
+              取得:
+              {% if t.currency and t.currency != "JPY" %}
+                {{ t.basis|floatformat:4|intcomma }} {{ t.currency }}
+              {% else %}
+                ¥{{ t.basis|floatformat:0|intcomma }}
+              {% endif %}
+            </div>
           {% endif %}
         </td>
 
