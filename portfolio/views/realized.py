@@ -1409,7 +1409,7 @@ def create(request):
 
 # ============================================================
 #  削除（テーブル＋サマリーを同時更新して返す）
-#  ★ CashLedger の紐づく行も同時削除に対応した完全版
+#  ★ CashLedger の紐づく行も同時削除
 # ============================================================
 @login_required
 @require_POST
@@ -1421,31 +1421,32 @@ def delete(request, pk: int):
     3) テーブルとサマリーを再描画して返す（HTMX）
     """
 
-    # --- RealizedTrade が存在するかチェック（存在しなくてもLedgerクリーンのため取る） ---
+    # --- RealizedTrade 取得（Ledger側の紐づけ用） ---
     trade = RealizedTrade.objects.filter(pk=pk, user=request.user).first()
 
-    # --- Ledger 削除 ---
+    # --- CashLedger 側の紐づく行を削除 ---
     try:
         from ..models_cash import CashLedger
+
         if trade:
             CashLedger.objects.filter(
                 source_type=CashLedger.SourceType.REALIZED,
                 source_id=trade.id,
             ).delete()
     except Exception:
-        # Ledgerモデル未使用の環境でも落ちないように防御
+        # CashLedger 未定義の環境などでも落ちないように防御
         pass
 
-    # --- RealizedTrade 削除 ---
+    # --- RealizedTrade 本体の削除 ---
     RealizedTrade.objects.filter(pk=pk, user=request.user).delete()
 
-    # --- 再描画 ---
+    # --- 再描画用のクエリ ---
     q = (request.POST.get("q") or "").strip()
     qs = RealizedTrade.objects.filter(user=request.user).order_by(
         "-trade_at", "-id"
     )
     if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains?q))
+        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
     rows = _with_metrics(qs)
     agg = _aggregate(qs)
