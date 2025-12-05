@@ -75,17 +75,18 @@
               {% endwith %}
             </div>
 
-            {# 33業種（コード＋名称） #}
-            {% if t.sector33_name or t.sector33_code %}
-              <div class="mt-0.5 flex items-center gap-1 text-[11px] text-slate-400 leading-tight">
-                {% if t.sector33_name %}
-                  <span class="truncate">{{ t.sector33_name }}</span>
-                {% endif %}
-                {% if t.sector33_code %}
-                  <span class="text-slate-500">({{ t.sector33_code }})</span>
-                {% endif %}
-              </div>
-            {% endif %}
+            {# ★ 33業種（必ず1行表示：なければ「—」） #}
+            <div class="mt-0.5 flex items-center gap-1 text-[11px] text-slate-400 leading-tight">
+              <span style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">33業種:</span>
+              {% if t.sector33_name or t.sector33_code %}
+                <span class="truncate">
+                  {% if t.sector33_name %}{{ t.sector33_name }}{% endif %}
+                  {% if t.sector33_code %} ({{ t.sector33_code }}){% endif %}
+                </span>
+              {% else %}
+                <span class="text-slate-500">—</span>
+              {% endif %}
+            </div>
 
             {# 国・通貨・FXレート #}
             {% if t.country or t.currency or t.fx_rate %}
