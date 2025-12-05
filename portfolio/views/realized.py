@@ -1810,7 +1810,8 @@ def close_submit(request, pk: int):
         memo = (request.POST.get("memo") or "").strip()
         name = (request.POST.get("name") or "").strip() or h_get("name", "") or ""
 
-        # 追加情報（まずはPOST）
+        # 追加情報
+        # ★ A案：POSTされていれば優先しつつ、なければ Holding.sector を使う
         sector33_code_in = (request.POST.get("sector33_code") or "").strip()
         sector33_name_in = (request.POST.get("sector33_name") or "").strip()
         country_in = (request.POST.get("country") or "").strip().upper()
@@ -1850,9 +1851,8 @@ def close_submit(request, pk: int):
                 {"ok": False, "error": "保有数量を超えています"}, status=400
             )
 
-        # --- basis 取得（保有から推定：平均取得単価を必ず拾う） ---
+        # --- basis 取得（保有から推定） ---
         basis = None
-        # よく使いそうなフィールド名を総当たり
         for fname in [
             "avg_cost",
             "average_cost",
@@ -1874,31 +1874,12 @@ def close_submit(request, pk: int):
                 except Exception:
                     pass
 
-        # さらに別名も補完（環境によって違う名前を想定）
-        if basis is None:
-            for fname in [
-                "acq_unit_price",
-                "acq_price",
-                "acquisition_price",
-                "purchase_price",
-                "entry_price",
-                "entry_cost",
-            ]:
-                v = h_get(fname, None)
-                if v not in (None, ""):
-                    try:
-                        basis = Decimal(str(v))
-                        break
-                    except Exception:
-                        pass
-
         # 投資家PnL未入力なら 0
         if pnl_input is None:
             pnl_input = Decimal("0")
 
         # --- 手数料の逆算（税も考慮する） ---
         if basis is None:
-            # どうしても取得できない場合は fee=0 として扱う（PnLはcashflowベースで見る前提）
             fee = Decimal("0")
         else:
             if holding_side == "BUY" and side_in == "SELL":
@@ -1926,23 +1907,9 @@ def close_submit(request, pk: int):
             days_held = None
 
         # --- 33業種 / 国・通貨 / FX / 戦略まわりを最終決定 ---
-        sector33_code = sector33_code_in or h_get("sector33_code", "") or ""
-        sector33_name = sector33_name_in or h_get("sector33_name", "") or ""
-
-        # もしまだ空なら、別名フィールドからも拾う（Holding 側の名前揺れ対策）
-        if not sector33_code:
-            for fname in ["sector33", "sector_code_33", "sector_code", "sector_33"]:
-                v = h_get(fname, "")
-                if v:
-                    sector33_code = str(v)
-                    break
-
-        if not sector33_name:
-            for fname in ["sector33_name_ja", "sector_name_33", "sector_name"]:
-                v = h_get(fname, "")
-                if v:
-                    sector33_name = str(v)
-                    break
+        # ★ A案：sector は Holding.sector をそのまま利用
+        sector33_name = sector33_name_in or h_get("sector", "") or ""
+        sector33_code = sector33_code_in or ""  # コードは今のところ保持していないので任意
 
         country = country_in or (h_get("country", "") or h_get("market", "") or "JP")
         currency = currency_in or (h_get("currency", "") or "JPY")
@@ -1993,12 +1960,12 @@ def close_submit(request, pk: int):
             fee=fee,
             tax=tax_in,
             cashflow=pnl_input,
-            basis=basis,              # ← 平均取得単価（できる限り保有から取得）
+            basis=basis,
             hold_days=days_held,
             memo=memo,
             opened_at=opened_date,
-            sector33_code=sector33_code,   # ← Holding から33業種コードを確実に保存
-            sector33_name=sector33_name,   # ← 33業種名も同様
+            sector33_code=sector33_code,
+            sector33_name=sector33_name,
             country=country,
             currency=currency,
             fx_rate=fx_rate,  # ← 証券会社レートを手入力したもの / 保有からの引継ぎのみ
