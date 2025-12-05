@@ -1,5 +1,22 @@
 {% load humanize %}
-<table class="w-full border-separate border-spacing-0 rounded-2xl overflow-hidden">
+<style>
+  /* 実現損益テーブル用：スクロール時にヘッダー固定＋透過ブラー */
+  .realized-pnl-table {
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .realized-pnl-table thead.sticky-header th {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    /* 透過＋blur 背景 */
+    background: rgba(15, 23, 42, 0.82); /* #0f172a 相当の濃い紺＋透過 */
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+</style>
+
+<table class="w-full realized-pnl-table rounded-2xl overflow-hidden">
   <colgroup>
     <col class="w-28">
     <col class="w-48">
@@ -12,11 +29,11 @@
     <col class="w-20">
   </colgroup>
 
-  <thead class="bg-white/5 text-slate-300 text-xs">
+  <thead class="bg-white/5 text-slate-300 text-xs sticky-header">
     <tr>
       <th class="px-3 py-2 text-left"  style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">日付</th>
       <th class="px-3 py-2 text-left">銘柄</th>
-      <th class="px-3 py-2 text-center" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">ポジション</th>
+      <th class="px-3 py-2 text-center" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">Side</th>
       <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">数量</th>
       <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">約定単価 / 取得単価</th>
       <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">💰実損(現金)</th>
