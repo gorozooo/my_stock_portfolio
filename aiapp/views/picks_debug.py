@@ -1,3 +1,4 @@
+# aiapp/views/picks_debug.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
@@ -5,7 +6,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
@@ -44,6 +45,57 @@ class PickDebugItem:
     est_pl_matsui: float | None = None
     est_loss_matsui: float | None = None
 
+    # 合計系（ビュー側で計算して詰める）
+    qty_total: Optional[float] = None
+    pl_total: Optional[float] = None
+    loss_total: Optional[float] = None
+
+    # 理由系
+    reasons_text: Optional[list[str]] = None          # sizing_service 側の共通メッセージ
+    reason_lines: Optional[list[str]] = None          # reasons サービスの「選定理由」最大5行
+    reason_concern: Optional[str] = None              # 懸念ポイント1行
+    reason_rakuten: Optional[str] = None              # 楽天だけ0株の理由など
+    reason_matsui: Optional[str] = None               # 松井だけ0株の理由など
+
+
+def _normalize_str_list(v: Any) -> Optional[list[str]]:
+    """
+    JSON 側から来る文字列 or 配列を「文字列リスト」に正規化。
+    """
+    if v is None:
+        return None
+    if isinstance(v, str):
+        s = v.strip()
+        return [s] if s else None
+    if isinstance(v, (list, tuple)):
+        out: list[str] = []
+        for x in v:
+            if x is None:
+                continue
+            s = str(x).strip()
+            if s:
+                out.append(s)
+        return out or None
+    return None
+
+
+def _to_int(v: Any) -> Optional[int]:
+    try:
+        if v is None:
+            return None
+        return int(v)
+    except Exception:
+        return None
+
+
+def _to_float(v: Any) -> Optional[float]:
+    try:
+        if v is None:
+            return None
+        return float(v)
+    except Exception:
+        return None
+
 
 def _load_json(
     kind: str = "all",
@@ -78,6 +130,23 @@ def _load_json(
     for row in raw_items:
         # row は picks_build の asdict(PickItem) 相当の dict
         try:
+            reason_lines = _normalize_str_list(row.get("reason_lines"))
+            reasons_text = _normalize_str_list(row.get("reasons_text"))
+            reason_concern_raw = row.get("reason_concern")
+            reason_concern = str(reason_concern_raw).strip() if reason_concern_raw else None
+
+            reason_rakuten_raw = row.get("reason_rakuten")
+            reason_matsui_raw = row.get("reason_matsui")
+            reason_rakuten = str(reason_rakuten_raw).strip() if reason_rakuten_raw else None
+            reason_matsui = str(reason_matsui_raw).strip() if reason_matsui_raw else None
+
+            qty_rakuten = _to_int(row.get("qty_rakuten"))
+            qty_matsui = _to_int(row.get("qty_matsui"))
+            est_pl_rakuten = _to_float(row.get("est_pl_rakuten"))
+            est_pl_matsui = _to_float(row.get("est_pl_matsui"))
+            est_loss_rakuten = _to_float(row.get("est_loss_rakuten"))
+            est_loss_matsui = _to_float(row.get("est_loss_matsui"))
+
             it = PickDebugItem(
                 code=str(row.get("code") or ""),
                 name=row.get("name") or row.get("name_norm") or None,
@@ -90,15 +159,37 @@ def _load_json(
                 score=row.get("score"),
                 score_100=row.get("score_100"),
                 stars=row.get("stars"),
-                qty_rakuten=row.get("qty_rakuten"),
+                qty_rakuten=qty_rakuten,
                 required_cash_rakuten=row.get("required_cash_rakuten"),
-                est_pl_rakuten=row.get("est_pl_rakuten"),
-                est_loss_rakuten=row.get("est_loss_rakuten"),
-                qty_matsui=row.get("qty_matsui"),
+                est_pl_rakuten=est_pl_rakuten,
+                est_loss_rakuten=est_loss_rakuten,
+                qty_matsui=qty_matsui,
                 required_cash_matsui=row.get("required_cash_matsui"),
-                est_pl_matsui=row.get("est_pl_matsui"),
-                est_loss_matsui=row.get("est_loss_matsui"),
+                est_pl_matsui=est_pl_matsui,
+                est_loss_matsui=est_loss_matsui,
+                reasons_text=reasons_text,
+                reason_lines=reason_lines,
+                reason_concern=reason_concern,
+                reason_rakuten=reason_rakuten,
+                reason_matsui=reason_matsui,
             )
+
+            # 合計値をビュー側で計算しておく（テンプレートでそのまま使えるように）
+            qr = qty_rakuten or 0
+            qm = qty_matsui or 0
+            if qr or qm:
+                it.qty_total = qr + qm
+
+            pl_r = est_pl_rakuten or 0.0
+            pl_m = est_pl_matsui or 0.0
+            if (pl_r or pl_m):
+                it.pl_total = pl_r + pl_m
+
+            loss_r = est_loss_rakuten or 0.0
+            loss_m = est_loss_matsui or 0.0
+            if (loss_r or loss_m):
+                it.loss_total = loss_r + loss_m
+
             items.append(it)
         except Exception:
             # 1行だけ壊れていても全体は落とさない
@@ -146,7 +237,7 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
             except Exception:
                 continue
 
-    # 理由コード → 日本語ラベル
+    # 理由コード → 日本語ラベル（ビュー側で日本語化してテンプレにはラベルだけ渡す）
     LABELS: Dict[str, str] = {
         "LOW_TURNOVER": "出来高が少なく除外",
         "TOO_VOLATILE": "価格変動が激しすぎて除外",
@@ -161,7 +252,6 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
     filter_stats_jp: Dict[str, int] = {}
     for code, cnt in filter_stats_raw.items():
         label = LABELS.get(code, f"その他（{code}）")
-        # 同じラベルに複数コードがマップされても合算されるように
         filter_stats_jp[label] = filter_stats_jp.get(label, 0) + cnt
 
     ctx: Dict[str, Any] = {
