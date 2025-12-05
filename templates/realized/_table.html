@@ -2,289 +2,267 @@
 
 <style>
   /* 実現損益テーブル：ヘッダー固定＆透過ブラー */
-  .realized-pnl-wrap {
-    border-radius: 1rem;            /* 角丸 */
-    background: rgba(15, 23, 42, .35); /* ちょい透過 */
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    border: 1px solid rgba(148, 163, 184, .35);
-  }
-
-  .realized-pnl-scroll {
-    max-height: 70vh;               /* スクロール量の上限（必要なら調整） */
-    overflow:auto;
-  }
-
-  .realized-pnl-table {
-    border-collapse: separate;
-    border-spacing: 0;
-    width: 100%;
-  }
-
-  .realized-pnl-table thead th {
+  .realized-pnl-thead th {
     position: sticky;
-    top: 0;                         /* 画面上端に固定。上に固定ヘッダーがあるなら px 調整 */
-    z-index: 30;
-    background: rgba(15, 23, 42, 0.82); /* 透過＋暗め */
+    position: -webkit-sticky;
+    top: 0;  /* 上に固定ヘッダーがあるなら 40px などに調整 */
+    z-index: 20;
+    background: rgba(15, 23, 42, 0.82); /* 透過ダーク＋blur */
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
   }
 </style>
 
-<div class="realized-pnl-wrap">
-  <div class="realized-pnl-scroll">
-    <table class="realized-pnl-table">
-      <colgroup>
-        <col class="w-28">
-        <col class="w-48">
-        <col class="w-20">
-        <col class="w-24">
-        <col class="w-28">
-        <col class="w-28">
-        <col class="w-28">
-        <col class="w-24">
-        <col class="w-20">
-      </colgroup>
+<table class="w-full border-separate border-spacing-0">
+  <colgroup>
+    <col class="w-28">
+    <col class="w-48">
+    <col class="w-20">
+    <col class="w-24">
+    <col class="w-28">
+    <col class="w-28">
+    <col class="w-28">
+    <col class="w-24">
+    <col class="w-20">
+  </colgroup>
 
-      <thead class="bg-white/5 text-slate-300 text-xs">
-        <tr>
-          <th class="px-3 py-2 text-left"  style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">日付</th>
-          <th class="px-3 py-2 text-left">銘柄</th>
-          <th class="px-3 py-2 text-center" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">Side</th>
-          <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">数量</th>
-          <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">約定単価 / 取得単価</th>
-          <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">💰実損(現金)</th>
-          <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">📈実現損益</th>
-          <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">手数料</th>
-          <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">操作</th>
-        </tr>
-      </thead>
+  <thead class="realized-pnl-thead text-slate-300 text-xs">
+    <tr>
+      <th class="px-3 py-2 text-left"  style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">日付</th>
+      <th class="px-3 py-2 text-left">銘柄</th>
+      <th class="px-3 py-2 text-center" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">Side</th>
+      <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">数量</th>
+      <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">約定単価 / 取得単価</th>
+      <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">💰実損(現金)</th>
+      <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">📈実現損益</th>
+      <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">手数料</th>
+      <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">操作</th>
+    </tr>
+  </thead>
 
-      <tbody class="text-[15px]">
-        {% for t in trades %}
-          <tr class="border-b border-white/10">
-            <td class="px-3 py-2 text-slate-200"
-                style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
-              <div>{{ t.trade_at|date:"Y-m-d" }}</div>
-              {# 保有開始日＋保有日数 #}
-              {% if t.opened_at or t.hold_days %}
-                <div class="text-[11px] text-slate-400 leading-tight">
-                  {% if t.opened_at %}
-                    保有開始 {{ t.opened_at|date:"Y-m-d" }}
-                  {% endif %}
-                  {% if t.hold_days %}
-                    （{{ t.hold_days|intcomma }}日）
-                  {% endif %}
-                </div>
+  <tbody class="text-[15px]">
+    {% for t in trades %}
+      <tr class="border-b border-white/10">
+        <td class="px-3 py-2 text-slate-200"
+            style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
+          <div>{{ t.trade_at|date:"Y-m-d" }}</div>
+          {# 保有開始日＋保有日数 #}
+          {% if t.opened_at or t.hold_days %}
+            <div class="text-[11px] text-slate-400 leading-tight">
+              {% if t.opened_at %}
+                保有開始 {{ t.opened_at|date:"Y-m-d" }}
               {% endif %}
-            </td>
+              {% if t.hold_days %}
+                （{{ t.hold_days|intcomma }}日）
+              {% endif %}
+            </div>
+          {% endif %}
+        </td>
 
-            <td class="px-3 py-2">
-              <div class="leading-tight">
-                <div class="text-slate-400 text-xs tracking-wide" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
-                  {{ t.ticker }}
-                </div>
-                <div class="text-slate-200 font-semibold truncate">{{ t.name|default:"" }}</div>
+        <td class="px-3 py-2">
+          <div class="leading-tight">
+            <div class="text-slate-400 text-xs tracking-wide" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
+              {{ t.ticker }}
+            </div>
+            <div class="text-slate-200 font-semibold truncate">{{ t.name|default:"" }}</div>
 
-                {# ブローカー / 口座バッジ #}
-                <div class="mt-1 flex items-center gap-1 text-[10px] leading-none">
-                  {% with b=t.broker|default:"OTHER" %}
-                    <span class="px-1.5 py-0.5 rounded-md ring-1"
-                          style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;
-                                 {% if b == 'RAKUTEN' %}background:rgba(217,70,239,.15);color:#f5d0fe;border-color:rgba(217,70,239,.25);
-                                 {% elif b == 'SBI' %}background:rgba(14,165,233,.15);color:#bae6fd;border-color:rgba(14,165,233,.25);
-                                 {% elif b == 'MATSUI' %}background:rgba(16,185,129,.15);color:#bbf7d0;border-color:rgba(16,185,129,.25);
-                                 {% else %}background:rgba(100,116,139,.2);color:#cbd5e1;border-color:rgba(255,255,255,.1);{% endif %}">
-                      {% if b == 'RAKUTEN' %}楽天{% elif b == 'SBI' %}SBI{% elif b == 'MATSUI' %}松井{% else %}その他{% endif %}
-                    </span>
-                  {% endwith %}
-                  {% with a=t.account|default:"SPEC" %}
-                    <span class="px-1.5 py-0.5 rounded-md ring-1"
-                          style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;
-                                 {% if a == 'NISA' %}background:rgba(245,158,11,.15);color:#fde68a;border-color:rgba(245,158,11,.25);
-                                 {% elif a == 'MARGIN' %}background:rgba(244,63,94,.15);color:#fecdd3;border-color:rgba(244,63,94,.25);
-                                 {% else %}background:rgba(99,102,241,.15);color:#c7d2fe;border-color:rgba(99,102,241,.25);{% endif %}">
-                      {% if a == 'NISA' %}NISA{% elif a == 'MARGIN' %}信用{% else %}特定{% endif %}
-                    </span>
-                  {% endwith %}
-                </div>
+            {# ブローカー / 口座バッジ #}
+            <div class="mt-1 flex items-center gap-1 text-[10px] leading-none">
+              {% with b=t.broker|default:"OTHER" %}
+                <span class="px-1.5 py-0.5 rounded-md ring-1"
+                      style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;
+                             {% if b == 'RAKUTEN' %}background:rgba(217,70,239,.15);color:#f5d0fe;border-color:rgba(217,70,239,.25);
+                             {% elif b == 'SBI' %}background:rgba(14,165,233,.15);color:#bae6fd;border-color:rgba(14,165,233,.25);
+                             {% elif b == 'MATSUI' %}background:rgba(16,185,129,.15);color:#bbf7d0;border-color:rgba(16,185,129,.25);
+                             {% else %}background:rgba(100,116,139,.2);color:#cbd5e1;border-color:rgba(255,255,255,.1);{% endif %}">
+                  {% if b == 'RAKUTEN' %}楽天{% elif b == 'SBI' %}SBI{% elif b == 'MATSUI' %}松井{% else %}その他{% endif %}
+                </span>
+              {% endwith %}
+              {% with a=t.account|default:"SPEC" %}
+                <span class="px-1.5 py-0.5 rounded-md ring-1"
+                      style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;
+                             {% if a == 'NISA' %}background:rgba(245,158,11,.15);color:#fde68a;border-color:rgba(245,158,11,.25);
+                             {% elif a == 'MARGIN' %}background:rgba(244,63,94,.15);color:#fecdd3;border-color:rgba(244,63,94,.25);
+                             {% else %}background:rgba(99,102,241,.15);color:#c7d2fe;border-color:rgba(99,102,241,.25);{% endif %}">
+                  {% if a == 'NISA' %}NISA{% elif a == 'MARGIN' %}信用{% else %}特定{% endif %}
+                </span>
+              {% endwith %}
+            </div>
 
-                {# ★ 33業種（必ず1行表示：なければ「—」） #}
-                <div class="mt-0.5 flex items-center gap-1 text-[11px] text-slate-400 leading-tight">
-                  <span style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">33業種:</span>
-                  {% if t.sector33_name or t.sector33_code %}
-                    <span class="truncate">
-                      {% if t.sector33_name %}{{ t.sector33_name }}{% endif %}
-                      {% if t.sector33_code %} ({{ t.sector33_code }}){% endif %}
-                    </span>
-                  {% else %}
-                    <span class="text-slate-500">—</span>
-                  {% endif %}
-                </div>
+            {# ★ 33業種（必ず1行表示：なければ「—」） #}
+            <div class="mt-0.5 flex items-center gap-1 text-[11px] text-slate-400 leading-tight">
+              <span style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">33業種:</span>
+              {% if t.sector33_name or t.sector33_code %}
+                <span class="truncate">
+                  {% if t.sector33_name %}{{ t.sector33_name }}{% endif %}
+                  {% if t.sector33_code %} ({{ t.sector33_code }}){% endif %}
+                </span>
+              {% else %}
+                <span class="text-slate-500">—</span>
+              {% endif %}
+            </div>
 
-                {# 国・通貨・FXレート #}
-                {% if t.country or t.currency or t.fx_rate %}
-                  <div class="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500 leading-tight">
-                    {% if t.country %}
-                      <span style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">{{ t.country }}</span>
-                    {% endif %}
-                    {% if t.currency %}
-                      <span style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">{{ t.currency }}</span>
-                    {% endif %}
-                    {% if t.fx_rate %}
-                      <span style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">Fx {{ t.fx_rate }}</span>
-                    {% endif %}
-                  </div>
+            {# 国・通貨・FXレート #}
+            {% if t.country or t.currency or t.fx_rate %}
+              <div class="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500 leading-tight">
+                {% if t.country %}
+                  <span style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">{{ t.country }}</span>
                 {% endif %}
-
-                {# 戦略ラベル / AIシグナル #}
-                {% if t.strategy_label or t.is_ai_signal %}
-                  <div class="mt-0.5 flex items-center gap-1 text-[10px] leading-none">
-                    {% if t.strategy_label %}
-                      <span class="px-1.5 py-0.5 rounded-md bg-white/5 text-slate-200 max-w-[140px] truncate"
-                            style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
-                        {{ t.strategy_label }}
-                      </span>
-                    {% endif %}
-                    {% if t.is_ai_signal %}
-                      <span class="px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-200"
-                            style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
-                        AI
-                      </span>
-                    {% endif %}
-                  </div>
+                {% if t.currency %}
+                  <span style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">{{ t.currency }}</span>
                 {% endif %}
-
-                {# メモ（あれば） #}
-                {% if t.memo %}
-                  <div class="mt-0.5 text-[11px] text-slate-400 line-clamp-2">
-                    {{ t.memo }}
-                  </div>
+                {% if t.fx_rate %}
+                  <span style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">Fx {{ t.fx_rate }}</span>
                 {% endif %}
               </div>
-            </td>
+            {% endif %}
 
-            <td class="px-3 py-2 text-center">
-              <span class="inline-block rounded-md px-2 py-0.5 text-xs"
-                    style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;
-                           {% if t.side == 'SELL' %}background:rgba(244,63,94,.15);color:#fecdd3;border:1px solid rgba(244,63,94,.25);
-                           {% else %}background:rgba(16,185,129,.15);color:#bbf7d0;border:1px solid rgba(16,185,129,.25);{% endif %}">
-                {{ t.side }}
-              </span>
-            </td>
+            {# 戦略ラベル / AIシグナル #}
+            {% if t.strategy_label or t.is_ai_signal %}
+              <div class="mt-0.5 flex items-center gap-1 text-[10px] leading-none">
+                {% if t.strategy_label %}
+                  <span class="px-1.5 py-0.5 rounded-md bg-white/5 text-slate-200 max-w-[140px] truncate"
+                        style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
+                    {{ t.strategy_label }}
+                  </span>
+                {% endif %}
+                {% if t.is_ai_signal %}
+                  <span class="px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-200"
+                        style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
+                    AI
+                  </span>
+                {% endif %}
+              </div>
+            {% endif %}
 
-            <td class="px-3 py-2 text-right font-mono"
-                style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
-              {{ t.qty|intcomma }}
-            </td>
+            {# メモ（あれば） #}
+            {% if t.memo %}
+              <div class="mt-0.5 text-[11px] text-slate-400 line-clamp-2">
+                {{ t.memo }}
+              </div>
+            {% endif %}
+          </div>
+        </td>
 
-            <td class="px-3 py-2 text-right font-mono"
-                style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
-              {# 約定単価（2桁） #}
+        <td class="px-3 py-2 text-center">
+          <span class="inline-block rounded-md px-2 py-0.5 text-xs"
+                style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;
+                       {% if t.side == 'SELL' %}background:rgba(244,63,94,.15);color:#fecdd3;border:1px solid rgba(244,63,94,.25);
+                       {% else %}background:rgba(16,185,129,.15);color:#bbf7d0;border:1px solid rgba(16,185,129,.25);{% endif %}">
+            {{ t.side }}
+          </span>
+        </td>
+
+        <td class="px-3 py-2 text-right font-mono"
+            style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
+          {{ t.qty|intcomma }}
+        </td>
+
+        <td class="px-3 py-2 text-right font-mono"
+            style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
+          {# 約定単価（2桁） #}
+          {% if t.currency and t.currency != "JPY" %}
+            {{ t.price|floatformat:2|intcomma }} {{ t.currency }}
+          {% else %}
+            ¥{{ t.price|floatformat:2|intcomma }}
+          {% endif %}
+
+          {# 取得単価（basis：2桁） #}
+          {% if t.basis %}
+            <div class="text-[11px] opacity-70">
+              取得:
               {% if t.currency and t.currency != "JPY" %}
-                {{ t.price|floatformat:2|intcomma }} {{ t.currency }}
+                {{ t.basis|floatformat:2|intcomma }} {{ t.currency }}
               {% else %}
-                ¥{{ t.price|floatformat:2|intcomma }}
+                ¥{{ t.basis|floatformat:2|intcomma }}
               {% endif %}
+            </div>
+          {% endif %}
+        </td>
 
-              {# 取得単価（basis：2桁） #}
-              {% if t.basis %}
+        {# 💰実損(現金) #}
+        <td class="px-3 py-2 text-right font-mono"
+            style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
+          {% if t.account == 'MARGIN' %}
+            {% with v=t.pnl_jpy %}
+              <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}"
+                    style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
+                ¥{{ v|floatformat:0|intcomma }}
+              </span>
+              {% if t.currency and t.currency != "JPY" %}
                 <div class="text-[11px] opacity-70">
-                  取得:
-                  {% if t.currency and t.currency != "JPY" %}
-                    {{ t.basis|floatformat:2|intcomma }} {{ t.currency }}
-                  {% else %}
-                    ¥{{ t.basis|floatformat:2|intcomma }}
-                  {% endif %}
+                  ({{ t.pnl_display|floatformat:2|intcomma }} {{ t.currency }})
                 </div>
               {% endif %}
-            </td>
-
-            {# 💰実損(現金) #}
-            <td class="px-3 py-2 text-right font-mono"
-                style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
-              {% if t.account == 'MARGIN' %}
-                {% with v=t.pnl_jpy %}
-                  <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}"
-                        style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
-                    ¥{{ v|floatformat:0|intcomma }}
-                  </span>
-                  {% if t.currency and t.currency != "JPY" %}
-                    <div class="text-[11px] opacity-70">
-                      ({{ t.pnl_display|floatformat:2|intcomma }} {{ t.currency }})
-                    </div>
-                  {% endif %}
-                {% endwith %}
-              {% else %}
-                {% with v=t.cashflow_calc_jpy %}
-                  <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}"
-                        style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
-                    ¥{{ v|floatformat:0|intcomma }}
-                  </span>
-                  {% if t.currency and t.currency != "JPY" %}
-                    <div class="text-[11px] opacity-70">
-                      ({{ t.cashflow_calc|floatformat:2|intcomma }} {{ t.currency }})
-                    </div>
-                  {% endif %}
-                {% endwith %}
+            {% endwith %}
+          {% else %}
+            {% with v=t.cashflow_calc_jpy %}
+              <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}"
+                    style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
+                ¥{{ v|floatformat:0|intcomma }}
+              </span>
+              {% if t.currency and t.currency != "JPY" %}
+                <div class="text-[11px] opacity-70">
+                  ({{ t.cashflow_calc|floatformat:2|intcomma }} {{ t.currency }})
+                </div>
               {% endif %}
-            </td>
+            {% endwith %}
+          {% endif %}
+        </td>
 
-            {# 📈実現損益 #}
-            <td class="px-3 py-2 text-right font-mono"
-                style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
-              {% with v=t.pnl_jpy %}
-                <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}"
-                      style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
-                  ¥{{ v|floatformat:0|intcomma }}
-                </span>
-                {% if t.currency and t.currency != "JPY" %}
-                  <div class="text-[11px] opacity-70">
-                    ({{ t.pnl_display|floatformat:2|intcomma }} {{ t.currency }})
-                  </div>
-                {% endif %}
-              {% endwith %}
-            </td>
+        {# 📈実現損益 #}
+        <td class="px-3 py-2 text-right font-mono"
+            style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
+          {% with v=t.pnl_jpy %}
+            <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}"
+                  style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
+              ¥{{ v|floatformat:0|intcomma }}
+            </span>
+            {% if t.currency and t.currency != "JPY" %}
+              <div class="text-[11px] opacity-70">
+                ({{ t.pnl_display|floatformat:2|intcomma }} {{ t.currency }})
+              </div>
+            {% endif %}
+          {% endwith %}
+        </td>
 
-            <td class="px-3 py-2 text-right font-mono"
-                style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
-              ¥{{ t.fee|floatformat:0|intcomma }}
-            </td>
+        <td class="px-3 py-2 text-right font-mono"
+            style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
+          ¥{{ t.fee|floatformat:0|intcomma }}
+        </td>
 
-            <td class="px-3 py-2 text-right"
-                style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
-              <form
-                hx-post="{% url 'realized_delete' t.id %}"
-                hx-swap="none"
-                hx-include="#q"
-                hx-confirm="削除しますか？"
-                hx-on::after-request="
-                  if (event.detail.successful) {
-                    try {
-                      var data = JSON.parse(event.detail.xhr.responseText || '{}');
-                      if (data.table) {
-                        var tEl = document.querySelector('#pnlTableWrap'); if (tEl) tEl.outerHTML = data.table;
-                      }
-                      if (data.summary) {
-                        var sEl = document.querySelector('#pnlSummaryWrap'); if (sEl) sEl.outerHTML = data.summary;
-                      }
-                    } catch(e) { console.error(e); }
+        <td class="px-3 py-2 text-right"
+            style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
+          <form
+            hx-post="{% url 'realized_delete' t.id %}"
+            hx-swap="none"
+            hx-include="#q"
+            hx-confirm="削除しますか？"
+            hx-on::after-request="
+              if (event.detail.successful) {
+                try {
+                  var data = JSON.parse(event.detail.xhr.responseText || '{}');
+                  if (data.table) {
+                    var tEl = document.querySelector('#pnlTableWrap'); if (tEl) tEl.outerHTML = data.table;
                   }
-                ">
-                {% csrf_token %}
-                <button type="submit" class="text-slate-300 hover:text-rose-300 text-sm"
-                        style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
-                  削除
-                </button>
-              </form>
-            </td>
-          </tr>
-        {% empty %}
-          <tr>
-            <td colspan="9" class="px-3 py-6 text-slate-400">データなし</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
+                  if (data.summary) {
+                    var sEl = document.querySelector('#pnlSummaryWrap'); if (sEl) sEl.outerHTML = data.summary;
+                  }
+                } catch(e) { console.error(e); }
+              }
+            ">
+            {% csrf_token %}
+            <button type="submit" class="text-slate-300 hover:text-rose-300 text-sm"
+                    style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
+              削除
+            </button>
+          </form>
+        </td>
+      </tr>
+    {% empty %}
+      <tr>
+        <td colspan="9" class="px-3 py-6 text-slate-400">データなし</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
