@@ -146,21 +146,21 @@
 
         <td class="px-3 py-2 text-right font-mono"
             style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
-          {# 約定単価 #}
+          {# 約定単価（★2桁に統一） #}
           {% if t.currency and t.currency != "JPY" %}
             {{ t.price|floatformat:2|intcomma }} {{ t.currency }}
           {% else %}
-            ¥{{ t.price|floatformat:0|intcomma }}
+            ¥{{ t.price|floatformat:2|intcomma }}
           {% endif %}
 
-          {# 取得単価（basis） #}
+          {# 取得単価（basis：★2桁に統一） #}
           {% if t.basis %}
             <div class="text-[11px] opacity-70">
               取得:
               {% if t.currency and t.currency != "JPY" %}
-                {{ t.basis|floatformat:4|intcomma }} {{ t.currency }}
+                {{ t.basis|floatformat:2|intcomma }} {{ t.currency }}
               {% else %}
-                ¥{{ t.basis|floatformat:0|intcomma }}
+                ¥{{ t.basis|floatformat:2|intcomma }}
               {% endif %}
             </div>
           {% endif %}
