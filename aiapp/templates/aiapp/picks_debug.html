@@ -1,3 +1,4 @@
+{# templates/aiapp/picks_debug.html #}
 {% extends "base.html" %}
 {% load humanize %}
 {% block title %}AI Picks 診断{% endblock %}
@@ -145,6 +146,37 @@
     line-height:1.5;
   }
 
+  /* ===== 理由表示エリア ===== */
+  .reason-row td{
+    padding-top:4px;
+    padding-bottom:8px;
+    border-top:1px dashed rgba(51,65,85,.9);
+    background:rgba(15,23,42,0.98);
+  }
+  .reason-block{
+    font-size:11px;
+    color:#cbd5f5;
+    line-height:1.5;
+  }
+  .reason-title{
+    font-weight:600;
+    margin-top:2px;
+    margin-bottom:2px;
+    color:#e2e8f0;
+  }
+  .reason-list{
+    margin:0 0 4px 1.2em;
+    padding:0;
+  }
+  .reason-list li{
+    margin:0;
+    padding:0;
+    list-style:disc;
+  }
+  .reason-text{
+    margin:0 0 4px;
+  }
+
   /* ===== スマホ幅調整 ===== */
   @media (max-width: 480px){
     .head-top{
@@ -182,50 +214,48 @@
       <div>
         {% if updated_at_label %}
           <div class="title">最終更新: {{ updated_at_label }}</div>
+        {% else %}
+          <div class="title">AI Picks 診断ビュー</div>
         {% endif %}
 
         <!-- モード / ユニバース -->
         <div class="meta">
           <span>モード: {{ meta.style|default:"aggressive" }}/{{ meta.horizon|default:"short" }}</span>
-          <span>分野: {{ meta.universe|default:"(不明)" }}</span>
+          <span>ユニバース: {{ meta.universe|default:"(不明)" }}</span>
           <span>TopK: {{ meta.topk|default:0 }}</span>
         </div>
 
-        <!-- 件数まわり（総件数 / 対象件数 / TopK） -->
+        <!-- 件数まわり（総件数 / 対象件数） -->
         <div class="meta">
-          {% with total_all=meta.stockmaster_total|default:meta.total %}
-            <span>総件数（ユニバース内）: {{ total_all|default:0|intcomma }} 件
+          {% with total_all=meta.stockmaster_total|default:meta.universe_count|default:meta.total %}
+            <span>総件数（ユニバース内）: {{ total_all|default:0|intcomma }} 件</span>
           {% endwith %}
         </div>
-        
-        <div class="meta">対象件数（フィルタ後）: {{ meta.total|default:0|intcomma }} 件</div>
+        <div class="meta">
+          対象件数（フィルタ後・評価対象）: {{ meta.total|default:0|intcomma }} 件
+        </div>
 
         <!-- フィルタ削除件数（日本語ラベル） -->
-        <div class="meta">削除された銘柄</div>
         {% if filter_stats %}
           <div class="meta">
-            {% for key, val in filter_stats.items %}
-              {% if key == "LOW_TURNOVER" %}
-                出来高不足
-              {% elif key == "PRICE_TOO_LOW" %}
-                株価基準未満
-              {% elif key == "NO_TREND" %}
-                トレンド基準未達
-              {% elif key == "NG_SECTOR" %}
-                除外セクター
-              {% else %}
-                {{ key }}
-              {% endif %}
-              = {{ val|intcomma }} 件{% if not forloop.last %} ／{% endif %}
+            削除された銘柄:
+            {% for label, val in filter_stats.items %}
+              {{ label }}＝{{ val|intcomma }} 件{% if not forloop.last %} ／{% endif %}
             {% endfor %}
           </div>
         {% endif %}
 
-        
         {% if source_file %}
           <div class="meta">ソース: <code style="font-size:11px">{{ source_file }}</code></div>
         {% endif %}
       </div>
+
+      <div class="badge">DEBUG / INTERNAL</div>
+    </div>
+
+    <div class="meta">
+      ※ picks_build が出力した JSON（PickItem 相当）をそのまま一覧表示します。<br>
+      ※ 並び順は score_100 降順 → 株価降順です。
     </div>
   </div>
 
@@ -235,6 +265,7 @@
       class="filter-input"
       type="search"
       placeholder="コード・銘柄名・業種でフィルタ（例: 7203 / トヨタ / 保険）">
+    <div class="pill">score 0〜100 ／ qty・PL は楽天 + 松井の合計</div>
   </div>
 
   <div class="table-wrap">
@@ -259,6 +290,7 @@
         <tbody>
 
         {% for it in items %}
+          <!-- メイン行 -->
           <tr>
             <td class="code">{{ it.code }}</td>
 
@@ -316,6 +348,52 @@
               {% endif %}
             </td>
           </tr>
+
+          {# 理由がある場合だけ理由行を追加 #}
+          {% if it.reason_lines or it.reason_concern or it.reasons_text or it.reason_rakuten or it.reason_matsui %}
+          <tr class="reason-row">
+            <td colspan="12">
+              <div class="reason-block">
+                {% if it.reason_lines %}
+                  <div class="reason-title">選定理由</div>
+                  <ul class="reason-list">
+                    {% for line in it.reason_lines %}
+                      <li>{{ line }}</li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
+
+                {% if it.reason_concern %}
+                  <div class="reason-title">懸念ポイント</div>
+                  <p class="reason-text">{{ it.reason_concern }}</p>
+                {% endif %}
+
+                {% if it.reasons_text %}
+                  <div class="reason-title">数量・サイズ関連メモ</div>
+                  {% if it.reasons_text|length == 1 %}
+                    <p class="reason-text">{{ it.reasons_text.0 }}</p>
+                  {% else %}
+                    <ul class="reason-list">
+                      {% for line in it.reasons_text %}
+                        <li>{{ line }}</li>
+                      {% endfor %}
+                    </ul>
+                  {% endif %}
+                {% endif %}
+
+                {% if it.reason_rakuten or it.reason_matsui %}
+                  <div class="reason-title">証券会社別メモ</div>
+                  {% if it.reason_rakuten %}
+                    <p class="reason-text">楽天: {{ it.reason_rakuten }}</p>
+                  {% endif %}
+                  {% if it.reason_matsui %}
+                    <p class="reason-text">松井: {{ it.reason_matsui }}</p>
+                  {% endif %}
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endif %}
         {% empty %}
           <tr>
             <td colspan="12" style="text-align:center;color:#9ca3af;padding:16px 8px;">
@@ -332,6 +410,7 @@
   <div class="foot-note">
     ・この画面は開発者向けの診断ビューです。<br>
     ・score / ⭐ / 数量 / 想定PL が想定とズレていないか確認できます。<br>
+    ・各行の下に「選定理由 / 懸念 / 証券会社別メモ」が表示されます。<br>
     ・コード・銘柄名・業種で瞬間フィルタが可能です。
   </div>
 
