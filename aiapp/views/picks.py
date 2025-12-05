@@ -36,11 +36,13 @@ JPX_SECTOR_MAP: Dict[str, str] = {
 
 
 def _load_latest_path() -> Optional[Path]:
-    """最新ピックJSONの実体ファイルをフォールバック順で解決"""
-    for name in ("latest.json", "latest_lite.json", "latest_full.json", "latest_synthetic.json"):
-        p = PICKS_DIR / name
-        if p.exists() and p.is_file():
-            return p
+    """
+    AI Picks のメインJSON（TopK）として latest_full.json を固定で読む。
+    見つからなければ None を返す。
+    """
+    p = PICKS_DIR / "latest_full.json"
+    if p.exists() and p.is_file():
+        return p
     return None
 
 
