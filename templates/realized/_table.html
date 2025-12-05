@@ -1,17 +1,47 @@
 {% load humanize %}
 
 <style>
-  /* 実現損益テーブル：ヘッダー固定＆透過ブラー */
+  /* ---- Sticky Header Base ---- */
   .realized-pnl-thead th {
     position: sticky;
     position: -webkit-sticky;
-    top: 0;  /* 上に固定ヘッダーがあるなら 40px などに調整 */
-    z-index: 20;
-    background: rgba(15, 23, 42, 0.82); /* 透過ダーク＋blur */
+    top: 0;
+    z-index: 30;
+
+    /* 透過＋Blur */
+    background: rgba(15, 23, 42, 0.75);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
+
+    /* 下の影（上質な薄影） */
+    box-shadow: 0 6px 12px rgba(0,0,0,0.25);
+  }
+
+  /* ---- スクロール縮小アニメ ---- */
+  .realized-pnl-thead {
+    --header-scale: 1;
+    transform-origin: top;
+    transform: scaleY(var(--header-scale));
+    transition: transform 0.15s ease-out;
   }
 </style>
+
+<script>
+  /* ====== スクロールでヘッダーを縮める ====== */
+  document.addEventListener("scroll", () => {
+    const y = window.scrollY;
+    const thead = document.querySelector(".realized-pnl-thead");
+
+    if (!thead) return;
+
+    // 0〜20px のスクロールで scale を 1.0 → 0.85 へ
+    const minScale = 0.85;
+    const maxScroll = 20;
+    const scale = Math.max(minScale, 1 - (y / maxScroll) * (1 - minScale));
+
+    thead.style.setProperty("--header-scale", scale.toString());
+  });
+</script>
 
 <table class="w-full border-separate border-spacing-0">
   <colgroup>
