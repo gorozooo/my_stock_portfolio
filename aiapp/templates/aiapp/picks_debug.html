@@ -92,7 +92,6 @@
   }
   table{
     width:100%;
-    min-width:820px;
     border-collapse:collapse;
     font-size:12px;
   }
@@ -103,13 +102,12 @@
     z-index:1;
   }
   th,td{
-    padding:6px 8px;
+    padding:8px 10px;
     border-bottom:1px solid rgba(30,41,59,.9);
-    text-align:right;
     white-space:nowrap;
   }
   th:first-child,
-  td:first-child{text-align:left;}
+  td:first-child{text-align:left;width:76px;}
   th:nth-child(2),
   td:nth-child(2){text-align:left;}
   th{
@@ -124,19 +122,11 @@
   tbody tr:nth-child(even){
     background:rgba(15,23,42,0.96);
   }
-  tbody tr:hover{
+  tbody tr.pick-row:hover{
     background:rgba(30,64,175,.7);
   }
   .code{font-feature-settings:"tnum";font-weight:600;}
   .sector{color:var(--sub);font-size:11px;}
-  .score{font-weight:700;}
-  .score-high{color:#bfdbfe;}
-  .score-mid{color:#a3e635;}
-  .score-low{color:#f97316;}
-  .stars{text-align:center;font-size:13px;}
-  .pos{color:var(--ok);}
-  .neg{color:var(--bad);}
-  .zero{color:#64748b;}
 
   .foot-note{
     margin-top:8px;
@@ -145,13 +135,7 @@
     line-height:1.5;
   }
 
-  /* ===== 理由表示エリア ===== */
-  .reason-row td{
-    padding-top:4px;
-    padding-bottom:8px;
-    border-top:1px dashed rgba(51,65,85,.9);
-    background:rgba(15,23,42,0.98);
-  }
+  /* ===== 理由ブロック（元のレイアウトをそのまま再利用） ===== */
   .reason-block{
     font-size:11px;
     color:#cbd5f5;
@@ -174,6 +158,96 @@
   }
   .reason-text{
     margin:0 0 4px;
+  }
+
+  /* hidden 行はテーブル上では非表示 */
+  tr.reason-source-row{
+    display:none;
+  }
+
+  /* ===== モーダル（ボトムシート） ===== */
+  .modal-backdrop{
+    position:fixed;
+    inset:0;
+    background:rgba(15,23,42,.75);
+    backdrop-filter:blur(6px);
+    display:none;
+    align-items:flex-end;
+    justify-content:center;
+    z-index:80;
+  }
+  .modal-backdrop.show{
+    display:flex;
+  }
+  .modal-card{
+    width:100%;
+    max-width:720px;
+    background:var(--card);
+    border-radius:18px 18px 0 0;
+    box-shadow:0 -18px 45px rgba(0,0,0,.7);
+    padding:14px 16px 22px;
+    max-height:90vh;
+    overflow-y:auto;
+  }
+  .modal-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:10px;
+    margin-bottom:6px;
+  }
+  .modal-title-main{
+    font-size:16px;
+    font-weight:700;
+  }
+  .modal-title-sub{
+    font-size:11px;
+    color:var(--sub);
+  }
+  .modal-close{
+    border:none;
+    background:transparent;
+    color:#9ca3af;
+    font-size:22px;
+    line-height:1;
+    padding:2px 6px;
+    cursor:pointer;
+  }
+  .modal-meta{
+    font-size:11px;
+    color:var(--sub);
+    display:flex;
+    flex-wrap:wrap;
+    gap:4px 8px;
+    margin-bottom:6px;
+  }
+  .modal-chip{
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,.6);
+    padding:2px 8px;
+  }
+  .modal-section{
+    margin-top:8px;
+    margin-bottom:4px;
+  }
+  .modal-sec-title{
+    font-size:12px;
+    font-weight:600;
+    margin-bottom:3px;
+    color:#e2e8f0;
+  }
+  .modal-dl{
+    display:grid;
+    grid-template-columns:auto 1fr;
+    gap:4px 10px;
+    font-size:12px;
+  }
+  .modal-dl dt{
+    color:#9ca3af;
+  }
+  .modal-dl dd{
+    margin:0;
+    text-align:right;
   }
 
   /* ===== スマホ幅調整 ===== */
@@ -264,7 +338,7 @@
       class="filter-input"
       type="search"
       placeholder="コード・銘柄名・業種でフィルタ（例: 7203 / トヨタ / 保険）">
-    <div class="pill">score 0〜100 ／ qty・PL は楽天 + 松井の合計</div>
+    <div class="pill">タップすると詳細（Score / 価格 / 理由など）を表示</div>
   </div>
 
   <div class="table-wrap">
@@ -274,127 +348,82 @@
           <tr>
             <th>コード</th>
             <th>銘柄名 / 業種</th>
-            <th>Score</th>
-            <th>⭐</th>
-            <th>現在値</th>
-            <th>ATR</th>
-            <th>Entry</th>
-            <th>TP</th>
-            <th>SL</th>
-            <th>数量 合計</th>
-            <th>想定利益 合計</th>
-            <th>想定損失 合計</th>
           </tr>
         </thead>
         <tbody>
 
         {% for it in items %}
-          <!-- メイン行 -->
-          <tr>
+          <tr class="pick-row"
+              data-code="{{ it.code }}"
+              data-name="{{ it.name|default:'(銘柄名なし)' }}"
+              data-sector="{{ it.sector_display|default:'業種不明' }}"
+              data-score="{{ it.score_100|default:'' }}"
+              data-stars="{{ it.stars|default:'' }}"
+              data-last="{{ it.last_close|default:'' }}"
+              data-atr="{{ it.atr|default:'' }}"
+              data-entry="{{ it.entry|default:'' }}"
+              data-tp="{{ it.tp|default:'' }}"
+              data-sl="{{ it.sl|default:'' }}"
+              data-qty-total="{{ it.qty_total|default:'' }}"
+              data-pl-total="{{ it.pl_total|default:'' }}"
+              data-loss-total="{{ it.loss_total|default:'' }}">
             <td class="code">{{ it.code }}</td>
-
             <td>
               <div>{{ it.name|default:"(銘柄名なし)" }}</div>
               <div class="sector">{{ it.sector_display|default:"業種不明" }}</div>
             </td>
-
-            <td class="score
-              {% if it.score_100 and it.score_100|floatformat:0 >= 80 %}score-high
-              {% elif it.score_100 and it.score_100|floatformat:0 >= 60 %}score-mid
-              {% else %}score-low{% endif %}">
-              {% if it.score_100 is not None %}
-                {{ it.score_100|floatformat:0 }}
-              {% else %}
-                –
-              {% endif %}
-            </td>
-
-            <td class="stars">
-              {% if it.stars %}{{ it.stars }}★{% else %}–{% endif %}
-            </td>
-
-            <td>{% if it.last_close %}{{ it.last_close|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
-            <td>{% if it.atr %}{{ it.atr|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
-            <td>{% if it.entry %}{{ it.entry|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
-            <td>{% if it.tp %}{{ it.tp|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
-            <td>{% if it.sl %}{{ it.sl|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
-
-            <td>
-              {% if it.qty_total %}
-                {{ it.qty_total|floatformat:0|intcomma }}
-              {% else %}
-                <span class="zero">0</span>
-              {% endif %}
-            </td>
-
-            <td>
-              {% if it.pl_total and it.pl_total != 0 %}
-                <span class="{% if it.pl_total > 0 %}pos{% else %}neg{% endif %}">
-                  {{ it.pl_total|floatformat:0|intcomma }}
-                </span>
-              {% else %}
-                <span class="zero">0</span>
-              {% endif %}
-            </td>
-
-            <td>
-              {% if it.loss_total and it.loss_total != 0 %}
-                <span class="{% if it.loss_total < 0 %}neg{% else %}pos{% endif %}">
-                  {{ it.loss_total|floatformat:0|intcomma }}
-                </span>
-              {% else %}
-                <span class="zero">0</span>
-              {% endif %}
-            </td>
           </tr>
 
-          {% if it.reason_lines or it.reason_concern or it.reasons_text or it.reason_rakuten or it.reason_matsui %}
-          <tr class="reason-row">
-            <td colspan="12">
-              <div class="reason-block">
-                {% if it.reason_lines %}
-                  <div class="reason-title">選定理由</div>
-                  <ul class="reason-list">
-                    {% for line in it.reason_lines %}
-                      <li>{{ line }}</li>
-                    {% endfor %}
-                  </ul>
-                {% endif %}
+          <!-- 理由ブロックのソース（テーブルでは非表示） -->
+          <tr class="reason-source-row">
+            <td colspan="2">
+              <div class="reason-block-source">
+                {% if it.reason_lines or it.reason_concern or it.reasons_text or it.reason_rakuten or it.reason_matsui %}
+                  <div class="reason-block">
+                    {% if it.reason_lines %}
+                      <div class="reason-title">選定理由</div>
+                      <ul class="reason-list">
+                        {% for line in it.reason_lines %}
+                          <li>{{ line }}</li>
+                        {% endfor %}
+                      </ul>
+                    {% endif %}
 
-                {% if it.reason_concern %}
-                  <div class="reason-title">懸念ポイント</div>
-                  <p class="reason-text">{{ it.reason_concern }}</p>
-                {% endif %}
+                    {% if it.reason_concern %}
+                      <div class="reason-title">懸念ポイント</div>
+                      <p class="reason-text">{{ it.reason_concern }}</p>
+                    {% endif %}
 
-                {% if it.reasons_text %}
-                  <div class="reason-title">数量・サイズ関連メモ</div>
-                  {% if it.reasons_text|length == 1 %}
-                    <p class="reason-text">{{ it.reasons_text.0 }}</p>
-                  {% else %}
-                    <ul class="reason-list">
-                      {% for line in it.reasons_text %}
-                        <li>{{ line }}</li>
-                      {% endfor %}
-                    </ul>
-                  {% endif %}
-                {% endif %}
+                    {% if it.reasons_text %}
+                      <div class="reason-title">数量・サイズ関連メモ</div>
+                      {% if it.reasons_text|length == 1 %}
+                        <p class="reason-text">{{ it.reasons_text.0 }}</p>
+                      {% else %}
+                        <ul class="reason-list">
+                          {% for line in it.reasons_text %}
+                            <li>{{ line }}</li>
+                          {% endfor %}
+                        </ul>
+                      {% endif %}
+                    {% endif %}
 
-                {% if it.reason_rakuten or it.reason_matsui %}
-                  <div class="reason-title">証券会社別メモ</div>
-                  {% if it.reason_rakuten %}
-                    <p class="reason-text">楽天: {{ it.reason_rakuten }}</p>
-                  {% endif %}
-                  {% if it.reason_matsui %}
-                    <p class="reason-text">松井: {{ it.reason_matsui }}</p>
-                  {% endif %}
+                    {% if it.reason_rakuten or it.reason_matsui %}
+                      <div class="reason-title">証券会社別メモ</div>
+                      {% if it.reason_rakuten %}
+                        <p class="reason-text">楽天: {{ it.reason_rakuten }}</p>
+                      {% endif %}
+                      {% if it.reason_matsui %}
+                        <p class="reason-text">松井: {{ it.reason_matsui }}</p>
+                      {% endif %}
+                    {% endif %}
+                  </div>
                 {% endif %}
               </div>
             </td>
           </tr>
-          {% endif %}
         {% empty %}
           <tr>
-            <td colspan="12" style="text-align:center;color:#9ca3af;padding:16px 8px;">
+            <td colspan="2" style="text-align:center;color:#9ca3af;padding:16px 8px;">
               items が空です。picks_build がまだ走っていないか、ファイル読み込みに失敗しています。
             </td>
           </tr>
@@ -407,32 +436,195 @@
 
   <div class="foot-note">
     ・この画面は開発者向けの診断ビューです。<br>
-    ・score / ⭐ / 数量 / 想定PL が想定とズレていないか確認できます。<br>
-    ・各行の下に「選定理由 / 懸念 / 証券会社別メモ」が表示されます。<br>
+    ・行をタップすると、Score / 価格・ATR / Entry・TP・SL / 想定PL / 各種理由をモーダルで確認できます。<br>
     ・コード・銘柄名・業種で瞬間フィルタが可能です。
   </div>
 
+</div>
+
+<!-- ===== モーダル本体 ===== -->
+<div id="pickModal" class="modal-backdrop">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title-main">
+          <span id="mCode" class="code"></span>
+          <span id="mName"></span>
+        </div>
+        <div class="modal-title-sub" id="mSector"></div>
+      </div>
+      <button id="mClose" class="modal-close" type="button">&times;</button>
+    </div>
+
+    <div class="modal-meta">
+      <span class="modal-chip" id="mScoreChip"></span>
+      <span class="modal-chip" id="mStarsChip"></span>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-sec-title">価格・指標</div>
+      <dl class="modal-dl">
+        <div><dt>Score</dt><dd id="mScore"></dd></div>
+        <div><dt>⭐</dt><dd id="mStars"></dd></div>
+        <div><dt>現在値</dt><dd id="mLast"></dd></div>
+        <div><dt>ATR</dt><dd id="mAtr"></dd></div>
+        <div><dt>Entry</dt><dd id="mEntry"></dd></div>
+        <div><dt>TP</dt><dd id="mTp"></dd></div>
+        <div><dt>SL</dt><dd id="mSl"></dd></div>
+      </dl>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-sec-title">数量・想定PL</div>
+      <dl class="modal-dl">
+        <div><dt>数量 合計</dt><dd id="mQty"></dd></div>
+        <div><dt>想定利益 合計</dt><dd id="mPl"></dd></div>
+        <div><dt>想定損失 合計</dt><dd id="mLoss"></dd></div>
+      </dl>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-sec-title">理由</div>
+      <div id="mReasons"></div>
+    </div>
+  </div>
 </div>
 
 <script>
 (function(){
   const input = document.getElementById("filterInput");
   const table = document.getElementById("picksTable");
-  if (!input || !table) return;
+  if (!table) return;
 
-  const rows = Array.from(table.querySelectorAll("tbody tr"));
+  const rows = Array.from(table.querySelectorAll("tbody tr.pick-row"));
 
-  input.addEventListener("input", function(){
-    const q = this.value.trim().toLowerCase();
-    if (!q){
-      rows.forEach(r => r.style.display = "");
-      return;
+  // ===== フィルタ =====
+  if (input) {
+    const allRows = Array.from(table.querySelectorAll("tbody tr"));
+    input.addEventListener("input", function(){
+      const q = this.value.trim().toLowerCase();
+      if (!q){
+        allRows.forEach(r => r.style.display = (r.classList.contains("reason-source-row") ? "none" : ""));
+        return;
+      }
+      rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        const show = text.includes(q);
+        row.style.display = show ? "" : "none";
+        const src = row.nextElementSibling;
+        if (src && src.classList.contains("reason-source-row")) {
+          src.style.display = "none";  // 常に非表示
+        }
+      });
+    });
+  }
+
+  // ===== モーダル =====
+  const modal = document.getElementById("pickModal");
+  const mClose = document.getElementById("mClose");
+
+  const mCode = document.getElementById("mCode");
+  const mName = document.getElementById("mName");
+  const mSector = document.getElementById("mSector");
+  const mScoreChip = document.getElementById("mScoreChip");
+  const mStarsChip = document.getElementById("mStarsChip");
+
+  const mScore = document.getElementById("mScore");
+  const mStars = document.getElementById("mStars");
+  const mLast = document.getElementById("mLast");
+  const mAtr = document.getElementById("mAtr");
+  const mEntry = document.getElementById("mEntry");
+  const mTp = document.getElementById("mTp");
+  const mSl = document.getElementById("mSl");
+
+  const mQty = document.getElementById("mQty");
+  const mPl = document.getElementById("mPl");
+  const mLoss = document.getElementById("mLoss");
+  const mReasons = document.getElementById("mReasons");
+
+  const nf0 = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 0 });
+  const nf1 = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 1 });
+
+  function parseNum(v){
+    if (v === undefined || v === null || v === "" || v === "None") return null;
+    const n = Number(v);
+    if (!isFinite(n)) return null;
+    return n;
+  }
+
+  function fmt0(v){
+    const n = parseNum(v);
+    if (n === null) return "—";
+    return nf0.format(n);
+  }
+
+  function fmtSigned(v){
+    const n = parseNum(v);
+    if (n === null) return "—";
+    const s = nf0.format(Math.abs(n));
+    return (n > 0 ? "+" : n < 0 ? "-" : "") + s;
+  }
+
+  function openModalForRow(row){
+    const ds = row.dataset;
+
+    mCode.textContent = ds.code || "";
+    mName.textContent = ds.name || "";
+    mSector.textContent = ds.sector || "";
+
+    const score = parseNum(ds.score);
+    const stars = ds.stars || "";
+    mScore.textContent = score !== null ? nf0.format(score) : "—";
+    mStars.textContent = stars || "—";
+
+    mScoreChip.textContent = score !== null ? `Score: ${nf0.format(score)}` : "Score: —";
+    mStarsChip.textContent = stars ? `⭐ ${stars}` : "⭐ —";
+
+    mLast.textContent = fmt0(ds.last);
+    mAtr.textContent = fmt0(ds.atr);
+    mEntry.textContent = fmt0(ds.entry);
+    mTp.textContent = fmt0(ds.tp);
+    mSl.textContent = fmt0(ds.sl);
+
+    const qty = parseNum(ds.qtyTotal);
+    mQty.textContent = qty !== null ? nf0.format(qty) : "—";
+    mPl.textContent = fmtSigned(ds.plTotal);
+    mLoss.textContent = fmtSigned(ds.lossTotal);
+
+    // 理由（hidden 行から HTML をコピー）
+    let reasonHtml = "";
+    const src = row.nextElementSibling;
+    if (src && src.classList.contains("reason-source-row")) {
+      const block = src.querySelector(".reason-block-source");
+      if (block) {
+        reasonHtml = block.innerHTML;
+      }
     }
-    rows.forEach(r => {
-      const text = r.textContent.toLowerCase();
-      r.style.display = text.includes(q) ? "" : "none";
+    mReasons.innerHTML = reasonHtml || "<p class=\"reason-text\">理由情報はありません。</p>";
+
+    modal.classList.add("show");
+  }
+
+  rows.forEach(row => {
+    row.addEventListener("click", function(){
+      openModalForRow(this);
     });
   });
+
+  function closeModal(){
+    modal.classList.remove("show");
+  }
+
+  if (mClose) {
+    mClose.addEventListener("click", closeModal);
+  }
+  if (modal) {
+    modal.addEventListener("click", function(e){
+      if (e.target === modal){
+        closeModal();
+      }
+    });
+  }
 })();
 </script>
 
