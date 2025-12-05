@@ -159,7 +159,8 @@ class RealizedTrade(models.Model):
     basis     = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     fee       = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     tax       = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-
+    sector33_code = models.CharField(max_length=16, blank=True, default="")
+    
     broker    = models.CharField(max_length=16, choices=BROKER_CHOICES, default="OTHER")
     account   = models.CharField(
         max_length=10,
