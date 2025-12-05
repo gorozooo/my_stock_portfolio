@@ -26,32 +26,30 @@
     top: 0;
     z-index: 30;
 
-    /* 背景：透過＋BLUR */
-    background: rgba(15, 23, 42, 0.75); /* slate-900 っぽい */
+    background: rgba(15, 23, 42, 0.75);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
 
-    /* 下方向の影（上質な薄影） */
     box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25);
   }
 
   /* ===== 行ホバー / タップ時の iOS 風ハイライト ===== */
   .realized-row {
     transition:
-      background-color 0.14s ease-out,
-      transform 0.08s ease-out;
+      background-color 0.12s ease-out,
+      transform 0.06s ease-out;
   }
 
-  /* マウス環境（PC）だけ hover ハイライト */
+  /* マウス環境だけ hover */
   @media (hover: hover) and (pointer: fine) {
     .realized-row:hover {
-      background: rgba(148, 163, 184, 0.12); /* slate-400 を薄く */
+      background: rgba(148, 163, 184, 0.15);
     }
   }
 
-  /* タップ中クラス（touchstart で付与） */
+  /* ★ タップ中は濃い目のハイライトにする */
   .realized-row.is-tapping {
-    background: rgba(148, 163, 184, 0.18);
+    background: rgba(129, 140, 248, 0.35); /* indigo 系でしっかり見える */
     transform: translateY(1px);
   }
 </style>
@@ -64,7 +62,7 @@
       const onScroll = () => {
         const y = window.scrollY || document.documentElement.scrollTop || 0;
         const minScale = 0.85;
-        const maxScroll = 20; // 0〜20px の範囲で 1.0→0.85
+        const maxScroll = 20;
         const scale = Math.max(minScale, 1 - (y / maxScroll) * (1 - minScale));
         thead.style.setProperty("--header-scale", scale.toString());
       };
