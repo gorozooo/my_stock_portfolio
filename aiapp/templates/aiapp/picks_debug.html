@@ -1,4 +1,3 @@
-{# templates/aiapp/picks_debug.html #}
 {% extends "base.html" %}
 {% load humanize %}
 {% block title %}AI Picks 診断{% endblock %}
@@ -227,7 +226,7 @@
 
         <!-- 件数まわり（総件数 / 対象件数） -->
         <div class="meta">
-          {% with total_all=meta.stockmaster_total|default:meta.universe_count|default:meta.total %}
+          {% with total_all=meta.stockmaster_total|default:meta.total %}
             <span>総件数（ユニバース内）: {{ total_all|default:0|intcomma }} 件</span>
           {% endwith %}
         </div>
@@ -349,7 +348,6 @@
             </td>
           </tr>
 
-          {# 理由がある場合だけ理由行を追加 #}
           {% if it.reason_lines or it.reason_concern or it.reasons_text or it.reason_rakuten or it.reason_matsui %}
           <tr class="reason-row">
             <td colspan="12">
