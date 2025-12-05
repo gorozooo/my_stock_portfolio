@@ -1,47 +1,61 @@
 {% load humanize %}
 
 <style>
-  /* ---- Sticky Header Base ---- */
+  /* 実現損益テーブル：ヘッダー固定＆透過ブラー */
   .realized-pnl-thead th {
     position: sticky;
     position: -webkit-sticky;
-    top: 0;
-    z-index: 30;
-
-    /* 透過＋Blur */
-    background: rgba(15, 23, 42, 0.75);
+    top: 0;  /* 上に固定ヘッダーがあるなら 40px などに調整 */
+    z-index: 20;
+    background: rgba(15, 23, 42, 0.82); /* 透過ダーク＋blur */
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-
-    /* 下の影（上質な薄影） */
-    box-shadow: 0 6px 12px rgba(0,0,0,0.25);
+  }
+  
+  /* 行のベース */
+  .realized-row {
+    transition:
+      background-color 0.12s ease-out,
+      transform 0.12s ease-out;
+  
+  /* タップ時（一時的に付与されるクラス） */
+  .realized-row-active {
+    background-color: rgba(148, 163, 184, 0.16);
+    transform: scale(0.997);  /* ほんの少しだけ沈む感じ */
   }
 
-  /* ---- スクロール縮小アニメ ---- */
-  .realized-pnl-thead {
-    --header-scale: 1;
-    transform-origin: top;
-    transform: scaleY(var(--header-scale));
-    transition: transform 0.15s ease-out;
-  }
 </style>
 
 <script>
-  /* ====== スクロールでヘッダーを縮める ====== */
-  document.addEventListener("scroll", () => {
-    const y = window.scrollY;
-    const thead = document.querySelector(".realized-pnl-thead");
+  // ====== タップ時の iOS 風ハイライト ======
+  (function attachRowTapHighlight() {
+    const wrapper = document.querySelector(".realized-pnl-wrapper");
+    if (!wrapper) return;
 
-    if (!thead) return;
+    let activeRow = null;
+    const clearActive = () => {
+      if (activeRow) {
+        activeRow.classList.remove("realized-row-active");
+        activeRow = null;
+      }
+    };
 
-    // 0〜20px のスクロールで scale を 1.0 → 0.85 へ
-    const minScale = 0.85;
-    const maxScroll = 20;
-    const scale = Math.max(minScale, 1 - (y / maxScroll) * (1 - minScale));
+    wrapper.addEventListener("touchstart", (e) => {
+      const tr = e.target.closest("tr.realized-row");
+      if (!tr) return;
+      clearActive();
+      activeRow = tr;
+      tr.classList.add("realized-row-active");
 
-    thead.style.setProperty("--header-scale", scale.toString());
-  });
+      // 念のため、自動解除もセット
+      setTimeout(clearActive, 180);
+    });
+
+    wrapper.addEventListener("touchend", clearActive);
+    wrapper.addEventListener("touchcancel", clearActive);
+  })();
 </script>
+
 
 <table class="w-full border-separate border-spacing-0">
   <colgroup>
