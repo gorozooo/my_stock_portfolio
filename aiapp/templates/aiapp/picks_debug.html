@@ -202,15 +202,18 @@
   .modal-backdrop.show{
     display:flex;
   }
-  .modal-card{
+    .modal-card{
     width:100%;
     max-width:720px;
     background:var(--card);
     border-radius:18px 18px 0 0;
     box-shadow:0 -18px 45px rgba(0,0,0,.7);
-    padding:14px 16px 32px;
-    /* 下タブ + セーフエリア分だけ余白を増やして、最後まで読めるように */
+
+    /* 上下ともたっぷり余白（上も下タブ分と同じくらい空ける） */
+    padding:16px 16px 32px;
+    padding-top:calc(32px + env(safe-area-inset-top, 0px));
     padding-bottom:calc(32px + env(safe-area-inset-bottom, 0px) + 60px);
+
     max-height:calc(100vh - 24px);
     overflow-y:auto;
     overscroll-behavior:contain;
