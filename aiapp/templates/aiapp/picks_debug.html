@@ -6,7 +6,7 @@
 <style>
   :root{
     --bg:#020617;
-    --card:rgba(15,23,42,.9);
+    --card:rgba(15,23,42,.96);
     --fg:#e5edff;
     --sub:#9ca3af;
     --accent:#2563eb;
@@ -139,13 +139,13 @@
     line-height:1.5;
   }
 
-  /* ===== モーダル ===== */
+  /* ===== モーダル全体 ===== */
   .modal-backdrop{
     position:fixed;
     inset:0;
     background:rgba(15,23,42,0.7);
     display:none;
-    align-items:center;            /* 画面の上下に余白をとって中央寄せ */
+    align-items:center;
     justify-content:center;
     z-index:999;
   }
@@ -154,31 +154,32 @@
   }
   .modal-card{
     width:100%;
-    max-width:720px;
+    max-width:760px;
     background:var(--card);
-    border-radius:18px;
-    box-shadow:0 18px 45px rgba(0,0,0,.7);
-    padding:18px 16px 24px;
+    border-radius:24px;
+    box-shadow:0 24px 60px rgba(0,0,0,.8);
+    padding:20px 18px;
     padding-bottom:calc(24px + env(safe-area-inset-bottom, 0px));
-    padding-top:calc(20px + env(safe-area-inset-top, 0px));
-    max-height:calc(100vh - 48px); /* 上下 24px ずつ余白 */
+    padding-top:calc(24px + env(safe-area-inset-top, 0px));
+    max-height:calc(100vh - 32px);
+    margin:16px;
     overflow-y:auto;
     overscroll-behavior:contain;
   }
   .modal-close{
     position:absolute;
-    top:16px;
-    right:18px;
+    top:18px;
+    right:24px;
     border:none;
     background:transparent;
     color:var(--sub);
-    font-size:20px;
+    font-size:22px;
   }
   .modal-header{
-    margin-bottom:12px;
+    margin-bottom:14px;
   }
   .modal-title{
-    font-size:18px;
+    font-size:20px;
     font-weight:700;
     margin-right:32px;
   }
@@ -191,7 +192,7 @@
   .modal-top-badges{
     display:flex;
     gap:8px;
-    margin-top:4px;
+    margin-bottom:6px;
   }
   .badge-pill{
     font-size:11px;
@@ -201,84 +202,98 @@
     background:rgba(15,23,42,.9);
   }
 
-  /* ===== メトリクスカード群（白枠部分のレイアウト） ===== */
-  .metric-grid{
+  /* ===== カードレイアウト（pickテンプレ風） ===== */
+  .modal-sections{
     display:flex;
-    flex-wrap:wrap;
+    flex-direction:column;
     gap:10px;
-    margin-top:4px;
-    margin-bottom:8px;
   }
-  .metric-card{
-    flex:1 1 calc(50% - 6px);
-    min-width:150px;
+
+  .info-grid{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:10px;
+  }
+  @media (min-width: 520px){
+    .info-grid{
+      grid-template-columns:1fr 1fr;
+    }
+  }
+
+  .info-card{
+    border-radius:18px;
+    border:1px solid rgba(148,163,184,.35);
+    padding:12px 14px;
     background:rgba(15,23,42,0.96);
-    border-radius:12px;
-    padding:10px 12px;
-    border:1px solid rgba(148,163,184,.3);
   }
-  .metric-title{
+  .info-card-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
     font-size:12px;
     color:var(--sub);
     margin-bottom:4px;
   }
-  .metric-main{
-    font-size:18px;
+  .info-card-title{
     font-weight:600;
-    text-align:left;
+  }
+  .info-card-main{
+    font-size:22px;
+    font-weight:700;
+    margin:4px 0 2px;
+  }
+  .info-card-main span{
     font-variant-numeric:tabular-nums;
   }
-  .metric-main-right{
-    text-align:right;
-  }
-  .metric-sub{
-    margin-top:4px;
-    font-size:11px;
-    color:var(--sub);
+  .info-card-footer{
     display:flex;
     justify-content:space-between;
+    font-size:11px;
+    color:var(--sub);
+    margin-top:2px;
   }
 
-  .metric-row{
+  .info-rows{
+    margin-top:2px;
+  }
+  .info-row{
     display:flex;
     justify-content:space-between;
     align-items:baseline;
     font-size:13px;
     padding:1px 0;
   }
-  .metric-label{
+  .info-row-label{
     color:var(--sub);
   }
-  .metric-value{
+  .info-row-value{
     font-variant-numeric:tabular-nums;
   }
-  .metric-row-total{
+  .info-row-total{
     margin-top:2px;
     font-weight:600;
   }
-  .metric-note{
-    margin-top:4px;
-    font-size:11px;
-    color:var(--sub);
-    line-height:1.4;
+  .info-row-profit{
+    color:var(--ok);
+  }
+  .info-row-loss{
+    color:var(--bad);
   }
 
-  /* 理由セクション */
-  .detail-section{
-    margin-top:12px;
+  /* 理由 */
+  .reason-card{
+    border-radius:18px;
+    border:1px solid rgba(148,163,184,.35);
+    padding:12px 14px 10px;
+    background:rgba(15,23,42,0.96);
   }
-  .section-title{
+  .reason-title{
     font-size:13px;
     font-weight:600;
-    padding-top:8px;
-    margin:0 0 6px;
-    border-top:1px solid rgba(148,163,184,.25);
-  }
-  .reason-block{
-    font-size:12px;
-    line-height:1.5;
+    margin-bottom:4px;
   }
   .reason-subtitle{
+    font-size:12px;
     font-weight:600;
     margin-top:4px;
     margin-bottom:2px;
@@ -286,10 +301,13 @@
   .reason-list{
     margin:0;
     padding-left:16px;
+    font-size:12px;
+    line-height:1.5;
   }
   .reason-concern{
     font-size:12px;
     color:var(--sub);
+    line-height:1.5;
   }
 
   @media (max-width: 480px){
@@ -316,9 +334,6 @@
       white-space:normal;
       text-align:right;
     }
-    .metric-card{
-      flex:1 1 100%;
-    }
   }
 </style>
 {% endblock %}
@@ -333,14 +348,12 @@
           <div class="title">最終更新: {{ updated_at_label }}</div>
         {% endif %}
 
-        <!-- モード / ユニバース -->
         <div class="meta">
           <span>モード: {{ meta.style|default:"aggressive" }}/{{ meta.horizon|default:"short" }}</span>
           <span>ユニバース: {{ meta.universe|default:"(不明)" }}</span>
           <span>TopK: {{ meta.topk|default:0 }}</span>
         </div>
 
-        <!-- 件数まわり（総件数 / 対象件数） -->
         <div class="meta">
           総件数（ユニバース内）: {{ master_total|default:0|intcomma }} 件
         </div>
@@ -348,7 +361,6 @@
           対象件数（フィルタ後・評価対象）: {{ meta.total|default:0|intcomma }} 件
         </div>
 
-        <!-- フィルタ削除件数（日本語ラベル） -->
         {% if filter_stats %}
           <div class="meta">
             削除された銘柄:
@@ -406,10 +418,12 @@
               data-qty-rakuten="{{ it.qty_rakuten|default:'' }}"
               data-pl-rakuten="{{ it.est_pl_rakuten|default:'' }}"
               data-loss-rakuten="{{ it.est_loss_rakuten|default:'' }}"
+              data-cash-rakuten="{{ it.required_cash_rakuten|default:'' }}"
               data-reason-rakuten="{{ it.reason_rakuten|default:'' }}"
               data-qty-matsui="{{ it.qty_matsui|default:'' }}"
               data-pl-matsui="{{ it.est_pl_matsui|default:'' }}"
               data-loss-matsui="{{ it.est_loss_matsui|default:'' }}"
+              data-cash-matsui="{{ it.required_cash_matsui|default:'' }}"
               data-reason-matsui="{{ it.reason_matsui|default:'' }}"
               data-reasons="{% if it.reason_lines %}{{ it.reason_lines|join:'||' }}{% else %}{% endif %}"
               data-concern="{{ it.reason_concern|default:'' }}"
@@ -461,102 +475,136 @@
       </div>
     </div>
 
-    <!-- ★ 白枠だったゾーン：カードレイアウトに変更 -->
-    <div class="metric-grid">
+    <div class="modal-sections">
 
-      <!-- 現在値＋ATR -->
-      <div class="metric-card">
-        <div class="metric-title">現在値</div>
-        <div class="metric-main" id="detailLast">–</div>
-        <div class="metric-sub">
-          <span>ATR</span>
-          <span id="detailAtr">–</span>
+      <!-- 1段目：現在値 / 数量 -->
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="info-card-header">
+            <div class="info-card-title">現在値</div>
+          </div>
+          <div class="info-card-main">
+            <span id="detailLast">–</span>
+          </div>
+          <div class="info-card-footer">
+            <span>ATR</span>
+            <span id="detailAtr">–</span>
+          </div>
+        </div>
+
+        <div class="info-card">
+          <div class="info-card-header">
+            <div class="info-card-title">数量</div>
+          </div>
+          <div class="info-rows">
+            <div class="info-row">
+              <span class="info-row-label">楽天</span>
+              <span class="info-row-value" id="detailQtyRakuten">–</span>
+            </div>
+            <div class="info-row">
+              <span class="info-row-label">松井</span>
+              <span class="info-row-value" id="detailQtyMatsui">–</span>
+            </div>
+            <div class="info-row info-row-total">
+              <span class="info-row-label">合計</span>
+              <span class="info-row-value" id="detailQtyTotal">–</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- 数量カード（楽天・松井・合計） -->
-      <div class="metric-card">
-        <div class="metric-title">数量</div>
-        <div class="metric-row">
-          <span class="metric-label">楽天</span>
-          <span class="metric-value" id="detailQtyRakuten">–</span>
+      <!-- 2段目：Entry/TP/SL / 必要資金 -->
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="info-card-header">
+            <div class="info-card-title">Entry / TP / SL</div>
+          </div>
+          <div class="info-rows">
+            <div class="info-row">
+              <span class="info-row-label">Entry</span>
+              <span class="info-row-value" id="detailEntry">–</span>
+            </div>
+            <div class="info-row">
+              <span class="info-row-label">TP</span>
+              <span class="info-row-value" id="detailTp">–</span>
+            </div>
+            <div class="info-row">
+              <span class="info-row-label">SL</span>
+              <span class="info-row-value" id="detailSl">–</span>
+            </div>
+          </div>
         </div>
-        <div class="metric-row">
-          <span class="metric-label">松井</span>
-          <span class="metric-value" id="detailQtyMatsui">–</span>
-        </div>
-        <div class="metric-row metric-row-total">
-          <span class="metric-label">合計</span>
-          <span class="metric-value" id="detailQtyTotal">–</span>
-        </div>
-        <div class="metric-note" id="detailReasonRakuten"></div>
-        <div class="metric-note" id="detailReasonMatsui"></div>
-      </div>
 
-      <!-- Entry / TP / SL -->
-      <div class="metric-card">
-        <div class="metric-title">Entry / TP / SL</div>
-        <div class="metric-row">
-          <span class="metric-label">Entry</span>
-          <span class="metric-value" id="detailEntry">–</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">TP</span>
-          <span class="metric-value" id="detailTp">–</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">SL</span>
-          <span class="metric-value" id="detailSl">–</span>
-        </div>
-      </div>
-
-      <!-- 想定利益カード -->
-      <div class="metric-card">
-        <div class="metric-title">想定利益</div>
-        <div class="metric-row">
-          <span class="metric-label">楽天</span>
-          <span class="metric-value" id="detailPlRakuten">–</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">松井</span>
-          <span class="metric-value" id="detailPlMatsui">–</span>
-        </div>
-        <div class="metric-row metric-row-total">
-          <span class="metric-label">合計</span>
-          <span class="metric-value" id="detailPlTotal">–</span>
+        <div class="info-card">
+          <div class="info-card-header">
+            <div class="info-card-title">必要資金（概算）</div>
+          </div>
+          <div class="info-rows">
+            <div class="info-row">
+              <span class="info-row-label">楽天</span>
+              <span class="info-row-value" id="detailCashRakuten">–</span>
+            </div>
+            <div class="info-row">
+              <span class="info-row-label">松井</span>
+              <span class="info-row-value" id="detailCashMatsui">–</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- 想定損失カード -->
-      <div class="metric-card">
-        <div class="metric-title">想定損失</div>
-        <div class="metric-row">
-          <span class="metric-label">楽天</span>
-          <span class="metric-value" id="detailLossRakuten">–</span>
+      <!-- 3段目：想定利益 / 想定損失 -->
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="info-card-header">
+            <div class="info-card-title">想定利益</div>
+          </div>
+          <div class="info-rows">
+            <div class="info-row">
+              <span class="info-row-label">楽天</span>
+              <span class="info-row-value info-row-profit" id="detailPlRakuten">–</span>
+            </div>
+            <div class="info-row">
+              <span class="info-row-label">松井</span>
+              <span class="info-row-value info-row-profit" id="detailPlMatsui">–</span>
+            </div>
+            <div class="info-row info-row-total">
+              <span class="info-row-label">合計</span>
+              <span class="info-row-value info-row-profit" id="detailPlTotal">–</span>
+            </div>
+          </div>
         </div>
-        <div class="metric-row">
-          <span class="metric-label">松井</span>
-          <span class="metric-value" id="detailLossMatsui">–</span>
-        </div>
-        <div class="metric-row metric-row-total">
-          <span class="metric-label">合計</span>
-          <span class="metric-value" id="detailLossTotal">–</span>
+
+        <div class="info-card">
+          <div class="info-card-header">
+            <div class="info-card-title">想定損失</div>
+          </div>
+          <div class="info-rows">
+            <div class="info-row">
+              <span class="info-row-label">楽天</span>
+              <span class="info-row-value info-row-loss" id="detailLossRakuten">–</span>
+            </div>
+            <div class="info-row">
+              <span class="info-row-label">松井</span>
+              <span class="info-row-value info-row-loss" id="detailLossMatsui">–</span>
+            </div>
+            <div class="info-row info-row-total">
+              <span class="info-row-label">合計</span>
+              <span class="info-row-value info-row-loss" id="detailLossTotal">–</span>
+            </div>
+          </div>
         </div>
       </div>
 
-    </div>
-
-    <!-- 理由セクション -->
-    <div class="detail-section">
-      <div class="section-title">理由</div>
-      <div class="reason-block">
+      <!-- 理由 -->
+      <div class="reason-card">
+        <div class="reason-title">理由</div>
         <div class="reason-subtitle">選定理由</div>
         <ul id="detailReasons" class="reason-list"></ul>
         <div class="reason-subtitle">懸念点</div>
         <div id="detailConcern" class="reason-concern"></div>
       </div>
-    </div>
 
+    </div>
   </div>
 </div>
 
@@ -621,37 +669,43 @@
     document.getElementById("modalStarBadge").textContent =
       "★ " + (ds.stars || "–");
 
-    setText("detailScoreBadge", ds.score, "int"); // 使っていないが保険
-
+    // 価格・指標
     setText("detailLast", ds.last, "int");
     setText("detailAtr", ds.atr, "int");
+    setText("detailScore", ds.score, "int"); // 使っていないが互換用
+
+    // Entry / TP / SL
     setText("detailEntry", ds.entry, "int");
     setText("detailTp", ds.tp, "int");
     setText("detailSl", ds.sl, "int");
 
+    // 数量
     setText("detailQtyRakuten", ds.qtyRakuten, "int");
-    setText("detailPlRakuten", ds.plRakuten, "yen");
-    setText("detailLossRakuten", ds.lossRakuten, "yen");
-    document.getElementById("detailReasonRakuten").textContent =
-      ds.reasonRakuten || "";
-
     setText("detailQtyMatsui", ds.qtyMatsui, "int");
-    setText("detailPlMatsui", ds.plMatsui, "yen");
-    setText("detailLossMatsui", ds.lossMatsui, "yen");
-    document.getElementById("detailReasonMatsui").textContent =
-      ds.reasonMatsui || "";
 
     const qtyTotal =
       (Number(ds.qtyRakuten || 0) || 0) + (Number(ds.qtyMatsui || 0) || 0);
+    setText("detailQtyTotal", qtyTotal, "int");
+
+    // 必要資金
+    setText("detailCashRakuten", ds.cashRakuten, "yen");
+    setText("detailCashMatsui", ds.cashMatsui, "yen");
+
+    // 想定利益 / 損失
+    setText("detailPlRakuten", ds.plRakuten, "yen");
+    setText("detailPlMatsui", ds.plMatsui, "yen");
+    setText("detailLossRakuten", ds.lossRakuten, "yen");
+    setText("detailLossMatsui", ds.lossMatsui, "yen");
+
     const plTotal =
       (Number(ds.plRakuten || 0) || 0) + (Number(ds.plMatsui || 0) || 0);
     const lossTotal =
       (Number(ds.lossRakuten || 0) || 0) + (Number(ds.lossMatsui || 0) || 0);
 
-    setText("detailQtyTotal", qtyTotal, "int");
     setText("detailPlTotal", plTotal, "yen");
     setText("detailLossTotal", lossTotal, "yen");
 
+    // 理由
     const ul = document.getElementById("detailReasons");
     ul.innerHTML = "";
     if (ds.reasons){
