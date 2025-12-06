@@ -15,6 +15,8 @@
     --bad:#ef4444;
   }
   body{background:var(--bg);color:var(--fg);}
+  body.modal-open{overflow:hidden;}
+
   .wrap{max-width:960px;margin:0 auto;padding:16px 10px 80px;}
 
   .head-card{
@@ -92,6 +94,7 @@
   }
   table{
     width:100%;
+    min-width:420px;
     border-collapse:collapse;
     font-size:12px;
   }
@@ -104,14 +107,9 @@
   th,td{
     padding:8px 10px;
     border-bottom:1px solid rgba(30,41,59,.9);
+    text-align:left;
     white-space:nowrap;
   }
-  th:first-child,
-  td:first-child{text-align:left;width:76px;}
-  th:nth-child(2),
-  td:nth-child(2){text-align:left;}
-  th:nth-child(3),
-  td:nth-child(3){text-align:right;width:74px;}
   th{
     font-size:11px;
     color:#9ca3af;
@@ -124,32 +122,15 @@
   tbody tr:nth-child(even){
     background:rgba(15,23,42,0.96);
   }
-  tbody tr.pick-row:hover{
+  tbody tr:hover{
     background:rgba(30,64,175,.7);
   }
   .code{font-feature-settings:"tnum";font-weight:600;}
   .sector{color:var(--sub);font-size:11px;}
-
-  .score-cell{
-    text-align:right;
-    font-size:11px;
-  }
-  .score-badge{
-    display:inline-block;
-    min-width:30px;
-    padding:2px 6px;
-    border-radius:999px;
-    border:1px solid rgba(148,163,184,.6);
-    margin-right:4px;
-    text-align:center;
-    font-feature-settings:"tnum";
-  }
-  .score-star{
-    font-size:11px;
-    color:#facc15;
-  }
-
-  .zero{color:#64748b;}
+  .score{font-weight:700;text-align:right;}
+  .score-high{color:#bfdbfe;}
+  .score-mid{color:#a3e635;}
+  .score-low{color:#f97316;}
 
   .foot-note{
     margin-top:8px;
@@ -158,133 +139,118 @@
     line-height:1.5;
   }
 
-  /* ===== 理由ブロック ===== */
-  .reason-block{
-    font-size:11px;
-    color:#cbd5f5;
-    line-height:1.5;
-  }
-  .reason-title{
-    font-weight:600;
-    margin-top:2px;
-    margin-bottom:2px;
-    color:#e2e8f0;
-  }
-  .reason-list{
-    margin:0 0 4px 1.2em;
-    padding:0;
-  }
-  .reason-list li{
-    margin:0;
-    padding:0;
-    list-style:disc;
-  }
-  .reason-text{
-    margin:0 0 4px;
-  }
-
-  tr.reason-source-row{
-    display:none;
-  }
-
-  /* ===== モーダル（ボトムシート） ===== */
+  /* ===== モーダル ===== */
   .modal-backdrop{
     position:fixed;
     inset:0;
-    background:rgba(15,23,42,.75);
-    backdrop-filter:blur(6px);
+    background:rgba(15,23,42,0.7);
     display:none;
     align-items:flex-end;
     justify-content:center;
-    z-index:80;
-    overscroll-behavior:contain;
+    z-index:999;
   }
-  .modal-backdrop.show{
+  .modal-backdrop.open{
     display:flex;
   }
-    .modal-card{
+  .modal-card{
     width:100%;
     max-width:720px;
     background:var(--card);
     border-radius:18px 18px 0 0;
     box-shadow:0 -18px 45px rgba(0,0,0,.7);
-
-    /* 上下ともたっぷり余白（上も下タブ分と同じくらい空ける） */
-    padding:16px 16px 32px;
-    padding-top:calc(32px + env(safe-area-inset-top, 0px));
-    padding-bottom:calc(32px + env(safe-area-inset-bottom, 0px) + 60px);
-
-    max-height:calc(100vh - 24px);
+    padding:20px 18px 28px;
+    padding-bottom:calc(24px + env(safe-area-inset-bottom, 0px));
+    padding-top:calc(24px + env(safe-area-inset-top, 0px));
+    max-height:calc(100vh - 32px);
     overflow-y:auto;
     overscroll-behavior:contain;
   }
-  .modal-header{
-    display:flex;
-    justify-content:space-between;
-    align-items:flex-start;
-    gap:10px;
-    margin-bottom:6px;
-  }
-  .modal-title-main{
-    font-size:16px;
-    font-weight:700;
-  }
-  .modal-title-sub{
-    font-size:11px;
-    color:var(--sub);
-  }
   .modal-close{
+    position:absolute;
+    top:16px;
+    right:18px;
     border:none;
     background:transparent;
-    color:#9ca3af;
-    font-size:22px;
-    line-height:1;
-    padding:2px 6px;
-    cursor:pointer;
-  }
-  .modal-meta{
-    font-size:11px;
     color:var(--sub);
-    display:flex;
-    flex-wrap:wrap;
-    gap:4px 8px;
+    font-size:20px;
+  }
+  .modal-header{
+    margin-bottom:10px;
+  }
+  .modal-title{
+    font-size:18px;
+    font-weight:700;
+    margin-right:32px;
+  }
+  .modal-sector{
+    font-size:12px;
+    color:var(--sub);
+    margin-top:2px;
     margin-bottom:8px;
   }
-  .modal-chip{
+  .modal-top-badges{
+    display:flex;
+    gap:8px;
+    margin-bottom:2px;
+  }
+  .badge-pill{
+    font-size:11px;
+    padding:4px 10px;
     border-radius:999px;
-    border:1px solid rgba(148,163,184,.6);
-    padding:2px 8px;
-  }
-  .modal-section{
-    margin-top:10px;
-    margin-bottom:4px;
-    border-top:1px solid rgba(148,163,184,.25);
-    padding-top:6px;
-  }
-  .modal-sec-title{
-    font-size:12px;
-    font-weight:600;
-    margin-bottom:4px;
-    color:#e2e8f0;
-  }
-  .modal-dl{
-    display:grid;
-    grid-template-columns:auto 1fr;
-    gap:4px 10px;
-    font-size:12px;
-  }
-  .modal-dl dt{
-    color:#9ca3af;
-  }
-  .modal-dl dd{
-    margin:0;
-    text-align:right;
+    border:1px solid var(--line);
+    background:rgba(15,23,42,.9);
   }
 
-  body.modal-open{
-    overflow:hidden;
-    overscroll-behavior:none;
-    touch-action:none;
+  .detail-section{
+    margin-top:12px;
+  }
+  .section-title{
+    font-size:13px;
+    font-weight:600;
+    padding-top:8px;
+    margin:0 0 6px;
+    border-top:1px solid rgba(148,163,184,.25);
+  }
+  .kv-row{
+    display:flex;
+    justify-content:space-between;
+    font-size:13px;
+    padding:2px 0;
+  }
+  .kv-row span:first-child{
+    color:var(--sub);
+  }
+  .kv-row-total{
+    margin-top:4px;
+    font-weight:600;
+  }
+  .broker-label{
+    margin-top:6px;
+    font-size:12px;
+    font-weight:600;
+  }
+  .broker-note{
+    font-size:11px;
+    color:var(--sub);
+    margin-top:2px;
+    line-height:1.4;
+  }
+  .reason-block{
+    font-size:12px;
+    line-height:1.5;
+  }
+  .reason-subtitle{
+    font-weight:600;
+    margin-top:4px;
+    margin-bottom:2px;
+  }
+  .reason-list{
+    margin:0;
+    padding-left:16px;
+  }
+  .reason-concern{
+    font-size:12px;
+    color:var(--sub);
   }
 
   @media (max-width: 480px){
@@ -323,8 +289,6 @@
       <div>
         {% if updated_at_label %}
           <div class="title">最終更新: {{ updated_at_label }}</div>
-        {% else %}
-          <div class="title">AI Picks 診断ビュー</div>
         {% endif %}
 
         <div class="meta">
@@ -334,8 +298,8 @@
         </div>
 
         <div class="meta">
-          {% with total_all=meta.stockmaster_total|default:meta.total %}
-            <span>総件数（ユニバース内）: {{ total_all|default:0|intcomma }} 件</span>
+          {% with total_all=meta.stockmaster_total|default:meta.universe_count|default:meta.total %}
+            総件数（ユニバース内）: {{ total_all|default:0|intcomma }} 件
           {% endwith %}
         </div>
         <div class="meta">
@@ -355,7 +319,6 @@
           <div class="meta">ソース: <code style="font-size:11px">{{ source_file }}</code></div>
         {% endif %}
       </div>
-
       <div class="badge">DEBUG / INTERNAL</div>
     </div>
 
@@ -371,7 +334,7 @@
       class="filter-input"
       type="search"
       placeholder="コード・銘柄名・業種でフィルタ（例: 7203 / トヨタ / 保険）">
-    <div class="pill">タップで詳細（Score / 価格 / 理由 など）を表示</div>
+    <div class="pill">score 0〜100 ／ 詳細はタップでモーダル表示</div>
   </div>
 
   <div class="table-wrap">
@@ -381,93 +344,45 @@
           <tr>
             <th>コード</th>
             <th>銘柄名 / 業種</th>
-            <th>Score / ⭐</th>
+            <th style="text-align:right;">Score</th>
           </tr>
         </thead>
         <tbody>
-
         {% for it in items %}
           <tr class="pick-row"
               data-code="{{ it.code }}"
               data-name="{{ it.name|default:'(銘柄名なし)' }}"
               data-sector="{{ it.sector_display|default:'業種不明' }}"
               data-score="{{ it.score_100|default:'' }}"
-              data-stars="{{ it.stars|default:'' }}"
+              data-stars="{{ it.stars|default:0 }}"
               data-last="{{ it.last_close|default:'' }}"
               data-atr="{{ it.atr|default:'' }}"
               data-entry="{{ it.entry|default:'' }}"
               data-tp="{{ it.tp|default:'' }}"
               data-sl="{{ it.sl|default:'' }}"
-              data-qty-total="{{ it.qty_total|default:'' }}"
-              data-pl-total="{{ it.pl_total|default:'' }}"
-              data-loss-total="{{ it.loss_total|default:'' }}">
+              data-qty-rakuten="{{ it.qty_rakuten|default:'' }}"
+              data-pl-rakuten="{{ it.est_pl_rakuten|default:'' }}"
+              data-loss-rakuten="{{ it.est_loss_rakuten|default:'' }}"
+              data-reason-rakuten="{{ it.reason_rakuten|default:'' }}"
+              data-qty-matsui="{{ it.qty_matsui|default:'' }}"
+              data-pl-matsui="{{ it.est_pl_matsui|default:'' }}"
+              data-loss-matsui="{{ it.est_loss_matsui|default:'' }}"
+              data-reason-matsui="{{ it.reason_matsui|default:'' }}"
+              data-reasons="{% if it.reason_lines_display %}{{ it.reason_lines_display|join:'||' }}{% else %}{% endif %}"
+              data-concern="{{ it.reason_concern|default:'' }}"
+          >
             <td class="code">{{ it.code }}</td>
             <td>
               <div>{{ it.name|default:"(銘柄名なし)" }}</div>
               <div class="sector">{{ it.sector_display|default:"業種不明" }}</div>
             </td>
-            <td class="score-cell">
-              {% if it.score_100 is not None or it.stars %}
-                <span class="score-badge">
-                  {% if it.score_100 is not None %}
-                    {{ it.score_100|floatformat:0 }}
-                  {% else %}
-                    —
-                  {% endif %}
-                </span>
-                <span class="score-star">
-                  {% if it.stars %}{{ it.stars }}★{% else %}–{% endif %}
-                </span>
-              {% else %}
-                <span class="zero">–</span>
-              {% endif %}
-            </td>
-          </tr>
-
-          <tr class="reason-source-row">
-            <td colspan="3">
-              <div class="reason-block-source">
-                {% if it.reason_lines or it.reason_concern or it.reasons_text or it.reason_rakuten or it.reason_matsui %}
-                  <div class="reason-block">
-                    {% if it.reason_lines %}
-                      <div class="reason-title">選定理由</div>
-                      <ul class="reason-list">
-                        {% for line in it.reason_lines %}
-                          <li>{{ line }}</li>
-                        {% endfor %}
-                      </ul>
-                    {% endif %}
-
-                    {% if it.reason_concern %}
-                      <div class="reason-title">懸念ポイント</div>
-                      <p class="reason-text">{{ it.reason_concern }}</p>
-                    {% endif %}
-
-                    {% if it.reasons_text %}
-                      <div class="reason-title">数量・サイズ関連メモ</div>
-                      {% if it.reasons_text|length == 1 %}
-                        <p class="reason-text">{{ it.reasons_text.0 }}</p>
-                      {% else %}
-                        <ul class="reason-list">
-                          {% for line in it.reasons_text %}
-                            <li>{{ line }}</li>
-                          {% endfor %}
-                        </ul>
-                      {% endif %}
-                    {% endif %}
-
-                    {% if it.reason_rakuten or it.reason_matsui %}
-                      <div class="reason-title">証券会社別メモ</div>
-                      {% if it.reason_rakuten %}
-                        <p class="reason-text">楽天: {{ it.reason_rakuten }}</p>
-                      {% endif %}
-                      {% if it.reason_matsui %}
-                        <p class="reason-text">松井: {{ it.reason_matsui }}</p>
-                      {% endif %}
-                    {% endif %}
-                  </div>
-                {% endif %}
-              </div>
+            <td class="score
+              {% if it.score_100 and it.score_100|floatformat:0 >= 80 %}score-high
+              {% elif it.score_100 and it.score_100|floatformat:0 >= 60 %}score-mid
+              {% else %}score-low{% endif %}">
+              {% if it.score_100 is not None %}
+                {{ it.score_100|floatformat:0 }}
+              {% else %}–{% endif %}
             </td>
           </tr>
         {% empty %}
@@ -477,64 +392,72 @@
             </td>
           </tr>
         {% endfor %}
-
         </tbody>
       </table>
     </div>
   </div>
 
   <div class="foot-note">
-    ・この画面は開発者向けの診断ビューです。<br>
-    ・行をタップすると、Score / 価格・ATR / Entry・TP・SL / 想定PL / 各種理由をモーダルで確認できます。<br>
-    ・コード・銘柄名・業種で瞬間フィルタが可能です。
+    ・行をタップすると、数量・想定PL・理由などの詳細がモーダルで表示されます。<br>
+    ・score / ⭐ / 数量 / 想定PL が想定とズレていないか確認できます。
   </div>
 
 </div>
 
-<div id="pickModal" class="modal-backdrop">
+<!-- ===== 詳細モーダル ===== -->
+<div id="pickModal" class="modal-backdrop" aria-hidden="true">
   <div class="modal-card">
+    <button type="button" id="modalCloseBtn" class="modal-close">×</button>
+
     <div class="modal-header">
-      <div>
-        <div class="modal-title-main">
-          <span id="mCode" class="code"></span>
-          <span id="mName"></span>
-        </div>
-        <div class="modal-title-sub" id="mSector"></div>
+      <div class="modal-title" id="modalTitle">コード 銘柄名</div>
+      <div class="modal-sector" id="modalSector">業種</div>
+      <div class="modal-top-badges">
+        <span class="badge-pill" id="modalScoreBadge">Score: –</span>
+        <span class="badge-pill" id="modalStarBadge">★ –</span>
       </div>
-      <button id="mClose" class="modal-close" type="button">&times;</button>
     </div>
 
-    <div class="modal-meta">
-      <span class="modal-chip" id="mScoreChip"></span>
-      <span class="modal-chip" id="mStarsChip"></span>
+    <div class="detail-section">
+      <div class="section-title">価格・指標</div>
+      <div class="kv-row"><span>Score</span><span id="detailScore">–</span></div>
+      <div class="kv-row"><span>現在値</span><span id="detailLast">–</span></div>
+      <div class="kv-row"><span>ATR</span><span id="detailAtr">–</span></div>
+      <div class="kv-row"><span>Entry</span><span id="detailEntry">–</span></div>
+      <div class="kv-row"><span>TP</span><span id="detailTp">–</span></div>
+      <div class="kv-row"><span>SL</span><span id="detailSl">–</span></div>
     </div>
 
-    <div class="modal-section">
-      <div class="modal-sec-title">価格・指標</div>
-      <dl class="modal-dl">
-        <dt>Score</dt><dd id="mScore"></dd>
-        <dt>⭐</dt><dd id="mStars"></dd>
-        <dt>現在値</dt><dd id="mLast"></dd>
-        <dt>ATR</dt><dd id="mAtr"></dd>
-        <dt>Entry</dt><dd id="mEntry"></dd>
-        <dt>TP</dt><dd id="mTp"></dd>
-        <dt>SL</dt><dd id="mSl"></dd>
-      </dl>
+    <div class="detail-section">
+      <div class="section-title">数量・想定PL</div>
+
+      <div class="broker-label">楽天証券</div>
+      <div class="kv-row"><span>数量</span><span id="detailQtyRakuten">–</span></div>
+      <div class="kv-row"><span>想定利益</span><span id="detailPlRakuten">–</span></div>
+      <div class="kv-row"><span>想定損失</span><span id="detailLossRakuten">–</span></div>
+      <div class="broker-note" id="detailReasonRakuten"></div>
+
+      <div class="broker-label">松井証券</div>
+      <div class="kv-row"><span>数量</span><span id="detailQtyMatsui">–</span></div>
+      <div class="kv-row"><span>想定利益</span><span id="detailPlMatsui">–</span></div>
+      <div class="kv-row"><span>想定損失</span><span id="detailLossMatsui">–</span></div>
+      <div class="broker-note" id="detailReasonMatsui"></div>
+
+      <div class="kv-row kv-row-total"><span>数量 合計</span><span id="detailQtyTotal">–</span></div>
+      <div class="kv-row kv-row-total"><span>想定利益 合計</span><span id="detailPlTotal">–</span></div>
+      <div class="kv-row kv-row-total"><span>想定損失 合計</span><span id="detailLossTotal">–</span></div>
     </div>
 
-    <div class="modal-section">
-      <div class="modal-sec-title">数量・想定PL</div>
-      <dl class="modal-dl">
-        <dt>数量 合計</dt><dd id="mQty"></dd>
-        <dt>想定利益 合計</dt><dd id="mPl"></dd>
-        <dt>想定損失 合計</dt><dd id="mLoss"></dd>
-      </dl>
+    <div class="detail-section">
+      <div class="section-title">理由</div>
+      <div class="reason-block">
+        <div class="reason-subtitle">選定理由</div>
+        <ul id="detailReasons" class="reason-list"></ul>
+        <div class="reason-subtitle">懸念点</div>
+        <div id="detailConcern" class="reason-concern"></div>
+      </div>
     </div>
 
-    <div class="modal-section">
-      <div class="modal-sec-title">理由</div>
-      <div id="mReasons"></div>
-    </div>
   </div>
 </div>
 
@@ -542,147 +465,130 @@
 (function(){
   const input = document.getElementById("filterInput");
   const table = document.getElementById("picksTable");
-  if (!table) return;
 
-  const pickRows = Array.from(table.querySelectorAll("tbody tr.pick-row"));
-  const allRows = Array.from(table.querySelectorAll("tbody tr"));
-
-  if (input) {
+  // フィルタ
+  if (input && table){
+    const rows = Array.from(table.querySelectorAll("tbody tr"));
     input.addEventListener("input", function(){
       const q = this.value.trim().toLowerCase();
       if (!q){
-        allRows.forEach(r => {
-          if (r.classList.contains("reason-source-row")){
-            r.style.display = "none";
-          } else {
-            r.style.display = "";
-          }
-        });
+        rows.forEach(r => r.style.display = "");
         return;
       }
-      pickRows.forEach(row => {
-        const text = row.textContent.toLowerCase();
-        const show = text.includes(q);
-        row.style.display = show ? "" : "none";
-        const src = row.nextElementSibling;
-        if (src && src.classList.contains("reason-source-row")) {
-          src.style.display = "none";
-        }
+      rows.forEach(r => {
+        const text = r.textContent.toLowerCase();
+        r.style.display = text.includes(q) ? "" : "none";
       });
     });
   }
 
-  const modal = document.getElementById("pickModal");
-  const mClose = document.getElementById("mClose");
+  const body   = document.body;
+  const modal  = document.getElementById("pickModal");
+  const closeBtn = document.getElementById("modalCloseBtn");
+  if (!modal || !table) return;
 
-  const mCode = document.getElementById("mCode");
-  const mName = document.getElementById("mName");
-  const mSector = document.getElementById("mSector");
-  const mScoreChip = document.getElementById("mScoreChip");
-  const mStarsChip = document.getElementById("mStarsChip");
-
-  const mScore = document.getElementById("mScore");
-  const mStars = document.getElementById("mStars");
-  const mLast = document.getElementById("mLast");
-  const mAtr = document.getElementById("mAtr");
-  const mEntry = document.getElementById("mEntry");
-  const mTp = document.getElementById("mTp");
-  const mSl = document.getElementById("mSl");
-
-  const mQty = document.getElementById("mQty");
-  const mPl = document.getElementById("mPl");
-  const mLoss = document.getElementById("mLoss");
-  const mReasons = document.getElementById("mReasons");
-
-  const nf0 = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 0 });
-  const nf1 = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 1 });
-
-  function parseNum(v){
-    if (v === undefined || v === null || v === "" || v === "None") return null;
-    const n = Number(v);
-    if (!isFinite(n)) return null;
-    return n;
-  }
-
-  function fmt0(v){
-    const n = parseNum(v);
-    if (n === null) return "—";
-    return nf0.format(n);
-  }
-
-  function fmtSigned(v){
-    const n = parseNum(v);
-    if (n === null) return "—";
-    const s = nf0.format(Math.abs(n));
-    return (n > 0 ? "+" : n < 0 ? "-" : "") + s;
-  }
-
-  function openModalForRow(row){
-    const ds = row.dataset;
-
-    mCode.textContent = ds.code || "";
-    mName.textContent = ds.name || "";
-    mSector.textContent = ds.sector || "";
-
-    const score = parseNum(ds.score);
-    const stars = ds.stars || "";
-    mScore.textContent = score !== null ? nf0.format(score) : "—";
-    mStars.textContent = stars || "—";
-
-    mScoreChip.textContent = score !== null ? `Score: ${nf0.format(score)}` : "Score: —";
-    mStarsChip.textContent = stars ? `⭐ ${stars}` : "⭐ —";
-
-    mLast.textContent = fmt0(ds.last);
-    mAtr.textContent = fmt0(ds.atr);
-    mEntry.textContent = fmt0(ds.entry);
-    mTp.textContent = fmt0(ds.tp);
-    mSl.textContent = fmt0(ds.sl);
-
-    const qty = parseNum(ds.qtyTotal);
-    mQty.textContent = qty !== null ? nf0.format(qty) : "—";
-    mPl.textContent = fmtSigned(ds.plTotal);
-    mLoss.textContent = fmtSigned(ds.lossTotal);
-
-    let reasonHtml = "";
-    const src = row.nextElementSibling;
-    if (src && src.classList.contains("reason-source-row")) {
-      const block = src.querySelector(".reason-block-source");
-      if (block) {
-        reasonHtml = block.innerHTML;
+  function setText(id, v, fmt){
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (v === undefined || v === null || v === "" || v === "NaN"){
+      el.textContent = "–";
+      return;
+    }
+    let txt = v;
+    if (fmt === "int"){
+      const n = Number(v);
+      txt = isNaN(n) ? "–" : n.toLocaleString();
+    }else if (fmt === "yen"){
+      const n = Number(v);
+      if (isNaN(n)){
+        txt = "–";
+      }else{
+        txt = n.toLocaleString();
+        if (n > 0) txt = "+" + txt;
       }
     }
-    mReasons.innerHTML = reasonHtml || "<p class=\"reason-text\">理由情報はありません。</p>";
+    el.textContent = txt;
+  }
 
-    modal.classList.add("show");
-    document.body.classList.add("modal-open");
+  function openModal(row){
+    const ds = row.dataset || {};
+
+    document.getElementById("modalTitle").textContent =
+      (ds.code || "") + " " + (ds.name || "");
+    document.getElementById("modalSector").textContent = ds.sector || "";
+
+    document.getElementById("modalScoreBadge").textContent =
+      "Score: " + (ds.score || "–");
+    document.getElementById("modalStarBadge").textContent =
+      "★ " + (ds.stars || "–");
+
+    setText("detailScore", ds.score, "int");
+    setText("detailLast", ds.last, "int");
+    setText("detailAtr", ds.atr, "int");
+    setText("detailEntry", ds.entry, "int");
+    setText("detailTp", ds.tp, "int");
+    setText("detailSl", ds.sl, "int");
+
+    setText("detailQtyRakuten", ds.qtyRakuten, "int");
+    setText("detailPlRakuten", ds.plRakuten, "yen");
+    setText("detailLossRakuten", ds.lossRakuten, "yen");
+    document.getElementById("detailReasonRakuten").textContent =
+      ds.reasonRakuten || "";
+
+    setText("detailQtyMatsui", ds.qtyMatsui, "int");
+    setText("detailPlMatsui", ds.plMatsui, "yen");
+    setText("detailLossMatsui", ds.lossMatsui, "yen");
+    document.getElementById("detailReasonMatsui").textContent =
+      ds.reasonMatsui || "";
+
+    const qtyTotal =
+      (Number(ds.qtyRakuten || 0) || 0) + (Number(ds.qtyMatsui || 0) || 0);
+    const plTotal =
+      (Number(ds.plRakuten || 0) || 0) + (Number(ds.plMatsui || 0) || 0);
+    const lossTotal =
+      (Number(ds.lossRakuten || 0) || 0) + (Number(ds.lossMatsui || 0) || 0);
+
+    setText("detailQtyTotal", qtyTotal, "int");
+    setText("detailPlTotal", plTotal, "yen");
+    setText("detailLossTotal", lossTotal, "yen");
+
+    const ul = document.getElementById("detailReasons");
+    ul.innerHTML = "";
+    if (ds.reasons){
+      ds.reasons.split("||").forEach(function(t){
+        t = (t || "").trim();
+        if (!t) return;
+        const li = document.createElement("li");
+        li.textContent = t;
+        ul.appendChild(li);
+      });
+    }
+    document.getElementById("detailConcern").textContent =
+      ds.concern || "";
+
+    modal.classList.add("open");
+    body.classList.add("modal-open");
   }
 
   function closeModal(){
-    modal.classList.remove("show");
-    document.body.classList.remove("modal-open");
+    modal.classList.remove("open");
+    body.classList.remove("modal-open");
   }
 
-  pickRows.forEach(row => {
+  table.querySelectorAll("tbody tr").forEach(function(row){
     row.addEventListener("click", function(){
-      openModalForRow(this);
+      if (!this.dataset.code) return;  // empty-row guard
+      openModal(this);
     });
   });
 
-  if (mClose) {
-    mClose.addEventListener("click", closeModal);
-  }
-  if (modal) {
-    modal.addEventListener("click", function(e){
-      if (e.target === modal){
-        closeModal();
-      }
-    });
-
-    modal.addEventListener("touchmove", function(e){
-      if (e.target === modal){
-        e.preventDefault();
-      }
-    }, { passive:false });
+  modal.addEventListener("click", function(e){
+    if (e.target === modal){
+      closeModal();
+    }
+  });
+  if (closeBtn){
+    closeBtn.addEventListener("click", closeModal);
   }
 })();
 </script>
