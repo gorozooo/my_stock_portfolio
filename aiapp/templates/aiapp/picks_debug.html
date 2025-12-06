@@ -201,17 +201,19 @@
     background:rgba(15,23,42,.9);
   }
 
-  /* ===== 2 カラムカードレイアウト ===== */
+    /* ===== 2 カラムカードレイアウト ===== */
   .detail-grid{
     display:grid;
-    grid-template-columns:1fr;
+    grid-template-columns:1fr 1fr;   /* ← 最初から 2 カラム固定 */
     gap:12px;
     margin-top:8px;
     margin-bottom:16px;
   }
-  @media (min-width:480px){
+
+  /* もし超細長い端末（横幅 360px 未満）が来たら 1 カラムに落とす保険 */
+  @media (max-width: 360px){
     .detail-grid{
-      grid-template-columns:1fr 1fr;  /* 2列 */
+      grid-template-columns:1fr;
     }
   }
 
