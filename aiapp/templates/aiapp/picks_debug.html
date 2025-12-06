@@ -158,9 +158,9 @@
     background:var(--card);
     border-radius:18px 18px 0 0;
     box-shadow:0 -18px 45px rgba(0,0,0,.7);
-    padding:20px 18px 28px;
-    padding-bottom:calc(24px + env(safe-area-inset-bottom, 0px));
-    padding-top:calc(24px + env(safe-area-inset-top, 0px));
+    padding:16px 16px 20px;
+    padding-top:calc(16px + env(safe-area-inset-top, 0px));
+    padding-bottom:calc(20px + env(safe-area-inset-bottom, 0px));
     max-height:calc(100vh - 32px);
     overflow-y:auto;
     overscroll-behavior:contain;
@@ -175,7 +175,7 @@
     font-size:20px;
   }
   .modal-header{
-    margin-bottom:10px;
+    margin-bottom:6px;
   }
   .modal-title{
     font-size:18px;
@@ -186,7 +186,7 @@
     font-size:12px;
     color:var(--sub);
     margin-top:2px;
-    margin-bottom:8px;
+    margin-bottom:6px;
   }
   .modal-top-badges{
     display:flex;
@@ -202,42 +202,44 @@
   }
 
   .detail-section{
-    margin-top:12px;
+    margin:6px 0;
   }
   .section-title{
     font-size:13px;
     font-weight:600;
-    padding-top:8px;
-    margin:0 0 6px;
+    padding-top:6px;
+    margin:0 0 4px;
     border-top:1px solid rgba(148,163,184,.25);
   }
   .kv-row{
     display:flex;
     justify-content:space-between;
+    align-items:baseline;
     font-size:13px;
-    padding:2px 0;
+    line-height:1.2;
+    padding:1px 0;
   }
   .kv-row span:first-child{
     color:var(--sub);
   }
   .kv-row-total{
-    margin-top:4px;
+    margin-top:2px;
     font-weight:600;
   }
   .broker-label{
-    margin-top:6px;
+    margin-top:4px;
     font-size:12px;
     font-weight:600;
   }
   .broker-note{
     font-size:11px;
     color:var(--sub);
-    margin-top:2px;
-    line-height:1.4;
+    margin-top:1px;
+    line-height:1.35;
   }
   .reason-block{
     font-size:12px;
-    line-height:1.5;
+    line-height:1.45;
   }
   .reason-subtitle{
     font-weight:600;
@@ -278,59 +280,6 @@
       text-align:right;
     }
   }
-  
-  /* ===== 詳細モーダル：価格・指標 / 数量・想定PL を詰める ===== */
-
-/* セクション全体の余白を少しだけに */
-.detail-section {
-  margin-top: 8px;
-  margin-bottom: 8px;
-}
-
-/* 見出し（「価格・指標」「数量・想定PL」「理由」など） */
-.detail-section-title{
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-
-/* 1行分（ラベル＋値）のレイアウトをコンパクトに */
-.detail-row{
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
-  padding: 1px 0;        /* 行の上下をかなり詰める */
-  font-size: 13px;
-  line-height: 1.25;
-}
-
-/* 左側のラベル */
-.detail-label{
-  flex: 0 0 auto;
-  min-width: 60px;       /* 「現在値」「想定損失 合計」などが折れない程度に */
-}
-
-/* 右側の数値 */
-.detail-value{
-  flex: 1 0 auto;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-/* 「楽天証券」「松井証券」「数量 合計」みたいな小見出し行を少しだけ離す */
-.detail-subtitle{
-  margin-top: 4px;
-  margin-bottom: 2px;
-  font-size: 12px;
-  opacity: .9;
-}
-
-/* 価格・指標ブロックと数量・想定PLブロックの間も少しだけ詰める */
-.detail-block-group{
-  margin-top: 4px;
-  margin-bottom: 4px;
-}
 </style>
 {% endblock %}
 
