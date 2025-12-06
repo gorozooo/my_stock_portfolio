@@ -278,6 +278,59 @@
       text-align:right;
     }
   }
+  
+  /* ===== 詳細モーダル：価格・指標 / 数量・想定PL を詰める ===== */
+
+/* セクション全体の余白を少しだけに */
+.detail-section {
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+/* 見出し（「価格・指標」「数量・想定PL」「理由」など） */
+.detail-section-title{
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+/* 1行分（ラベル＋値）のレイアウトをコンパクトに */
+.detail-row{
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 1px 0;        /* 行の上下をかなり詰める */
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+/* 左側のラベル */
+.detail-label{
+  flex: 0 0 auto;
+  min-width: 60px;       /* 「現在値」「想定損失 合計」などが折れない程度に */
+}
+
+/* 右側の数値 */
+.detail-value{
+  flex: 1 0 auto;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 「楽天証券」「松井証券」「数量 合計」みたいな小見出し行を少しだけ離す */
+.detail-subtitle{
+  margin-top: 4px;
+  margin-bottom: 2px;
+  font-size: 12px;
+  opacity: .9;
+}
+
+/* 価格・指標ブロックと数量・想定PLブロックの間も少しだけ詰める */
+.detail-block-group{
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
 </style>
 {% endblock %}
 
