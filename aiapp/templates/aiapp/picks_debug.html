@@ -291,21 +291,22 @@
           <div class="title">最終更新: {{ updated_at_label }}</div>
         {% endif %}
 
+        <!-- モード / ユニバース -->
         <div class="meta">
           <span>モード: {{ meta.style|default:"aggressive" }}/{{ meta.horizon|default:"short" }}</span>
           <span>ユニバース: {{ meta.universe|default:"(不明)" }}</span>
           <span>TopK: {{ meta.topk|default:0 }}</span>
         </div>
 
+        <!-- 件数まわり（総件数 / 対象件数） -->
         <div class="meta">
-          {% with total_all=meta.stockmaster_total|default:meta.universe_count|default:meta.total %}
-            総件数（ユニバース内）: {{ total_all|default:0|intcomma }} 件
-          {% endwith %}
+          総件数（ユニバース内）: {{ master_total|default:0|intcomma }} 件
         </div>
         <div class="meta">
           対象件数（フィルタ後・評価対象）: {{ meta.total|default:0|intcomma }} 件
         </div>
 
+        <!-- フィルタ削除件数（日本語ラベル） -->
         {% if filter_stats %}
           <div class="meta">
             削除された銘柄:
@@ -368,7 +369,7 @@
               data-pl-matsui="{{ it.est_pl_matsui|default:'' }}"
               data-loss-matsui="{{ it.est_loss_matsui|default:'' }}"
               data-reason-matsui="{{ it.reason_matsui|default:'' }}"
-              data-reasons="{% if it.reason_lines_display %}{{ it.reason_lines_display|join:'||' }}{% else %}{% endif %}"
+              data-reasons="{% if it.reason_lines %}{{ it.reason_lines|join:'||' }}{% else %}{% endif %}"
               data-concern="{{ it.reason_concern|default:'' }}"
           >
             <td class="code">{{ it.code }}</td>
@@ -577,7 +578,7 @@
 
   table.querySelectorAll("tbody tr").forEach(function(row){
     row.addEventListener("click", function(){
-      if (!this.dataset.code) return;  // empty-row guard
+      if (!this.dataset.code) return;
       openModal(this);
     });
   });
