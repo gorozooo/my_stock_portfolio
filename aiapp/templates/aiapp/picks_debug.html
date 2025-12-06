@@ -158,7 +158,7 @@
     line-height:1.5;
   }
 
-  /* ===== 理由ブロック（元のレイアウトをそのまま再利用） ===== */
+  /* ===== 理由ブロック ===== */
   .reason-block{
     font-size:11px;
     color:#cbd5f5;
@@ -183,7 +183,6 @@
     margin:0 0 4px;
   }
 
-  /* hidden 行はテーブル上では非表示 */
   tr.reason-source-row{
     display:none;
   }
@@ -209,9 +208,12 @@
     background:var(--card);
     border-radius:18px 18px 0 0;
     box-shadow:0 -18px 45px rgba(0,0,0,.7);
-    padding:14px 16px 22px;
-    max-height:85vh;
+    padding:14px 16px 32px;
+    /* 下タブ + セーフエリア分だけ余白を増やして、最後まで読めるように */
+    padding-bottom:calc(32px + env(safe-area-inset-bottom, 0px) + 60px);
+    max-height:calc(100vh - 24px);
     overflow-y:auto;
+    overscroll-behavior:contain;
   }
   .modal-header{
     display:flex;
@@ -276,14 +278,12 @@
     text-align:right;
   }
 
-  /* ===== 背景スクロールロック用 ===== */
   body.modal-open{
     overflow:hidden;
     overscroll-behavior:none;
     touch-action:none;
   }
 
-  /* ===== スマホ幅調整 ===== */
   @media (max-width: 480px){
     .head-top{
       align-items:flex-start;
@@ -324,14 +324,12 @@
           <div class="title">AI Picks 診断ビュー</div>
         {% endif %}
 
-        <!-- モード / ユニバース -->
         <div class="meta">
           <span>モード: {{ meta.style|default:"aggressive" }}/{{ meta.horizon|default:"short" }}</span>
           <span>ユニバース: {{ meta.universe|default:"(不明)" }}</span>
           <span>TopK: {{ meta.topk|default:0 }}</span>
         </div>
 
-        <!-- 件数まわり（総件数 / 対象件数） -->
         <div class="meta">
           {% with total_all=meta.stockmaster_total|default:meta.total %}
             <span>総件数（ユニバース内）: {{ total_all|default:0|intcomma }} 件</span>
@@ -341,7 +339,6 @@
           対象件数（フィルタ後・評価対象）: {{ meta.total|default:0|intcomma }} 件
         </div>
 
-        <!-- フィルタ削除件数（日本語ラベル） -->
         {% if filter_stats %}
           <div class="meta">
             削除された銘柄:
@@ -424,7 +421,6 @@
             </td>
           </tr>
 
-          <!-- 理由ブロックのソース（テーブルでは非表示） -->
           <tr class="reason-source-row">
             <td colspan="3">
               <div class="reason-block-source">
@@ -492,7 +488,6 @@
 
 </div>
 
-<!-- ===== モーダル本体 ===== -->
 <div id="pickModal" class="modal-backdrop">
   <div class="modal-card">
     <div class="modal-header">
@@ -549,7 +544,6 @@
   const pickRows = Array.from(table.querySelectorAll("tbody tr.pick-row"));
   const allRows = Array.from(table.querySelectorAll("tbody tr"));
 
-  // ===== フィルタ =====
   if (input) {
     input.addEventListener("input", function(){
       const q = this.value.trim().toLowerCase();
@@ -569,13 +563,12 @@
         row.style.display = show ? "" : "none";
         const src = row.nextElementSibling;
         if (src && src.classList.contains("reason-source-row")) {
-          src.style.display = "none";  // 常に非表示
+          src.style.display = "none";
         }
       });
     });
   }
 
-  // ===== モーダル =====
   const modal = document.getElementById("pickModal");
   const mClose = document.getElementById("mClose");
 
@@ -647,7 +640,6 @@
     mPl.textContent = fmtSigned(ds.plTotal);
     mLoss.textContent = fmtSigned(ds.lossTotal);
 
-    // 理由（hidden 行から HTML をコピー）
     let reasonHtml = "";
     const src = row.nextElementSibling;
     if (src && src.classList.contains("reason-source-row")) {
@@ -683,7 +675,6 @@
       }
     });
 
-    // 背景スクロール防止（モーダル外タッチのみ抑止）
     modal.addEventListener("touchmove", function(e){
       if (e.target === modal){
         e.preventDefault();
