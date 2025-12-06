@@ -21,29 +21,29 @@ PICKS_DIR = Path("media/aiapp/picks")
 @dataclass
 class PickDebugItem:
     code: str
-    name: str | None = None
-    sector_display: str | None = None
+    name: Optional[str] = None
+    sector_display: Optional[str] = None
 
-    last_close: float | None = None
-    atr: float | None = None
+    last_close: Optional[float] = None
+    atr: Optional[float] = None
 
-    entry: float | None = None
-    tp: float | None = None
-    sl: float | None = None
+    entry: Optional[float] = None
+    tp: Optional[float] = None
+    sl: Optional[float] = None
 
-    score: float | None = None
-    score_100: int | None = None
-    stars: int | None = None
+    score: Optional[float] = None
+    score_100: Optional[int] = None
+    stars: Optional[int] = None
 
-    qty_rakuten: int | None = None
-    required_cash_rakuten: float | None = None
-    est_pl_rakuten: float | None = None
-    est_loss_rakuten: float | None = None
+    qty_rakuten: Optional[int] = None
+    required_cash_rakuten: Optional[float] = None
+    est_pl_rakuten: Optional[float] = None
+    est_loss_rakuten: Optional[float] = None
 
-    qty_matsui: int | None = None
-    required_cash_matsui: float | None = None
-    est_pl_matsui: float | None = None
-    est_loss_matsui: float | None = None
+    qty_matsui: Optional[int] = None
+    required_cash_matsui: Optional[float] = None
+    est_pl_matsui: Optional[float] = None
+    est_loss_matsui: Optional[float] = None
 
     # 合計系（ビュー側で計算して詰める）
     qty_total: Optional[float] = None
@@ -51,14 +51,14 @@ class PickDebugItem:
     loss_total: Optional[float] = None
 
     # 理由系
-    reasons_text: Optional[list[str]] = None          # sizing_service 側の共通メッセージ
-    reason_lines: Optional[list[str]] = None          # reasons サービスの「選定理由」最大5行
+    reasons_text: Optional[List[str]] = None          # sizing_service 側の共通メッセージ
+    reason_lines: Optional[List[str]] = None          # reasons サービスの「選定理由」最大5行
     reason_concern: Optional[str] = None              # 懸念ポイント1行
     reason_rakuten: Optional[str] = None              # 楽天だけ0株の理由など
     reason_matsui: Optional[str] = None               # 松井だけ0株の理由など
 
 
-def _normalize_str_list(v: Any) -> Optional[list[str]]:
+def _normalize_str_list(v: Any) -> Optional[List[str]]:
     """
     JSON 側から来る文字列 or 配列を「文字列リスト」に正規化。
     """
@@ -68,7 +68,7 @@ def _normalize_str_list(v: Any) -> Optional[list[str]]:
         s = v.strip()
         return [s] if s else None
     if isinstance(v, (list, tuple)):
-        out: list[str] = []
+        out: List[str] = []
         for x in v:
             if x is None:
                 continue
@@ -130,8 +130,10 @@ def _load_json(
     for row in raw_items:
         # row は picks_build の asdict(PickItem) 相当の dict
         try:
+            # ----- 理由系 -----
             reason_lines = _normalize_str_list(row.get("reason_lines"))
             reasons_text = _normalize_str_list(row.get("reasons_text"))
+
             reason_concern_raw = row.get("reason_concern")
             reason_concern = str(reason_concern_raw).strip() if reason_concern_raw else None
 
@@ -140,6 +142,7 @@ def _load_json(
             reason_rakuten = str(reason_rakuten_raw).strip() if reason_rakuten_raw else None
             reason_matsui = str(reason_matsui_raw).strip() if reason_matsui_raw else None
 
+            # ----- 数量・PL -----
             qty_rakuten = _to_int(row.get("qty_rakuten"))
             qty_matsui = _to_int(row.get("qty_matsui"))
             est_pl_rakuten = _to_float(row.get("est_pl_rakuten"))
@@ -174,7 +177,7 @@ def _load_json(
                 reason_matsui=reason_matsui,
             )
 
-            # 合計値をビュー側で計算しておく（テンプレートでそのまま使えるように）
+            # ----- 合計値（ビュー側で計算） -----
             qr = qty_rakuten or 0
             qm = qty_matsui or 0
             if qr or qm:
@@ -182,12 +185,12 @@ def _load_json(
 
             pl_r = est_pl_rakuten or 0.0
             pl_m = est_pl_matsui or 0.0
-            if (pl_r or pl_m):
+            if pl_r or pl_m:
                 it.pl_total = pl_r + pl_m
 
             loss_r = est_loss_rakuten or 0.0
             loss_m = est_loss_matsui or 0.0
-            if (loss_r or loss_m):
+            if loss_r or loss_m:
                 it.loss_total = loss_r + loss_m
 
             items.append(it)
@@ -221,13 +224,13 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
 
     meta, items, updated_at_label, source_file = _load_json(kind=kind)
 
-    # 総StockMaster件数（picks_build 側で universe_count として埋めている想定）
-    master_total = meta.get("universe_count")
-    if master_total is not None:
-        # テンプレ側の {{ meta.stockmaster_total }} で拾えるようにコピー
-        meta["stockmaster_total"] = master_total
+    # ===== 総件数（ユニバース内） =====
+    stockmaster_total = meta.get("stockmaster_total")
+    universe_count = meta.get("universe_count")
+    total = meta.get("total")
+    master_total = stockmaster_total or universe_count or total or 0
 
-    # フィルタ別削除件数（dict: reason_code -> count）
+    # ===== フィルタ別削除件数（dict: reason_code -> count） =====
     raw_filter_stats = meta.get("filter_stats") or {}
     filter_stats_raw: Dict[str, int] = {}
     if isinstance(raw_filter_stats, dict):
@@ -237,7 +240,7 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
             except Exception:
                 continue
 
-    # 理由コード → 日本語ラベル（ビュー側で日本語化してテンプレにはラベルだけ渡す）
+    # 理由コード → 日本語ラベル
     LABELS: Dict[str, str] = {
         "LOW_TURNOVER": "出来高が少なく除外",
         "TOO_VOLATILE": "価格変動が激しすぎて除外",
@@ -260,5 +263,6 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
         "updated_at_label": updated_at_label,
         "source_file": source_file,
         "filter_stats": filter_stats_jp,
+        "master_total": master_total,
     }
     return render(request, "aiapp/picks_debug.html", ctx)
