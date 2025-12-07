@@ -381,7 +381,12 @@ class PickItem:
     required_cash_matsui: Optional[float] = None
     est_pl_matsui: Optional[float] = None
     est_loss_matsui: Optional[float] = None
-
+  
+    qty_sbi: Optional[int] = None
+    required_cash_sbi: Optional[float] = None
+    est_pl_sbi: Optional[float] = None
+    est_loss_sbi: Optional[float] = None
+    
     # sizing_service 側で組んだ共通メッセージ（両方0株など）
     reasons_text: Optional[List[str]] = None
 
@@ -392,7 +397,8 @@ class PickItem:
     # 証券会社別の見送り理由（qty=0 のときだけ使用）
     reason_rakuten: Optional[str] = None
     reason_matsui: Optional[str] = None
-
+    reason_sbi: Optional[str] = None
+    
 
 # =========================================================
 # 1銘柄処理
@@ -515,15 +521,23 @@ def _work_one(
             sl=s,
         )
 
+        # 楽天
         item.qty_rakuten = sizing.get("qty_rakuten")
         item.required_cash_rakuten = sizing.get("required_cash_rakuten")
         item.est_pl_rakuten = sizing.get("est_pl_rakuten")
         item.est_loss_rakuten = sizing.get("est_loss_rakuten")
 
+        # 松井
         item.qty_matsui = sizing.get("qty_matsui")
         item.required_cash_matsui = sizing.get("required_cash_matsui")
         item.est_pl_matsui = sizing.get("est_pl_matsui")
         item.est_loss_matsui = sizing.get("est_loss_matsui")
+
+        # ★ SBI
+        item.qty_sbi = sizing.get("qty_sbi")
+        item.required_cash_sbi = sizing.get("required_cash_sbi")
+        item.est_pl_sbi = sizing.get("est_pl_sbi")
+        item.est_loss_sbi = sizing.get("est_loss_sbi")
 
         # 共通メッセージ
         reasons_text = sizing.get("reasons_text")
@@ -532,6 +546,7 @@ def _work_one(
         # 証券会社別の見送り理由（0株のときにテンプレートが表示）
         item.reason_rakuten = sizing.get("reason_rakuten_msg") or ""
         item.reason_matsui = sizing.get("reason_matsui_msg") or ""
+        item.reason_sbi = sizing.get("reason_sbi_msg") or ""
 
         sizing_meta = {
             "risk_pct": sizing.get("risk_pct"),
