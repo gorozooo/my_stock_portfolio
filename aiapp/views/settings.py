@@ -200,6 +200,8 @@ def settings_view(request: HttpRequest) -> HttpResponse:
     haircut_rakuten = us.haircut_rakuten
     leverage_matsui = us.leverage_matsui
     haircut_matsui = us.haircut_matsui
+    leverage_sbi = us.leverage_sbi
+    haircut_sbi = us.haircut_sbi
 
     # ------------------------------------------------------------------ POST
     if request.method == "POST":
@@ -237,6 +239,8 @@ def settings_view(request: HttpRequest) -> HttpResponse:
             haircut_rakuten = parse_float("haircut_rakuten", haircut_rakuten)
             leverage_matsui = parse_float("leverage_matsui", leverage_matsui)
             haircut_matsui = parse_float("haircut_matsui", haircut_matsui)
+            leverage_sbi = parse_float("leverage_sbi", leverage_sbi)
+            haircut_sbi = parse_float("haircut_sbi", haircut_sbi)
 
             us.leverage_rakuten = leverage_rakuten
             us.haircut_rakuten = haircut_rakuten
