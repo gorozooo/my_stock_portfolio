@@ -3,7 +3,7 @@
 """
 AI Picks 用 ポジションサイズ計算サービス（短期×攻め・本気版）
 
-- 楽天 / 松井 の 2段出力
+- 楽天 / 松井 / SBI の 3段出力
 - UserSetting.risk_pct と 各社倍率/ヘアカットを利用
 - broker_summary.compute_broker_summaries() の結果に合わせて
     - 資産ベース: 現金残高 + 現物（特定）評価額
@@ -102,9 +102,10 @@ def _get_or_default_user() -> Any:
     return User.objects.first()
 
 
-def _load_user_setting(user) -> Tuple[float, float, float, float, float, float]:
+def _load_user_setting(user) -> Tuple[float, float, float, float, float, float, float, float]:
     """
-    UserSetting を取得し、リスク％・信用余力使用上限％と各社倍率/ヘアカットを返す。
+    UserSetting を取得し、リスク％・信用余力使用上限％と
+    各社倍率/ヘアカット（楽天・松井・SBI）を返す。
     """
     us, _created = UserSetting.objects.get_or_create(
         user=user,
@@ -124,6 +125,8 @@ def _load_user_setting(user) -> Tuple[float, float, float, float, float, float]:
     rakuten_haircut = getattr(us, "haircut_rakuten", 0.30)
     matsui_leverage = getattr(us, "leverage_matsui", 2.80)
     matsui_haircut = getattr(us, "haircut_matsui", 0.00)
+    sbi_leverage = getattr(us, "leverage_sbi", 2.80)
+    sbi_haircut = getattr(us, "haircut_sbi", 0.30)
 
     return (
         risk_pct,
@@ -132,6 +135,8 @@ def _load_user_setting(user) -> Tuple[float, float, float, float, float, float]:
         rakuten_haircut,
         matsui_leverage,
         matsui_haircut,
+        sbi_leverage,
+        sbi_haircut,
     )
 
 
@@ -143,10 +148,12 @@ def _build_broker_envs(
     rakuten_haircut: float,
     matsui_leverage: float,
     matsui_haircut: float,
+    sbi_leverage: float,
+    sbi_haircut: float,
 ) -> Dict[str, BrokerEnv]:
     """
     broker_summary.compute_broker_summaries() から
-    楽天 / 松井 の現金・現物評価額・信用余力を引き出して、扱いやすい dict へ。
+    楽天 / 松井 / SBI の現金・現物評価額・信用余力を引き出して、扱いやすい dict へ。
     """
     summaries = compute_broker_summaries(
         user=user,
@@ -213,7 +220,7 @@ def _build_reason_for_zero(
 ) -> str:
     """
     qty=0 になったときの「なぜゼロなのか」を細かく判定して日本語メッセージを返す。
-    label: "楽天" / "松井"
+    label: "楽天" / "松井" / "SBI"
     """
     if budget <= 0:
         return "信用余力が 0 円のため。"
@@ -264,6 +271,8 @@ def compute_position_sizing(
         rakuten_haircut,
         matsui_leverage,
         matsui_haircut,
+        sbi_leverage,
+        sbi_haircut,
     ) = _load_user_setting(user)
 
     lot = _lot_size_for(code)
@@ -277,24 +286,32 @@ def compute_position_sizing(
         or tp is None
         or sl is None
     ):
+        msg = "価格またはボラティリティ指標が不足しているため。"
         return dict(
             qty_rakuten=0,
             required_cash_rakuten=0,
             est_pl_rakuten=0,
             est_loss_rakuten=0,
             reason_rakuten_code="invalid_data",
-            reason_rakuten_msg="価格またはボラティリティ指標が不足しているため。",
+            reason_rakuten_msg=msg,
             qty_matsui=0,
             required_cash_matsui=0,
             est_pl_matsui=0,
             est_loss_matsui=0,
             reason_matsui_code="invalid_data",
-            reason_matsui_msg="価格またはボラティリティ指標が不足しているため。",
+            reason_matsui_msg=msg,
+            qty_sbi=0,
+            required_cash_sbi=0,
+            est_pl_sbi=0,
+            est_loss_sbi=0,
+            reason_sbi_code="invalid_data",
+            reason_sbi_msg=msg,
             risk_pct=risk_pct,
             lot_size=lot,
             reasons_text=[
-                "・楽天: 価格またはボラティリティ指標が不足しているため。",
-                "・松井: 価格またはボラティリティ指標が不足しているため。",
+                f"・楽天: {msg}",
+                f"・松井: {msg}",
+                f"・SBI: {msg}",
             ],
         )
 
@@ -305,6 +322,8 @@ def compute_position_sizing(
         rakuten_haircut=rakuten_haircut,
         matsui_leverage=matsui_leverage,
         matsui_haircut=matsui_haircut,
+        sbi_leverage=sbi_leverage,
+        sbi_haircut=sbi_haircut,
     )
 
     # 1株あたりの損失幅 / 利益幅
@@ -317,7 +336,7 @@ def compute_position_sizing(
     }
 
     # 各証券会社ごとの計算
-    for broker_label, short_key in (("楽天", "rakuten"), ("松井", "matsui")):
+    for broker_label, short_key in (("楽天", "rakuten"), ("松井", "matsui"), ("SBI", "sbi")):
         env = envs.get(broker_label)
         if env is None:
             qty = 0
@@ -425,7 +444,7 @@ def compute_position_sizing(
 
     # ★ どちらか一方でも 0株なら、その証券会社分の理由を bullets としてまとめる
     reasons_lines: List[str] = []
-    for broker_label, short_key in (("楽天", "rakuten"), ("松井", "matsui")):
+    for broker_label, short_key in (("楽天", "rakuten"), ("松井", "matsui"), ("SBI", "sbi")):
         msg = result.get(f"reason_{short_key}_msg") or ""
         qty = result.get(f"qty_{short_key}", 0)
         if qty == 0 and msg:
