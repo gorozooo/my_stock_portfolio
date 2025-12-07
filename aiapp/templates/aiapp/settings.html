@@ -171,6 +171,36 @@
           </div>
         </div>
 
+        <!-- SBI -->
+        <div class="broker-block">
+          <div class="broker-title">SBI</div>
+          <div class="row">
+            <label style="font-size:14px;color:var(--sub)">倍率</label>
+            <input
+              class="inp"
+              name="leverage_sbi"
+              type="number"
+              inputmode="decimal"
+              step="0.01"
+              min="0"
+              value="{{ leverage_sbi|floatformat:2 }}"
+            >
+          </div>
+          <div class="row" style="margin-top:6px;">
+            <label style="font-size:14px;color:var(--sub)">ヘアカット</label>
+            <input
+              class="inp"
+              name="haircut_sbi"
+              type="number"
+              inputmode="decimal"
+              step="0.01"
+              min="0"
+              max="1"
+              value="{{ haircut_sbi|floatformat:2 }}"
+            >
+          </div>
+        </div>
+        
         <div style="margin-top:12px;text-align:right">
           <button class="btn" type="submit">保存</button>
         </div>
@@ -216,7 +246,7 @@
         {% endfor %}
       </div>
       <div class="msg" style="margin-top:12px">
-        ※ NISAは数量算出に含めません／SBIは今回UI表示を省略<br>
+        ※ NISAは数量算出に含めません<br>
         ※ 数値は概算です（倍率は設定値、ヘアカットは現物に適用）
       </div>
     </div>
