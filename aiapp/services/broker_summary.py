@@ -12,11 +12,12 @@ from portfolio.models import Holding
 BROKERS_UI = [
     ("RAKUTEN", "楽天"),
     ("MATSUI",  "松井"),
+    ("SBI",     "SBI"),
 ]
 
 @dataclass
 class BrokerNumbers:
-    code: Literal["RAKUTEN","MATSUI"]
+    code: Literal["RAKUTEN", "MATSUI", "SBI"]
     label: str
     cash_yen: int                     # 現金残高
     stock_acq_value: int              # 現物（特定）取得額
@@ -27,6 +28,7 @@ class BrokerNumbers:
     credit_limit: int                 # 信用枠（概算）
     credit_yoryoku: int               # 信用余力（概算）
     note: str | None                  # 注記
+
 
 def _cash_balance_yen(broker_label_jp: str) -> int:
     """
@@ -40,6 +42,7 @@ def _cash_balance_yen(broker_label_jp: str) -> int:
     ledg = CashLedger.objects.filter(account__in=accounts).aggregate(total=Sum("amount"))["total"] or 0
     return int(base + ledg)
 
+
 def _stock_numbers_for(broker_code: str) -> Dict[str, int]:
     """現物（特定）の取得額/評価額、信用建玉（MARGIN）の評価額を集計。"""
     # 現物（特定）
@@ -52,21 +55,30 @@ def _stock_numbers_for(broker_code: str) -> Dict[str, int]:
     used = 0
     for h in qs_m.only("quantity", "last_price"):
         qty = abs(int(h.quantity or 0))
-        px  = float(h.last_price or 0)
+        px = float(h.last_price or 0)
         used += int(qty * px)
 
     return {"acq": int(acq), "eval": int(evalv), "margin_used": int(used)}
 
+
 def compute_broker_summaries(
-    *, user, risk_pct: float,
-    rakuten_leverage: float, rakuten_haircut: float,
-    matsui_leverage: float, matsui_haircut: float
+    *,
+    user,
+    risk_pct: float,
+    rakuten_leverage: float,
+    rakuten_haircut: float,
+    matsui_leverage: float,
+    matsui_haircut: float,
+    sbi_leverage: float | None = None,
+    sbi_haircut: float | None = None,
 ) -> List[BrokerNumbers]:
     """
     概算ルール
-      base（楽天/松井） = 現金 + 現物取得額*(1-ヘアカット)
-      信用枠            = base * 倍率
-      信用余力          = max(0, 信用枠 - 信用建玉評価額合計)
+      base（楽天/松井/SBI） = 現金 + 現物取得額*(1-ヘアカット)
+      信用枠                  = base * 倍率
+      信用余力                = max(0, 信用枠 - 信用建玉評価額合計)
+
+    ※ sbi_leverage / sbi_haircut は省略可（None の場合はデフォルト値を使用）。
     """
     out: List[BrokerNumbers] = []
 
@@ -79,10 +91,23 @@ def compute_broker_summaries(
 
         if code == "RAKUTEN":
             lev = float(rakuten_leverage or 2.9)
-            hc  = float(rakuten_haircut or 0.30)
-        else:
+            hc = float(rakuten_haircut or 0.30)
+
+        elif code == "MATSUI":
             lev = float(matsui_leverage or 2.8)
-            hc  = float(matsui_haircut or 0.0)
+            hc = float(matsui_haircut or 0.0)
+
+        elif code == "SBI":
+            # 引数が None の場合はデフォルト値で補完
+            base_lev = sbi_leverage if sbi_leverage is not None else 2.8
+            base_hc = sbi_haircut if sbi_haircut is not None else 0.30
+            lev = float(base_lev or 2.8)
+            hc = float(base_hc or 0.30)
+
+        else:
+            # 想定外コードが来た場合のフォールバック
+            lev = 2.8
+            hc = 0.0
 
         base = cash_yen + int(acq * (1.0 - hc))
         limit = int(base * lev)
@@ -90,15 +115,19 @@ def compute_broker_summaries(
 
         note = f"倍率 {lev:.2f} / ヘアカット {hc:.2f}"
 
-        out.append(BrokerNumbers(
-            code=code, label=label,
-            cash_yen=int(cash_yen),
-            stock_acq_value=int(acq),
-            stock_eval_value=int(evalv),
-            margin_used_eval=int(used),
-            leverage=lev, haircut=hc,
-            credit_limit=int(limit),
-            credit_yoryoku=int(yoryoku),
-            note=note,
-        ))
+        out.append(
+            BrokerNumbers(
+                code=code,
+                label=label,
+                cash_yen=int(cash_yen),
+                stock_acq_value=int(acq),
+                stock_eval_value=int(evalv),
+                margin_used_eval=int(used),
+                leverage=lev,
+                haircut=hc,
+                credit_limit=int(limit),
+                credit_yoryoku=int(yoryoku),
+                note=note,
+            )
+        )
     return out
