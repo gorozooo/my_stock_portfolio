@@ -15,6 +15,7 @@ BROKERS_UI = [
     ("SBI",     "SBI"),
 ]
 
+
 @dataclass
 class BrokerNumbers:
     code: Literal["RAKUTEN", "MATSUI", "SBI"]
@@ -69,8 +70,8 @@ def compute_broker_summaries(
     rakuten_haircut: float,
     matsui_leverage: float,
     matsui_haircut: float,
-    sbi_leverage: float | None = None,
-    sbi_haircut: float | None = None,
+    sbi_leverage: float,
+    sbi_haircut: float,
 ) -> List[BrokerNumbers]:
     """
     概算ルール
@@ -78,7 +79,7 @@ def compute_broker_summaries(
       信用枠                  = base * 倍率
       信用余力                = max(0, 信用枠 - 信用建玉評価額合計)
 
-    ※ sbi_leverage / sbi_haircut は省略可（None の場合はデフォルト値を使用）。
+    ※ 3社とも「倍率 / ヘアカット」を同条件で扱う。
     """
     out: List[BrokerNumbers] = []
 
@@ -98,11 +99,9 @@ def compute_broker_summaries(
             hc = float(matsui_haircut or 0.0)
 
         elif code == "SBI":
-            # 引数が None の場合はデフォルト値で補完
-            base_lev = sbi_leverage if sbi_leverage is not None else 2.8
-            base_hc = sbi_haircut if sbi_haircut is not None else 0.30
-            lev = float(base_lev or 2.8)
-            hc = float(base_hc or 0.30)
+            # 他の証券と同じルールで倍率/ヘアカットを利用
+            lev = float(sbi_leverage or 2.8)
+            hc = float(sbi_haircut or 0.30)
 
         else:
             # 想定外コードが来た場合のフォールバック
