@@ -242,6 +242,8 @@ def settings_view(request: HttpRequest) -> HttpResponse:
             us.haircut_rakuten = haircut_rakuten
             us.leverage_matsui = leverage_matsui
             us.haircut_matsui = haircut_matsui
+            us.leverage_sbi = leverage_sbi
+            us.haircut_sbi = haircut_sbi
             us.save()
 
             # ポリシーファイルへ反映（ポリシーを真実ソースに保つ）
@@ -303,6 +305,8 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         rakuten_haircut=haircut_rakuten,
         matsui_leverage=leverage_matsui,
         matsui_haircut=haircut_matsui,
+        sbi_leverage=leverage_sbi,
+        sbi_haircut=haircut_sbi,
     )
 
     ctx = {
@@ -314,6 +318,8 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         "haircut_rakuten": haircut_rakuten,
         "leverage_matsui": leverage_matsui,
         "haircut_matsui": haircut_matsui,
+        "leverage_sbi": leverage_sbi,
+        "haircut_sbi": haircut_sbi,
 
         "brokers": brokers,
         # 拡張タブ用：ポリシーの中身（常に最新を表示）
