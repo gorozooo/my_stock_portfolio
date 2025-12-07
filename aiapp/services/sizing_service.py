@@ -155,6 +155,8 @@ def _build_broker_envs(
         rakuten_haircut=rakuten_haircut,
         matsui_leverage=matsui_leverage,
         matsui_haircut=matsui_haircut,
+        sbi_leverage=sbi_leverage,
+        sbi_haircut=sbi_haircut,
     )
 
     envs: Dict[str, BrokerEnv] = {}
