@@ -135,14 +135,14 @@
   /* 銘柄名セル：横幅を制限して Score が常に見えるようにする */
   .td-name-main{
     display:block;
-    max-width:160px;          /* ここで銘柄名の最大幅を制限 */
+    max-width:160px;
     overflow:hidden;
-    text-overflow:ellipsis;   /* 「…」で省略 */
+    text-overflow:ellipsis;
     white-space:nowrap;
   }
   @media (max-width:480px){
     .td-name-main{
-      max-width:140px;        /* iPhone 幅では少しタイトに */
+      max-width:140px;
     }
   }
 
@@ -431,6 +431,11 @@
               data-loss-matsui="{{ it.est_loss_matsui|default:'' }}"
               data-cash-matsui="{{ it.required_cash_matsui|default:'' }}"
               data-reason-matsui="{{ it.reason_matsui|default:'' }}"
+              data-qty-sbi="{{ it.qty_sbi|default:'' }}"
+              data-pl-sbi="{{ it.est_pl_sbi|default:'' }}"
+              data-loss-sbi="{{ it.est_loss_sbi|default:'' }}"
+              data-cash-sbi="{{ it.required_cash_sbi|default:'' }}"
+              data-reason-sbi="{{ it.reason_sbi|default:'' }}"
               data-reasons="{% if it.reason_lines %}{{ it.reason_lines|join:'||' }}{% else %}{% endif %}"
               data-concern="{{ it.reason_concern|default:'' }}"
           >
@@ -462,7 +467,8 @@
 
   <div class="foot-note">
     ・行をタップすると、数量・想定PL・理由などの詳細がモーダルで表示されます。<br>
-    ・score / ⭐ / 数量 / 想定PL が想定とズレていないか確認できます。
+    ・score / ⭐ / 数量 / 想定PL が想定とズレていないか確認できます。<br>
+    ・楽天 / 松井 / SBI の3社分を一度にチェックできます。
   </div>
 
 </div>
@@ -502,6 +508,10 @@
           <div class="detail-label">松井</div>
           <div class="detail-value" id="detailQtyMatsui">–</div>
         </div>
+        <div class="detail-row">
+          <div class="detail-label">SBI</div>
+          <div class="detail-value" id="detailQtySbi">–</div>
+        </div>
         <div class="detail-row detail-row-strong">
           <div class="detail-label">合計</div>
           <div class="detail-value" id="detailQtyTotal">–</div>
@@ -536,6 +546,10 @@
           <div class="detail-label">松井</div>
           <div class="detail-value" id="detailCashMatsui">–</div>
         </div>
+        <div class="detail-row">
+          <div class="detail-label">SBI</div>
+          <div class="detail-value" id="detailCashSbi">–</div>
+        </div>
       </div>
 
       <!-- 想定利益 -->
@@ -548,6 +562,10 @@
         <div class="detail-row">
           <div class="detail-label">松井</div>
           <div class="detail-value detail-green" id="detailPlMatsui">–</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">SBI</div>
+          <div class="detail-value detail-green" id="detailPlSbi">–</div>
         </div>
         <div class="detail-row detail-row-strong">
           <div class="detail-label">合計</div>
@@ -565,6 +583,10 @@
         <div class="detail-row">
           <div class="detail-label">松井</div>
           <div class="detail-value detail-red" id="detailLossMatsui">–</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">SBI</div>
+          <div class="detail-value detail-red" id="detailLossSbi">–</div>
         </div>
         <div class="detail-row detail-row-strong">
           <div class="detail-label">合計</div>
@@ -656,6 +678,7 @@
     // 数量
     setText("detailQtyRakuten", ds.qtyRakuten, "int");
     setText("detailQtyMatsui", ds.qtyMatsui, "int");
+    setText("detailQtySbi", ds.qtySbi, "int");
 
     // Entry / TP / SL
     setText("detailEntry", ds.entry, "int");
@@ -665,22 +688,31 @@
     // 必要資金
     setText("detailCashRakuten", ds.cashRakuten, "yen");
     setText("detailCashMatsui", ds.cashMatsui, "yen");
+    setText("detailCashSbi", ds.cashSbi, "yen");
 
     // 想定PL
     setText("detailPlRakuten", ds.plRakuten, "yen");
     setText("detailPlMatsui", ds.plMatsui, "yen");
+    setText("detailPlSbi", ds.plSbi, "yen");
 
     // 想定損失
     setText("detailLossRakuten", ds.lossRakuten, "yen");
     setText("detailLossMatsui", ds.lossMatsui, "yen");
+    setText("detailLossSbi", ds.lossSbi, "yen");
 
     // 合計
     const qtyTotal =
-      (Number(ds.qtyRakuten || 0) || 0) + (Number(ds.qtyMatsui || 0) || 0);
+      (Number(ds.qtyRakuten || 0) || 0) +
+      (Number(ds.qtyMatsui || 0) || 0) +
+      (Number(ds.qtySbi || 0) || 0);
     const plTotal =
-      (Number(ds.plRakuten || 0) || 0) + (Number(ds.plMatsui || 0) || 0);
+      (Number(ds.plRakuten || 0) || 0) +
+      (Number(ds.plMatsui || 0) || 0) +
+      (Number(ds.plSbi || 0) || 0);
     const lossTotal =
-      (Number(ds.lossRakuten || 0) || 0) + (Number(ds.lossMatsui || 0) || 0);
+      (Number(ds.lossRakuten || 0) || 0) +
+      (Number(ds.lossMatsui || 0) || 0) +
+      (Number(ds.lossSbi || 0) || 0);
 
     setText("detailQtyTotal", qtyTotal, "int");
     setText("detailPlTotal", plTotal, "yen");
