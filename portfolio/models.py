@@ -28,6 +28,9 @@ class UserSetting(models.Model):
 
     leverage_matsui  = models.FloatField("松井 倍率", default=2.80)
     haircut_matsui   = models.FloatField("松井 ヘアカット率", default=0.00)
+    
+    leverage_sbi  = models.FloatField("SBI 倍率", default=2.80)
+    haircut_sbi   = models.FloatField("SBI ヘアカット率", default=0.00)
 
     def __str__(self):
         return f"{self.user.username} 設定"
