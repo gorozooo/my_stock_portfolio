@@ -100,9 +100,10 @@
     const height = rect.height || 180;
     chartCanvas.width = width * window.devicePixelRatio;
     chartCanvas.height = height * window.devicePixelRatio;
-    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
 
-    const padX = 16;
+    // 左右の余白を少し広げて、右端に価格ラベル用スペースを確保
+    const padX = 24;
     const padY = 12;
 
     function sx(i){
@@ -118,17 +119,32 @@
     // 背景
     ctx.clearRect(0, 0, width, height);
 
-    // 補助グリッド
+    // 価格目盛り＋横グリッド
     ctx.save();
-    ctx.strokeStyle = "rgba(148,163,184,0.25)";
+    const nticks = 4; // 上・下を含めて4本
+    ctx.font = "10px -apple-system, BlinkMacSystemFont, system-ui, sans-serif";
+    ctx.fillStyle = "rgba(148,163,184,0.95)";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.strokeStyle = "rgba(51,65,85,0.7)";
     ctx.lineWidth = 1;
-    ctx.setLineDash([4,4]);
-    ctx.beginPath();
-    ctx.moveTo(padX, padY);
-    ctx.lineTo(padX, height - padY);
-    ctx.moveTo(width - padX, padY);
-    ctx.lineTo(width - padX, height - padY);
-    ctx.stroke();
+    ctx.setLineDash([2,4]);
+
+    for (let i = 0; i < nticks; i++){
+      const t = i / (nticks - 1);
+      const val = yMin + (yMax - yMin) * t;
+      const y = sy(val);
+
+      // グリッドライン
+      ctx.beginPath();
+      ctx.moveTo(padX, y);
+      ctx.lineTo(width - padX, y);
+      ctx.stroke();
+
+      // 価格ラベル（右端ちょい内側）
+      const label = Math.round(val).toLocaleString();
+      ctx.fillText(label, width - padX - 4, y);
+    }
     ctx.restore();
 
     // 終値ライン
@@ -160,7 +176,7 @@
     ctx.stroke();
     ctx.restore();
 
-    // 水平ライン描画ヘルパ
+    // Entry / TP / SL の水平ライン
     function hLine(val, color, dash){
       if (!Number.isFinite(val)) return;
       const y = sy(val);
@@ -168,7 +184,7 @@
       ctx.strokeStyle = color;
       ctx.lineWidth = 1.2;
       ctx.setLineDash(dash);
-      ctx.globalAlpha = 0.9;
+      ctx.globalAlpha = 0.95;
       ctx.beginPath();
       ctx.moveTo(padX, y);
       ctx.lineTo(width - padX, y);
@@ -176,7 +192,6 @@
       ctx.restore();
     }
 
-    // Entry / TP / SL ライン
     hLine(entry, "#e5e7eb", [3,4]);  // Entry
     hLine(tp,    "#22c55e", [5,5]);  // TP
     hLine(sl,    "#ef4444", [5,3]);  // SL
