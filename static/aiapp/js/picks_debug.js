@@ -229,23 +229,11 @@
         },
         borderWidth: 1,
         borderSkipped: false,
-        barPercentage: 0.35,
+        barPercentage: 0.45,       // 少し太めに
         categoryPercentage: 1.0,
       });
 
-      // 終値の細いライン
-      if (hasCloses) {
-        datasets.push({
-          type: "line",
-          label: "Close",
-          data: closes.map((v, idx) => ({ x: idx + 1, y: v })),
-          borderColor: "#38bdf8",
-          backgroundColor: "rgba(56, 189, 248, 0.15)",
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0.25,
-        });
-      }
+      // ★ 終値の折れ線は入れない（ローソクだけにする）
     } else if (hasCloses) {
       // OHLC が無い場合は従来どおり折れ線
       datasets.push({
@@ -292,9 +280,12 @@
             display: false,
           },
           tooltip: {
-            // ローソクのバーはツールチップ無し、線だけ表示
+            // 水平ラインと、OHLC がない場合の折れ線だけツールチップ表示
             filter: function (context) {
-              return context.dataset.type === "line";
+              const label = context.dataset.label;
+              // Wick と Candle はツールチップなし
+              if (label === "Wick" || label === "Candle") return false;
+              return true;
             },
             callbacks: {
               label: function (context) {
@@ -471,7 +462,6 @@
     }
 
     // ------------- チャート用データ（OHLC） -------------
-    // data-chart-open / high / low / closes をパース
     let closes = [];
     const closesStr = ds.chartCloses || "";
     if (closesStr) {
@@ -513,7 +503,7 @@
     const tp = toNumberOrNull(ds.tp);
     const sl = toNumberOrNull(ds.sl);
 
-    // 元データを保存しておく（ズームで使う）
+    // 元データを保存（ズーム用）
     currentChartState.closes = closes;
     currentChartState.ohlc = ohlcBars;
     currentChartState.entry = entry;
