@@ -110,10 +110,16 @@
               data-reasons="{% if it.reason_lines %}{{ it.reason_lines|join:'||' }}{% endif %}"
               data-sizing-reasons="{% if it.reasons_text %}{{ it.reasons_text|join:'||' }}{% endif %}"
 
-              data-chart-open="{% if it.chart_open %}{{ it.chart_open|join:',' }}{% endif %}"
-              data-chart-high="{% if it.chart_high %}{{ it.chart_high|join:',' }}{% endif %}"
-              data-chart-low="{% if it.chart_low %}{{ it.chart_low|join:',' }}{% endif %}"
+              {# 終値ライン（従来どおり） #}
               data-chart-closes="{% if it.chart_closes %}{{ it.chart_closes|join:',' }}{% endif %}"
+
+              {# ローソク足用 OHLC: 'o,h,l,c|o,h,l,c|...' 形式に整形（chart_ohlc がある場合） #}
+              data-chart-ohlc="{% if it.chart_ohlc %}
+                  {% for bar in it.chart_ohlc %}
+                    {% if not forloop.first %}|{% endif %}
+                    {{ bar.0 }},{{ bar.1 }},{{ bar.2 }},{{ bar.3 }}
+                  {% endfor %}
+                {% endif %}"
 
               data-concern="{{ it.reason_concern|default:'' }}"
           >
