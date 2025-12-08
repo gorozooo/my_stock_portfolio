@@ -507,7 +507,7 @@
       </div>
     </div>
 
-    <!-- ★ 日足チャート（終値 + Entry/TP/SL） -->
+    <!-- ★ 日足チャート（終値・概略） -->
     <div class="chart-card">
       <div class="chart-card-title">日足チャート（終値・概略）</div>
       <canvas id="detailChart"></canvas>
@@ -861,7 +861,7 @@
     document.getElementById("detailConcern").textContent =
       ds.concern || "";
 
-    // ★ チャート描画
+    // ★ チャート用データを先にパース
     const closesStr = ds.chartCloses || "";
     let closes = [];
     if (closesStr){
@@ -872,10 +872,14 @@
     const entryNum = Number(ds.entry || NaN);
     const tpNum    = Number(ds.tp || NaN);
     const slNum    = Number(ds.sl || NaN);
-    updateChart(closes, entryNum, tpNum, slNum);
 
+    // 先にモーダルを開いてからチャートを描画（display:none 問題対策）
     modal.classList.add("open");
     body.classList.add("modal-open");
+
+    setTimeout(function(){
+      updateChart(closes, entryNum, tpNum, slNum);
+    }, 20);
   }
 
   function closeModal(){
