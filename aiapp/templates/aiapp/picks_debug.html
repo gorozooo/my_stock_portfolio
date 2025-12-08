@@ -96,7 +96,7 @@
     width:100%;
     border-collapse:collapse;
     font-size:12px;
-    table-layout:fixed;   /* 3 カラムを画面幅に収める */
+    table-layout:fixed;
   }
   thead{
     background:rgba(15,23,42,1);
@@ -132,7 +132,6 @@
   .score-mid{color:#a3e635;}
   .score-low{color:#f97316;}
 
-  /* 銘柄名セル：横幅を制限して Score が常に見えるようにする */
   .td-name-main{
     display:block;
     max-width:160px;
@@ -215,7 +214,6 @@
     background:rgba(15,23,42,.9);
   }
 
-  /* ===== 2 カラムカードレイアウト ===== */
   .detail-grid{
     display:grid;
     grid-template-columns:1fr 1fr;
@@ -351,14 +349,12 @@
           <div class="title">最終更新: {{ updated_at_label }}</div>
         {% endif %}
 
-        <!-- モード / ユニバース -->
         <div class="meta">
           <span>モード: {{ meta.style|default:"aggressive" }}/{{ meta.horizon|default:"short" }}</span>
           <span>ユニバース: {{ meta.universe|default:"(不明)" }}</span>
           <span>TopK: {{ meta.topk|default:0 }}</span>
         </div>
 
-        <!-- 件数まわり（総件数 / 対象件数） -->
         <div class="meta">
           総件数（ユニバース内）: {{ master_total|default:0|intcomma }} 件
         </div>
@@ -366,7 +362,6 @@
           対象件数（フィルタ後・評価対象）: {{ meta.total|default:0|intcomma }} 件
         </div>
 
-        <!-- フィルタ削除件数（日本語ラベル） -->
         {% if filter_stats %}
           <div class="meta">
             削除された銘柄:
@@ -436,7 +431,8 @@
               data-loss-sbi="{{ it.est_loss_sbi|default:'' }}"
               data-cash-sbi="{{ it.required_cash_sbi|default:'' }}"
               data-reason-sbi="{{ it.reason_sbi|default:'' }}"
-              data-reasons="{% if it.reason_lines %}{{ it.reason_lines|join:'||' }}{% else %}{% endif %}"
+              data-reasons="{% if it.reason_lines %}{{ it.reason_lines|join:'||' }}{% endif %}"
+              data-sizing-reasons="{% if it.reasons_text %}{{ it.reasons_text|join:'||' }}{% endif %}"
               data-concern="{{ it.reason_concern|default:'' }}"
           >
             <td class="code">{{ it.code }}</td>
@@ -468,7 +464,7 @@
   <div class="foot-note">
     ・行をタップすると、数量・想定PL・理由などの詳細がモーダルで表示されます。<br>
     ・score / ⭐ / 数量 / 想定PL が想定とズレていないか確認できます。<br>
-    ・楽天 / 松井 / SBI の3社分を一度にチェックできます。
+    ・楽天 / 松井 / SBI の3社分と、「なぜ0株なのか」の判定理由も確認できます。
   </div>
 
 </div>
@@ -487,7 +483,6 @@
       </div>
     </div>
 
-    <!-- 2カラムカード -->
     <div class="detail-grid">
 
       <!-- 現在値 ＋ ATR -->
@@ -511,6 +506,10 @@
         <div class="detail-row">
           <div class="detail-label">SBI</div>
           <div class="detail-value" id="detailQtySbi">–</div>
+        </div>
+        <div class="detail-row detail-row-strong">
+          <div class="detail-label">合計</div>
+          <div class="detail-value" id="detailQtyTotal">–</div>
         </div>
       </div>
 
@@ -563,6 +562,10 @@
           <div class="detail-label">SBI</div>
           <div class="detail-value detail-green" id="detailPlSbi">–</div>
         </div>
+        <div class="detail-row detail-row-strong">
+          <div class="detail-label">合計</div>
+          <div class="detail-value detail-green" id="detailPlTotal">–</div>
+        </div>
       </div>
 
       <!-- 想定損失 -->
@@ -580,6 +583,10 @@
           <div class="detail-label">SBI</div>
           <div class="detail-value detail-red" id="detailLossSbi">–</div>
         </div>
+        <div class="detail-row detail-row-strong">
+          <div class="detail-label">合計</div>
+          <div class="detail-value detail-red" id="detailLossTotal">–</div>
+        </div>
       </div>
 
     </div>
@@ -588,8 +595,12 @@
     <div class="reason-section">
       <div class="section-title">理由</div>
       <div class="reason-block">
-        <div class="reason-subtitle">選定理由</div>
-        <ul id="detailReasons" class="reason-list"></ul>
+        <div class="reason-subtitle">選定理由（AI）</div>
+        <ul id="detailReasonsAi" class="reason-list"></ul>
+
+        <div class="reason-subtitle">数量が0になる理由（発注条件）</div>
+        <ul id="detailReasonsSizing" class="reason-list"></ul>
+
         <div class="reason-subtitle">懸念点</div>
         <div id="detailConcern" class="reason-concern"></div>
       </div>
@@ -603,7 +614,6 @@
   const input = document.getElementById("filterInput");
   const table = document.getElementById("picksTable");
 
-  // フィルタ
   if (input && table){
     const rows = Array.from(table.querySelectorAll("tbody tr"));
     input.addEventListener("input", function(){
@@ -706,18 +716,37 @@
     setText("detailPlTotal", plTotal, "yen");
     setText("detailLossTotal", lossTotal, "yen");
 
-    // 理由
-    const ul = document.getElementById("detailReasons");
-    ul.innerHTML = "";
+    // 理由（AI）
+    const ulAi = document.getElementById("detailReasonsAi");
+    ulAi.innerHTML = "";
     if (ds.reasons){
       ds.reasons.split("||").forEach(function(t){
         t = (t || "").trim();
         if (!t) return;
         const li = document.createElement("li");
         li.textContent = t;
-        ul.appendChild(li);
+        ulAi.appendChild(li);
       });
     }
+
+    // 理由（数量0など発注条件）
+    const ulSizing = document.getElementById("detailReasonsSizing");
+    ulSizing.innerHTML = "";
+    if (ds.sizingReasons){
+      ds.sizingReasons.split("||").forEach(function(t){
+        t = (t || "").trim();
+        if (!t) return;
+        // sizing_service 側で "・楽天: ..." のように付けているので、
+        // 先頭の "・" があれば削る（見た目を整える）
+        if (t[0] === "・"){
+          t = t.slice(1).trim();
+        }
+        const li = document.createElement("li");
+        li.textContent = t;
+        ulSizing.appendChild(li);
+      });
+    }
+
     document.getElementById("detailConcern").textContent =
       ds.concern || "";
 
@@ -743,6 +772,7 @@
     }
   });
   if (closeBtn){
+    closeModal();
     closeBtn.addEventListener("click", closeModal);
   }
 })();
