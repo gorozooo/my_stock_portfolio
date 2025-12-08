@@ -6,14 +6,13 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 
 JST = timezone(timedelta(hours=9))
-
 PICKS_DIR = Path("media/aiapp/picks")
 
 
@@ -23,6 +22,12 @@ class PickDebugItem:
     code: str
     name: Optional[str] = None
     sector_display: Optional[str] = None
+
+    # チャート用 OHLC（picks_build からそのまま受け取る）
+    chart_open: Optional[List[float]] = None
+    chart_high: Optional[List[float]] = None
+    chart_low: Optional[List[float]] = None
+    chart_closes: Optional[List[float]] = None
 
     last_close: Optional[float] = None
     atr: Optional[float] = None
@@ -35,26 +40,23 @@ class PickDebugItem:
     score_100: Optional[int] = None
     stars: Optional[int] = None
 
-    # ===== 楽天 =====
     qty_rakuten: Optional[int] = None
     required_cash_rakuten: Optional[float] = None
     est_pl_rakuten: Optional[float] = None
     est_loss_rakuten: Optional[float] = None
 
-    # ===== 松井 =====
     qty_matsui: Optional[int] = None
     required_cash_matsui: Optional[float] = None
     est_pl_matsui: Optional[float] = None
     est_loss_matsui: Optional[float] = None
 
-    # ===== SBI =====
     qty_sbi: Optional[int] = None
     required_cash_sbi: Optional[float] = None
     est_pl_sbi: Optional[float] = None
     est_loss_sbi: Optional[float] = None
 
     # 合計系（ビュー側で計算して詰める）
-    qty_total: Optional[float] = None
+    qty_total: Optional[int] = None
     pl_total: Optional[float] = None
     loss_total: Optional[float] = None
 
@@ -65,9 +67,6 @@ class PickDebugItem:
     reason_rakuten: Optional[str] = None              # 楽天だけ0株の理由など
     reason_matsui: Optional[str] = None               # 松井だけ0株の理由など
     reason_sbi: Optional[str] = None                  # SBIだけ0株の理由など
-
-    # チャート（日足終値の簡易配列）
-    chart_closes: Optional[List[float]] = None
 
 
 def _normalize_str_list(v: Any) -> Optional[List[str]]:
@@ -111,27 +110,23 @@ def _to_float(v: Any) -> Optional[float]:
 
 def _to_float_list(v: Any) -> Optional[List[float]]:
     """
-    chart_closes 用: 数値 or 文字列の配列を float リストに正規化。
+    chart_open / chart_high / chart_low / chart_closes 用。
+    JSON から読み込んだ list を float list に正規化する。
     """
-    if v is None:
-        return None
     if not isinstance(v, (list, tuple)):
         return None
     out: List[float] = []
     for x in v:
         try:
-            if x is None:
-                continue
-            f = float(x)
+            out.append(float(x))
         except Exception:
             continue
-        out.append(f)
     return out or None
 
 
 def _load_json(
     kind: str = "all",
-) -> tuple[Dict[str, Any], List[PickDebugItem], str | None, str | None]:
+) -> Tuple[Dict[str, Any], List[PickDebugItem], Optional[str], Optional[str]]:
     """
     latest_full_all.json / latest_full.json を読み込んで
     (meta, items, updated_at_label, source_file) を返す。
@@ -159,6 +154,7 @@ def _load_json(
     raw_items = data.get("items") or []
 
     items: List[PickDebugItem] = []
+
     for row in raw_items:
         # row は picks_build の asdict(PickItem) 相当の dict
         try:
@@ -177,7 +173,7 @@ def _load_json(
             reason_matsui = str(reason_matsui_raw).strip() if reason_matsui_raw else None
             reason_sbi = str(reason_sbi_raw).strip() if reason_sbi_raw else None
 
-            # ----- 数量・PL（3社分） -----
+            # ----- 数量・PL -----
             qty_rakuten = _to_int(row.get("qty_rakuten"))
             qty_matsui = _to_int(row.get("qty_matsui"))
             qty_sbi = _to_int(row.get("qty_sbi"))
@@ -190,13 +186,20 @@ def _load_json(
             est_loss_matsui = _to_float(row.get("est_loss_matsui"))
             est_loss_sbi = _to_float(row.get("est_loss_sbi"))
 
-            # ----- チャート（日足終値） -----
+            # ----- チャート用 OHLC -----
+            chart_open = _to_float_list(row.get("chart_open"))
+            chart_high = _to_float_list(row.get("chart_high"))
+            chart_low = _to_float_list(row.get("chart_low"))
             chart_closes = _to_float_list(row.get("chart_closes"))
 
             it = PickDebugItem(
                 code=str(row.get("code") or ""),
                 name=row.get("name") or row.get("name_norm") or None,
                 sector_display=row.get("sector_display") or None,
+                chart_open=chart_open,
+                chart_high=chart_high,
+                chart_low=chart_low,
+                chart_closes=chart_closes,
                 last_close=row.get("last_close"),
                 atr=row.get("atr"),
                 entry=row.get("entry"),
@@ -205,30 +208,24 @@ def _load_json(
                 score=row.get("score"),
                 score_100=row.get("score_100"),
                 stars=row.get("stars"),
-
                 qty_rakuten=qty_rakuten,
                 required_cash_rakuten=row.get("required_cash_rakuten"),
                 est_pl_rakuten=est_pl_rakuten,
                 est_loss_rakuten=est_loss_rakuten,
-
                 qty_matsui=qty_matsui,
                 required_cash_matsui=row.get("required_cash_matsui"),
                 est_pl_matsui=est_pl_matsui,
                 est_loss_matsui=est_loss_matsui,
-
                 qty_sbi=qty_sbi,
                 required_cash_sbi=row.get("required_cash_sbi"),
                 est_pl_sbi=est_pl_sbi,
                 est_loss_sbi=est_loss_sbi,
-
                 reasons_text=reasons_text,
                 reason_lines=reason_lines,
                 reason_concern=reason_concern,
                 reason_rakuten=reason_rakuten,
                 reason_matsui=reason_matsui,
                 reason_sbi=reason_sbi,
-
-                chart_closes=chart_closes,
             )
 
             # ----- 合計値（ビュー側で計算） -----
