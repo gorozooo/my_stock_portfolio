@@ -2,12 +2,7 @@
 // AI Picks 診断（picks_debug.html）用 JS
 // - フィルタ
 // - モーダル開閉
-// - Chart.js でローソク足（OHLC）＋価格目盛り
-//
-// 前提：
-//  - 行 <tr class="pick-row"> に data-chart-ohlc / data-chart-closes などが埋まっている
-//    * data-chart-ohlc: "o,h,l,c|o,h,l,c|..." 形式
-//    * data-chart-closes: "1000,1010,..."（フォールバック用）
+// - Chart.js でローソク足＋Entry/TP/SL
 
 (function () {
   const table = document.getElementById("picksTable");
@@ -63,26 +58,6 @@
   }
 
   // --------------------------------------
-  // OHLC 文字列 → 配列 {o,h,l,c}
-  // --------------------------------------
-  // 例: "1000,1010,995,1005|1005,1020,1000,1018|..."
-  function parseOhlc(raw) {
-    if (!raw) return [];
-    const out = [];
-    raw.split("|").forEach((seg) => {
-      const p = seg.split(",");
-      if (p.length < 4) return;
-      const o = Number(p[0]);
-      const h = Number(p[1]);
-      const l = Number(p[2]);
-      const c = Number(p[3]);
-      if ([o, h, l, c].some((v) => isNaN(v))) return;
-      out.push({ o, h, l, c });
-    });
-    return out;
-  }
-
-  // --------------------------------------
   // フィルタ（コード・銘柄名・業種）
   // --------------------------------------
   (function setupFilter() {
@@ -105,74 +80,11 @@
   })();
 
   // --------------------------------------
-  // Chart.js 用：ローソク描画プラグイン
+  // Chart.js 用：チャート更新（ローソク足＋Entry/TP/SL）
   // --------------------------------------
-  const ohlcDrawerPlugin = {
-    id: "ohlcDrawerPlugin",
-    afterDatasetsDraw(chart, args, pluginOptions) {
-      const ohlc = chart.$ohlc;
-      if (!ohlc || !ohlc.length) return;
-
-      const { ctx, scales } = chart;
-      const y = scales.y;
-      if (!y) return;
-
-      const meta = chart.getDatasetMeta(0); // 最初のデータセット（closeライン）の座標を利用
-      if (!meta || !meta.data || !meta.data.length) return;
-
-      ctx.save();
-      ctx.lineWidth = 1;
-
-      ohlc.forEach((bar, idx) => {
-        const elem = meta.data[idx];
-        if (!elem) return;
-
-        const xPos = elem.x;
-        const yHigh = y.getPixelForValue(bar.h);
-        const yLow = y.getPixelForValue(bar.l);
-        const yOpen = y.getPixelForValue(bar.o);
-        const yClose = y.getPixelForValue(bar.c);
-
-        const isUp = bar.c >= bar.o;
-        const stroke = isUp ? "#22c55e" : "#ef4444";
-        const fill = isUp ? "rgba(34,197,94,0.7)" : "rgba(239,68,68,0.7)";
-
-        // 1本あたりの幅（隣り合う点の距離から推定）
-        let candleWidth = 6;
-        if (meta.data[idx + 1]) {
-          candleWidth = Math.max(
-            3,
-            Math.min(18, (meta.data[idx + 1].x - elem.x) * 0.7)
-          );
-        }
-
-        ctx.strokeStyle = stroke;
-        ctx.fillStyle = fill;
-
-        // ヒゲ
-        ctx.beginPath();
-        ctx.moveTo(xPos, yHigh);
-        ctx.lineTo(xPos, yLow);
-        ctx.stroke();
-
-        // 実体
-        const bodyTop = isUp ? yClose : yOpen;
-        const bodyBottom = isUp ? yOpen : yClose;
-        const bodyHeight = Math.max(1, bodyBottom - bodyTop);
-
-        const xLeft = xPos - candleWidth / 2;
-        ctx.fillRect(xLeft, bodyTop, candleWidth, bodyHeight);
-        ctx.strokeRect(xLeft, bodyTop, candleWidth, bodyHeight);
-      });
-
-      ctx.restore();
-    },
-  };
-
-  // --------------------------------------
-  // Chart.js 用：チャート更新
-  // --------------------------------------
-  function updateChart(ohlc, closes, entry, tp, sl) {
+  // closes: 終値配列（フォールバック用）
+  // ohlc: [{open, high, low, close}, ...] があればローソク足で描画
+  function updateChart(closes, ohlc, entry, tp, sl) {
     if (!chartCanvas) return;
     const ctx = chartCanvas.getContext("2d");
     if (!ctx) return;
@@ -183,14 +95,10 @@
       chartInstance = null;
     }
 
-    // データ正規化：
-    //  - OHLC があればローソク足メイン
-    //  - 無ければ closes だけで折れ線
-    const hasOhlc = ohlc && ohlc.length;
-    let closesArr = Array.isArray(closes) ? closes.slice() : [];
+    const hasOhlc = Array.isArray(ohlc) && ohlc.length > 0;
+    const hasCloses = Array.isArray(closes) && closes.length > 0;
 
-    if (!hasOhlc && !closesArr.length) {
-      // データ無し
+    if (!hasOhlc && !hasCloses) {
       if (chartEmptyLabel) {
         chartEmptyLabel.style.display = "flex";
       }
@@ -201,53 +109,44 @@
       }
     }
 
-    if (hasOhlc && !closesArr.length) {
-      closesArr = ohlc.map((b) => b.c);
+    // ラベル数（X軸）
+    let labels = [];
+    if (hasOhlc) {
+      labels = ohlc.map((_, i) => i + 1);
+      // 終値が空なら、ローソク足の close から作る
+      if (!hasCloses) {
+        closes = ohlc.map((b) => b.close);
+      }
+    } else if (hasCloses) {
+      labels = closes.map((_, i) => i + 1);
     }
-
-    const labels = closesArr.map((_, i) => i + 1);
 
     // Y軸の min / max を決める
     let ymin = Number.POSITIVE_INFINITY;
     let ymax = Number.NEGATIVE_INFINITY;
 
-    function expand(v) {
-      if (v === null || v === undefined) return;
-      const n = Number(v);
-      if (isNaN(n)) return;
-      if (n < ymin) ymin = n;
-      if (n > ymax) ymax = n;
-    }
-
     if (hasOhlc) {
       ohlc.forEach((b) => {
-        expand(b.h);
-        expand(b.l);
+        if (b.low < ymin) ymin = b.low;
+        if (b.high > ymax) ymax = b.high;
       });
-    } else {
-      closesArr.forEach(expand);
+    }
+    if (hasCloses) {
+      closes.forEach((v) => {
+        if (v < ymin) ymin = v;
+        if (v > ymax) ymax = v;
+      });
     }
 
-    expand(entry);
-    expand(tp);
-    expand(sl);
-
-    if (!isFinite(ymin) || !isFinite(ymax)) {
-      ymin = 0;
-      ymax = 1;
-    }
-    const pad = (ymax - ymin) * 0.1 || 10;
-    ymin -= pad;
-    ymax += pad;
-
-    // 追加ライン（Entry/TP/SL）
     const extraLines = [];
+
     function addLine(name, value, color, dash) {
       if (value === null || value === undefined) return;
       const n = Number(value);
       if (!isNaN(n)) {
         extraLines.push({ name, value: n, color, dash });
-        expand(n);
+        if (n < ymin) ymin = n;
+        if (n > ymax) ymax = n;
       }
     }
 
@@ -255,26 +154,106 @@
     addLine("TP", tp, "#4ade80", [4, 4]);
     addLine("SL", sl, "#ef4444", [4, 4]);
 
-    // データセット：
-    //  - 1本目: Close ライン（ツールチップ用、線は細め）
-    const datasets = [
-      {
+    // 余白
+    const pad = (ymax - ymin) * 0.1 || 10;
+    ymin -= pad;
+    ymax += pad;
+
+    const datasets = [];
+
+    // ---- ローソク足 or 終値ライン ----
+    if (hasOhlc) {
+      // ヒゲ（高値〜安値）の浮動バー
+      datasets.push({
+        type: "bar",
+        label: "Wick",
+        data: ohlc.map((b, idx) => ({
+          x: idx + 1,
+          y: [b.low, b.high],
+        })),
+        backgroundColor: "rgba(148, 163, 184, 0.4)",
+        borderColor: "rgba(148, 163, 184, 0.9)",
+        borderWidth: 1,
+        borderSkipped: false,
+        barPercentage: 0.7,
+        categoryPercentage: 1.0,
+      });
+
+      // 実体（始値〜終値）の細いバー
+      datasets.push({
+        type: "bar",
+        label: "Candle",
+        data: ohlc.map((b, idx) => ({
+          x: idx + 1,
+          y: [b.open, b.close],
+        })),
+        backgroundColor: function (context) {
+          const raw = context.raw;
+          let open = null;
+          let close = null;
+          if (raw && Array.isArray(raw.y)) {
+            open = raw.y[0];
+            close = raw.y[1];
+          }
+          if (close !== null && open !== null && close >= open) {
+            // 上昇（陽線）
+            return "rgba(34, 197, 94, 0.85)";
+          }
+          // 下落（陰線）
+          return "rgba(239, 68, 68, 0.85)";
+        },
+        borderColor: function (context) {
+          const raw = context.raw;
+          let open = null;
+          let close = null;
+          if (raw && Array.isArray(raw.y)) {
+            open = raw.y[0];
+            close = raw.y[1];
+          }
+          if (close !== null && open !== null && close >= open) {
+            return "rgba(34, 197, 94, 1)";
+          }
+          return "rgba(239, 68, 68, 1)";
+        },
+        borderWidth: 1,
+        borderSkipped: false,
+        barPercentage: 0.35,
+        categoryPercentage: 1.0,
+      });
+
+      // 終値の細いライン（視覚的な流れ用）
+      if (hasCloses) {
+        datasets.push({
+          type: "line",
+          label: "Close",
+          data: closes.map((v, idx) => ({ x: idx + 1, y: v })),
+          borderColor: "#38bdf8",
+          backgroundColor: "rgba(56, 189, 248, 0.15)",
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.25,
+        });
+      }
+    } else if (hasCloses) {
+      // OHLC が無い場合は従来どおり折れ線
+      datasets.push({
+        type: "line",
         label: "Close",
-        data: closesArr,
+        data: closes.map((v, idx) => ({ x: idx + 1, y: v })),
         borderColor: "#38bdf8",
         backgroundColor: "rgba(56, 189, 248, 0.15)",
-        borderWidth: 1,
+        borderWidth: 2,
         pointRadius: 0,
-        tension: 0.15,
-        fill: false,
-      },
-    ];
+        tension: 0.25,
+      });
+    }
 
-    // Entry / TP / SL の水平線
+    // ---- Entry / TP / SL の水平ライン ----
     extraLines.forEach((ln) => {
       datasets.push({
+        type: "line",
         label: ln.name,
-        data: labels.map(() => ln.value),
+        data: labels.map((x) => ({ x: x, y: ln.value })),
         borderColor: ln.color,
         borderWidth: 1,
         pointRadius: 0,
@@ -284,7 +263,7 @@
     });
 
     chartInstance = new Chart(ctx, {
-      type: "line",
+      type: "bar", // ベースは bar（中で line と混在）
       data: {
         labels: labels,
         datasets: datasets,
@@ -301,9 +280,13 @@
             display: false,
           },
           tooltip: {
+            // ローソクのバーはツールチップ無し、線だけ表示
+            filter: function (context) {
+              return context.dataset.type === "line";
+            },
             callbacks: {
               label: function (context) {
-                const v = context.parsed.y;
+                const v = context.parsed && context.parsed.y;
                 if (v == null || isNaN(v)) return "";
                 const name = context.dataset.label || "";
                 return `${name}: ${v.toLocaleString()} 円`;
@@ -332,11 +315,7 @@
           },
         },
       },
-      plugins: [ohlcDrawerPlugin],
     });
-
-    // プラグインが参照する OHLC データを chart に紐付け
-    chartInstance.$ohlc = hasOhlc ? ohlc : null;
   }
 
   // --------------------------------------
@@ -443,7 +422,9 @@
       concernEl.textContent = ds.concern || "";
     }
 
-    // チャート用データ
+    // ------------- チャート用データ（OHLC） -------------
+    // data-chart-open / high / low / closes をパースして
+    // [{open, high, low, close}, ...] にまとめる
     let closes = [];
     const closesStr = ds.chartCloses || "";
     if (closesStr) {
@@ -453,17 +434,44 @@
         .filter((v) => !isNaN(v));
     }
 
-    let ohlc = [];
-    const ohlcStr = ds.chartOhlc || ds.chartOhlcRaw || "";
-    if (ohlcStr) {
-      ohlc = parseOhlc(ohlcStr);
+    let ohlcBars = [];
+    const openStr = ds.chartOpen || "";
+    const highStr = ds.chartHigh || "";
+    const lowStr = ds.chartLow || "";
+
+    if (openStr && highStr && lowStr && closesStr) {
+      const os = openStr.split(",");
+      const hs = highStr.split(",");
+      const ls = lowStr.split(",");
+      const cs = closesStr.split(",");
+
+      const len = Math.min(os.length, hs.length, ls.length, cs.length);
+      for (let i = 0; i < len; i++) {
+        const o = Number(os[i].trim());
+        const h = Number(hs[i].trim());
+        const l = Number(ls[i].trim());
+        const c = Number(cs[i].trim());
+        if (
+          !isNaN(o) &&
+          !isNaN(h) &&
+          !isNaN(l) &&
+          !isNaN(c)
+        ) {
+          ohlcBars.push({
+            open: o,
+            high: h,
+            low: l,
+            close: c,
+          });
+        }
+      }
     }
 
     const entry = toNumberOrNull(ds.entry);
     const tp = toNumberOrNull(ds.tp);
     const sl = toNumberOrNull(ds.sl);
 
-    updateChart(ohlc, closes, entry, tp, sl);
+    updateChart(closes, ohlcBars, entry, tp, sl);
 
     modal.classList.add("show");
     body.classList.add("modal-open");
@@ -473,6 +481,7 @@
     modal.classList.remove("show");
     body.classList.remove("modal-open");
 
+    // モーダルを閉じるときにチャートも破棄
     if (chartInstance) {
       chartInstance.destroy();
       chartInstance = null;
