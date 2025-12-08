@@ -35,15 +35,23 @@ class PickDebugItem:
     score_100: Optional[int] = None
     stars: Optional[int] = None
 
+    # ===== 楽天 =====
     qty_rakuten: Optional[int] = None
     required_cash_rakuten: Optional[float] = None
     est_pl_rakuten: Optional[float] = None
     est_loss_rakuten: Optional[float] = None
 
+    # ===== 松井 =====
     qty_matsui: Optional[int] = None
     required_cash_matsui: Optional[float] = None
     est_pl_matsui: Optional[float] = None
     est_loss_matsui: Optional[float] = None
+
+    # ===== SBI =====
+    qty_sbi: Optional[int] = None
+    required_cash_sbi: Optional[float] = None
+    est_pl_sbi: Optional[float] = None
+    est_loss_sbi: Optional[float] = None
 
     # 合計系（ビュー側で計算して詰める）
     qty_total: Optional[float] = None
@@ -56,6 +64,10 @@ class PickDebugItem:
     reason_concern: Optional[str] = None              # 懸念ポイント1行
     reason_rakuten: Optional[str] = None              # 楽天だけ0株の理由など
     reason_matsui: Optional[str] = None               # 松井だけ0株の理由など
+    reason_sbi: Optional[str] = None                  # SBIだけ0株の理由など
+
+    # チャート（日足終値の簡易配列）
+    chart_closes: Optional[List[float]] = None
 
 
 def _normalize_str_list(v: Any) -> Optional[List[str]]:
@@ -95,6 +107,26 @@ def _to_float(v: Any) -> Optional[float]:
         return float(v)
     except Exception:
         return None
+
+
+def _to_float_list(v: Any) -> Optional[List[float]]:
+    """
+    chart_closes 用: 数値 or 文字列の配列を float リストに正規化。
+    """
+    if v is None:
+        return None
+    if not isinstance(v, (list, tuple)):
+        return None
+    out: List[float] = []
+    for x in v:
+        try:
+            if x is None:
+                continue
+            f = float(x)
+        except Exception:
+            continue
+        out.append(f)
+    return out or None
 
 
 def _load_json(
@@ -139,16 +171,27 @@ def _load_json(
 
             reason_rakuten_raw = row.get("reason_rakuten")
             reason_matsui_raw = row.get("reason_matsui")
+            reason_sbi_raw = row.get("reason_sbi")
+
             reason_rakuten = str(reason_rakuten_raw).strip() if reason_rakuten_raw else None
             reason_matsui = str(reason_matsui_raw).strip() if reason_matsui_raw else None
+            reason_sbi = str(reason_sbi_raw).strip() if reason_sbi_raw else None
 
-            # ----- 数量・PL -----
+            # ----- 数量・PL（3社分） -----
             qty_rakuten = _to_int(row.get("qty_rakuten"))
             qty_matsui = _to_int(row.get("qty_matsui"))
+            qty_sbi = _to_int(row.get("qty_sbi"))
+
             est_pl_rakuten = _to_float(row.get("est_pl_rakuten"))
             est_pl_matsui = _to_float(row.get("est_pl_matsui"))
+            est_pl_sbi = _to_float(row.get("est_pl_sbi"))
+
             est_loss_rakuten = _to_float(row.get("est_loss_rakuten"))
             est_loss_matsui = _to_float(row.get("est_loss_matsui"))
+            est_loss_sbi = _to_float(row.get("est_loss_sbi"))
+
+            # ----- チャート（日足終値） -----
+            chart_closes = _to_float_list(row.get("chart_closes"))
 
             it = PickDebugItem(
                 code=str(row.get("code") or ""),
@@ -162,36 +205,50 @@ def _load_json(
                 score=row.get("score"),
                 score_100=row.get("score_100"),
                 stars=row.get("stars"),
+
                 qty_rakuten=qty_rakuten,
                 required_cash_rakuten=row.get("required_cash_rakuten"),
                 est_pl_rakuten=est_pl_rakuten,
                 est_loss_rakuten=est_loss_rakuten,
+
                 qty_matsui=qty_matsui,
                 required_cash_matsui=row.get("required_cash_matsui"),
                 est_pl_matsui=est_pl_matsui,
                 est_loss_matsui=est_loss_matsui,
+
+                qty_sbi=qty_sbi,
+                required_cash_sbi=row.get("required_cash_sbi"),
+                est_pl_sbi=est_pl_sbi,
+                est_loss_sbi=est_loss_sbi,
+
                 reasons_text=reasons_text,
                 reason_lines=reason_lines,
                 reason_concern=reason_concern,
                 reason_rakuten=reason_rakuten,
                 reason_matsui=reason_matsui,
+                reason_sbi=reason_sbi,
+
+                chart_closes=chart_closes,
             )
 
             # ----- 合計値（ビュー側で計算） -----
             qr = qty_rakuten or 0
             qm = qty_matsui or 0
-            if qr or qm:
-                it.qty_total = qr + qm
+            qs = qty_sbi or 0
+            if qr or qm or qs:
+                it.qty_total = qr + qm + qs
 
             pl_r = est_pl_rakuten or 0.0
             pl_m = est_pl_matsui or 0.0
-            if pl_r or pl_m:
-                it.pl_total = pl_r + pl_m
+            pl_s = est_pl_sbi or 0.0
+            if pl_r or pl_m or pl_s:
+                it.pl_total = pl_r + pl_m + pl_s
 
             loss_r = est_loss_rakuten or 0.0
             loss_m = est_loss_matsui or 0.0
-            if loss_r or loss_m:
-                it.loss_total = loss_r + loss_m
+            loss_s = est_loss_sbi or 0.0
+            if loss_r or loss_m or loss_s:
+                it.loss_total = loss_r + loss_m + loss_s
 
             items.append(it)
         except Exception:
