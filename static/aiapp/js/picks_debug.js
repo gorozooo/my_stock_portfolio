@@ -3,6 +3,7 @@
 // - フィルタ
 // - モーダル開閉
 // - Chart.js でローソク足＋Entry/TP/SL
+// - 簡易ズーム（− / 全体 / ＋）
 
 (function () {
   const table = document.getElementById("picksTable");
@@ -14,8 +15,19 @@
 
   const chartCanvas = document.getElementById("detailChart");
   const chartEmptyLabel = document.getElementById("chartEmptyLabel");
+  const zoomButtons = document.querySelectorAll(".chart-zoom-controls .zoom-btn");
 
   let chartInstance = null;
+
+  // 現在モーダルで表示中の銘柄データ（元データ）
+  const currentChartState = {
+    closes: [],
+    ohlc: [],
+    entry: null,
+    tp: null,
+    sl: null,
+    zoomLevel: 0, // 0: 全体, 1: 中くらい, 2: 直近
+  };
 
   if (!table || !modal) {
     return;
@@ -163,7 +175,7 @@
 
     // ---- ローソク足 or 終値ライン ----
     if (hasOhlc) {
-      // ヒゲ（高値〜安値）の浮動バー
+      // ヒゲ（高値〜安値）
       datasets.push({
         type: "bar",
         label: "Wick",
@@ -179,7 +191,7 @@
         categoryPercentage: 1.0,
       });
 
-      // 実体（始値〜終値）の細いバー
+      // 実体（始値〜終値）
       datasets.push({
         type: "bar",
         label: "Candle",
@@ -221,7 +233,7 @@
         categoryPercentage: 1.0,
       });
 
-      // 終値の細いライン（視覚的な流れ用）
+      // 終値の細いライン
       if (hasCloses) {
         datasets.push({
           type: "line",
@@ -316,6 +328,42 @@
         },
       },
     });
+  }
+
+  // currentChartState.zoomLevel をもとに「どこから切り出すか」を決めて再描画
+  function applyZoomAndRedraw() {
+    const baseCloses = currentChartState.closes || [];
+    const baseOhlc = currentChartState.ohlc || [];
+    const entry = currentChartState.entry;
+    const tp = currentChartState.tp;
+    const sl = currentChartState.sl;
+
+    const total = Math.max(baseCloses.length, baseOhlc.length);
+    if (!total) {
+      updateChart([], [], entry, tp, sl);
+      return;
+    }
+
+    let fromIndex = 0;
+
+    if (currentChartState.zoomLevel === 0) {
+      // 全体表示
+      fromIndex = 0;
+    } else if (currentChartState.zoomLevel === 1) {
+      // 中くらい（後ろ 60%）
+      fromIndex = Math.max(0, total - Math.floor(total * 0.6));
+    } else {
+      // 直近（後ろ 25本）
+      fromIndex = Math.max(0, total - 25);
+    }
+
+    const sliceArr = (arr) =>
+      Array.isArray(arr) && arr.length ? arr.slice(fromIndex) : arr;
+
+    const viewCloses = sliceArr(baseCloses);
+    const viewOhlc = sliceArr(baseOhlc);
+
+    updateChart(viewCloses, viewOhlc, entry, tp, sl);
   }
 
   // --------------------------------------
@@ -423,8 +471,7 @@
     }
 
     // ------------- チャート用データ（OHLC） -------------
-    // data-chart-open / high / low / closes をパースして
-    // [{open, high, low, close}, ...] にまとめる
+    // data-chart-open / high / low / closes をパース
     let closes = [];
     const closesStr = ds.chartCloses || "";
     if (closesStr) {
@@ -451,12 +498,7 @@
         const h = Number(hs[i].trim());
         const l = Number(ls[i].trim());
         const c = Number(cs[i].trim());
-        if (
-          !isNaN(o) &&
-          !isNaN(h) &&
-          !isNaN(l) &&
-          !isNaN(c)
-        ) {
+        if (!isNaN(o) && !isNaN(h) && !isNaN(l) && !isNaN(c)) {
           ohlcBars.push({
             open: o,
             high: h,
@@ -471,7 +513,15 @@
     const tp = toNumberOrNull(ds.tp);
     const sl = toNumberOrNull(ds.sl);
 
-    updateChart(closes, ohlcBars, entry, tp, sl);
+    // 元データを保存しておく（ズームで使う）
+    currentChartState.closes = closes;
+    currentChartState.ohlc = ohlcBars;
+    currentChartState.entry = entry;
+    currentChartState.tp = tp;
+    currentChartState.sl = sl;
+    currentChartState.zoomLevel = 0; // 全体からスタート
+
+    applyZoomAndRedraw();
 
     modal.classList.add("show");
     body.classList.add("modal-open");
@@ -513,5 +563,26 @@
     if (e.key === "Escape" && modal.classList.contains("show")) {
       closeModal();
     }
+  });
+
+  // ズームボタン
+  zoomButtons.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      const mode = this.dataset.zoom;
+      if (mode === "in") {
+        // ズームイン（最大 2）
+        if (currentChartState.zoomLevel < 2) {
+          currentChartState.zoomLevel += 1;
+        }
+      } else if (mode === "out") {
+        // ズームアウト（最小 0）
+        if (currentChartState.zoomLevel > 0) {
+          currentChartState.zoomLevel -= 1;
+        }
+      } else if (mode === "reset") {
+        currentChartState.zoomLevel = 0;
+      }
+      applyZoomAndRedraw();
+    });
   });
 })();
