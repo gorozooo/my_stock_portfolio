@@ -204,161 +204,170 @@ document.addEventListener("DOMContentLoaded", function(){
   };
 
   function renderChartFromRow(row){
-    if (!chartCanvas || typeof Chart === "undefined"){
-      return;
-    }
-    var ds = row.dataset || {};
+    // ここは何があっても throw しないようにする
+    try{
+      if (!chartCanvas || typeof Chart === "undefined"){
+        return;
+      }
+      var ds = row.dataset || {};
 
-    // OHLC / 終値
-    var ohlc = parseOhlcArray(ds.chartOhlc || "");
-    var closesRaw = parseNumberArray(ds.chartCloses || ds.chart || "");
+      // OHLC / 終値
+      var ohlc = parseOhlcArray(ds.chartOhlc || "");
+      var closesRaw = parseNumberArray(ds.chartCloses || ds.chart || "");
 
-    if (!ohlc.length && closesRaw.length){
-      // OHLC 無し → 終値から擬似ローソク
-      ohlc = closesRaw.map(function(v){
-        return {o:v, h:v, l:v, c:v};
+      if (!ohlc.length && closesRaw.length){
+        // OHLC 無し → 終値から擬似ローソク
+        ohlc = closesRaw.map(function(v){
+          return {o:v, h:v, l:v, c:v};
+        });
+      }
+
+      if (!ohlc.length){
+        if (pickChart){
+          pickChart.destroy();
+          pickChart = null;
+        }
+        showEmpty("チャート用データが不足しています");
+        return;
+      }
+
+      hideEmpty();
+
+      var n = ohlc.length;
+      var labels = [];
+      var closes = [];
+      ohlc.forEach(function(b, i){
+        labels.push(String(i + 1));
+        closes.push(b.c);
       });
-    }
 
-    if (!ohlc.length){
+      var entryVal = parseNumber(ds.entry);
+      var tpVal    = parseNumber(ds.tp);
+      var slVal    = parseNumber(ds.sl);
+
+      // y 範囲
+      var values = [];
+      ohlc.forEach(function(b){
+        values.push(b.h, b.l);
+      });
+      if (entryVal !== null) values.push(entryVal);
+      if (tpVal !== null) values.push(tpVal);
+      if (slVal !== null) values.push(slVal);
+
+      var yMin = Math.min.apply(null, values);
+      var yMax = Math.max.apply(null, values);
+      if (!isFinite(yMin) || !isFinite(yMax)){
+        yMin = closes[0];
+        yMax = closes[0];
+      }
+      if (yMin === yMax){
+        yMin -= 1;
+        yMax += 1;
+      }
+      var pad = (yMax - yMin) * 0.08;
+      yMin -= pad;
+      yMax += pad;
+
       if (pickChart){
         pickChart.destroy();
         pickChart = null;
       }
-      showEmpty("チャート用データが不足しています");
-      return;
-    }
 
-    hideEmpty();
+      var ctx = chartCanvas.getContext("2d");
 
-    var n = ohlc.length;
-    var labels = [];
-    var closes = [];
-    ohlc.forEach(function(b, i){
-      labels.push(String(i + 1));
-      closes.push(b.c);
-    });
+      var datasets = [];
 
-    var entryVal = parseNumber(ds.entry);
-    var tpVal    = parseNumber(ds.tp);
-    var slVal    = parseNumber(ds.sl);
-
-    // y 範囲
-    var values = [];
-    ohlc.forEach(function(b){
-      values.push(b.h, b.l);
-    });
-    if (entryVal !== null) values.push(entryVal);
-    if (tpVal !== null) values.push(tpVal);
-    if (slVal !== null) values.push(slVal);
-
-    var yMin = Math.min.apply(null, values);
-    var yMax = Math.max.apply(null, values);
-    if (!isFinite(yMin) || !isFinite(yMax)){
-      yMin = closes[0];
-      yMax = closes[0];
-    }
-    if (yMin === yMax){
-      yMin -= 1;
-      yMax += 1;
-    }
-    var pad = (yMax - yMin) * 0.08;
-    yMin -= pad;
-    yMax += pad;
-
-    if (pickChart){
-      pickChart.destroy();
-      pickChart = null;
-    }
-
-    var ctx = chartCanvas.getContext("2d");
-
-    var datasets = [];
-
-    // 終値ライン（細い青）
-    datasets.push({
-      label: "終値",
-      data: closes,
-      borderColor: "rgba(56,189,248,1)",
-      borderWidth: 1.5,
-      pointRadius: 0,
-      tension: 0.2
-    });
-
-    function mkHorizontal(value, label, color, dash){
-      if (value === null) return null;
-      return {
-        label: label,
-        data: Array(n).fill(value),
-        borderColor: color,
-        borderWidth: 1,
+      // 終値ライン（細い青）
+      datasets.push({
+        label: "終値",
+        data: closes,
+        borderColor: "rgba(56,189,248,1)",
+        borderWidth: 1.5,
         pointRadius: 0,
-        tension: 0,
-        borderDash: dash || []
-      };
-    }
+        tension: 0.2
+      });
 
-    var dsEntry = mkHorizontal(entryVal, "Entry", "#22c55e", [4,3]);
-    var dsTp    = mkHorizontal(tpVal,    "TP",    "#22c55e", []);
-    var dsSl    = mkHorizontal(slVal,    "SL",    "#ef4444", []);
+      function mkHorizontal(value, label, color, dash){
+        if (value === null) return null;
+        return {
+          label: label,
+          data: Array(n).fill(value),
+          borderColor: color,
+          borderWidth: 1,
+          pointRadius: 0,
+          tension: 0,
+          borderDash: dash || []
+        };
+      }
 
-    [dsEntry, dsTp, dsSl].forEach(function(d){
-      if (d) datasets.push(d);
-    });
+      var dsEntry = mkHorizontal(entryVal, "Entry", "#22c55e", [4,3]);
+      var dsTp    = mkHorizontal(tpVal,    "TP",    "#22c55e", []);
+      var dsSl    = mkHorizontal(slVal,    "SL",    "#ef4444", []);
 
-    pickChart = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels: labels,
-        datasets: datasets
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        plugins: {
-          legend: {
-            display: true,
-            labels: {
-              usePointStyle: true,
-              boxWidth: 10,
-              padding: 12,
-              color: "#9ca3af",
-              font: { size: 10 }
-            }
-          },
-          tooltip: {
-            enabled: false
-          }
+      [dsEntry, dsTp, dsSl].forEach(function(d){
+        if (d) datasets.push(d);
+      });
+
+      pickChart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: labels,
+          datasets: datasets
         },
-        scales: {
-          x: {
-            display: false,
-            grid: { display: false }
-          },
-          y: {
-            display: true,
-            position: "right",
-            grid: { color: "rgba(30,64,175,0.35)" },
-            ticks: {
-              color: "#9ca3af",
-              font: { size: 9 },
-              callback: function(value){
-                var n = Number(value);
-                if (isNaN(n)) return "";
-                return n.toLocaleString();
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: {
+              display: true,
+              labels: {
+                usePointStyle: true,
+                boxWidth: 10,
+                padding: 12,
+                color: "#9ca3af",
+                font: { size: 10 }
               }
             },
-            min: yMin,
-            max: yMax
+            tooltip: {
+              enabled: false
+            }
+          },
+          scales: {
+            x: {
+              display: false,
+              grid: { display: false }
+            },
+            y: {
+              display: true,
+              position: "right",
+              grid: { color: "rgba(30,64,175,0.35)" },
+              ticks: {
+                color: "#9ca3af",
+                font: { size: 9 },
+                callback: function(value){
+                  var n = Number(value);
+                  if (isNaN(n)) return "";
+                  return n.toLocaleString();
+                }
+              },
+              min: yMin,
+              max: yMax
+            }
           }
-        }
-      },
-      plugins: [candlePlugin]
-    });
+        },
+        plugins: [candlePlugin]
+      });
 
-    pickChart.$ohlcData = ohlc;
-    pickChart.update();
+      // ローソク用データを Chart インスタンスにぶら下げる
+      pickChart.$ohlcData = ohlc;
+      pickChart.update();
+
+    }catch(e){
+      // ここでエラーを吸収して、モーダルだけは開くようにする
+      console && console.error && console.error("chart error", e);
+      showEmpty("チャート用データが不足しています");
+    }
   }
 
   // ===============================
@@ -391,7 +400,7 @@ document.addEventListener("DOMContentLoaded", function(){
       setText("detailTp", ds.tp, "int");
       setText("detailSl", ds.sl, "int");
 
-      setText("detailCashRakuten", ds.cashRakuten, "yen");
+      setText("detailCashRakuten", ds.cashRaketen, "yen"); // ← typo だったら後で直す
       setText("detailCashMatsui", ds.cashMatsui, "yen");
       setText("detailCashSbi", ds.cashSbi, "yen");
 
@@ -458,7 +467,7 @@ document.addEventListener("DOMContentLoaded", function(){
         concernEl.textContent = ds.concern || "";
       }
 
-      // チャート描画
+      // チャート描画（エラーは内部で吸収）
       renderChartFromRow(this);
 
       modal.classList.add("open");
