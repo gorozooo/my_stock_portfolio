@@ -1,15 +1,9 @@
 {% extends "base.html" %}
-{% load humanize %}
-{% load static %}
-
+{% load static humanize %}
 {% block title %}AI Picks 診断{% endblock %}
 
 {% block head %}
-  <!-- Chart.js CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-  <!-- 分割した CSS -->
-  <link rel="stylesheet" href="{% static 'aiapp/css/picks_debug.css' %}">
+<link rel="stylesheet" href="{% static 'aiapp/picks_debug.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -22,12 +16,14 @@
           <div class="title">最終更新: {{ updated_at_label }}</div>
         {% endif %}
 
+        <!-- モード / ユニバース -->
         <div class="meta">
           <span>モード: {{ meta.style|default:"aggressive" }}/{{ meta.horizon|default:"short" }}</span>
           <span>ユニバース: {{ meta.universe|default:"(不明)" }}</span>
           <span>TopK: {{ meta.topk|default:0 }}</span>
         </div>
 
+        <!-- 件数まわり（総件数 / 対象件数） -->
         <div class="meta">
           総件数（ユニバース内）: {{ master_total|default:0|intcomma }} 件
         </div>
@@ -35,6 +31,7 @@
           対象件数（フィルタ後・評価対象）: {{ meta.total|default:0|intcomma }} 件
         </div>
 
+        <!-- フィルタ削除件数（日本語ラベル） -->
         {% if filter_stats %}
           <div class="meta">
             削除された銘柄:
@@ -89,25 +86,21 @@
               data-entry="{{ it.entry|default:'' }}"
               data-tp="{{ it.tp|default:'' }}"
               data-sl="{{ it.sl|default:'' }}"
-
               data-qty-rakuten="{{ it.qty_rakuten|default:'' }}"
               data-pl-rakuten="{{ it.est_pl_rakuten|default:'' }}"
               data-loss-rakuten="{{ it.est_loss_rakuten|default:'' }}"
               data-cash-rakuten="{{ it.required_cash_rakuten|default:'' }}"
               data-reason-rakuten="{{ it.reason_rakuten|default:'' }}"
-
               data-qty-matsui="{{ it.qty_matsui|default:'' }}"
               data-pl-matsui="{{ it.est_pl_matsui|default:'' }}"
               data-loss-matsui="{{ it.est_loss_matsui|default:'' }}"
               data-cash-matsui="{{ it.required_cash_matsui|default:'' }}"
               data-reason-matsui="{{ it.reason_matsui|default:'' }}"
-
               data-qty-sbi="{{ it.qty_sbi|default:'' }}"
               data-pl-sbi="{{ it.est_pl_sbi|default:'' }}"
               data-loss-sbi="{{ it.est_loss_sbi|default:'' }}"
               data-cash-sbi="{{ it.required_cash_sbi|default:'' }}"
               data-reason-sbi="{{ it.reason_sbi|default:'' }}"
-
               data-chart-closes="{% if it.chart_closes %}{{ it.chart_closes|join:',' }}{% endif %}"
               data-reasons="{% if it.reason_lines %}{{ it.reason_lines|join:'||' }}{% endif %}"
               data-sizing-reasons="{% if it.reasons_text %}{{ it.reasons_text|join:'||' }}{% endif %}"
@@ -161,16 +154,23 @@
       </div>
     </div>
 
-    <div class="detail-grid">
-
-      <!-- 日足チャート -->
-      <div class="detail-card chart-card">
-        <div class="detail-card-title">日足チャート（終値・概略）</div>
-        <div class="chart-box">
-          <canvas id="detailChart"></canvas>
-          <div id="detailChartEmpty">チャート用データが不足しています</div>
-        </div>
+    <!-- チャートカード -->
+    <div class="chart-card">
+      <div class="chart-title">日足チャート（終値・概略）</div>
+      <div class="chart-inner">
+        <canvas id="picksChart"></canvas>
+        <div class="chart-empty" id="picksChartEmpty">チャート用データが不足しています</div>
       </div>
+      <div class="chart-legend">
+        <span class="legend-line legend-price">終値</span>
+        <span class="legend-line legend-entry">Entry</span>
+        <span class="legend-line legend-tp">TP</span>
+        <span class="legend-line legend-sl">SL</span>
+      </div>
+    </div>
+
+    <!-- 2カラムカード -->
+    <div class="detail-grid">
 
       <!-- 現在値 ＋ ATR -->
       <div class="detail-card">
@@ -296,6 +296,5 @@
   </div>
 </div>
 
-<!-- 分割した JS（Chart.js 読み込み後に呼びたいので body 末尾） -->
-<script src="{% static 'aiapp/js/picks_debug.js' %}"></script>
+<script src="{% static 'aiapp/picks_debug.js' %}"></script>
 {% endblock %}
