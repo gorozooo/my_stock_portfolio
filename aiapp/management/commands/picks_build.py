@@ -270,6 +270,54 @@ def _build_reasons_features(feat: pd.DataFrame, last: float, atr: float) -> Dict
     }
 
 
+def _extract_chart_ohlc(raw: pd.DataFrame, max_points: int = 60) -> Tuple[
+    Optional[List[float]],
+    Optional[List[float]],
+    Optional[List[float]],
+    Optional[List[float]],
+]:
+    """
+    チャート用の OHLC 配列を生成（終値チャート + ローソク足用）。
+    get_prices が返す DataFrame の末尾から max_points 本だけ抜き出す。
+    """
+    if raw is None:
+        return None, None, None, None
+    try:
+        df = raw.copy()
+    except Exception:
+        return None, None, None, None
+
+    if len(df) == 0:
+        return None, None, None, None
+
+    # 列名のゆらぎに軽く対応
+    def col_name(candidates):
+        for c in candidates:
+            if c in df.columns:
+                return c
+        return None
+
+    col_o = col_name(["Open", "open", "OPEN"])
+    col_h = col_name(["High", "high", "HIGH"])
+    col_l = col_name(["Low", "low", "LOW"])
+    col_c = col_name(["Close", "close", "CLOSE"])
+
+    if not (col_o and col_h and col_l and col_c):
+        return None, None, None, None
+
+    df = df[[col_o, col_h, col_l, col_c]].tail(max_points)
+
+    opens = [float(v) for v in df[col_o].tolist()]
+    highs = [float(v) for v in df[col_h].tolist()]
+    lows  = [float(v) for v in df[col_l].tolist()]
+    closes= [float(v) for v in df[col_c].tolist()]
+
+    if not closes:
+        return None, None, None, None
+
+    return opens, highs, lows, closes
+
+
 # =========================================================
 # フォールバック実装（サービスが無い場合）
 # =========================================================
@@ -361,11 +409,14 @@ class PickItem:
     name: Optional[str] = None
     sector_display: Optional[str] = None
 
+    # チャート用 OHLC（最新 max_points 本）
+    chart_open: Optional[List[float]] = None
+    chart_high: Optional[List[float]] = None
+    chart_low: Optional[List[float]] = None
+    chart_closes: Optional[List[float]] = None  # 終値のみ（ライン用）
+
     last_close: Optional[float] = None
     atr: Optional[float] = None
-
-    # ★ 日足チャート用：終値の簡易配列（例: 直近60本）
-    chart_closes: Optional[List[float]] = None
 
     entry: Optional[float] = None
     tp: Optional[float] = None
@@ -425,6 +476,9 @@ def _work_one(
                 print(f"[picks_build] {code}: empty price")
             return None
 
+        # チャート用 OHLC（ローソク足＋終値ライン）
+        chart_open, chart_high, chart_low, chart_closes = _extract_chart_ohlc(raw, max_points=60)
+
         feat = make_features(raw, cfg=FeatureConfig())
         if feat is None or len(feat) == 0:
             if BUILD_LOG:
@@ -436,18 +490,6 @@ def _work_one(
 
         last = _safe_float(close_s.iloc[-1] if len(close_s) else np.nan)
         atr = _safe_float(atr_s.iloc[-1] if len(atr_s) else np.nan)
-
-        # ★ チャート用に終値の直近60本を簡易配列にしておく
-        chart_closes_list: List[float] = []
-        if len(close_s):
-            tail = close_s.tail(60)  # 必要なら本数は後で調整
-            for v in tail:
-                try:
-                    f = float(v)
-                except Exception:
-                    continue
-                if np.isfinite(f):
-                    chart_closes_list.append(f)
 
         # --- 仕手株・流動性などのフィルタリング層 ---
         if picks_check_all is not None and FilterContext is not None:
@@ -515,7 +557,6 @@ def _work_one(
             code=str(code),
             last_close=_nan_to_none(last),
             atr=_nan_to_none(atr),
-            chart_closes=chart_closes_list or None,
             entry=_nan_to_none(e),
             tp=_nan_to_none(t),
             sl=_nan_to_none(s),
@@ -524,6 +565,10 @@ def _work_one(
             stars=int(stars),
             reason_lines=reason_lines,
             reason_concern=reason_concern,
+            chart_open=chart_open,
+            chart_high=chart_high,
+            chart_low=chart_low,
+            chart_closes=chart_closes,
         )
 
         # --- Sizing（数量・必要資金・想定PL/損失 + 見送り理由） ---
@@ -549,7 +594,7 @@ def _work_one(
         item.est_pl_matsui = sizing.get("est_pl_matsui")
         item.est_loss_matsui = sizing.get("est_loss_matsui")
 
-        # ★ SBI
+        # SBI
         item.qty_sbi = sizing.get("qty_sbi")
         item.required_cash_sbi = sizing.get("required_cash_sbi")
         item.est_pl_sbi = sizing.get("est_pl_sbi")
