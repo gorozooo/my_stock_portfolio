@@ -1,10 +1,14 @@
-// aiapp/static/aiapp/js/picks_debug.js
-
 (function(){
-  const input = document.getElementById("filterInput");
-  const table = document.getElementById("picksTable");
+  const input   = document.getElementById("filterInput");
+  const table   = document.getElementById("picksTable");
+  const modal   = document.getElementById("pickModal");
+  const closeBtn= document.getElementById("modalCloseBtn");
+  const body    = document.body;
 
-  // ------- フィルタ -------
+  const chartCanvas = document.getElementById("picksChart");
+  const chartEmpty  = document.getElementById("picksChartEmpty");
+
+  // ---------------- フィルタ ----------------
   if (input && table){
     const rows = Array.from(table.querySelectorAll("tbody tr"));
     input.addEventListener("input", function(){
@@ -20,13 +24,9 @@
     });
   }
 
-  const body   = document.body;
-  const modal  = document.getElementById("pickModal");
-  const closeBtn = document.getElementById("modalCloseBtn");
   if (!modal || !table) return;
 
-  let detailChart = null;
-
+  // ---------------- ユーティリティ ----------------
   function setText(id, v, fmt){
     const el = document.getElementById(id);
     if (!el) return;
@@ -50,99 +50,145 @@
     el.textContent = txt;
   }
 
-  function drawChartFromDataset(ds){
-    const canvas = document.getElementById("detailChart");
-    const emptyBox = document.getElementById("detailChartEmpty");
+  // ---------------- チャート描画 ----------------
+  function drawChart(ds){
+    if (!chartCanvas || !chartEmpty) return;
 
-    if (!canvas){
-      return;
-    }
-
-    let raw = ds.chartCloses || "";
-    let closes = [];
-
-    if (raw){
-      closes = raw.split(",").map(function(x){
-        const n = Number(x.trim());
-        return isNaN(n) ? null : n;
-      }).filter(function(v){ return v !== null; });
-    }
-
-    // エラー種別別にメッセージを変える
-    let errorType = null;
+    const raw = ds.chartCloses || "";
     if (!raw){
-      errorType = "no-data";
-    } else if (!window.Chart){
-      errorType = "no-lib";
-    } else if (!closes || closes.length < 2){
-      errorType = "short-data";
-    }
-
-    if (errorType){
-      if (detailChart){
-        detailChart.destroy();
-        detailChart = null;
-      }
-      if (emptyBox){
-        if (errorType === "no-data"){
-          emptyBox.textContent = "チャート用データが不足しています";
-        }else if (errorType === "no-lib"){
-          emptyBox.textContent = "Chart.js の読み込みに失敗したためチャートを表示できません";
-        }else{
-          emptyBox.textContent = "データ本数が少ないためチャートを表示できません";
-        }
-        emptyBox.style.display = "flex";
-      }
+      chartCanvas.style.display = "none";
+      chartEmpty.style.display = "flex";
       return;
     }
 
-    // ここまで来たら Chart.js + 十分なデータあり
-    if (emptyBox){
-      emptyBox.style.display = "none";
+    const closes = raw.split(",")
+      .map(s => Number(s.trim()))
+      .filter(v => Number.isFinite(v));
+
+    if (closes.length < 2){
+      chartCanvas.style.display = "none";
+      chartEmpty.style.display = "flex";
+      return;
     }
 
-    const ctx = canvas.getContext("2d");
-    if (detailChart){
-      detailChart.destroy();
-    }
+    const entry = Number(ds.entry || "NaN");
+    const tp    = Number(ds.tp || "NaN");
+    const sl    = Number(ds.sl || "NaN");
 
-    const labels = closes.map(function(_, idx){ return idx + 1; });
-
-    detailChart = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels: labels,
-        datasets: [{
-          data: closes,
-          borderWidth: 1.5,
-          tension: 0.25,
-          pointRadius: 0,
-          pointHitRadius: 6,
-          fill: false
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          x: { display: false },
-          y: {
-            display: true,
-            grid: { display: false }
-          }
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: { enabled: false }
-        }
-      }
+    const ys = closes.slice();
+    [entry, tp, sl].forEach(v => {
+      if (Number.isFinite(v)) ys.push(v);
     });
+
+    let minY = Math.min.apply(null, ys);
+    let maxY = Math.max.apply(null, ys);
+    if (!Number.isFinite(minY) || !Number.isFinite(maxY)){
+      minY = closes[0];
+      maxY = closes[0];
+    }
+    if (minY === maxY){
+      minY -= 1;
+      maxY += 1;
+    }
+    const pad = (maxY - minY) * 0.05 || 1;
+    const yMin = minY - pad;
+    const yMax = maxY + pad;
+
+    const ctx = chartCanvas.getContext("2d");
+    const rect = chartCanvas.getBoundingClientRect();
+    const width = rect.width || 600;
+    const height = rect.height || 180;
+    chartCanvas.width = width * window.devicePixelRatio;
+    chartCanvas.height = height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+    const padX = 16;
+    const padY = 12;
+
+    function sx(i){
+      if (closes.length === 1) return width / 2;
+      const t = i / (closes.length - 1);
+      return padX + t * (width - padX * 2);
+    }
+    function sy(v){
+      const t = (v - yMin) / (yMax - yMin);
+      return height - padY - t * (height - padY * 2);
+    }
+
+    // 背景
+    ctx.clearRect(0, 0, width, height);
+
+    // 補助グリッド
+    ctx.save();
+    ctx.strokeStyle = "rgba(148,163,184,0.25)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4,4]);
+    ctx.beginPath();
+    ctx.moveTo(padX, padY);
+    ctx.lineTo(padX, height - padY);
+    ctx.moveTo(width - padX, padY);
+    ctx.lineTo(width - padX, height - padY);
+    ctx.stroke();
+    ctx.restore();
+
+    // 終値ライン
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = "#38bdf8";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    closes.forEach((v, i) => {
+      const x = sx(i);
+      const y = sy(v);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.restore();
+
+    // 最新終値マーカー
+    const lastIdx = closes.length - 1;
+    const lastX = sx(lastIdx);
+    const lastY = sy(closes[lastIdx]);
+    ctx.save();
+    ctx.fillStyle = "#38bdf8";
+    ctx.beginPath();
+    ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(15,23,42,0.9)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+
+    // 水平ライン描画ヘルパ
+    function hLine(val, color, dash){
+      if (!Number.isFinite(val)) return;
+      const y = sy(val);
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash(dash);
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(padX, y);
+      ctx.lineTo(width - padX, y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Entry / TP / SL ライン
+    hLine(entry, "#e5e7eb", [3,4]);  // Entry
+    hLine(tp,    "#22c55e", [5,5]);  // TP
+    hLine(sl,    "#ef4444", [5,3]);  // SL
+
+    chartCanvas.style.display = "block";
+    chartEmpty.style.display = "none";
   }
 
+  // ---------------- モーダル表示 ----------------
   function openModal(row){
     const ds = row.dataset || {};
 
-    // タイトル・バッジ
     document.getElementById("modalTitle").textContent =
       (ds.code || "") + " " + (ds.name || "");
     document.getElementById("modalSector").textContent = ds.sector || "";
@@ -199,9 +245,6 @@
     setText("detailPlTotal", plTotal, "yen");
     setText("detailLossTotal", lossTotal, "yen");
 
-    // チャート描画
-    drawChartFromDataset(ds);
-
     // 理由（AI）
     const ulAi = document.getElementById("detailReasonsAi");
     ulAi.innerHTML = "";
@@ -234,6 +277,9 @@
     document.getElementById("detailConcern").textContent =
       ds.concern || "";
 
+    // チャート描画
+    drawChart(ds);
+
     modal.classList.add("open");
     body.classList.add("modal-open");
   }
@@ -243,6 +289,7 @@
     body.classList.remove("modal-open");
   }
 
+  // 行クリック
   table.querySelectorAll("tbody tr").forEach(function(row){
     row.addEventListener("click", function(){
       if (!this.dataset.code) return;
@@ -250,12 +297,12 @@
     });
   });
 
+  // モーダル外クリックで閉じる
   modal.addEventListener("click", function(e){
     if (e.target === modal){
       closeModal();
     }
   });
-
   if (closeBtn){
     closeBtn.addEventListener("click", closeModal);
   }
