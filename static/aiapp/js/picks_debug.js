@@ -1,162 +1,282 @@
-// aiapp/static/aiapp/picks_debug.js
-// AI Picks 診断（picks_debug.html）用 JS
-// - フィルタ
-// - モーダル開閉
-// - Chart.js で簡易ローソクっぽいライン＋価格目盛り
+// aiapp/js/picks_debug.js
+// AI Picks 診断用：フィルタ + モーダル + ローソク足チャート
 
-(function () {
+(function(){
+  // ===============================
+  // フィルタ（一覧テーブル）
+  // ===============================
+  const input = document.getElementById("filterInput");
   const table = document.getElementById("picksTable");
-  const filterInput = document.getElementById("filterInput");
 
-  const body = document.body;
-  const modal = document.getElementById("pickModal");
-  const closeBtn = document.getElementById("modalCloseBtn");
-
-  const chartCanvas = document.getElementById("detailChart");
-  const chartEmptyLabel = document.getElementById("chartEmptyLabel");
-
-  let chartInstance = null;
-
-  if (!table || !modal) {
-    return;
-  }
-
-  // --------------------------------------
-  // 共通フォーマッタ
-  // --------------------------------------
-  function setText(id, value, fmt) {
-    const el = document.getElementById(id);
-    if (!el) return;
-
-    if (value === undefined || value === null || value === "" || value === "NaN") {
-      el.textContent = "–";
-      return;
-    }
-
-    let txt = value;
-
-    if (fmt === "int") {
-      const n = Number(value);
-      txt = isNaN(n) ? "–" : n.toLocaleString();
-    } else if (fmt === "yen") {
-      const n = Number(value);
-      if (isNaN(n)) {
-        txt = "–";
-      } else {
-        txt = n.toLocaleString();
-        if (n > 0) txt = "+" + txt;
-      }
-    }
-
-    el.textContent = txt;
-  }
-
-  function toNumberOrNull(v) {
-    if (v === undefined || v === null || v === "") return null;
-    const n = Number(v);
-    return isNaN(n) ? null : n;
-  }
-
-  // --------------------------------------
-  // フィルタ（コード・銘柄名・業種）
-  // --------------------------------------
-  (function setupFilter() {
-    if (!filterInput || !table) return;
-
+  if (input && table){
     const rows = Array.from(table.querySelectorAll("tbody tr"));
-
-    filterInput.addEventListener("input", function () {
+    input.addEventListener("input", function(){
       const q = this.value.trim().toLowerCase();
-      if (!q) {
-        rows.forEach((r) => (r.style.display = ""));
+      if (!q){
+        rows.forEach(r => r.style.display = "");
         return;
       }
-
-      rows.forEach((r) => {
+      rows.forEach(r => {
         const text = r.textContent.toLowerCase();
         r.style.display = text.includes(q) ? "" : "none";
       });
     });
-  })();
+  }
 
-  // --------------------------------------
-  // Chart.js 用：チャート更新
-  // --------------------------------------
-  function updateChart(closes, entry, tp, sl) {
-    if (!chartCanvas) return;
-    const ctx = chartCanvas.getContext("2d");
-    if (!ctx) return;
+  // ===============================
+  // モーダル開閉
+  // ===============================
+  const body   = document.body;
+  const modal  = document.getElementById("pickModal");
+  const closeBtn = document.getElementById("modalCloseBtn");
+  if (!modal || !table) return;
+
+  function closeModal(){
+    modal.classList.remove("open");
+    body.classList.remove("modal-open");
+  }
+
+  if (closeBtn){
+    closeBtn.addEventListener("click", closeModal);
+  }
+  modal.addEventListener("click", function(e){
+    if (e.target === modal){
+      closeModal();
+    }
+  });
+
+  // ===============================
+  // チャート関連
+  // ===============================
+  const chartCanvas = document.getElementById("pickChart");
+  const chartEmpty  = document.getElementById("chartEmpty");
+  let pickChart = null;
+
+  function showEmpty(msg){
+    if (!chartEmpty || !chartCanvas) return;
+    chartEmpty.textContent = msg || "チャート用データが不足しています";
+    chartEmpty.style.display = "flex";
+    chartCanvas.style.opacity = "0.15";
+  }
+
+  function hideEmpty(){
+    if (!chartEmpty || !chartCanvas) return;
+    chartEmpty.style.display = "none";
+    chartCanvas.style.opacity = "1";
+  }
+
+  function parseNumber(v){
+    if (v === undefined || v === null || v === "" || v === "NaN"){
+      return null;
+    }
+    const n = Number(v);
+    return isNaN(n) ? null : n;
+  }
+
+  // "1,2,3" または "[1,2,3]" → [1,2,3]
+  function parseNumberArray(s){
+    if (!s) return [];
+    let txt = String(s).trim();
+    try{
+      if (txt[0] === "[" || txt[0] === "{"){
+        const arr = JSON.parse(txt);
+        if (!Array.isArray(arr)) return [];
+        return arr.map(Number).filter(v => !isNaN(v));
+      }
+      return txt.split(",")
+        .map(t => Number(t.trim()))
+        .filter(v => !isNaN(v));
+    }catch(e){
+      return [];
+    }
+  }
+
+  // OHLC: JSON 形式 [[o,h,l,c], ...] か "o,h,l,c|o,h,l,c|..." を想定
+  function parseOhlcArray(s){
+    if (!s) return [];
+    let txt = String(s).trim();
+    let out = [];
+
+    try{
+      if (txt[0] === "["){
+        const arr = JSON.parse(txt);
+        if (Array.isArray(arr)){
+          arr.forEach(row => {
+            if (!Array.isArray(row) || row.length < 4) return;
+            const o = Number(row[0]);
+            const h = Number(row[1]);
+            const l = Number(row[2]);
+            const c = Number(row[3]);
+            if ([o,h,l,c].some(v => isNaN(v))) return;
+            out.push({o, h, l, c});
+          });
+        }
+      }else{
+        // "o,h,l,c|o,h,l,c"
+        txt.split("|").forEach(seg => {
+          const parts = seg.split(",");
+          if (parts.length < 4) return;
+          const o = Number(parts[0]);
+          const h = Number(parts[1]);
+          const l = Number(parts[2]);
+          const c = Number(parts[3]);
+          if ([o,h,l,c].some(v => isNaN(v))) return;
+          out.push({o, h, l, c});
+        });
+      }
+    }catch(e){
+      out = [];
+    }
+    return out;
+  }
+
+  // ローソク足描画用プラグイン
+  const candlePlugin = {
+    id: "simpleCandles",
+    afterDatasetsDraw(chart, args, opts){
+      const ohlc = chart.$ohlcData;
+      if (!ohlc || !ohlc.length) return;
+
+      const {ctx, scales} = chart;
+      const xScale = scales.x;
+      const yScale = scales.y;
+      if (!xScale || !yScale) return;
+
+      const span = xScale.getPixelForValue(1) - xScale.getPixelForValue(0);
+      const candleWidth = Math.max(3, span * 0.45);
+
+      ctx.save();
+      ctx.lineWidth = 1.2;
+
+      ohlc.forEach((bar, idx) => {
+        const x = xScale.getPixelForValue(idx);
+        const yHigh = yScale.getPixelForValue(bar.h);
+        const yLow  = yScale.getPixelForValue(bar.l);
+        const yOpen = yScale.getPixelForValue(bar.o);
+        const yClose = yScale.getPixelForValue(bar.c);
+
+        const isUp = bar.c >= bar.o;
+        const stroke = isUp ? "#4ade80" : "#f97373";
+        const fill   = isUp ? "rgba(74,222,128,0.9)" : "rgba(248,113,113,0.9)";
+
+        // ヒゲ
+        ctx.strokeStyle = stroke;
+        ctx.beginPath();
+        ctx.moveTo(x, yHigh);
+        ctx.lineTo(x, yLow);
+        ctx.stroke();
+
+        // 実体
+        const top = Math.min(yOpen, yClose);
+        const bottom = Math.max(yOpen, yClose);
+        const h = Math.max(2, bottom - top);
+        ctx.fillStyle = fill;
+        ctx.fillRect(x - candleWidth / 2, top, candleWidth, h);
+      });
+
+      ctx.restore();
+    }
+  };
+
+  function renderChartFromRow(row){
+    if (!chartCanvas || typeof Chart === "undefined"){
+      return;
+    }
+    const ds = row.dataset || {};
+
+    // --- OHLC or close ---
+    let ohlc = parseOhlcArray(ds.chartOhlc || "");
+    const closesRaw = parseNumberArray(ds.chartCloses || ds.chart || "");
+
+    if (!ohlc.length && closesRaw.length){
+      // OHLC が無ければ終値だけから簡易ローソク（実体ゼロ）を作る
+      ohlc = closesRaw.map(v => ({o: v, h: v, l: v, c: v}));
+    }
+
+    if (!ohlc.length){
+      if (pickChart){
+        pickChart.destroy();
+        pickChart = null;
+      }
+      showEmpty("チャート用データが不足しています");
+      return;
+    }
+
+    hideEmpty();
+
+    const n = ohlc.length;
+    const labels = Array.from({length: n}, (_, i) => String(i + 1));
+    const closes = ohlc.map(b => b.c);
+
+    // Entry / TP / SL
+    const entryVal = parseNumber(ds.entry);
+    const tpVal    = parseNumber(ds.tp);
+    const slVal    = parseNumber(ds.sl);
+
+    // y の min/max （OHLC + 水平線も含めて）
+    let values = [];
+    ohlc.forEach(b => {
+      values.push(b.h, b.l);
+    });
+    if (entryVal !== null) values.push(entryVal);
+    if (tpVal !== null) values.push(tpVal);
+    if (slVal !== null) values.push(slVal);
+
+    let yMin = Math.min.apply(null, values);
+    let yMax = Math.max.apply(null, values);
+    if (!isFinite(yMin) || !isFinite(yMax)){
+      yMin = closes[0];
+      yMax = closes[0];
+    }
+    if (yMin === yMax){
+      yMin -= 1;
+      yMax += 1;
+    }
+    const pad = (yMax - yMin) * 0.08;
+    yMin -= pad;
+    yMax += pad;
 
     // 既存チャート破棄
-    if (chartInstance) {
-      chartInstance.destroy();
-      chartInstance = null;
+    if (pickChart){
+      pickChart.destroy();
+      pickChart = null;
     }
 
-    // 空データの場合
-    if (!closes || !closes.length) {
-      if (chartEmptyLabel) {
-        chartEmptyLabel.style.display = "flex";
-      }
-      return;
-    } else {
-      if (chartEmptyLabel) {
-        chartEmptyLabel.style.display = "none";
-      }
-    }
+    const ctx = chartCanvas.getContext("2d");
 
-    const labels = closes.map((_, i) => i + 1); // インデックスを簡易X軸に
+    const datasets = [];
 
-    // Y軸の min / max を決める
-    let ymin = Math.min.apply(null, closes);
-    let ymax = Math.max.apply(null, closes);
-
-    const extraLines = [];
-
-    function addLine(name, value, color, dash) {
-      if (value === null || value === undefined) return;
-      const n = Number(value);
-      if (!isNaN(n)) {
-        extraLines.push({ name, value: n, color, dash });
-        ymin = Math.min(ymin, n);
-        ymax = Math.max(ymax, n);
-      }
-    }
-
-    addLine("Entry", entry, "#22c55e", [4, 4]);
-    addLine("TP", tp, "#4ade80", [4, 4]);
-    addLine("SL", sl, "#ef4444", [4, 4]);
-
-    // 余白
-    const pad = (ymax - ymin) * 0.1 || 10;
-    ymin -= pad;
-    ymax += pad;
-
-    const datasets = [
-      {
-        label: "Close",
-        data: closes,
-        borderColor: "#38bdf8",
-        backgroundColor: "rgba(56, 189, 248, 0.15)",
-        borderWidth: 2,
-        pointRadius: 0,
-        tension: 0.25,
-      },
-    ];
-
-    extraLines.forEach((ln) => {
-      datasets.push({
-        label: ln.name,
-        data: labels.map(() => ln.value),
-        borderColor: ln.color,
-        borderWidth: 1,
-        pointRadius: 0,
-        borderDash: ln.dash || [],
-        fill: false,
-      });
+    // 終値ライン（細い青）
+    datasets.push({
+      label: "終値",
+      data: closes,
+      borderColor: "rgba(56,189,248,1)",   // シアン寄り
+      borderWidth: 1.5,
+      pointRadius: 0,
+      tension: 0.2,
     });
 
-    chartInstance = new Chart(ctx, {
+    // Entry / TP / SL の水平線
+    const mkHorizontal = (value, label, color, dash) => {
+      if (value === null) return null;
+      return {
+        label: label,
+        data: Array(n).fill(value),
+        borderColor: color,
+        borderWidth: 1,
+        pointRadius: 0,
+        tension: 0,
+        borderDash: dash || [],
+      };
+    };
+
+    const dsEntry = mkHorizontal(entryVal, "Entry", "#22c55e", [4, 3]);
+    const dsTp    = mkHorizontal(tpVal, "TP",    "#22c55e", []);
+    const dsSl    = mkHorizontal(slVal, "SL",    "#ef4444", []);
+
+    [dsEntry, dsTp, dsSl].forEach(d => { if (d) datasets.push(d); });
+
+    pickChart = new Chart(ctx, {
       type: "line",
       data: {
         labels: labels,
@@ -165,56 +285,91 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        interaction: {
-          mode: "index",
-          intersect: false,
-        },
+        animation: false,
         plugins: {
           legend: {
-            display: false,
-          },
-          tooltip: {
-            callbacks: {
-              label: function (context) {
-                const v = context.parsed.y;
-                if (v == null || isNaN(v)) return "";
-                const name = context.dataset.label || "";
-                return `${name}: ${v.toLocaleString()} 円`;
+            display: true,
+            labels: {
+              usePointStyle: true,
+              boxWidth: 10,
+              padding: 12,
+              color: "#9ca3af",
+              font: {
+                size: 10,
               },
             },
+          },
+          tooltip: {
+            enabled: false,
           },
         },
         scales: {
           x: {
             display: false,
+            grid: {
+              display: false,
+            },
           },
           y: {
-            min: ymin,
-            max: ymax,
+            display: true,
+            position: "right",
+            grid: {
+              color: "rgba(30,64,175,0.35)",
+            },
             ticks: {
               color: "#9ca3af",
-              callback: function (value) {
+              font: {
+                size: 9,
+              },
+              callback: function(value){
                 const n = Number(value);
-                if (isNaN(n)) return value;
+                if (isNaN(n)) return "";
                 return n.toLocaleString();
               },
             },
-            grid: {
-              color: "rgba(148, 163, 184, 0.25)",
-            },
+            min: yMin,
+            max: yMax,
           },
         },
       },
+      plugins: [candlePlugin],
     });
+
+    // ローソク足データをチャートに渡す
+    pickChart.$ohlcData = ohlc;
+    pickChart.update();
   }
 
-  // --------------------------------------
-  // モーダル表示
-  // --------------------------------------
-  function openModal(row) {
+  // ===============================
+  // モーダル open + チャート描画
+  // ===============================
+  function setText(id, v, fmt){
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (v === undefined || v === null || v === "" || v === "NaN"){
+      el.textContent = "–";
+      return;
+    }
+    let txt = v;
+    if (fmt === "int"){
+      const n = Number(v);
+      txt = isNaN(n) ? "–" : n.toLocaleString();
+    }else if (fmt === "yen"){
+      const n = Number(v);
+      if (isNaN(n)){
+        txt = "–";
+      }else{
+        txt = n.toLocaleString();
+        if (n > 0) txt = "+" + txt;
+      }
+    }
+    el.textContent = txt;
+  }
+
+  function openModal(row){
     const ds = row.dataset || {};
 
-    // タイトル / メタ
+    // タイトル周り
     document.getElementById("modalTitle").textContent =
       (ds.code || "") + " " + (ds.name || "");
     document.getElementById("modalSector").textContent = ds.sector || "";
@@ -273,100 +428,48 @@
 
     // 理由（AI）
     const ulAi = document.getElementById("detailReasonsAi");
-    if (ulAi) {
-      ulAi.innerHTML = "";
-      const reasons = ds.reasons || "";
-      if (reasons) {
-        reasons.split("||").forEach(function (t) {
-          t = (t || "").trim();
-          if (!t) return;
-          const li = document.createElement("li");
-          li.textContent = t;
-          ulAi.appendChild(li);
-        });
-      }
+    ulAi.innerHTML = "";
+    if (ds.reasons){
+      ds.reasons.split("||").forEach(function(t){
+        t = (t || "").trim();
+        if (!t) return;
+        const li = document.createElement("li");
+        li.textContent = t;
+        ulAi.appendChild(li);
+      });
     }
 
     // 理由（数量0など発注条件）
     const ulSizing = document.getElementById("detailReasonsSizing");
-    if (ulSizing) {
-      ulSizing.innerHTML = "";
-      const sReasons = ds.sizingReasons || "";
-      if (sReasons) {
-        sReasons.split("||").forEach(function (t) {
-          t = (t || "").trim();
-          if (!t) return;
-          if (t[0] === "・") {
-            t = t.slice(1).trim();
-          }
-          const li = document.createElement("li");
-          li.textContent = t;
-          ulSizing.appendChild(li);
-        });
-      }
+    ulSizing.innerHTML = "";
+    if (ds.sizingReasons){
+      ds.sizingReasons.split("||").forEach(function(t){
+        t = (t || "").trim();
+        if (!t) return;
+        if (t[0] === "・"){
+          t = t.slice(1).trim();
+        }
+        const li = document.createElement("li");
+        li.textContent = t;
+        ulSizing.appendChild(li);
+      });
     }
 
-    // 懸念
-    const concernEl = document.getElementById("detailConcern");
-    if (concernEl) {
-      concernEl.textContent = ds.concern || "";
-    }
+    document.getElementById("detailConcern").textContent =
+      ds.concern || "";
 
-    // チャート用データ
-    let closes = [];
-    const closesStr = ds.chartCloses || "";
-    if (closesStr) {
-      closes = closesStr
-        .split(",")
-        .map((s) => Number(s.trim()))
-        .filter((v) => !isNaN(v));
-    }
+    // チャート描画
+    renderChartFromRow(row);
 
-    const entry = toNumberOrNull(ds.entry);
-    const tp = toNumberOrNull(ds.tp);
-    const sl = toNumberOrNull(ds.sl);
-
-    updateChart(closes, entry, tp, sl);
-
-    modal.classList.add("show");
+    modal.classList.add("open");
     body.classList.add("modal-open");
   }
 
-  function closeModal() {
-    modal.classList.remove("show");
-    body.classList.remove("modal-open");
-
-    // モーダルを閉じるときにチャートも破棄しておく（次回のちらつき防止）
-    if (chartInstance) {
-      chartInstance.destroy();
-      chartInstance = null;
-    }
-  }
-
-  // 行クリックでモーダル表示
-  table.querySelectorAll("tbody tr.pick-row").forEach(function (row) {
-    row.addEventListener("click", function () {
+  table.querySelectorAll("tbody tr").forEach(function(row){
+    row.addEventListener("click", function(){
       if (!this.dataset.code) return;
       openModal(this);
     });
   });
 
-  // モーダル外クリックで閉じる
-  modal.addEventListener("click", function (e) {
-    if (e.target === modal) {
-      closeModal();
-    }
-  });
-
-  // 閉じるボタン
-  if (closeBtn) {
-    closeBtn.addEventListener("click", closeModal);
-  }
-
-  // ESC キーで閉じる
-  document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape" && modal.classList.contains("show")) {
-      closeModal();
-    }
-  });
 })();
