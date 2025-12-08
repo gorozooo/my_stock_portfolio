@@ -1,4 +1,4 @@
-// aiapp/static/aiapp/picks_debug.js
+// aiapp/static/aiapp/js/picks_debug.js
 // AI Picks 診断（picks_debug.html）用 JS
 // - フィルタ
 // - モーダル開閉
