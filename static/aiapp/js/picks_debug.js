@@ -1,209 +1,220 @@
-(function(){
-  const input   = document.getElementById("filterInput");
-  const table   = document.getElementById("picksTable");
-  const modal   = document.getElementById("pickModal");
-  const closeBtn= document.getElementById("modalCloseBtn");
-  const body    = document.body;
+// aiapp/static/aiapp/picks_debug.js
+// AI Picks 診断（picks_debug.html）用 JS
+// - フィルタ
+// - モーダル開閉
+// - Chart.js で簡易ローソクっぽいライン＋価格目盛り
 
-  const chartCanvas = document.getElementById("picksChart");
-  const chartEmpty  = document.getElementById("picksChartEmpty");
+(function () {
+  const table = document.getElementById("picksTable");
+  const filterInput = document.getElementById("filterInput");
 
-  // ---------------- フィルタ ----------------
-  if (input && table){
-    const rows = Array.from(table.querySelectorAll("tbody tr"));
-    input.addEventListener("input", function(){
-      const q = this.value.trim().toLowerCase();
-      if (!q){
-        rows.forEach(r => r.style.display = "");
-        return;
-      }
-      rows.forEach(r => {
-        const text = r.textContent.toLowerCase();
-        r.style.display = text.includes(q) ? "" : "none";
-      });
-    });
+  const body = document.body;
+  const modal = document.getElementById("pickModal");
+  const closeBtn = document.getElementById("modalCloseBtn");
+
+  const chartCanvas = document.getElementById("detailChart");
+  const chartEmptyLabel = document.getElementById("chartEmptyLabel");
+
+  let chartInstance = null;
+
+  if (!table || !modal) {
+    return;
   }
 
-  if (!modal || !table) return;
-
-  // ---------------- ユーティリティ ----------------
-  function setText(id, v, fmt){
+  // --------------------------------------
+  // 共通フォーマッタ
+  // --------------------------------------
+  function setText(id, value, fmt) {
     const el = document.getElementById(id);
     if (!el) return;
-    if (v === undefined || v === null || v === "" || v === "NaN"){
+
+    if (value === undefined || value === null || value === "" || value === "NaN") {
       el.textContent = "–";
       return;
     }
-    let txt = v;
-    if (fmt === "int"){
-      const n = Number(v);
+
+    let txt = value;
+
+    if (fmt === "int") {
+      const n = Number(value);
       txt = isNaN(n) ? "–" : n.toLocaleString();
-    }else if (fmt === "yen"){
-      const n = Number(v);
-      if (isNaN(n)){
+    } else if (fmt === "yen") {
+      const n = Number(value);
+      if (isNaN(n)) {
         txt = "–";
-      }else{
+      } else {
         txt = n.toLocaleString();
         if (n > 0) txt = "+" + txt;
       }
     }
+
     el.textContent = txt;
   }
 
-  // ---------------- チャート描画 ----------------
-  function drawChart(ds){
-    if (!chartCanvas || !chartEmpty) return;
-
-    const raw = ds.chartCloses || "";
-    if (!raw){
-      chartCanvas.style.display = "none";
-      chartEmpty.style.display = "flex";
-      return;
-    }
-
-    const closes = raw.split(",")
-      .map(s => Number(s.trim()))
-      .filter(v => Number.isFinite(v));
-
-    if (closes.length < 2){
-      chartCanvas.style.display = "none";
-      chartEmpty.style.display = "flex";
-      return;
-    }
-
-    const entry = Number(ds.entry || "NaN");
-    const tp    = Number(ds.tp || "NaN");
-    const sl    = Number(ds.sl || "NaN");
-
-    const ys = closes.slice();
-    [entry, tp, sl].forEach(v => {
-      if (Number.isFinite(v)) ys.push(v);
-    });
-
-    let minY = Math.min.apply(null, ys);
-    let maxY = Math.max.apply(null, ys);
-    if (!Number.isFinite(minY) || !Number.isFinite(maxY)){
-      minY = closes[0];
-      maxY = closes[0];
-    }
-    if (minY === maxY){
-      minY -= 1;
-      maxY += 1;
-    }
-    const pad = (maxY - minY) * 0.05 || 1;
-    const yMin = minY - pad;
-    const yMax = maxY + pad;
-
-    const ctx = chartCanvas.getContext("2d");
-    const rect = chartCanvas.getBoundingClientRect();
-    const width = rect.width || 600;
-    const height = rect.height || 180;
-    chartCanvas.width = width * window.devicePixelRatio;
-    chartCanvas.height = height * window.devicePixelRatio;
-    ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
-
-    // 左右の余白を少し広げて、右端に価格ラベル用スペースを確保
-    const padX = 24;
-    const padY = 12;
-
-    function sx(i){
-      if (closes.length === 1) return width / 2;
-      const t = i / (closes.length - 1);
-      return padX + t * (width - padX * 2);
-    }
-    function sy(v){
-      const t = (v - yMin) / (yMax - yMin);
-      return height - padY - t * (height - padY * 2);
-    }
-
-    // 背景
-    ctx.clearRect(0, 0, width, height);
-
-    // 価格目盛り＋横グリッド
-    ctx.save();
-    const nticks = 4; // 上・下を含めて4本
-    ctx.font = "10px -apple-system, BlinkMacSystemFont, system-ui, sans-serif";
-    ctx.fillStyle = "rgba(148,163,184,0.95)";
-    ctx.textAlign = "right";
-    ctx.textBaseline = "middle";
-    ctx.strokeStyle = "rgba(51,65,85,0.7)";
-    ctx.lineWidth = 1;
-    ctx.setLineDash([2,4]);
-
-    for (let i = 0; i < nticks; i++){
-      const t = i / (nticks - 1);
-      const val = yMin + (yMax - yMin) * t;
-      const y = sy(val);
-
-      // グリッドライン
-      ctx.beginPath();
-      ctx.moveTo(padX, y);
-      ctx.lineTo(width - padX, y);
-      ctx.stroke();
-
-      // 価格ラベル（右端ちょい内側）
-      const label = Math.round(val).toLocaleString();
-      ctx.fillText(label, width - padX - 4, y);
-    }
-    ctx.restore();
-
-    // 終値ライン
-    ctx.save();
-    ctx.setLineDash([]);
-    ctx.strokeStyle = "#38bdf8";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    closes.forEach((v, i) => {
-      const x = sx(i);
-      const y = sy(v);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-    ctx.restore();
-
-    // 最新終値マーカー
-    const lastIdx = closes.length - 1;
-    const lastX = sx(lastIdx);
-    const lastY = sy(closes[lastIdx]);
-    ctx.save();
-    ctx.fillStyle = "#38bdf8";
-    ctx.beginPath();
-    ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(15,23,42,0.9)";
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.restore();
-
-    // Entry / TP / SL の水平ライン
-    function hLine(val, color, dash){
-      if (!Number.isFinite(val)) return;
-      const y = sy(val);
-      ctx.save();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1.2;
-      ctx.setLineDash(dash);
-      ctx.globalAlpha = 0.95;
-      ctx.beginPath();
-      ctx.moveTo(padX, y);
-      ctx.lineTo(width - padX, y);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    hLine(entry, "#e5e7eb", [3,4]);  // Entry
-    hLine(tp,    "#22c55e", [5,5]);  // TP
-    hLine(sl,    "#ef4444", [5,3]);  // SL
-
-    chartCanvas.style.display = "block";
-    chartEmpty.style.display = "none";
+  function toNumberOrNull(v) {
+    if (v === undefined || v === null || v === "") return null;
+    const n = Number(v);
+    return isNaN(n) ? null : n;
   }
 
-  // ---------------- モーダル表示 ----------------
-  function openModal(row){
+  // --------------------------------------
+  // フィルタ（コード・銘柄名・業種）
+  // --------------------------------------
+  (function setupFilter() {
+    if (!filterInput || !table) return;
+
+    const rows = Array.from(table.querySelectorAll("tbody tr"));
+
+    filterInput.addEventListener("input", function () {
+      const q = this.value.trim().toLowerCase();
+      if (!q) {
+        rows.forEach((r) => (r.style.display = ""));
+        return;
+      }
+
+      rows.forEach((r) => {
+        const text = r.textContent.toLowerCase();
+        r.style.display = text.includes(q) ? "" : "none";
+      });
+    });
+  })();
+
+  // --------------------------------------
+  // Chart.js 用：チャート更新
+  // --------------------------------------
+  function updateChart(closes, entry, tp, sl) {
+    if (!chartCanvas) return;
+    const ctx = chartCanvas.getContext("2d");
+    if (!ctx) return;
+
+    // 既存チャート破棄
+    if (chartInstance) {
+      chartInstance.destroy();
+      chartInstance = null;
+    }
+
+    // 空データの場合
+    if (!closes || !closes.length) {
+      if (chartEmptyLabel) {
+        chartEmptyLabel.style.display = "flex";
+      }
+      return;
+    } else {
+      if (chartEmptyLabel) {
+        chartEmptyLabel.style.display = "none";
+      }
+    }
+
+    const labels = closes.map((_, i) => i + 1); // インデックスを簡易X軸に
+
+    // Y軸の min / max を決める
+    let ymin = Math.min.apply(null, closes);
+    let ymax = Math.max.apply(null, closes);
+
+    const extraLines = [];
+
+    function addLine(name, value, color, dash) {
+      if (value === null || value === undefined) return;
+      const n = Number(value);
+      if (!isNaN(n)) {
+        extraLines.push({ name, value: n, color, dash });
+        ymin = Math.min(ymin, n);
+        ymax = Math.max(ymax, n);
+      }
+    }
+
+    addLine("Entry", entry, "#22c55e", [4, 4]);
+    addLine("TP", tp, "#4ade80", [4, 4]);
+    addLine("SL", sl, "#ef4444", [4, 4]);
+
+    // 余白
+    const pad = (ymax - ymin) * 0.1 || 10;
+    ymin -= pad;
+    ymax += pad;
+
+    const datasets = [
+      {
+        label: "Close",
+        data: closes,
+        borderColor: "#38bdf8",
+        backgroundColor: "rgba(56, 189, 248, 0.15)",
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.25,
+      },
+    ];
+
+    extraLines.forEach((ln) => {
+      datasets.push({
+        label: ln.name,
+        data: labels.map(() => ln.value),
+        borderColor: ln.color,
+        borderWidth: 1,
+        pointRadius: 0,
+        borderDash: ln.dash || [],
+        fill: false,
+      });
+    });
+
+    chartInstance = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: labels,
+        datasets: datasets,
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: "index",
+          intersect: false,
+        },
+        plugins: {
+          legend: {
+            display: false,
+          },
+          tooltip: {
+            callbacks: {
+              label: function (context) {
+                const v = context.parsed.y;
+                if (v == null || isNaN(v)) return "";
+                const name = context.dataset.label || "";
+                return `${name}: ${v.toLocaleString()} 円`;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            display: false,
+          },
+          y: {
+            min: ymin,
+            max: ymax,
+            ticks: {
+              color: "#9ca3af",
+              callback: function (value) {
+                const n = Number(value);
+                if (isNaN(n)) return value;
+                return n.toLocaleString();
+              },
+            },
+            grid: {
+              color: "rgba(148, 163, 184, 0.25)",
+            },
+          },
+        },
+      },
+    });
+  }
+
+  // --------------------------------------
+  // モーダル表示
+  // --------------------------------------
+  function openModal(row) {
     const ds = row.dataset || {};
 
+    // タイトル / メタ
     document.getElementById("modalTitle").textContent =
       (ds.code || "") + " " + (ds.name || "");
     document.getElementById("modalSector").textContent = ds.sector || "";
@@ -262,63 +273,100 @@
 
     // 理由（AI）
     const ulAi = document.getElementById("detailReasonsAi");
-    ulAi.innerHTML = "";
-    if (ds.reasons){
-      ds.reasons.split("||").forEach(function(t){
-        t = (t || "").trim();
-        if (!t) return;
-        const li = document.createElement("li");
-        li.textContent = t;
-        ulAi.appendChild(li);
-      });
+    if (ulAi) {
+      ulAi.innerHTML = "";
+      const reasons = ds.reasons || "";
+      if (reasons) {
+        reasons.split("||").forEach(function (t) {
+          t = (t || "").trim();
+          if (!t) return;
+          const li = document.createElement("li");
+          li.textContent = t;
+          ulAi.appendChild(li);
+        });
+      }
     }
 
     // 理由（数量0など発注条件）
     const ulSizing = document.getElementById("detailReasonsSizing");
-    ulSizing.innerHTML = "";
-    if (ds.sizingReasons){
-      ds.sizingReasons.split("||").forEach(function(t){
-        t = (t || "").trim();
-        if (!t) return;
-        if (t[0] === "・"){
-          t = t.slice(1).trim();
-        }
-        const li = document.createElement("li");
-        li.textContent = t;
-        ulSizing.appendChild(li);
-      });
+    if (ulSizing) {
+      ulSizing.innerHTML = "";
+      const sReasons = ds.sizingReasons || "";
+      if (sReasons) {
+        sReasons.split("||").forEach(function (t) {
+          t = (t || "").trim();
+          if (!t) return;
+          if (t[0] === "・") {
+            t = t.slice(1).trim();
+          }
+          const li = document.createElement("li");
+          li.textContent = t;
+          ulSizing.appendChild(li);
+        });
+      }
     }
 
-    document.getElementById("detailConcern").textContent =
-      ds.concern || "";
+    // 懸念
+    const concernEl = document.getElementById("detailConcern");
+    if (concernEl) {
+      concernEl.textContent = ds.concern || "";
+    }
 
-    // チャート描画
-    drawChart(ds);
+    // チャート用データ
+    let closes = [];
+    const closesStr = ds.chartCloses || "";
+    if (closesStr) {
+      closes = closesStr
+        .split(",")
+        .map((s) => Number(s.trim()))
+        .filter((v) => !isNaN(v));
+    }
 
-    modal.classList.add("open");
+    const entry = toNumberOrNull(ds.entry);
+    const tp = toNumberOrNull(ds.tp);
+    const sl = toNumberOrNull(ds.sl);
+
+    updateChart(closes, entry, tp, sl);
+
+    modal.classList.add("show");
     body.classList.add("modal-open");
   }
 
-  function closeModal(){
-    modal.classList.remove("open");
+  function closeModal() {
+    modal.classList.remove("show");
     body.classList.remove("modal-open");
+
+    // モーダルを閉じるときにチャートも破棄しておく（次回のちらつき防止）
+    if (chartInstance) {
+      chartInstance.destroy();
+      chartInstance = null;
+    }
   }
 
-  // 行クリック
-  table.querySelectorAll("tbody tr").forEach(function(row){
-    row.addEventListener("click", function(){
+  // 行クリックでモーダル表示
+  table.querySelectorAll("tbody tr.pick-row").forEach(function (row) {
+    row.addEventListener("click", function () {
       if (!this.dataset.code) return;
       openModal(this);
     });
   });
 
   // モーダル外クリックで閉じる
-  modal.addEventListener("click", function(e){
-    if (e.target === modal){
+  modal.addEventListener("click", function (e) {
+    if (e.target === modal) {
       closeModal();
     }
   });
-  if (closeBtn){
+
+  // 閉じるボタン
+  if (closeBtn) {
     closeBtn.addEventListener("click", closeModal);
   }
+
+  // ESC キーで閉じる
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && modal.classList.contains("show")) {
+      closeModal();
+    }
+  });
 })();
