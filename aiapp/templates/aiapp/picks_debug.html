@@ -1,5 +1,7 @@
+{# templates/aiapp/picks_debug.html #}
 {% extends "base.html" %}
-{% load static humanize %}
+{% load humanize %}
+{% load static %}
 {% block title %}AI Picks 診断{% endblock %}
 
 {% block head %}
@@ -86,24 +88,33 @@
               data-entry="{{ it.entry|default:'' }}"
               data-tp="{{ it.tp|default:'' }}"
               data-sl="{{ it.sl|default:'' }}"
+
               data-qty-rakuten="{{ it.qty_rakuten|default:'' }}"
               data-pl-rakuten="{{ it.est_pl_rakuten|default:'' }}"
               data-loss-rakuten="{{ it.est_loss_rakuten|default:'' }}"
               data-cash-rakuten="{{ it.required_cash_rakuten|default:'' }}"
               data-reason-rakuten="{{ it.reason_rakuten|default:'' }}"
+
               data-qty-matsui="{{ it.qty_matsui|default:'' }}"
               data-pl-matsui="{{ it.est_pl_matsui|default:'' }}"
               data-loss-matsui="{{ it.est_loss_matsui|default:'' }}"
               data-cash-matsui="{{ it.required_cash_matsui|default:'' }}"
               data-reason-matsui="{{ it.reason_matsui|default:'' }}"
+
               data-qty-sbi="{{ it.qty_sbi|default:'' }}"
               data-pl-sbi="{{ it.est_pl_sbi|default:'' }}"
               data-loss-sbi="{{ it.est_loss_sbi|default:'' }}"
               data-cash-sbi="{{ it.required_cash_sbi|default:'' }}"
               data-reason-sbi="{{ it.reason_sbi|default:'' }}"
-              data-chart-closes="{% if it.chart_closes %}{{ it.chart_closes|join:',' }}{% endif %}"
+
               data-reasons="{% if it.reason_lines %}{{ it.reason_lines|join:'||' }}{% endif %}"
               data-sizing-reasons="{% if it.reasons_text %}{{ it.reasons_text|join:'||' }}{% endif %}"
+
+              data-chart-open="{% if it.chart_open %}{{ it.chart_open|join:',' }}{% endif %}"
+              data-chart-high="{% if it.chart_high %}{{ it.chart_high|join:',' }}{% endif %}"
+              data-chart-low="{% if it.chart_low %}{{ it.chart_low|join:',' }}{% endif %}"
+              data-chart-closes="{% if it.chart_closes %}{{ it.chart_closes|join:',' }}{% endif %}"
+
               data-concern="{{ it.reason_concern|default:'' }}"
           >
             <td class="code">{{ it.code }}</td>
@@ -154,15 +165,17 @@
       </div>
     </div>
 
-    <!-- チャートカード -->
-    <div class="chart-card">
-      <div class="chart-title">日足チャート（終値・概略）</div>
+    <!-- チャートカード（ローソク足 + 価格目盛り） -->
+    <div class="detail-card chart-card">
+      <div class="detail-card-title">日足チャート（終値・概略）</div>
       <div class="chart-inner">
-        <canvas id="picksChart"></canvas>
-        <div class="chart-empty" id="picksChartEmpty">チャート用データが不足しています</div>
+        <canvas id="detailChart" width="600" height="260"></canvas>
+        <div id="chartEmptyLabel" class="chart-empty-label">
+          チャート用データが不足しています
+        </div>
       </div>
       <div class="chart-legend">
-        <span class="legend-line legend-price">終値</span>
+        <span class="legend-line legend-close">終値</span>
         <span class="legend-line legend-entry">Entry</span>
         <span class="legend-line legend-tp">TP</span>
         <span class="legend-line legend-sl">SL</span>
