@@ -3,6 +3,9 @@
 {% block title %}AI Picks 診断{% endblock %}
 
 {% block head %}
+<!-- Chart.js CDN 読み込み -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <style>
   :root{
     --bg:#020617;
@@ -311,27 +314,17 @@
     color:var(--sub);
   }
 
-  /* チャートカード */
+  /* ===== チャート用 ===== */
   .chart-card{
-    border-radius:18px;
-    border:1px solid var(--line);
-    padding:12px 14px 10px;
-    background:rgba(15,23,42,0.98);
-    box-shadow:0 10px 26px rgba(0,0,0,.45);
-    margin-bottom:10px;
-  }
-  .chart-card-title{
-    font-size:13px;
-    font-weight:600;
-    margin-bottom:6px;
+    grid-column:1 / -1;
   }
   .chart-box{
     position:relative;
     width:100%;
-    height:200px;
-    border-radius:14px;
+    height:220px;
+    border-radius:16px;
     border:1px dashed rgba(148,163,184,.4);
-    background:radial-gradient(circle at top,rgba(15,23,42,1),rgba(15,23,42,.9));
+    background:rgba(15,23,42,0.95);
     overflow:hidden;
   }
   #detailChart{
@@ -345,8 +338,10 @@
     display:flex;
     align-items:center;
     justify-content:center;
-    font-size:11px;
+    font-size:12px;
     color:var(--sub);
+    text-align:center;
+    padding:8px;
   }
 
   @media (max-width: 480px){
@@ -375,9 +370,6 @@
     }
   }
 </style>
-
-<!-- Chart.js 読み込み -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 {% endblock %}
 
 {% block content %}
@@ -472,9 +464,9 @@
               data-loss-sbi="{{ it.est_loss_sbi|default:'' }}"
               data-cash-sbi="{{ it.required_cash_sbi|default:'' }}"
               data-reason-sbi="{{ it.reason_sbi|default:'' }}"
+              data-chart-closes="{% if it.chart_closes %}{{ it.chart_closes|join:',' }}{% endif %}"
               data-reasons="{% if it.reason_lines %}{{ it.reason_lines|join:'||' }}{% endif %}"
               data-sizing-reasons="{% if it.reasons_text %}{{ it.reasons_text|join:'||' }}{% endif %}"
-              data-chart-closes="{% if it.chart_closes %}{{ it.chart_closes|join:',' }}{% endif %}"
               data-concern="{{ it.reason_concern|default:'' }}"
           >
             <td class="code">{{ it.code }}</td>
@@ -525,16 +517,16 @@
       </div>
     </div>
 
-    <!-- 日足チャート -->
-    <div class="chart-card">
-      <div class="chart-card-title">日足チャート（終値・概略）</div>
-      <div id="detailChartBox" class="chart-box">
-        <canvas id="detailChart"></canvas>
-        <div id="detailChartEmpty">チャート用データがありません</div>
-      </div>
-    </div>
-
     <div class="detail-grid">
+
+      <!-- 日足チャート -->
+      <div class="detail-card chart-card">
+        <div class="detail-card-title">日足チャート（終値・概略）</div>
+        <div class="chart-box">
+          <canvas id="detailChart"></canvas>
+          <div id="detailChartEmpty">チャート用データが不足しています</div>
+        </div>
+      </div>
 
       <!-- 現在値 ＋ ATR -->
       <div class="detail-card">
@@ -665,7 +657,6 @@
   const input = document.getElementById("filterInput");
   const table = document.getElementById("picksTable");
 
-  // フィルタ
   if (input && table){
     const rows = Array.from(table.querySelectorAll("tbody tr"));
     input.addEventListener("input", function(){
@@ -685,6 +676,8 @@
   const modal  = document.getElementById("pickModal");
   const closeBtn = document.getElementById("modalCloseBtn");
   if (!modal || !table) return;
+
+  let detailChart = null;
 
   function setText(id, v, fmt){
     const el = document.getElementById(id);
@@ -707,57 +700,6 @@
       }
     }
     el.textContent = txt;
-  }
-
-  // ===== チャート描画 =====
-  let chartInstance = null;
-
-  function renderChart(closes){
-    const canvas = document.getElementById("detailChart");
-    const emptyMsg = document.getElementById("detailChartEmpty");
-    if (!canvas) return;
-
-    if (chartInstance){
-      chartInstance.destroy();
-      chartInstance = null;
-    }
-    if (emptyMsg){
-      emptyMsg.style.display = "none";
-    }
-
-    if (!Array.isArray(closes) || closes.length < 2 || !window.Chart){
-      if (emptyMsg){
-        emptyMsg.textContent = "チャート用データが不足しています";
-        emptyMsg.style.display = "flex";
-      }
-      return;
-    }
-
-    const labels = closes.map((_, i) => (i + 1).toString());
-
-    chartInstance = new Chart(canvas.getContext("2d"), {
-      type: "line",
-      data: {
-        labels: labels,
-        datasets: [{
-          data: closes,
-          borderWidth: 1,
-          pointRadius: 0,
-          tension: 0.2,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-        },
-        scales: {
-          x: { display: false },
-          y: { display: false },
-        },
-      }
-    });
   }
 
   function openModal(row){
@@ -819,6 +761,67 @@
     setText("detailPlTotal", plTotal, "yen");
     setText("detailLossTotal", lossTotal, "yen");
 
+    // ===== チャート描画 =====
+    const chartEmpty = document.getElementById("detailChartEmpty");
+    const canvas = document.getElementById("detailChart");
+    let closes = [];
+
+    const raw = ds.chartCloses || "";
+    if (raw){
+      closes = raw.split(",").map(function(x){
+        const n = Number(x.trim());
+        return isNaN(n) ? null : n;
+      }).filter(function(v){ return v !== null; });
+    }
+
+    if (!canvas || !window.Chart || !closes || closes.length < 2){
+      if (detailChart){
+        detailChart.destroy();
+        detailChart = null;
+      }
+      if (chartEmpty){
+        chartEmpty.style.display = "flex";
+      }
+    }else{
+      if (chartEmpty){
+        chartEmpty.style.display = "none";
+      }
+      const ctx = canvas.getContext("2d");
+      if (detailChart){
+        detailChart.destroy();
+      }
+      const labels = closes.map(function(_, idx){ return idx + 1; });
+      detailChart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: labels,
+          datasets: [{
+            data: closes,
+            borderWidth: 1.5,
+            tension: 0.25,
+            pointRadius: 0,
+            pointHitRadius: 6,
+            fill: false
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: { display: false },
+            y: {
+              display: true,
+              grid: { display: false }
+            }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: { enabled: false }
+          }
+        }
+      });
+    }
+
     // 理由（AI）
     const ulAi = document.getElementById("detailReasonsAi");
     ulAi.innerHTML = "";
@@ -850,15 +853,6 @@
 
     document.getElementById("detailConcern").textContent =
       ds.concern || "";
-
-    // チャートデータ
-    let closes = [];
-    if (ds.chartCloses){
-      closes = ds.chartCloses.split(",")
-        .map(s => Number(s.trim()))
-        .filter(n => !isNaN(n));
-    }
-    renderChart(closes);
 
     modal.classList.add("open");
     body.classList.add("modal-open");
