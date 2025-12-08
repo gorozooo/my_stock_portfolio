@@ -381,13 +381,13 @@ class PickItem:
     required_cash_matsui: Optional[float] = None
     est_pl_matsui: Optional[float] = None
     est_loss_matsui: Optional[float] = None
-  
+
     qty_sbi: Optional[int] = None
     required_cash_sbi: Optional[float] = None
     est_pl_sbi: Optional[float] = None
     est_loss_sbi: Optional[float] = None
-    
-    # sizing_service 側で組んだ共通メッセージ（両方0株など）
+
+    # sizing_service 側で組んだ共通メッセージ（ゼロ株理由など）
     reasons_text: Optional[List[str]] = None
 
     # 理由5つ＋懸念（reasons サービス）
@@ -398,7 +398,10 @@ class PickItem:
     reason_rakuten: Optional[str] = None
     reason_matsui: Optional[str] = None
     reason_sbi: Optional[str] = None
-    
+
+    # チャート用：直近の終値リスト（例: 60本）
+    chart_closes: Optional[List[float]] = None
+
 
 # =========================================================
 # 1銘柄処理
@@ -434,6 +437,17 @@ def _work_one(
         last = _safe_float(close_s.iloc[-1] if len(close_s) else np.nan)
         atr = _safe_float(atr_s.iloc[-1] if len(atr_s) else np.nan)
 
+        # ★ チャート用に Close の直近 N 本をリスト化
+        chart_closes_list: Optional[List[float]] = None
+        try:
+            chart_len = 60
+            if len(close_s) > 0:
+                tail = close_s.dropna().iloc[-chart_len:]
+                if len(tail) > 0:
+                    chart_closes_list = [float(v) for v in tail.tolist()]
+        except Exception:
+            chart_closes_list = None
+
         # --- 仕手株・流動性などのフィルタリング層 ---
         if picks_check_all is not None and FilterContext is not None:
             try:
@@ -448,7 +462,7 @@ def _work_one(
                     # フィルタ理由ごとの件数カウント
                     if filter_stats is not None:
                         reason = getattr(decision, "reason_code", None) or "SKIP"
-                        filter_stats[reason] = filter_stats.get(reason, 0) + 1
+                           
 
                     if BUILD_LOG:
                         rc = getattr(decision, "reason_code", None)
@@ -508,6 +522,7 @@ def _work_one(
             stars=int(stars),
             reason_lines=reason_lines,
             reason_concern=reason_concern,
+            chart_closes=chart_closes_list,
         )
 
         # --- Sizing（数量・必要資金・想定PL/損失 + 見送り理由） ---
@@ -533,17 +548,17 @@ def _work_one(
         item.est_pl_matsui = sizing.get("est_pl_matsui")
         item.est_loss_matsui = sizing.get("est_loss_matsui")
 
-        # ★ SBI
+        # SBI
         item.qty_sbi = sizing.get("qty_sbi")
         item.required_cash_sbi = sizing.get("required_cash_sbi")
         item.est_pl_sbi = sizing.get("est_pl_sbi")
         item.est_loss_sbi = sizing.get("est_loss_sbi")
 
-        # 共通メッセージ
+        # 共通メッセージ（ゼロ株理由など）
         reasons_text = sizing.get("reasons_text")
         item.reasons_text = reasons_text if reasons_text else None
 
-        # 証券会社別の見送り理由（0株のときにテンプレートが表示）
+        # 証券会社別の見送り理由
         item.reason_rakuten = sizing.get("reason_rakuten_msg") or ""
         item.reason_matsui = sizing.get("reason_matsui_msg") or ""
         item.reason_sbi = sizing.get("reason_sbi_msg") or ""
