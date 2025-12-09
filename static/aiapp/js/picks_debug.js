@@ -152,7 +152,8 @@
     chartContainer.style.overflow = "hidden";
 
     // 内側の幅を取得（スクロール幅じゃなく clientWidth を使う）
-    const containerInnerWidth = chartContainer.clientWidth || chartContainer.getBoundingClientRect().width || 0;
+    const containerInnerWidth =
+      chartContainer.clientWidth || chartContainer.getBoundingClientRect().width || 0;
     let chartWidth = containerInnerWidth - INNER_PAD * 2;
     if (!isFinite(chartWidth) || chartWidth <= 0) {
       chartWidth = 320; // 最低幅の保険
@@ -213,8 +214,8 @@
           precision: 0,
           minMove: 1,
         },
-        lastValueVisible: false,  // ★ 現在値ラベルを非表示
-        priceLineVisible: false,   // ★ 現在値の横破線も消す
+        lastValueVisible: false, // ★ 現在値ラベルを非表示
+        priceLineVisible: false, // ★ 現在値の横破線も消す
       });
       candleSeries.setData(candles);
       baseTimeList = candles.map((c) => c.time);
@@ -269,7 +270,8 @@
     // リサイズ対応（余白維持）
     resizeHandler = function () {
       if (!lwChart) return;
-      const innerWidth = chartContainer.clientWidth || chartContainer.getBoundingClientRect().width || 0;
+      const innerWidth =
+        chartContainer.clientWidth || chartContainer.getBoundingClientRect().width || 0;
       let w = innerWidth - INNER_PAD * 2;
       if (!isFinite(w) || w <= 0) w = 320;
       const r = chartContainer.getBoundingClientRect();
@@ -306,11 +308,6 @@
     setText("detailQtyRakuten", ds.qtyRakuten, "int");
     setText("detailQtyMatsui", ds.qtyMatsui, "int");
     setText("detailQtySbi", ds.qtySbi, "int");
-
-    // Entry / TP / SL（小数第1位で表示）
-    setText("detailEntry", ds.entry, "price1");
-    setText("detailTp", ds.tp, "price1");
-    setText("detailSl", ds.sl, "price1");
 
     // 必要資金
     setText("detailCashRakuten", ds.cashRakuten, "yen");
@@ -435,9 +432,20 @@
       }
     }
 
+    // ▼ ここで「小数銘柄かどうか」を判定
+    const useDecimal =
+      candles.some((c) => !Number.isInteger(c.close)) ||
+      closes.some((v) => !Number.isInteger(v));
+
     const entry = toNumberOrNull(ds.entry);
     const tp = toNumberOrNull(ds.tp);
     const sl = toNumberOrNull(ds.sl);
+
+    // ▼ 銘柄ごとに表示フォーマットを切り替え
+    const priceFmt = useDecimal ? "price1" : "int";
+    setText("detailEntry", ds.entry, priceFmt);
+    setText("detailTp", ds.tp, priceFmt);
+    setText("detailSl", ds.sl, priceFmt);
 
     updateChart(candles, closes, entry, tp, sl);
 
