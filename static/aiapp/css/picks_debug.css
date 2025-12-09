@@ -131,10 +131,6 @@
 .modal-backdrop {
   position: fixed;
   inset: 0;
-
-  /* 🔥 SAFE AREA ＋ bottom-tab 回避（ここ追加） */
-  padding-bottom: calc(env(safe-area-inset-bottom, 16px) + 180px);
-
   background: rgba(0,0,0,.45);
   backdrop-filter: blur(6px);
   display: none;
@@ -156,9 +152,14 @@
   padding: 18px 16px 30px;
   border: 1px solid var(--line);
   position: relative;
+}
 
-  /* 🔥 下タブに隠れないよう余白を追加（ここ追加） */
-  padding-bottom: calc(env(safe-area-inset-bottom, 16px) + 180px);
+/* 🔥 モーダルの一番下に「見えないスペーサー」を追加して
+      下タブに隠れないようにする */
+.modal-card::after {
+  content: "";
+  display: block;
+  height: calc(env(safe-area-inset-bottom, 16px) + 100px);
 }
 
 /* Close button */
@@ -252,7 +253,7 @@
 }
 
 .detail-green { color: #22c55e; }
-.detail-red { color: #ef4444; }
+detail-red { color: #ef4444; }
 
 /* Grid layout */
 .detail-grid {
