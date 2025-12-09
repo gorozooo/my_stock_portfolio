@@ -16,16 +16,11 @@
   const chartEmptyLabel = document.getElementById("chartEmptyLabel");
 
   let lwChart = null;
-  let candleSeries = null;
-  let entrySeries = null;
-  let tpSeries = null;
-  let slSeries = null;
 
   if (!table || !modal || !chartContainer) {
     return;
   }
 
-  // lightweight-charts がなければ何もしない
   if (typeof window.LightweightCharts === "undefined") {
     console.warn("LightweightCharts is not loaded.");
     return;
@@ -96,14 +91,9 @@
   // candles: [{time, open, high, low, close}, ...]
   // closes: [number, ...] （candlesが無いときのフォールバック）
   function updateChart(candles, closes, entry, tp, sl) {
-    // 既存チャート破棄
     if (lwChart) {
       lwChart.remove();
       lwChart = null;
-      candleSeries = null;
-      entrySeries = null;
-      tpSeries = null;
-      slSeries = null;
     }
 
     const hasCandles = Array.isArray(candles) && candles.length > 0;
@@ -116,7 +106,6 @@
       if (chartEmptyLabel) chartEmptyLabel.style.display = "none";
     }
 
-    // コンテナサイズ取得
     const rect = chartContainer.getBoundingClientRect();
     const width = rect.width || 600;
     const height = rect.height || 260;
@@ -133,12 +122,17 @@
         horzLines: { color: "rgba(148,163,184,0.24)" },
       },
       rightPriceScale: {
+        visible: true,
         borderVisible: false,
+        scaleMargins: {
+          top: 0.15,    // 上に余白 → はみ出し防止
+          bottom: 0.15, // 下にも余白
+        },
       },
       timeScale: {
         borderVisible: false,
         rightOffset: 2,
-        barSpacing: 6,
+        barSpacing: 7,
       },
       crosshair: {
         mode: LW.CrosshairMode.Normal,
@@ -152,8 +146,10 @@
       },
     });
 
+    let baseTimeList = [];
+
     if (hasCandles) {
-      candleSeries = lwChart.addCandlestickSeries({
+      const candleSeries = lwChart.addCandlestickSeries({
         upColor: "#22c55e",
         downColor: "#ef4444",
         borderUpColor: "#22c55e",
@@ -162,8 +158,8 @@
         wickDownColor: "#9ca3af",
       });
       candleSeries.setData(candles);
+      baseTimeList = candles.map((c) => c.time);
     } else if (hasCloses) {
-      // 万が一 OHLC が無い場合は終値ラインだけ
       const line = lwChart.addLineSeries({
         color: "#38bdf8",
         lineWidth: 2,
@@ -173,11 +169,8 @@
         value: v,
       }));
       line.setData(data);
+      baseTimeList = data.map((d) => d.time);
     }
-
-    const baseTimeList = hasCandles
-      ? candles.map((c) => c.time)
-      : closes.map((_, i) => i + 1);
 
     function addHLine(value, color) {
       if (value === null || value === undefined) return null;
@@ -196,19 +189,22 @@
       return series;
     }
 
-    entrySeries = addHLine(entry, "#22c55e");
-    tpSeries = addHLine(tp, "#4ade80");
-    slSeries = addHLine(sl, "#ef4444");
+    addHLine(entry, "#22c55e");
+    addHLine(tp, "#4ade80");
+    addHLine(sl, "#ef4444");
 
     lwChart.timeScale().fitContent();
 
-    // リサイズ対応（モーダルの幅変化に追従）
+    // リサイズ対応
     window.addEventListener(
       "resize",
       function handleResize() {
         if (!lwChart) return;
         const r = chartContainer.getBoundingClientRect();
-        lwChart.applyOptions({ width: r.width || 600, height: r.height || 260 });
+        lwChart.applyOptions({
+          width: r.width || 600,
+          height: r.height || 260,
+        });
       },
       { passive: true }
     );
@@ -318,12 +314,12 @@
       concernEl.textContent = ds.concern || "";
     }
 
-    // ------------- チャート用データ（OHLC） -------------
-    // data-chart-open / high / low / close -> 配列へ
+    // ------------- チャート用データ（OHLC + 日付） -------------
     const openStr = ds.chartOpen || "";
     const highStr = ds.chartHigh || "";
     const lowStr = ds.chartLow || "";
     const closeStr = ds.chartClose || "";
+    const datesStr = ds.chartDates || "";
 
     const opens = openStr
       ? openStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
@@ -336,6 +332,9 @@
       : [];
     const closes = closeStr
       ? closeStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
+      : [];
+    const dates = datesStr
+      ? datesStr.split(",").map((s) => s.trim()).filter((s) => s.length > 0)
       : [];
 
     let candles = [];
@@ -351,8 +350,9 @@
         typeof l === "number" &&
         typeof c === "number"
       ) {
+        const t = dates[i] || (i + 1); // 日付があれば "YYYY-MM-DD"、なければインデックス
         candles.push({
-          time: i + 1, // インデックスをそのまま time として使う
+          time: t,
           open: o,
           high: h,
           low: l,
@@ -378,10 +378,6 @@
     if (lwChart) {
       lwChart.remove();
       lwChart = null;
-      candleSeries = null;
-      entrySeries = null;
-      tpSeries = null;
-      slSeries = null;
     }
   }
 
