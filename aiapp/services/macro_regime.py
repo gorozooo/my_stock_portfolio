@@ -226,6 +226,46 @@ def _download_ohlcv(symbol: str, start: date, end: date) -> pd.DataFrame:
     return df[["open", "high", "low", "close", "volume"]].copy()
 
 
+def _to_float_or_none(v) -> Optional[float]:
+    """
+    row[...] から取ってきた値を float or None に正規化するユーティリティ。
+    Series が来た場合も「最後の値」を使う。
+    """
+    if isinstance(v, (pd.Series, pd.Index)):
+        if len(v) == 0:
+            return None
+        v = v.iloc[-1]
+    try:
+        if v is None:
+            return None
+        f = float(v)
+        if np.isnan(f):
+            return None
+        return f
+    except Exception:
+        return None
+
+
+def _to_int_or_zero(v) -> int:
+    """
+    volume 用：整数に変換できなければ 0。
+    Series が来た場合も「最後の値」を使う。
+    """
+    if isinstance(v, (pd.Series, pd.Index)):
+        if len(v) == 0:
+            return 0
+        v = v.iloc[-1]
+    try:
+        if v is None:
+            return 0
+        i = int(v)
+        if i < 0:
+            return 0
+        return i
+    except Exception:
+        return 0
+
+
 @transaction.atomic
 def sync_benchmark_prices(days: int = 365) -> None:
     """
@@ -250,15 +290,21 @@ def sync_benchmark_prices(days: int = 365) -> None:
         # 1日ずつ保存
         for dt_idx, row in df.iterrows():
             d = dt_idx.date()
+            open_v = _to_float_or_none(row.get("open"))
+            high_v = _to_float_or_none(row.get("high"))
+            low_v = _to_float_or_none(row.get("low"))
+            close_v = _to_float_or_none(row.get("close"))
+            vol_v = _to_int_or_zero(row.get("volume"))
+
             BenchmarkPrice.objects.update_or_create(
                 benchmark=bm,
                 date=d,
                 defaults={
-                    "open": float(row.get("open", np.nan)) if pd.notna(row.get("open")) else None,
-                    "high": float(row.get("high", np.nan)) if pd.notna(row.get("high")) else None,
-                    "low": float(row.get("low", np.nan)) if pd.notna(row.get("low")) else None,
-                    "close": float(row.get("close", np.nan)) if pd.notna(row.get("close")) else None,
-                    "volume": int(row.get("volume")) if pd.notna(row.get("volume")) else 0,
+                    "open": open_v,
+                    "high": high_v,
+                    "low": low_v,
+                    "close": close_v,
+                    "volume": vol_v,
                 },
             )
 
