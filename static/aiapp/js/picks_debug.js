@@ -16,6 +16,7 @@
   const chartEmptyLabel = document.getElementById("chartEmptyLabel");
 
   let lwChart = null;
+  let resizeHandler = null;
 
   if (!table || !modal || !chartContainer) {
     return;
@@ -113,9 +114,14 @@
   // candles: [{time, open, high, low, close}, ...]
   // closes: [number, ...] （candles が無いときのフォールバック）
   function updateChart(candles, closes, entry, tp, sl) {
+    // 既存チャートと resize ハンドラを掃除
     if (lwChart) {
       lwChart.remove();
       lwChart = null;
+    }
+    if (resizeHandler) {
+      window.removeEventListener("resize", resizeHandler);
+      resizeHandler = null;
     }
 
     const hasCandles = Array.isArray(candles) && candles.length > 0;
@@ -131,6 +137,12 @@
     const rect = chartContainer.getBoundingClientRect();
     const width = rect.width || 600;
     const height = rect.height || 260;
+
+    const pointsCount = hasCandles ? candles.length : closes.length;
+    const barSpacing = Math.min(
+      12,
+      Math.max(4, width / Math.max(pointsCount + 6, 20))
+    );
 
     lwChart = LW.createChart(chartContainer, {
       width: width,
@@ -153,8 +165,8 @@
       },
       timeScale: {
         borderVisible: false,
-        rightOffset: 1,
-        barSpacing: 7,
+        rightOffset: 3,      // 右側に余白 → はみ出し防止
+        barSpacing: barSpacing,
       },
       crosshair: {
         mode: LW.CrosshairMode.Normal,
@@ -179,12 +191,27 @@
         wickUpColor: "#9ca3af",
         wickDownColor: "#9ca3af",
       });
+
+      // 価格は整数前提でラベル出す
+      candleSeries.applyOptions({
+        priceFormat: {
+          type: "price",
+          precision: 0,
+          minMove: 1,
+        },
+      });
+
       candleSeries.setData(candles);
       baseTimeList = candles.map((c) => c.time);
     } else if (hasCloses) {
       const line = lwChart.addLineSeries({
         color: "#38bdf8",
         lineWidth: 2,
+        priceFormat: {
+          type: "price",
+          precision: 0,
+          minMove: 1,
+        },
       });
       const data = closes.map((v, i) => ({
         time: i + 1,
@@ -202,6 +229,11 @@
         color: color,
         lineWidth: 1,
         lineStyle: LW.LineStyle.Dashed,
+        priceFormat: {
+          type: "price",
+          precision: 0,
+          minMove: 1,
+        },
       });
       const data = baseTimeList.map((t) => ({
         time: t,
@@ -217,19 +249,28 @@
 
     lwChart.timeScale().fitContent();
 
-    // リサイズ対応
-    window.addEventListener(
-      "resize",
-      function handleResize() {
-        if (!lwChart) return;
-        const r = chartContainer.getBoundingClientRect();
-        lwChart.applyOptions({
-          width: r.width || 600,
-          height: r.height || 260,
-        });
-      },
-      { passive: true }
-    );
+    // リサイズ対応（1つだけ登録）
+    resizeHandler = function () {
+      if (!lwChart) return;
+      const r = chartContainer.getBoundingClientRect();
+      const w = r.width || 600;
+      const h = r.height || 260;
+      lwChart.applyOptions({
+        width: w,
+        height: h,
+      });
+
+      const pc = hasCandles ? candles.length : closes.length;
+      const bs = Math.min(
+        12,
+        Math.max(4, w / Math.max(pc + 6, 20))
+      );
+      lwChart.timeScale().applyOptions({
+        barSpacing: bs,
+        rightOffset: 3,
+      });
+    };
+    window.addEventListener("resize", resizeHandler, { passive: true });
   }
 
   // --------------------------------------
@@ -393,6 +434,10 @@
     if (lwChart) {
       lwChart.remove();
       lwChart = null;
+    }
+    if (resizeHandler) {
+      window.removeEventListener("resize", resizeHandler);
+      resizeHandler = null;
     }
   }
 
