@@ -60,7 +60,7 @@
       if (isNaN(n)) {
         txt = "–";
       } else {
-        // プラスでも "+" は付けない
+        // プラスでも + は付けない
         txt = n.toLocaleString();
       }
     }
@@ -142,10 +142,9 @@
       },
       timeScale: {
         borderVisible: false,
-        rightOffset: 0,     // 右余白ゼロ（カード内に収める）
+        // ★ 右側にしっかり余白を取る（はみ出し防止）
+        rightOffset: 6,
         barSpacing: 7,
-        fixLeftEdge: true,
-        fixRightEdge: true, // データ端がカード外に行かないように固定
       },
       crosshair: {
         mode: LW.CrosshairMode.Normal,
@@ -156,18 +155,6 @@
           if (isNaN(n)) return "";
           return n.toLocaleString();
         },
-      },
-      // 横スクロール禁止（はみ出し防止）、ピンチだけ許可
-      handleScroll: {
-        mouseWheel: false,
-        pressedMouseMove: false,
-        horzTouchDrag: false,
-        vertTouchDrag: false,
-      },
-      handleScale: {
-        axisPressedMouseMove: false,
-        mouseWheel: false,
-        pinch: true, // ピンチズームのみ有効
       },
     });
 
@@ -214,14 +201,14 @@
       return series;
     }
 
-    // Entry=緑, TP=黄, SL=赤
+    // Entry=緑, TP=黄色, SL=赤
     addHLine(entry, "#22c55e");
     addHLine(tp, "#eab308");
     addHLine(sl, "#ef4444");
 
     lwChart.timeScale().fitContent();
 
-    // リサイズ対応（カード幅に追従）
+    // リサイズ対応
     window.addEventListener(
       "resize",
       function handleResize() {
