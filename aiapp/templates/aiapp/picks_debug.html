@@ -5,7 +5,7 @@
 {% block title %}AI Picks 診断{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'aiapp/css/picks_debug.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'aiapp/css/picks_debug.css' %}?v=2">
 {% endblock %}
 
 {% block content %}
@@ -115,6 +115,7 @@
               data-chart-high="{% if it.chart_high %}{{ it.chart_high|join:',' }}{% endif %}"
               data-chart-low="{% if it.chart_low %}{{ it.chart_low|join:',' }}{% endif %}"
               data-chart-close="{% if it.chart_closes %}{{ it.chart_closes|join:',' }}{% endif %}"
+              data-chart-dates="{% if it.chart_dates %}{{ it.chart_dates|join:',' }}{% endif %}"
 
               data-concern="{{ it.reason_concern|default:'' }}"
           >
@@ -310,7 +311,6 @@
   </div>
 </div>
 
-{# 本物ローソク用 lightweight-charts #}
 <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js" defer></script>
-<script src="{% static 'aiapp/js/picks_debug.js' %}?v=4" defer></script>
+<script src="{% static 'aiapp/js/picks_debug.js' %}?v=5" defer></script>
 {% endblock %}
