@@ -16,6 +16,13 @@
   const chartEmptyLabel = document.getElementById("chartEmptyLabel");
 
   let lwChart = null;
+  let resizeHandler = null;
+
+  // ▼ チャート凡例は非表示（終値を別線で描いていないため）
+  const chartLegend = document.querySelector(".chart-legend");
+  if (chartLegend) {
+    chartLegend.style.display = "none";
+  }
 
   if (!table || !modal || !chartContainer) {
     return;
@@ -45,7 +52,7 @@
       const n = Number(value);
       txt = isNaN(n) ? "–" : n.toLocaleString();
     } else if (fmt === "price1") {
-      // 小数第1位まで表示（Entry / TP / SL 用）
+      // 価格を小数第1位まで表示（Entry / TP / SL 用）
       const n = Number(value);
       if (isNaN(n)) {
         txt = "–";
@@ -60,7 +67,7 @@
       if (isNaN(n)) {
         txt = "–";
       } else {
-        // プラスでも + は付けない
+        // プラスでも "+" は付けない
         txt = n.toLocaleString();
       }
     }
@@ -97,14 +104,34 @@
   })();
 
   // --------------------------------------
+  // 日付文字列 → BusinessDay 変換 ("YYYY-MM-DD" or "YYYY/MM/DD")
+  // --------------------------------------
+  function toBusinessDay(dateStr) {
+    if (!dateStr) return null;
+    const s = dateStr.replace(/\./g, "-").replace(/\//g, "-");
+    const parts = s.split("-");
+    if (parts.length !== 3) return null;
+    const y = Number(parts[0]);
+    const m = Number(parts[1]);
+    const d = Number(parts[2]);
+    if (!y || !m || !d) return null;
+    return { year: y, month: m, day: d };
+  }
+
+  // --------------------------------------
   // lightweight-charts 用：チャート更新
   // --------------------------------------
   // candles: [{time, open, high, low, close}, ...]
-  // closes: [number, ...] （candlesが無いときのフォールバック）
+  // closes: [number, ...] （candles が無いときのフォールバック）
   function updateChart(candles, closes, entry, tp, sl) {
+    // 既存チャート破棄
     if (lwChart) {
       lwChart.remove();
       lwChart = null;
+    }
+    if (resizeHandler) {
+      window.removeEventListener("resize", resizeHandler);
+      resizeHandler = null;
     }
 
     const hasCandles = Array.isArray(candles) && candles.length > 0;
@@ -117,13 +144,26 @@
       if (chartEmptyLabel) chartEmptyLabel.style.display = "none";
     }
 
+    // ▼ カードの内側に左右余白を強制的に確保 & はみ出し隠す
+    const INNER_PAD = 16; // px（左右とも）
+    chartContainer.style.paddingLeft = INNER_PAD + "px";
+    chartContainer.style.paddingRight = INNER_PAD + "px";
+    chartContainer.style.boxSizing = "border-box";
+    chartContainer.style.overflow = "hidden";
+
+    // 内側の幅を取得（スクロール幅じゃなく clientWidth を使う）
+    const containerInnerWidth = chartContainer.clientWidth || chartContainer.getBoundingClientRect().width || 0;
+    let chartWidth = containerInnerWidth - INNER_PAD * 2;
+    if (!isFinite(chartWidth) || chartWidth <= 0) {
+      chartWidth = 320; // 最低幅の保険
+    }
+
     const rect = chartContainer.getBoundingClientRect();
-    const width = rect.width || 600;
-    const height = rect.height || 260;
+    const chartHeight = rect.height || 260;
 
     lwChart = LW.createChart(chartContainer, {
-      width: width,
-      height: height,
+      width: chartWidth,
+      height: chartHeight,
       layout: {
         background: { type: "solid", color: "rgba(15,23,42,0)" },
         textColor: "#e5edff",
@@ -135,6 +175,7 @@
       rightPriceScale: {
         visible: true,
         borderVisible: false,
+        textColor: "#e5edff",
         scaleMargins: {
           top: 0.15,
           bottom: 0.15,
@@ -142,8 +183,7 @@
       },
       timeScale: {
         borderVisible: false,
-        // ★ 右側にしっかり余白を取る（はみ出し防止）
-        rightOffset: 6,
+        rightOffset: 2,
         barSpacing: 7,
       },
       crosshair: {
@@ -168,6 +208,11 @@
         borderDownColor: "#ef4444",
         wickUpColor: "#9ca3af",
         wickDownColor: "#9ca3af",
+        priceFormat: {
+          type: "price",
+          precision: 0,
+          minMove: 1,
+        },
       });
       candleSeries.setData(candles);
       baseTimeList = candles.map((c) => c.time);
@@ -175,6 +220,11 @@
       const line = lwChart.addLineSeries({
         color: "#38bdf8",
         lineWidth: 2,
+        priceFormat: {
+          type: "price",
+          precision: 0,
+          minMove: 1,
+        },
       });
       const data = closes.map((v, i) => ({
         time: i + 1,
@@ -192,6 +242,11 @@
         color: color,
         lineWidth: 1,
         lineStyle: LW.LineStyle.Dashed,
+        priceFormat: {
+          type: "price",
+          precision: 0,
+          minMove: 1,
+        },
       });
       const data = baseTimeList.map((t) => ({
         time: t,
@@ -201,26 +256,28 @@
       return series;
     }
 
-    // Entry=緑, TP=黄色, SL=赤
+    // Entry: 緑, TP: 黄色, SL: 赤
     addHLine(entry, "#22c55e");
     addHLine(tp, "#eab308");
     addHLine(sl, "#ef4444");
 
+    // 全体がカード内に収まるように自動フィット
     lwChart.timeScale().fitContent();
 
-    // リサイズ対応
-    window.addEventListener(
-      "resize",
-      function handleResize() {
-        if (!lwChart) return;
-        const r = chartContainer.getBoundingClientRect();
-        lwChart.applyOptions({
-          width: r.width || 600,
-          height: r.height || 260,
-        });
-      },
-      { passive: true }
-    );
+    // リサイズ対応（余白維持）
+    resizeHandler = function () {
+      if (!lwChart) return;
+      const innerWidth = chartContainer.clientWidth || chartContainer.getBoundingClientRect().width || 0;
+      let w = innerWidth - INNER_PAD * 2;
+      if (!isFinite(w) || w <= 0) w = 320;
+      const r = chartContainer.getBoundingClientRect();
+      const h = r.height || 260;
+      lwChart.applyOptions({
+        width: w,
+        height: h,
+      });
+    };
+    window.addEventListener("resize", resizeHandler, { passive: true });
   }
 
   // --------------------------------------
@@ -248,7 +305,7 @@
     setText("detailQtyMatsui", ds.qtyMatsui, "int");
     setText("detailQtySbi", ds.qtySbi, "int");
 
-    // Entry / TP / SL（小数第1位）
+    // Entry / TP / SL（小数第1位で表示）
     setText("detailEntry", ds.entry, "price1");
     setText("detailTp", ds.tp, "price1");
     setText("detailSl", ds.sl, "price1");
@@ -263,12 +320,19 @@
     setText("detailPlMatsui", ds.plMatsui, "yen");
     setText("detailPlSbi", ds.plSbi, "yen");
 
-    // 想定損失
+    // 想定損失（値はそのまま / 文字色は赤クラスを付与）
     setText("detailLossRakuten", ds.lossRakuten, "yen");
     setText("detailLossMatsui", ds.lossMatsui, "yen");
     setText("detailLossSbi", ds.lossSbi, "yen");
 
-    // 数量・想定利益・想定損失の「合計」行は非表示
+    ["detailLossRakuten", "detailLossMatsui", "detailLossSbi"].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (el) {
+        el.classList.add("detail-red");
+      }
+    });
+
+    // 数量・想定利益・想定損失の「合計」行は不要なので非表示
     ["detailQtyTotal", "detailPlTotal", "detailLossTotal"].forEach(function (id) {
       const el = document.getElementById(id);
       if (!el) return;
@@ -276,6 +340,7 @@
       if (rowEl) {
         rowEl.style.display = "none";
       }
+      el.textContent = ""; // 念のため中身も消しておく
     });
 
     // 理由（AI）
@@ -355,7 +420,9 @@
         typeof l === "number" &&
         typeof c === "number"
       ) {
-        const t = dates[i] || (i + 1); // 日付があれば "YYYY-MM-DD"、なければインデックス
+        const rawDate = dates[i] || null;
+        const bd = rawDate ? toBusinessDay(rawDate) : null;
+        const t = bd || (i + 1);
         candles.push({
           time: t,
           open: o,
@@ -383,6 +450,10 @@
     if (lwChart) {
       lwChart.remove();
       lwChart = null;
+    }
+    if (resizeHandler) {
+      window.removeEventListener("resize", resizeHandler);
+      resizeHandler = null;
     }
   }
 
