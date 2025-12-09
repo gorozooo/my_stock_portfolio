@@ -52,7 +52,7 @@
       const n = Number(value);
       txt = isNaN(n) ? "–" : n.toLocaleString();
     } else if (fmt === "price1") {
-      // 小数第1位まで固定表示
+      // 価格を小数第1位まで固定表示
       const n = Number(value);
       if (isNaN(n)) {
         txt = "–";
@@ -63,22 +63,40 @@
         });
       }
     } else if (fmt === "priceAuto") {
-      // ★ ブローカー風：
-      //   ・小数を四捨五入して第1位まで
-      //   ・結果が整数なら小数点なし
-      //   ・そうでなければ小数1桁
-      const n0 = Number(value);
+      // ★ 銘柄ごとに「整数 or 小数1桁」を自動判定
+      //  - 小数桁数が 0 → 整数表示
+      //  - 小数桁数が 1 → 小数1桁で表示（SoftBank など）
+      //  - 小数桁数が 2 以上 → 整数銘柄とみなして四捨五入して整数表示（4768 の 3230.121 等）
+      const raw = String(value).trim();
+      const n0 = Number(raw);
       if (isNaN(n0)) {
         txt = "–";
       } else {
-        const n = Math.round(n0 * 10) / 10; // 1桁に丸め
-        if (Number.isInteger(n)) {
+        let decimals = 0;
+        const dot = raw.indexOf(".");
+        if (dot >= 0) {
+          decimals = raw.slice(dot + 1).length;
+        }
+
+        if (decimals === 0) {
+          // もともと整数
+          const n = Math.round(n0);
           txt = n.toLocaleString();
+        } else if (decimals === 1) {
+          // もともと小数1桁 → 1桁を維持
+          const n = Math.round(n0 * 10) / 10;
+          if (Number.isInteger(n)) {
+            txt = n.toLocaleString();
+          } else {
+            txt = n.toLocaleString(undefined, {
+              minimumFractionDigits: 1,
+              maximumFractionDigits: 1,
+            });
+          }
         } else {
-          txt = n.toLocaleString(undefined, {
-            minimumFractionDigits: 1,
-            maximumFractionDigits: 1,
-          });
+          // 小数2桁以上ついてる値は「整数銘柄」とみなして整数に丸める
+          const n = Math.round(n0);
+          txt = n.toLocaleString();
         }
       }
     } else if (fmt === "yen") {
@@ -328,7 +346,7 @@
     setText("detailQtyMatsui", ds.qtyMatsui, "int");
     setText("detailQtySbi", ds.qtySbi, "int");
 
-    // Entry / TP / SL → 銘柄ごとに整数 or 小数1桁へ自動判定
+    // Entry / TP / SL → 自動判定（整数 or 小数1桁）
     setText("detailEntry", ds.entry, "priceAuto");
     setText("detailTp", ds.tp, "priceAuto");
     setText("detailSl", ds.sl, "priceAuto");
@@ -343,7 +361,7 @@
     setText("detailPlMatsui", ds.plMatsui, "yen");
     setText("detailPlSbi", ds.plSbi, "yen");
 
-    // 想定損失（値はそのまま / 文字色は赤クラスを付与）
+    // 想定損失（文字色は赤）
     setText("detailLossRakuten", ds.lossRakuten, "yen");
     setText("detailLossMatsui", ds.lossMatsui, "yen");
     setText("detailLossSbi", ds.lossSbi, "yen");
@@ -355,7 +373,7 @@
       }
     });
 
-    // 数量・想定利益・想定損失の「合計」行は不要なので非表示
+    // 数量・想定利益・想定損失の「合計」行は非表示
     ["detailQtyTotal", "detailPlTotal", "detailLossTotal"].forEach(function (id) {
       const el = document.getElementById(id);
       if (!el) return;
