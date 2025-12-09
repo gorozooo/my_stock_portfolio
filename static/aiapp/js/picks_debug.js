@@ -64,28 +64,6 @@
     return isNaN(n) ? null : n;
   }
 
-  // 文字列リスト用の共通 split（"," / "||" 両対応）
-  function splitList(str) {
-    if (!str) return [];
-    const sep = str.includes("||") ? "||" : ",";
-    return str
-      .split(sep)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-  }
-
-  // "YYYY-MM-DD" → BusinessDay 変換（軽量版）
-  function toBusinessDay(dateStr) {
-    if (!dateStr) return null;
-    const parts = dateStr.split("-");
-    if (parts.length !== 3) return null;
-    const y = Number(parts[0]);
-    const m = Number(parts[1]);
-    const d = Number(parts[2]);
-    if (!y || !m || !d) return null;
-    return { year: y, month: m, day: d };
-  }
-
   // --------------------------------------
   // フィルタ（コード・銘柄名・業種）
   // --------------------------------------
@@ -109,12 +87,27 @@
   })();
 
   // --------------------------------------
+  // 日付文字列 → BusinessDay 変換 ("YYYY-MM-DD" or "YYYY/MM/DD")
+  // --------------------------------------
+  function toBusinessDay(dateStr) {
+    if (!dateStr) return null;
+    const s = dateStr.replace(/\./g, "-").replace(/\//g, "-");
+    const parts = s.split("-");
+    if (parts.length !== 3) return null;
+    const y = Number(parts[0]);
+    const m = Number(parts[1]);
+    const d = Number(parts[2]);
+    if (!y || !m || !d) return null;
+    return { year: y, month: m, day: d };
+  }
+
+  // --------------------------------------
   // lightweight-charts 用：チャート更新
   // --------------------------------------
   // candles: [{time, open, high, low, close}, ...]
-  // closes: [number, ...] （candles が無いときのフォールバック）
+  // closes: [number, ...] （candlesが無いときのフォールバック）
   function updateChart(candles, closes, entry, tp, sl) {
-    // 既存チャートと resize ハンドラを掃除
+    // 既存チャート破棄
     if (lwChart) {
       lwChart.remove();
       lwChart = null;
@@ -135,14 +128,9 @@
     }
 
     const rect = chartContainer.getBoundingClientRect();
-    const width = rect.width || 600;
+    const PADDING_RIGHT = 40; // 価格目盛り＋右側の余白ぶん
+    const width = Math.max(280, (rect.width || 600) - PADDING_RIGHT);
     const height = rect.height || 260;
-
-    const pointsCount = hasCandles ? candles.length : closes.length;
-    const barSpacing = Math.min(
-      12,
-      Math.max(4, width / Math.max(pointsCount + 6, 20))
-    );
 
     lwChart = LW.createChart(chartContainer, {
       width: width,
@@ -158,6 +146,7 @@
       rightPriceScale: {
         visible: true,
         borderVisible: false,
+        textColor: "#e5edff",
         scaleMargins: {
           top: 0.15,
           bottom: 0.15,
@@ -165,8 +154,8 @@
       },
       timeScale: {
         borderVisible: false,
-        rightOffset: 3,      // 右側に余白 → はみ出し防止
-        barSpacing: barSpacing,
+        rightOffset: 3,   // 右側に少し余白を作る
+        barSpacing: 7,
       },
       crosshair: {
         mode: LW.CrosshairMode.Normal,
@@ -190,17 +179,12 @@
         borderDownColor: "#ef4444",
         wickUpColor: "#9ca3af",
         wickDownColor: "#9ca3af",
-      });
-
-      // 価格は整数前提でラベル出す
-      candleSeries.applyOptions({
         priceFormat: {
           type: "price",
           precision: 0,
           minMove: 1,
         },
       });
-
       candleSeries.setData(candles);
       baseTimeList = candles.map((c) => c.time);
     } else if (hasCloses) {
@@ -247,27 +231,23 @@
     addHLine(tp, "#4ade80");
     addHLine(sl, "#ef4444");
 
-    lwChart.timeScale().fitContent();
+    // 右側に少し余裕を持たせるため、ロジカルレンジを +3 しておく
+    const ts = lwChart.timeScale();
+    const lastIndex = baseTimeList.length ? baseTimeList.length - 1 : 0;
+    ts.setVisibleLogicalRange({
+      from: 0,
+      to: lastIndex + 3,
+    });
 
-    // リサイズ対応（1つだけ登録）
+    // リサイズ対応（余白維持）
     resizeHandler = function () {
       if (!lwChart) return;
       const r = chartContainer.getBoundingClientRect();
-      const w = r.width || 600;
+      const w = Math.max(280, (r.width || 600) - PADDING_RIGHT);
       const h = r.height || 260;
       lwChart.applyOptions({
         width: w,
         height: h,
-      });
-
-      const pc = hasCandles ? candles.length : closes.length;
-      const bs = Math.min(
-        12,
-        Math.max(4, w / Math.max(pc + 6, 20))
-      );
-      lwChart.timeScale().applyOptions({
-        barSpacing: bs,
-        rightOffset: 3,
       });
     };
     window.addEventListener("resize", resizeHandler, { passive: true });
@@ -381,15 +361,24 @@
     const openStr = ds.chartOpen || "";
     const highStr = ds.chartHigh || "";
     const lowStr = ds.chartLow || "";
-    // chart_closes は data-chart-closes から来る（後方互換で chartClose も見る）
-    const closeStr = ds.chartCloses || ds.chartClose || "";
+    const closeStr = ds.chartClose || "";
     const datesStr = ds.chartDates || "";
 
-    const opens = splitList(openStr).map((s) => Number(s)).filter((v) => !isNaN(v));
-    const highs = splitList(highStr).map((s) => Number(s)).filter((v) => !isNaN(v));
-    const lows = splitList(lowStr).map((s) => Number(s)).filter((v) => !isNaN(v));
-    const closes = splitList(closeStr).map((s) => Number(s)).filter((v) => !isNaN(v));
-    const dates = splitList(datesStr);
+    const opens = openStr
+      ? openStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
+      : [];
+    const highs = highStr
+      ? highStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
+      : [];
+    const lows = lowStr
+      ? lowStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
+      : [];
+    const closes = closeStr
+      ? closeStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
+      : [];
+    const dates = datesStr
+      ? datesStr.split(",").map((s) => s.trim()).filter((s) => s.length > 0)
+      : [];
 
     let candles = [];
     const len = Math.min(opens.length, highs.length, lows.length, closes.length);
@@ -404,9 +393,9 @@
         typeof l === "number" &&
         typeof c === "number"
       ) {
-        // 日付があれば BusinessDay に変換、無ければ単純インデックス
-        const d = dates[i];
-        const t = d ? toBusinessDay(d) || (i + 1) : (i + 1);
+        const rawDate = dates[i] || null;
+        const bd = rawDate ? toBusinessDay(rawDate) : null;
+        const t = bd || (i + 1);
         candles.push({
           time: t,
           open: o,
