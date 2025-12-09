@@ -213,6 +213,7 @@
           precision: 0,
           minMove: 1,
         },
+        lastValueVisible: false,  // ★ 現在値ラベルを非表示
       });
       candleSeries.setData(candles);
       baseTimeList = candles.map((c) => c.time);
