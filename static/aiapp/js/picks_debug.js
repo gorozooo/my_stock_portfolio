@@ -2,8 +2,7 @@
 // AI Picks 診断（picks_debug.html）用 JS
 // - フィルタ
 // - モーダル開閉
-// - Chart.js でローソク足＋Entry/TP/SL
-// - 簡易ズーム（− / 全体 / ＋）
+// - lightweight-charts で本物ローソク足 + Entry/TP/SL
 
 (function () {
   const table = document.getElementById("picksTable");
@@ -13,25 +12,25 @@
   const modal = document.getElementById("pickModal");
   const closeBtn = document.getElementById("modalCloseBtn");
 
-  const chartCanvas = document.getElementById("detailChart");
+  const chartContainer = document.getElementById("detailChartContainer");
   const chartEmptyLabel = document.getElementById("chartEmptyLabel");
-  const zoomButtons = document.querySelectorAll(".chart-zoom-controls .zoom-btn");
 
-  let chartInstance = null;
+  let lwChart = null;
+  let candleSeries = null;
+  let entrySeries = null;
+  let tpSeries = null;
+  let slSeries = null;
 
-  // 現在モーダルで表示中の銘柄データ（元データ）
-  const currentChartState = {
-    closes: [],
-    ohlc: [],
-    entry: null,
-    tp: null,
-    sl: null,
-    zoomLevel: 0, // 0: 全体, 1: 中くらい, 2: 直近
-  };
-
-  if (!table || !modal) {
+  if (!table || !modal || !chartContainer) {
     return;
   }
+
+  // lightweight-charts がなければ何もしない
+  if (typeof window.LightweightCharts === "undefined") {
+    console.warn("LightweightCharts is not loaded.");
+    return;
+  }
+  const LW = window.LightweightCharts;
 
   // --------------------------------------
   // 共通フォーマッタ
@@ -92,269 +91,127 @@
   })();
 
   // --------------------------------------
-  // Chart.js 用：チャート更新（ローソク足＋Entry/TP/SL）
+  // lightweight-charts 用：チャート更新
   // --------------------------------------
-  // closes: 終値配列（フォールバック用）
-  // ohlc: [{open, high, low, close}, ...] があればローソク足で描画
-  function updateChart(closes, ohlc, entry, tp, sl) {
-    if (!chartCanvas) return;
-    const ctx = chartCanvas.getContext("2d");
-    if (!ctx) return;
-
+  // candles: [{time, open, high, low, close}, ...]
+  // closes: [number, ...] （candlesが無いときのフォールバック）
+  function updateChart(candles, closes, entry, tp, sl) {
     // 既存チャート破棄
-    if (chartInstance) {
-      chartInstance.destroy();
-      chartInstance = null;
+    if (lwChart) {
+      lwChart.remove();
+      lwChart = null;
+      candleSeries = null;
+      entrySeries = null;
+      tpSeries = null;
+      slSeries = null;
     }
 
-    const hasOhlc = Array.isArray(ohlc) && ohlc.length > 0;
+    const hasCandles = Array.isArray(candles) && candles.length > 0;
     const hasCloses = Array.isArray(closes) && closes.length > 0;
 
-    if (!hasOhlc && !hasCloses) {
-      if (chartEmptyLabel) {
-        chartEmptyLabel.style.display = "flex";
-      }
+    if (!hasCandles && !hasCloses) {
+      if (chartEmptyLabel) chartEmptyLabel.style.display = "flex";
       return;
     } else {
-      if (chartEmptyLabel) {
-        chartEmptyLabel.style.display = "none";
-      }
+      if (chartEmptyLabel) chartEmptyLabel.style.display = "none";
     }
 
-    // ラベル数（X軸）
-    let labels = [];
-    if (hasOhlc) {
-      labels = ohlc.map((_, i) => i + 1);
-      // 終値が空なら、ローソク足の close から作る
-      if (!hasCloses) {
-        closes = ohlc.map((b) => b.close);
-      }
-    } else if (hasCloses) {
-      labels = closes.map((_, i) => i + 1);
-    }
+    // コンテナサイズ取得
+    const rect = chartContainer.getBoundingClientRect();
+    const width = rect.width || 600;
+    const height = rect.height || 260;
 
-    // Y軸の min / max を決める
-    let ymin = Number.POSITIVE_INFINITY;
-    let ymax = Number.NEGATIVE_INFINITY;
-
-    if (hasOhlc) {
-      ohlc.forEach((b) => {
-        if (b.low < ymin) ymin = b.low;
-        if (b.high > ymax) ymax = b.high;
-      });
-    }
-    if (hasCloses) {
-      closes.forEach((v) => {
-        if (v < ymin) ymin = v;
-        if (v > ymax) ymax = v;
-      });
-    }
-
-    const extraLines = [];
-
-    function addLine(name, value, color, dash) {
-      if (value === null || value === undefined) return;
-      const n = Number(value);
-      if (!isNaN(n)) {
-        extraLines.push({ name, value: n, color, dash });
-        if (n < ymin) ymin = n;
-        if (n > ymax) ymax = n;
-      }
-    }
-
-    addLine("Entry", entry, "#22c55e", [4, 4]);
-    addLine("TP", tp, "#4ade80", [4, 4]);
-    addLine("SL", sl, "#ef4444", [4, 4]);
-
-    // 余白
-    const pad = (ymax - ymin) * 0.1 || 10;
-    ymin -= pad;
-    ymax += pad;
-
-    const datasets = [];
-
-    // ---- ローソク足 or 終値ライン ----
-    if (hasOhlc) {
-      // ヒゲ（高値〜安値）
-      datasets.push({
-        type: "bar",
-        label: "Wick",
-        data: ohlc.map((b, idx) => ({
-          x: idx + 1,
-          y: [b.low, b.high],
-        })),
-        backgroundColor: "rgba(148, 163, 184, 0.4)",
-        borderColor: "rgba(148, 163, 184, 0.9)",
-        borderWidth: 1,
-        borderSkipped: false,
-        barPercentage: 0.7,
-        categoryPercentage: 1.0,
-      });
-
-      // 実体（始値〜終値）
-      datasets.push({
-        type: "bar",
-        label: "Candle",
-        data: ohlc.map((b, idx) => ({
-          x: idx + 1,
-          y: [b.open, b.close],
-        })),
-        backgroundColor: function (context) {
-          const raw = context.raw;
-          let open = null;
-          let close = null;
-          if (raw && Array.isArray(raw.y)) {
-            open = raw.y[0];
-            close = raw.y[1];
-          }
-          if (close !== null && open !== null && close >= open) {
-            // 上昇（陽線）
-            return "rgba(34, 197, 94, 0.85)";
-          }
-          // 下落（陰線）
-          return "rgba(239, 68, 68, 0.85)";
-        },
-        borderColor: function (context) {
-          const raw = context.raw;
-          let open = null;
-          let close = null;
-          if (raw && Array.isArray(raw.y)) {
-            open = raw.y[0];
-            close = raw.y[1];
-          }
-          if (close !== null && open !== null && close >= open) {
-            return "rgba(34, 197, 94, 1)";
-          }
-          return "rgba(239, 68, 68, 1)";
-        },
-        borderWidth: 1,
-        borderSkipped: false,
-        barPercentage: 0.45,       // 少し太めに
-        categoryPercentage: 1.0,
-      });
-
-      // ★ 終値の折れ線は入れない（ローソクだけにする）
-    } else if (hasCloses) {
-      // OHLC が無い場合は従来どおり折れ線
-      datasets.push({
-        type: "line",
-        label: "Close",
-        data: closes.map((v, idx) => ({ x: idx + 1, y: v })),
-        borderColor: "#38bdf8",
-        backgroundColor: "rgba(56, 189, 248, 0.15)",
-        borderWidth: 2,
-        pointRadius: 0,
-        tension: 0.25,
-      });
-    }
-
-    // ---- Entry / TP / SL の水平ライン ----
-    extraLines.forEach((ln) => {
-      datasets.push({
-        type: "line",
-        label: ln.name,
-        data: labels.map((x) => ({ x: x, y: ln.value })),
-        borderColor: ln.color,
-        borderWidth: 1,
-        pointRadius: 0,
-        borderDash: ln.dash || [],
-        fill: false,
-      });
-    });
-
-    chartInstance = new Chart(ctx, {
-      type: "bar", // ベースは bar（中で line と混在）
-      data: {
-        labels: labels,
-        datasets: datasets,
+    lwChart = LW.createChart(chartContainer, {
+      width: width,
+      height: height,
+      layout: {
+        background: { type: "solid", color: "rgba(15,23,42,0)" },
+        textColor: "#e5edff",
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: {
-          mode: "index",
-          intersect: false,
-        },
-        plugins: {
-          legend: {
-            display: false,
-          },
-          tooltip: {
-            // 水平ラインと、OHLC がない場合の折れ線だけツールチップ表示
-            filter: function (context) {
-              const label = context.dataset.label;
-              // Wick と Candle はツールチップなし
-              if (label === "Wick" || label === "Candle") return false;
-              return true;
-            },
-            callbacks: {
-              label: function (context) {
-                const v = context.parsed && context.parsed.y;
-                if (v == null || isNaN(v)) return "";
-                const name = context.dataset.label || "";
-                return `${name}: ${v.toLocaleString()} 円`;
-              },
-            },
-          },
-        },
-        scales: {
-          x: {
-            display: false,
-          },
-          y: {
-            min: ymin,
-            max: ymax,
-            ticks: {
-              color: "#9ca3af",
-              callback: function (value) {
-                const n = Number(value);
-                if (isNaN(n)) return value;
-                return n.toLocaleString();
-              },
-            },
-            grid: {
-              color: "rgba(148, 163, 184, 0.25)",
-            },
-          },
+      grid: {
+        vertLines: { color: "rgba(148,163,184,0.16)" },
+        horzLines: { color: "rgba(148,163,184,0.24)" },
+      },
+      rightPriceScale: {
+        borderVisible: false,
+      },
+      timeScale: {
+        borderVisible: false,
+        rightOffset: 2,
+        barSpacing: 6,
+      },
+      crosshair: {
+        mode: LW.CrosshairMode.Normal,
+      },
+      localization: {
+        priceFormatter: (price) => {
+          const n = Number(price);
+          if (isNaN(n)) return "";
+          return n.toLocaleString();
         },
       },
     });
-  }
 
-  // currentChartState.zoomLevel をもとに「どこから切り出すか」を決めて再描画
-  function applyZoomAndRedraw() {
-    const baseCloses = currentChartState.closes || [];
-    const baseOhlc = currentChartState.ohlc || [];
-    const entry = currentChartState.entry;
-    const tp = currentChartState.tp;
-    const sl = currentChartState.sl;
-
-    const total = Math.max(baseCloses.length, baseOhlc.length);
-    if (!total) {
-      updateChart([], [], entry, tp, sl);
-      return;
+    if (hasCandles) {
+      candleSeries = lwChart.addCandlestickSeries({
+        upColor: "#22c55e",
+        downColor: "#ef4444",
+        borderUpColor: "#22c55e",
+        borderDownColor: "#ef4444",
+        wickUpColor: "#9ca3af",
+        wickDownColor: "#9ca3af",
+      });
+      candleSeries.setData(candles);
+    } else if (hasCloses) {
+      // 万が一 OHLC が無い場合は終値ラインだけ
+      const line = lwChart.addLineSeries({
+        color: "#38bdf8",
+        lineWidth: 2,
+      });
+      const data = closes.map((v, i) => ({
+        time: i + 1,
+        value: v,
+      }));
+      line.setData(data);
     }
 
-    let fromIndex = 0;
+    const baseTimeList = hasCandles
+      ? candles.map((c) => c.time)
+      : closes.map((_, i) => i + 1);
 
-    if (currentChartState.zoomLevel === 0) {
-      // 全体表示
-      fromIndex = 0;
-    } else if (currentChartState.zoomLevel === 1) {
-      // 中くらい（後ろ 60%）
-      fromIndex = Math.max(0, total - Math.floor(total * 0.6));
-    } else {
-      // 直近（後ろ 25本）
-      fromIndex = Math.max(0, total - 25);
+    function addHLine(value, color) {
+      if (value === null || value === undefined) return null;
+      const num = Number(value);
+      if (isNaN(num)) return null;
+      const series = lwChart.addLineSeries({
+        color: color,
+        lineWidth: 1,
+        lineStyle: LW.LineStyle.Dashed,
+      });
+      const data = baseTimeList.map((t) => ({
+        time: t,
+        value: num,
+      }));
+      series.setData(data);
+      return series;
     }
 
-    const sliceArr = (arr) =>
-      Array.isArray(arr) && arr.length ? arr.slice(fromIndex) : arr;
+    entrySeries = addHLine(entry, "#22c55e");
+    tpSeries = addHLine(tp, "#4ade80");
+    slSeries = addHLine(sl, "#ef4444");
 
-    const viewCloses = sliceArr(baseCloses);
-    const viewOhlc = sliceArr(baseOhlc);
+    lwChart.timeScale().fitContent();
 
-    updateChart(viewCloses, viewOhlc, entry, tp, sl);
+    // リサイズ対応（モーダルの幅変化に追従）
+    window.addEventListener(
+      "resize",
+      function handleResize() {
+        if (!lwChart) return;
+        const r = chartContainer.getBoundingClientRect();
+        lwChart.applyOptions({ width: r.width || 600, height: r.height || 260 });
+      },
+      { passive: true }
+    );
   }
 
   // --------------------------------------
@@ -462,40 +319,45 @@
     }
 
     // ------------- チャート用データ（OHLC） -------------
-    let closes = [];
-    const closesStr = ds.chartCloses || "";
-    if (closesStr) {
-      closes = closesStr
-        .split(",")
-        .map((s) => Number(s.trim()))
-        .filter((v) => !isNaN(v));
-    }
-
-    let ohlcBars = [];
+    // data-chart-open / high / low / close -> 配列へ
     const openStr = ds.chartOpen || "";
     const highStr = ds.chartHigh || "";
     const lowStr = ds.chartLow || "";
+    const closeStr = ds.chartClose || "";
 
-    if (openStr && highStr && lowStr && closesStr) {
-      const os = openStr.split(",");
-      const hs = highStr.split(",");
-      const ls = lowStr.split(",");
-      const cs = closesStr.split(",");
+    const opens = openStr
+      ? openStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
+      : [];
+    const highs = highStr
+      ? highStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
+      : [];
+    const lows = lowStr
+      ? lowStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
+      : [];
+    const closes = closeStr
+      ? closeStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
+      : [];
 
-      const len = Math.min(os.length, hs.length, ls.length, cs.length);
-      for (let i = 0; i < len; i++) {
-        const o = Number(os[i].trim());
-        const h = Number(hs[i].trim());
-        const l = Number(ls[i].trim());
-        const c = Number(cs[i].trim());
-        if (!isNaN(o) && !isNaN(h) && !isNaN(l) && !isNaN(c)) {
-          ohlcBars.push({
-            open: o,
-            high: h,
-            low: l,
-            close: c,
-          });
-        }
+    let candles = [];
+    const len = Math.min(opens.length, highs.length, lows.length, closes.length);
+    for (let i = 0; i < len; i++) {
+      const o = opens[i];
+      const h = highs[i];
+      const l = lows[i];
+      const c = closes[i];
+      if (
+        typeof o === "number" &&
+        typeof h === "number" &&
+        typeof l === "number" &&
+        typeof c === "number"
+      ) {
+        candles.push({
+          time: i + 1, // インデックスをそのまま time として使う
+          open: o,
+          high: h,
+          low: l,
+          close: c,
+        });
       }
     }
 
@@ -503,15 +365,7 @@
     const tp = toNumberOrNull(ds.tp);
     const sl = toNumberOrNull(ds.sl);
 
-    // 元データを保存（ズーム用）
-    currentChartState.closes = closes;
-    currentChartState.ohlc = ohlcBars;
-    currentChartState.entry = entry;
-    currentChartState.tp = tp;
-    currentChartState.sl = sl;
-    currentChartState.zoomLevel = 0; // 全体からスタート
-
-    applyZoomAndRedraw();
+    updateChart(candles, closes, entry, tp, sl);
 
     modal.classList.add("show");
     body.classList.add("modal-open");
@@ -521,10 +375,13 @@
     modal.classList.remove("show");
     body.classList.remove("modal-open");
 
-    // モーダルを閉じるときにチャートも破棄
-    if (chartInstance) {
-      chartInstance.destroy();
-      chartInstance = null;
+    if (lwChart) {
+      lwChart.remove();
+      lwChart = null;
+      candleSeries = null;
+      entrySeries = null;
+      tpSeries = null;
+      slSeries = null;
     }
   }
 
@@ -553,26 +410,5 @@
     if (e.key === "Escape" && modal.classList.contains("show")) {
       closeModal();
     }
-  });
-
-  // ズームボタン
-  zoomButtons.forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      const mode = this.dataset.zoom;
-      if (mode === "in") {
-        // ズームイン（最大 2）
-        if (currentChartState.zoomLevel < 2) {
-          currentChartState.zoomLevel += 1;
-        }
-      } else if (mode === "out") {
-        // ズームアウト（最小 0）
-        if (currentChartState.zoomLevel > 0) {
-          currentChartState.zoomLevel -= 1;
-        }
-      } else if (mode === "reset") {
-        currentChartState.zoomLevel = 0;
-      }
-      applyZoomAndRedraw();
-    });
   });
 })();
