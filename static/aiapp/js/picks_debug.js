@@ -204,7 +204,7 @@
       const candleSeries = lwChart.addCandlestickSeries({
         upColor: "#22c55e",
         downColor: "#ef4444",
-        borderUpColor: "#22c55e",
+        borderUpColor: "#eab308",
         borderDownColor: "#ef4444",
         wickUpColor: "#9ca3af",
         wickDownColor: "#9ca3af",
@@ -256,9 +256,9 @@
       return series;
     }
 
-    // Entry: 青, TP: 黄色, SL: 赤
+    // Entry: 青, TP: 緑, SL: 赤
     addHLine(entry, "#0ea5e9");
-    addHLine(tp, "#eab308");
+    addHLine(tp, "#22c55e");
     addHLine(sl, "#ef4444");
 
     // 全体がカード内に収まるように自動フィット
