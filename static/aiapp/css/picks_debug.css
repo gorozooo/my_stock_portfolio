@@ -133,7 +133,7 @@
   inset: 0;
 
   /* 🔥 SAFE AREA ＋ bottom-tab 回避（ここ追加） */
-  padding-bottom: calc(env(safe-area-inset-bottom, 16px) + 90px);
+  padding-bottom: calc(env(safe-area-inset-bottom, 16px) + 180px);
 
   background: rgba(0,0,0,.45);
   backdrop-filter: blur(6px);
