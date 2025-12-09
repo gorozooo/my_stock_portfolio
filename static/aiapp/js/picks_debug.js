@@ -214,6 +214,7 @@
           minMove: 1,
         },
         lastValueVisible: false,  // ★ 現在値ラベルを非表示
+        priceLineVisible: false,   // ★ 現在値の横破線も消す
       });
       candleSeries.setData(candles);
       baseTimeList = candles.map((c) => c.time);
@@ -257,9 +258,9 @@
       return series;
     }
 
-    // Entry: 青, TP: 黄色, SL: 赤
-    addHLine(entry, "#0ea5e9");
-    addHLine(tp, "#eab308");
+    // Entry: 黄色, TP: 緑, SL: 赤
+    addHLine(entry, "#eab308");
+    addHLine(tp, "#22c55e");
     addHLine(sl, "#ef4444");
 
     // 全体がカード内に収まるように自動フィット
