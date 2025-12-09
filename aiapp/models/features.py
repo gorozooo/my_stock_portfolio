@@ -9,12 +9,13 @@ aiapp.models.features
   benchmark_df: 任意。ベンチマーク指数（日経/Topix等）。同形式を想定。
 
 返すDataFrame（主な列）:
-- MA5, MA20, MA50 / BBU, BBM, BBL, BB_Z
+- MA5, MA25, MA75, MA100, MA200
+- BBU, BBM, BBL, BB_Z
 - RSI14 / MACD, MACD_SIGNAL, MACD_HIST
 - ATR14
-- VWAP, VWAP_GAP_PCT
+- VWAP, VWAP_GAP_PCT  ※VWAPは日中リセット型（本物寄り）
 - RET_1, RET_5, RET_20
-- SLOPE_5, SLOPE_20
+- SLOPE_5, SLOPE_25
 - GCROSS, DCROSS
 """
 
@@ -65,7 +66,7 @@ def _normalize_ohlcv_columns(df: pd.DataFrame) -> pd.DataFrame:
         "high":  ["high", "h"],
         "low":   ["low", "l"],
         "close": ["close", "c", "adj close", "adj_close", "adjclose", "price", "last", "last_close"],
-        "volume":["volume", "vol", "v"]
+        "volume": ["volume", "vol", "v"],
     }
 
     def pick(col_key: str):
@@ -79,19 +80,19 @@ def _normalize_ohlcv_columns(df: pd.DataFrame) -> pd.DataFrame:
         return None
 
     # 見つかった実列名（見つからなければ None）
-    col_open  = pick("open")
-    col_high  = pick("high")
-    col_low   = pick("low")
+    col_open = pick("open")
+    col_high = pick("high")
+    col_low = pick("low")
     col_close = pick("close")
-    col_vol   = pick("volume")
+    col_vol = pick("volume")
 
     out = pd.DataFrame(index=df.index.copy())
     # 各列をコピー（無ければ NaN 列）
-    out["Open"]   = pd.to_numeric(df[col_open],  errors="coerce") if col_open  is not None else np.nan
-    out["High"]   = pd.to_numeric(df[col_high],  errors="coerce") if col_high  is not None else np.nan
-    out["Low"]    = pd.to_numeric(df[col_low],   errors="coerce") if col_low   is not None else np.nan
-    out["Close"]  = pd.to_numeric(df[col_close], errors="coerce") if col_close is not None else np.nan
-    out["Volume"] = pd.to_numeric(df[col_vol],   errors="coerce") if col_vol   is not None else np.nan
+    out["Open"] = pd.to_numeric(df[col_open], errors="coerce") if col_open is not None else np.nan
+    out["High"] = pd.to_numeric(df[col_high], errors="coerce") if col_high is not None else np.nan
+    out["Low"] = pd.to_numeric(df[col_low], errors="coerce") if col_low is not None else np.nan
+    out["Close"] = pd.to_numeric(df[col_close], errors="coerce") if col_close is not None else np.nan
+    out["Volume"] = pd.to_numeric(df[col_vol], errors="coerce") if col_vol is not None else np.nan
 
     # Index を Datetime に
     idx = pd.to_datetime(out.index, errors="coerce")
@@ -210,14 +211,23 @@ def _slope(s: pd.Series, window: int = 5) -> pd.Series:
 
 def _vwap(df: pd.DataFrame) -> pd.Series:
     """
-    単純日足VWAP。日中のティックが無いので、近似として (H+L+C)/3 * Volume の累積で算出。
+    日中型VWAP（本物寄り）。
+    - インデックスが分足/秒足などの場合: 「同じ日付内」で PV・出来高を累積 → その日のVWAP
+    - 日足だけの場合: その日の TypicalPrice をベースにした1本VWAPに近い値
+    どちらの場合も「日付が変わるとVWAPもリセット」される。
     """
     tp = (df["High"] + df["Low"] + df["Close"]) / 3.0
-    pv = tp * df["Volume"]
-    cum_pv = pv.cumsum()
-    cum_vol = df["Volume"].cumsum().replace(0, np.nan)
-    vwap = (cum_pv / cum_vol)
-    return vwap.ffill()  # 旧: fillna(method="ffill")
+    vol = df["Volume"]
+
+    # 日付ごとに累積PV / 累積出来高を取る（インデックスがdatetime前提）
+    dates = pd.to_datetime(df.index).date
+    pv = tp * vol
+
+    pv_cum = pv.groupby(dates).cumsum()
+    vol_cum = vol.groupby(dates).cumsum().replace(0, np.nan)
+
+    vwap = pv_cum / vol_cum
+    return vwap.ffill()  # 日内での欠損を軽く埋める
 
 
 @dataclass(frozen=True)
@@ -229,11 +239,18 @@ class FeatureConfig:
     bb_window: int = 20
     bb_sigma: float = 2.0
     atr_period: int = 14
+
+    # MAの設定（日本株向けに 5/25/75/100/200）
     ma_short: int = 5
-    ma_mid: int = 20
-    ma_long: int = 50
+    ma_mid: int = 25
+    ma_long: int = 75
+    ma_extra1: int = 100
+    ma_extra2: int = 200
+
+    # 傾き用（短期・中期）
     slope_short: int = 5
-    slope_mid: int = 20
+    slope_mid: int = 25
+
     # 相対強度ON/OFF用フラグ（今はまだ未使用でもOK）
     enable_rel_strength_10: bool = False
     # どこかから benchmark_df=... が渡されても受け取れるようにするための器
@@ -251,15 +268,17 @@ def make_features(raw: pd.DataFrame, cfg: Optional[FeatureConfig] = None) -> pd.
 
     # 欠損を軽く埋める（始値=終値、H/Lも埋め、出来高は0許容）
     df["Close"] = df["Close"].ffill()
-    df["Open"]  = df["Open"].fillna(df["Close"])
-    df["High"]  = df["High"].fillna(df[["Open", "Close"]].max(axis=1))
-    df["Low"]   = df["Low"].fillna(df[["Open", "Close"]].min(axis=1))
-    df["Volume"]= df["Volume"].fillna(0)
+    df["Open"] = df["Open"].fillna(df["Close"])
+    df["High"] = df["High"].fillna(df[["Open", "Close"]].max(axis=1))
+    df["Low"] = df["Low"].fillna(df[["Open", "Close"]].min(axis=1))
+    df["Volume"] = df["Volume"].fillna(0)
 
     # --- 移動平均・ボリンジャー ---
     df[f"MA{cfg.ma_short}"] = _sma(df["Close"], cfg.ma_short)
-    df[f"MA{cfg.ma_mid}"]   = _sma(df["Close"],  cfg.ma_mid)
-    df[f"MA{cfg.ma_long}"]  = _sma(df["Close"],  cfg.ma_long)
+    df[f"MA{cfg.ma_mid}"] = _sma(df["Close"], cfg.ma_mid)
+    df[f"MA{cfg.ma_long}"] = _sma(df["Close"], cfg.ma_long)
+    df[f"MA{cfg.ma_extra1}"] = _sma(df["Close"], cfg.ma_extra1)
+    df[f"MA{cfg.ma_extra2}"] = _sma(df["Close"], cfg.ma_extra2)
 
     bb_u, bb_m, bb_l = _bollinger(df["Close"], cfg.bb_window, cfg.bb_sigma)
     df["BBU"], df["BBM"], df["BBL"] = bb_u, bb_m, bb_l
@@ -276,12 +295,12 @@ def make_features(raw: pd.DataFrame, cfg: Optional[FeatureConfig] = None) -> pd.
     df["VWAP_GAP_PCT"] = (df["Close"] / df["VWAP"] - 1) * 100.0
 
     # --- 収益率・傾き ---
-    df["RET_1"]  = _safe_pct_change(df["Close"], 1)
-    df["RET_5"]  = _safe_pct_change(df["Close"], 5)
+    df["RET_1"] = _safe_pct_change(df["Close"], 1)
+    df["RET_5"] = _safe_pct_change(df["Close"], 5)
     df["RET_20"] = _safe_pct_change(df["Close"], 20)
 
     df[f"SLOPE_{cfg.slope_short}"] = _slope(df["Close"], cfg.slope_short)
-    df[f"SLOPE_{cfg.slope_mid}"]   = _slope(df["Close"], cfg.slope_mid)
+    df[f"SLOPE_{cfg.slope_mid}"] = _slope(df["Close"], cfg.slope_mid)
 
     # --- ゴールデンクロス/デッドクロスのフラグ（例：短中期）---
     ma_s, ma_m = df[f"MA{cfg.ma_short}"], df[f"MA{cfg.ma_mid}"]
@@ -296,12 +315,25 @@ def make_features(raw: pd.DataFrame, cfg: Optional[FeatureConfig] = None) -> pd.
             df[c] = df[c].ffill()
 
     indi_cols = [
-        f"MA{cfg.ma_short}", f"MA{cfg.ma_mid}", f"MA{cfg.ma_long}",
-        f"ATR{cfg.atr_period}", f"RSI{cfg.rsi_period}",
-        "MACD", "MACD_SIGNAL", "MACD_HIST",
-        "BB_Z", f"SLOPE_{cfg.slope_short}", f"SLOPE_{cfg.slope_mid}",
-        "VWAP_GAP_PCT", "RET_1", "RET_5", "RET_20",
-        "GCROSS", "DCROSS"
+        f"MA{cfg.ma_short}",
+        f"MA{cfg.ma_mid}",
+        f"MA{cfg.ma_long}",
+        f"MA{cfg.ma_extra1}",
+        f"MA{cfg.ma_extra2}",
+        f"ATR{cfg.atr_period}",
+        f"RSI{cfg.rsi_period}",
+        "MACD",
+        "MACD_SIGNAL",
+        "MACD_HIST",
+        "BB_Z",
+        f"SLOPE_{cfg.slope_short}",
+        f"SLOPE_{cfg.slope_mid}",
+        "VWAP_GAP_PCT",
+        "RET_1",
+        "RET_5",
+        "RET_20",
+        "GCROSS",
+        "DCROSS",
     ]
     for c in indi_cols:
         if c in df.columns:
