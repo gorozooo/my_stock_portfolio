@@ -18,6 +18,11 @@
   let lwChart = null;
   let resizeHandler = null;
 
+  // ★ 現在開いている銘柄の価格表示モード
+  //   "int"       : 価格は整数（4768 など）
+  //   "decimal1"  : 価格は小数1桁（9434 など）
+  let currentPriceMode = "int";
+
   // ▼ チャート凡例は非表示（終値を別線で描いていないため）
   const chartLegend = document.querySelector(".chart-legend");
   if (chartLegend) {
@@ -52,7 +57,7 @@
       const n = Number(value);
       txt = isNaN(n) ? "–" : n.toLocaleString();
     } else if (fmt === "price1") {
-      // 価格を小数第1位まで固定表示
+      // 価格を小数第1位まで固定表示（使うならそのまま）
       const n = Number(value);
       if (isNaN(n)) {
         txt = "–";
@@ -63,27 +68,15 @@
         });
       }
     } else if (fmt === "priceAuto") {
-      // ★ 銘柄ごとに「整数 or 小数1桁」を自動判定
-      //  - 小数桁数が 0 → 整数表示
-      //  - 小数桁数が 1 → 小数1桁で表示（SoftBank など）
-      //  - 小数桁数が 2 以上 → 整数銘柄とみなして四捨五入して整数表示（4768 の 3230.121 等）
+      // ★ 現在値のフォーマット（currentPriceMode）に合わせて
+      //    Entry / TP / SL を「整数」または「小数1桁」で表示
       const raw = String(value).trim();
       const n0 = Number(raw);
       if (isNaN(n0)) {
         txt = "–";
       } else {
-        let decimals = 0;
-        const dot = raw.indexOf(".");
-        if (dot >= 0) {
-          decimals = raw.slice(dot + 1).length;
-        }
-
-        if (decimals === 0) {
-          // もともと整数
-          const n = Math.round(n0);
-          txt = n.toLocaleString();
-        } else if (decimals === 1) {
-          // もともと小数1桁 → 1桁を維持
+        if (currentPriceMode === "decimal1") {
+          // 小数銘柄 → 小数1桁に丸めて表示
           const n = Math.round(n0 * 10) / 10;
           if (Number.isInteger(n)) {
             txt = n.toLocaleString();
@@ -94,7 +87,7 @@
             });
           }
         } else {
-          // 小数2桁以上ついてる値は「整数銘柄」とみなして整数に丸める
+          // 整数銘柄 → 整数に丸めて表示
           const n = Math.round(n0);
           txt = n.toLocaleString();
         }
@@ -327,6 +320,26 @@
   function openModal(row) {
     const ds = row.dataset || {};
 
+    // ★ まず現在値の文字列から「整数/小数1桁」を判定して currentPriceMode を更新
+    (function decidePriceMode() {
+      const raw = (ds.last || "").toString().trim();
+      let mode = "int";
+      if (raw) {
+        const dot = raw.indexOf(".");
+        if (dot >= 0) {
+          // 小数点以下の「0を除いた桁数」を見る
+          const decimals = raw
+            .slice(dot + 1)
+            .replace(/0+$/, "") // 末尾の 0 は無視
+            .length;
+          if (decimals >= 1) {
+            mode = "decimal1";
+          }
+        }
+      }
+      currentPriceMode = mode;
+    })();
+
     // タイトル / メタ
     document.getElementById("modalTitle").textContent =
       (ds.code || "") + " " + (ds.name || "");
@@ -346,7 +359,7 @@
     setText("detailQtyMatsui", ds.qtyMatsui, "int");
     setText("detailQtySbi", ds.qtySbi, "int");
 
-    // Entry / TP / SL → 自動判定（整数 or 小数1桁）
+    // Entry / TP / SL → currentPriceMode に合わせて表示
     setText("detailEntry", ds.entry, "priceAuto");
     setText("detailTp", ds.tp, "priceAuto");
     setText("detailSl", ds.sl, "priceAuto");
