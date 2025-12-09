@@ -131,6 +131,10 @@
 .modal-backdrop {
   position: fixed;
   inset: 0;
+
+  /* 🔥 SAFE AREA ＋ bottom-tab 回避（ここ追加） */
+  padding-bottom: calc(env(safe-area-inset-bottom, 16px) + 90px);
+
   background: rgba(0,0,0,.45);
   backdrop-filter: blur(6px);
   display: none;
@@ -152,6 +156,9 @@
   padding: 18px 16px 30px;
   border: 1px solid var(--line);
   position: relative;
+
+  /* 🔥 下タブに隠れないよう余白を追加（ここ追加） */
+  padding-bottom: calc(env(safe-area-inset-bottom, 16px) + 90px);
 }
 
 /* Close button */
@@ -303,10 +310,10 @@
   vertical-align: middle;
 }
 
-.legend-close::before { background: #38bdf8; } /* blue */
-.legend-entry::before { background: #10b981; } /* green */
-.legend-tp::before    { background: #22c55e; } /* light green */
-.legend-sl::before    { background: #ef4444; } /* red */
+.legend-close::before { background: #38bdf8; }
+.legend-entry::before { background: #10b981; }
+.legend-tp::before    { background: #22c55e; }
+.legend-sl::before    { background: #ef4444; }
 
 /* ------------------------------
    Reasons
