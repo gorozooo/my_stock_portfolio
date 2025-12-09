@@ -60,7 +60,7 @@
       if (isNaN(n)) {
         txt = "–";
       } else {
-        // プラスのときも "+" を付けない
+        // プラスでも "+" は付けない
         txt = n.toLocaleString();
       }
     }
@@ -142,8 +142,10 @@
       },
       timeScale: {
         borderVisible: false,
-        rightOffset: 1,
+        rightOffset: 0,     // 右余白ゼロ（カード内に収める）
         barSpacing: 7,
+        fixLeftEdge: true,
+        fixRightEdge: true, // データ端がカード外に行かないように固定
       },
       crosshair: {
         mode: LW.CrosshairMode.Normal,
@@ -154,6 +156,18 @@
           if (isNaN(n)) return "";
           return n.toLocaleString();
         },
+      },
+      // 横スクロール禁止（はみ出し防止）、ピンチだけ許可
+      handleScroll: {
+        mouseWheel: false,
+        pressedMouseMove: false,
+        horzTouchDrag: false,
+        vertTouchDrag: false,
+      },
+      handleScale: {
+        axisPressedMouseMove: false,
+        mouseWheel: false,
+        pinch: true, // ピンチズームのみ有効
       },
     });
 
@@ -200,14 +214,14 @@
       return series;
     }
 
-    // Entry=緑, TP=黄色, SL=赤 でハッキリ区別
+    // Entry=緑, TP=黄, SL=赤
     addHLine(entry, "#22c55e");
     addHLine(tp, "#eab308");
     addHLine(sl, "#ef4444");
 
     lwChart.timeScale().fitContent();
 
-    // リサイズ対応
+    // リサイズ対応（カード幅に追従）
     window.addEventListener(
       "resize",
       function handleResize() {
@@ -267,7 +281,7 @@
     setText("detailLossMatsui", ds.lossMatsui, "yen");
     setText("detailLossSbi", ds.lossSbi, "yen");
 
-    // 数量・想定利益・想定損失の「合計」行は非表示にする
+    // 数量・想定利益・想定損失の「合計」行は非表示
     ["detailQtyTotal", "detailPlTotal", "detailLossTotal"].forEach(function (id) {
       const el = document.getElementById(id);
       if (!el) return;
