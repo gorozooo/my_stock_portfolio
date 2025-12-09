@@ -105,7 +105,7 @@
   // lightweight-charts 用：チャート更新
   // --------------------------------------
   // candles: [{time, open, high, low, close}, ...]
-  // closes: [number, ...] （candlesが無いときのフォールバック）
+  // closes: [number, ...] （candles が無いときのフォールバック）
   function updateChart(candles, closes, entry, tp, sl) {
     // 既存チャート破棄
     if (lwChart) {
@@ -127,9 +127,13 @@
       if (chartEmptyLabel) chartEmptyLabel.style.display = "none";
     }
 
+    // ▼ カードの内側に左右余白を強制的に確保
+    const INNER_PAD = 16; // px（左右とも）
+    chartContainer.style.paddingLeft = INNER_PAD + "px";
+    chartContainer.style.paddingRight = INNER_PAD + "px";
+
     const rect = chartContainer.getBoundingClientRect();
-    const PADDING_RIGHT = 40; // 価格目盛り＋右側の余白ぶん
-    const width = Math.max(280, (rect.width || 600) - PADDING_RIGHT);
+    const width = Math.max(260, (rect.width || 600) - INNER_PAD * 2);
     const height = rect.height || 260;
 
     lwChart = LW.createChart(chartContainer, {
@@ -154,7 +158,7 @@
       },
       timeScale: {
         borderVisible: false,
-        rightOffset: 3,   // 右側に少し余白を作る
+        rightOffset: 2,
         barSpacing: 7,
       },
       crosshair: {
@@ -231,19 +235,14 @@
     addHLine(tp, "#4ade80");
     addHLine(sl, "#ef4444");
 
-    // 右側に少し余裕を持たせるため、ロジカルレンジを +3 しておく
-    const ts = lwChart.timeScale();
-    const lastIndex = baseTimeList.length ? baseTimeList.length - 1 : 0;
-    ts.setVisibleLogicalRange({
-      from: 0,
-      to: lastIndex + 3,
-    });
+    // 全体がカード内に収まるように自動フィット
+    lwChart.timeScale().fitContent();
 
     // リサイズ対応（余白維持）
     resizeHandler = function () {
       if (!lwChart) return;
       const r = chartContainer.getBoundingClientRect();
-      const w = Math.max(280, (r.width || 600) - PADDING_RIGHT);
+      const w = Math.max(260, (r.width || 600) - INNER_PAD * 2);
       const h = r.height || 260;
       lwChart.applyOptions({
         width: w,
