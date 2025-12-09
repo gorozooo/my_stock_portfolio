@@ -256,8 +256,8 @@
       return series;
     }
 
-    // Entry: 緑, TP: 黄色, SL: 赤
-    addHLine(entry, "#22c55e");
+    // Entry: 青, TP: 黄色, SL: 赤
+    addHLine(entry, "#0ea5e9");
     addHLine(tp, "#eab308");
     addHLine(sl, "#ef4444");
 
