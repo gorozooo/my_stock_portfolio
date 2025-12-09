@@ -154,7 +154,6 @@
   position: relative;
 }
 
-/* 下タブと被らないように余白を追加 */
 .modal-card::after {
   content: "";
   display: block;
@@ -282,12 +281,6 @@
   border-radius: 12px;
   padding: 8px;
   margin-bottom: 10px;
-}
-
-/* チャートコンテナ：幅固定＋はみ出しを隠す */
-#detailChartContainer {
-  width: 100%;
-  overflow: hidden;
 }
 
 #detailChart {
