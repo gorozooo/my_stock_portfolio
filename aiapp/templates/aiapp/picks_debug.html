@@ -110,11 +110,11 @@
               data-reasons="{% if it.reason_lines %}{{ it.reason_lines|join:'||' }}{% endif %}"
               data-sizing-reasons="{% if it.reasons_text %}{{ it.reasons_text|join:'||' }}{% endif %}"
 
-              {# ★ OHLC をそのまま data-* に出す #}
+              {# ローソク足用 OHLC （CSV） #}
               data-chart-open="{% if it.chart_open %}{{ it.chart_open|join:',' }}{% endif %}"
               data-chart-high="{% if it.chart_high %}{{ it.chart_high|join:',' }}{% endif %}"
               data-chart-low="{% if it.chart_low %}{{ it.chart_low|join:',' }}{% endif %}"
-              data-chart-closes="{% if it.chart_closes %}{{ it.chart_closes|join:',' }}{% endif %}"
+              data-chart-close="{% if it.chart_closes %}{{ it.chart_closes|join:',' }}{% endif %}"
 
               data-concern="{{ it.reason_concern|default:'' }}"
           >
@@ -166,11 +166,11 @@
       </div>
     </div>
 
-    <!-- チャートカード（ローソク足 + 価格目盛り） -->
+    <!-- チャートカード（本物ローソク足 + 価格目盛り） -->
     <div class="detail-card chart-card">
       <div class="detail-card-title">日足チャート（終値・概略）</div>
       <div class="chart-inner">
-        <canvas id="detailChart" width="600" height="260"></canvas>
+        <div id="detailChartContainer" class="chart-container"></div>
         <div id="chartEmptyLabel" class="chart-empty-label">
           チャート用データが不足しています
         </div>
@@ -180,13 +180,6 @@
         <span class="legend-line legend-entry">Entry</span>
         <span class="legend-line legend-tp">TP</span>
         <span class="legend-line legend-sl">SL</span>
-      </div>
-
-      {# ★ ズームボタン #}
-      <div class="chart-zoom-controls">
-        <button type="button" class="zoom-btn" data-zoom="out">−</button>
-        <button type="button" class="zoom-btn" data-zoom="reset">全体</button>
-        <button type="button" class="zoom-btn" data-zoom="in">＋</button>
       </div>
     </div>
 
@@ -317,5 +310,7 @@
   </div>
 </div>
 
-<script src="{% static 'aiapp/js/picks_debug.js' %}?v=3" defer></script>
+{# 本物ローソク用 lightweight-charts #}
+<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js" defer></script>
+<script src="{% static 'aiapp/js/picks_debug.js' %}?v=2" defer></script>
 {% endblock %}
