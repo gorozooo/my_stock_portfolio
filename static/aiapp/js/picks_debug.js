@@ -52,7 +52,7 @@
       const n = Number(value);
       txt = isNaN(n) ? "–" : n.toLocaleString();
     } else if (fmt === "price1") {
-      // 価格を小数第1位まで表示（Entry / TP / SL 用）
+      // 小数第1位まで固定表示
       const n = Number(value);
       if (isNaN(n)) {
         txt = "–";
@@ -61,6 +61,25 @@
           minimumFractionDigits: 1,
           maximumFractionDigits: 1,
         });
+      }
+    } else if (fmt === "priceAuto") {
+      // ★ ブローカー風：
+      //   ・小数を四捨五入して第1位まで
+      //   ・結果が整数なら小数点なし
+      //   ・そうでなければ小数1桁
+      const n0 = Number(value);
+      if (isNaN(n0)) {
+        txt = "–";
+      } else {
+        const n = Math.round(n0 * 10) / 10; // 1桁に丸め
+        if (Number.isInteger(n)) {
+          txt = n.toLocaleString();
+        } else {
+          txt = n.toLocaleString(undefined, {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+          });
+        }
       }
     } else if (fmt === "yen") {
       const n = Number(value);
@@ -214,8 +233,8 @@
           precision: 0,
           minMove: 1,
         },
-        lastValueVisible: false, // ★ 現在値ラベルを非表示
-        priceLineVisible: false, // ★ 現在値の横破線も消す
+        lastValueVisible: false, // 現在値ラベル非表示
+        priceLineVisible: false, // 現在値の横破線も非表示
       });
       candleSeries.setData(candles);
       baseTimeList = candles.map((c) => c.time);
@@ -309,6 +328,11 @@
     setText("detailQtyMatsui", ds.qtyMatsui, "int");
     setText("detailQtySbi", ds.qtySbi, "int");
 
+    // Entry / TP / SL → 銘柄ごとに整数 or 小数1桁へ自動判定
+    setText("detailEntry", ds.entry, "priceAuto");
+    setText("detailTp", ds.tp, "priceAuto");
+    setText("detailSl", ds.sl, "priceAuto");
+
     // 必要資金
     setText("detailCashRakuten", ds.cashRakuten, "yen");
     setText("detailCashMatsui", ds.cashMatsui, "yen");
@@ -339,7 +363,7 @@
       if (rowEl) {
         rowEl.style.display = "none";
       }
-      el.textContent = ""; // 念のため中身も消しておく
+      el.textContent = "";
     });
 
     // 理由（AI）
@@ -432,20 +456,9 @@
       }
     }
 
-    // ▼ ここで「小数銘柄かどうか」を判定
-    const useDecimal =
-      candles.some((c) => !Number.isInteger(c.close)) ||
-      closes.some((v) => !Number.isInteger(v));
-
     const entry = toNumberOrNull(ds.entry);
     const tp = toNumberOrNull(ds.tp);
     const sl = toNumberOrNull(ds.sl);
-
-    // ▼ 銘柄ごとに表示フォーマットを切り替え
-    const priceFmt = useDecimal ? "price1" : "int";
-    setText("detailEntry", ds.entry, priceFmt);
-    setText("detailTp", ds.tp, priceFmt);
-    setText("detailSl", ds.sl, priceFmt);
 
     updateChart(candles, closes, entry, tp, sl);
 
