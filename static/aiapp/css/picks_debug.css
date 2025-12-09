@@ -154,8 +154,6 @@
   position: relative;
 }
 
-/* 🔥 モーダルの一番下に「見えないスペーサー」を追加して
-      下タブに隠れないようにする */
 .modal-card::after {
   content: "";
   display: block;
@@ -253,13 +251,21 @@
 }
 
 .detail-green { color: #22c55e; }
-detail-red { color: #ef4444; }
+.detail-red { color: #ef4444; }
 
 /* Grid layout */
 .detail-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+/* 想定損失は必ず赤文字にする */
+#detailLossRakuten,
+#detailLossMatsui,
+#detailLossSbi,
+#detailLossTotal {
+  color: #f97373;
 }
 
 /* ------------------------------
@@ -292,9 +298,9 @@ detail-red { color: #ef4444; }
   align-items: center;
 }
 
-/* Legend */
+/* Legend（今回は非表示にする） */
 .chart-legend {
-  display: flex;
+  display: none;
   gap: 12px;
   font-size: 12px;
   color: var(--sub);
@@ -313,7 +319,7 @@ detail-red { color: #ef4444; }
 
 .legend-close::before { background: #38bdf8; }
 .legend-entry::before { background: #10b981; }
-.legend-tp::before    { background: #22c55e; }
+.legend-tp::before    { background: #eab308; }
 .legend-sl::before    { background: #ef4444; }
 
 /* ------------------------------
