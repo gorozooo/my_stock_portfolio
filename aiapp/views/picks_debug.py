@@ -28,6 +28,7 @@ class PickDebugItem:
     chart_high: Optional[List[float]] = None
     chart_low: Optional[List[float]] = None
     chart_closes: Optional[List[float]] = None
+    chart_dates: Optional[List[str]] = None  # ★ 日付リスト（YYYY-MM-DD）
 
     last_close: Optional[float] = None
     atr: Optional[float] = None
@@ -191,6 +192,7 @@ def _load_json(
             chart_high = _to_float_list(row.get("chart_high"))
             chart_low = _to_float_list(row.get("chart_low"))
             chart_closes = _to_float_list(row.get("chart_closes"))
+            chart_dates = _normalize_str_list(row.get("chart_dates"))  # ★ 追加
 
             it = PickDebugItem(
                 code=str(row.get("code") or ""),
@@ -200,6 +202,7 @@ def _load_json(
                 chart_high=chart_high,
                 chart_low=chart_low,
                 chart_closes=chart_closes,
+                chart_dates=chart_dates,
                 last_close=row.get("last_close"),
                 atr=row.get("atr"),
                 entry=row.get("entry"),
