@@ -127,18 +127,26 @@
       if (chartEmptyLabel) chartEmptyLabel.style.display = "none";
     }
 
-    // ▼ カードの内側に左右余白を強制的に確保
+    // ▼ カードの内側に左右余白を強制的に確保 & はみ出し隠す
     const INNER_PAD = 16; // px（左右とも）
     chartContainer.style.paddingLeft = INNER_PAD + "px";
     chartContainer.style.paddingRight = INNER_PAD + "px";
+    chartContainer.style.boxSizing = "border-box";
+    chartContainer.style.overflow = "hidden";
+
+    // 内側の幅を取得（スクロール幅じゃなく clientWidth を使う）
+    const containerInnerWidth = chartContainer.clientWidth || chartContainer.getBoundingClientRect().width || 0;
+    let chartWidth = containerInnerWidth - INNER_PAD * 2;
+    if (!isFinite(chartWidth) || chartWidth <= 0) {
+      chartWidth = 320; // 最低幅の保険
+    }
 
     const rect = chartContainer.getBoundingClientRect();
-    const width = Math.max(260, (rect.width || 600) - INNER_PAD * 2);
-    const height = rect.height || 260;
+    const chartHeight = rect.height || 260;
 
     lwChart = LW.createChart(chartContainer, {
-      width: width,
-      height: height,
+      width: chartWidth,
+      height: chartHeight,
       layout: {
         background: { type: "solid", color: "rgba(15,23,42,0)" },
         textColor: "#e5edff",
@@ -241,8 +249,10 @@
     // リサイズ対応（余白維持）
     resizeHandler = function () {
       if (!lwChart) return;
+      const innerWidth = chartContainer.clientWidth || chartContainer.getBoundingClientRect().width || 0;
+      let w = innerWidth - INNER_PAD * 2;
+      if (!isFinite(w) || w <= 0) w = 320;
       const r = chartContainer.getBoundingClientRect();
-      const w = Math.max(260, (r.width || 600) - INNER_PAD * 2);
       const h = r.height || 260;
       lwChart.applyOptions({
         width: w,
