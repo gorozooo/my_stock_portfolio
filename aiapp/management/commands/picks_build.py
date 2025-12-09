@@ -270,25 +270,29 @@ def _build_reasons_features(feat: pd.DataFrame, last: float, atr: float) -> Dict
     }
 
 
-def _extract_chart_ohlc(raw: pd.DataFrame, max_points: int = 60) -> Tuple[
+def _extract_chart_ohlc(
+    raw: pd.DataFrame,
+    max_points: int = 60,
+) -> Tuple[
     Optional[List[float]],
     Optional[List[float]],
     Optional[List[float]],
     Optional[List[float]],
+    Optional[List[str]],
 ]:
     """
-    チャート用の OHLC 配列を生成（終値チャート + ローソク足用）。
+    チャート用の OHLC 配列＋日付配列を生成（ローソク足＋終値ライン＋X軸の日付表示用）。
     get_prices が返す DataFrame の末尾から max_points 本だけ抜き出す。
     """
     if raw is None:
-        return None, None, None, None
+        return None, None, None, None, None
     try:
         df = raw.copy()
     except Exception:
-        return None, None, None, None
+        return None, None, None, None, None
 
     if len(df) == 0:
-        return None, None, None, None
+        return None, None, None, None, None
 
     # 列名のゆらぎに軽く対応
     def col_name(candidates):
@@ -303,19 +307,36 @@ def _extract_chart_ohlc(raw: pd.DataFrame, max_points: int = 60) -> Tuple[
     col_c = col_name(["Close", "close", "CLOSE"])
 
     if not (col_o and col_h and col_l and col_c):
-        return None, None, None, None
+        return None, None, None, None, None
 
+    # 末尾 max_points 本
     df = df[[col_o, col_h, col_l, col_c]].tail(max_points)
 
     opens = [float(v) for v in df[col_o].tolist()]
     highs = [float(v) for v in df[col_h].tolist()]
-    lows  = [float(v) for v in df[col_l].tolist()]
-    closes= [float(v) for v in df[col_c].tolist()]
+    lows = [float(v) for v in df[col_l].tolist()]
+    closes = [float(v) for v in df[col_c].tolist()]
 
     if not closes:
-        return None, None, None, None
+        return None, None, None, None, None
 
-    return opens, highs, lows, closes
+    # X軸用の日付（YYYY-MM-DD）
+    dates: List[str] = []
+    try:
+        if isinstance(df.index, pd.DatetimeIndex):
+            dates = [d.strftime("%Y-%m-%d") for d in df.index]
+        else:
+            # 念のため index を日時に解釈できるものだけ変換
+            idx_dt = pd.to_datetime(df.index, errors="coerce")
+            for d in idx_dt:
+                if pd.isna(d):
+                    dates.append("")  # 軽いフォールバック
+                else:
+                    dates.append(d.strftime("%Y-%m-%d"))
+    except Exception:
+        dates = []
+
+    return opens, highs, lows, closes, (dates or None)
 
 
 # =========================================================
@@ -414,6 +435,7 @@ class PickItem:
     chart_high: Optional[List[float]] = None
     chart_low: Optional[List[float]] = None
     chart_closes: Optional[List[float]] = None  # 終値のみ（ライン用）
+    chart_dates: Optional[List[str]] = None     # X軸用日付（YYYY-MM-DD）
 
     last_close: Optional[float] = None
     atr: Optional[float] = None
@@ -476,8 +498,10 @@ def _work_one(
                 print(f"[picks_build] {code}: empty price")
             return None
 
-        # チャート用 OHLC（ローソク足＋終値ライン）
-        chart_open, chart_high, chart_low, chart_closes = _extract_chart_ohlc(raw, max_points=60)
+        # チャート用 OHLC（ローソク足＋終値ライン＋日付）
+        chart_open, chart_high, chart_low, chart_closes, chart_dates = _extract_chart_ohlc(
+            raw, max_points=60
+        )
 
         feat = make_features(raw, cfg=FeatureConfig())
         if feat is None or len(feat) == 0:
@@ -569,6 +593,7 @@ def _work_one(
             chart_high=chart_high,
             chart_low=chart_low,
             chart_closes=chart_closes,
+            chart_dates=chart_dates,
         )
 
         # --- Sizing（数量・必要資金・想定PL/損失 + 見送り理由） ---
