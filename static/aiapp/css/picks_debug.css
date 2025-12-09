@@ -365,3 +365,8 @@
   white-space: pre-wrap;
   margin-top: 4px;
 }
+
+/* Entry / TP / SL の色をチャートと揃える */
+#detailEntry { color: #eab308; } /* Entry → 黄色（チャートの Entry と同じ） */
+#detailTp    { color: #22c55e; } /* TP    → 緑   （チャートの TP と同じ） */
+#detailSl    { color: #ef4444; } /* SL    → 赤   （チャートの SL と同じ） */
