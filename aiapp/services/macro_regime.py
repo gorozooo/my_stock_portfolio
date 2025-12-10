@@ -2,22 +2,21 @@
 """
 aiapp.services.macro_regime
 
-指数・為替・先物などのベンチマークを取得して、
-日次の「相場レジーム」を MacroRegimeSnapshot に保存するサービス。
+指数・為替・先物などのベンチマークから
+「相場レジーム（日本株 / 米国株 / 為替 / ボラ / 総合）」を計算して
+MacroRegimeSnapshot に保存するサービス群。
 
 公開関数:
-- ensure_benchmark_master()         … マスタ登録
-- sync_benchmark_prices(days=365)   … ベンチマーク価格の更新
-- build_macro_regime_snapshot(...)  … 1日分のレジーム集計＆保存
+- ensure_benchmark_master()
+- sync_benchmark_prices(days=365)
+- build_macro_regime_snapshot(days=365, cfg=None) -> MacroRegimeSnapshot
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date as _date
-from typing import Dict, List, Tuple, Optional
-
-import logging
+from datetime import date
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -25,251 +24,276 @@ import yfinance as yf
 from django.db import transaction
 from django.utils import timezone
 
-from aiapp.models.macro import BenchmarkMaster, BenchmarkPrice, MacroRegimeSnapshot
-
-logger = logging.getLogger(__name__)
+from ..models.macro import BenchmarkMaster, BenchmarkPrice, MacroRegimeSnapshot
+from ..models.features import make_features, FeatureConfig
 
 
 # =========================================================
-# ベンチマーク定義
+# 設定
 # =========================================================
 
 @dataclass(frozen=True)
-class BenchmarkDef:
-    code: str
-    name: str
-    kind: str
-    symbol: str
-    sort_order: int
-    is_active: bool = True
+class RegimeConfig:
+    """
+    マクロレジーム計算用の設定。
+    """
+    lookback_days: int = 180       # DB から引き出す日数
+    feature_lookback: int = 90     # 特徴量計算に最低欲しい日数（今は参考値）
 
 
-BENCHMARK_DEFS: List[BenchmarkDef] = [
+# 使うベンチマークのデフォルト定義
+BENCHMARK_DEFAULTS = [
     # 日本株
-    BenchmarkDef("NK225", "日経平均", "INDEX_JP", "^N225", 10),
-    BenchmarkDef("TOPIX", "TOPIX（ETF 1306.T）", "INDEX_JP", "1306.T", 20),
+    {"code": "NK225", "name": "日経平均", "kind": "INDEX_JP", "symbol": "^N225",  "sort_order": 10},
+    # TOPIX は yfinance で ^TOPX が不安定なため ETF 1306.T を採用
+    {"code": "TOPIX", "name": "TOPIX", "kind": "INDEX_JP", "symbol": "1306.T",   "sort_order": 11},
     # 米国株
-    BenchmarkDef("SPX", "S&P500", "INDEX_US", "^GSPC", 30),
-    BenchmarkDef("NDX", "NASDAQ100", "INDEX_US", "^NDX", 40),
+    {"code": "SPX",   "name": "S&P500",   "kind": "INDEX_US", "symbol": "^GSPC", "sort_order": 20},
+    {"code": "NDX",   "name": "NASDAQ100","kind": "INDEX_US", "symbol": "^NDX",  "sort_order": 21},
     # 為替
-    BenchmarkDef("USDJPY", "ドル円", "FX", "JPY=X", 50),
-    # ボラ
-    BenchmarkDef("VIX", "VIX指数", "VOL", "^VIX", 60),
+    {"code": "USDJPY","name": "ドル円",   "kind": "FX",       "symbol": "JPY=X", "sort_order": 30},
+    # ボラティリティ
+    {"code": "VIX",   "name": "VIX指数",  "kind": "VOL",      "symbol": "^VIX",  "sort_order": 40},
 ]
 
 
 # =========================================================
-# マスタ登録
+# マスタ整備
 # =========================================================
 
+@transaction.atomic
 def ensure_benchmark_master() -> None:
     """
-    BENCHMARK_DEFS に基づいて BenchmarkMaster を作成/更新する。
+    ベンチマークマスタを登録/更新する。
+    既存レコードがあれば symbol や sort_order を上書き。
     """
-    with transaction.atomic():
-        for d in BENCHMARK_DEFS:
-            obj, created = BenchmarkMaster.objects.update_or_create(
-                code=d.code,
-                defaults={
-                    "name": d.name,
-                    "kind": d.kind,
-                    "symbol": d.symbol,
-                    "is_active": d.is_active,
-                    "sort_order": d.sort_order,
-                },
-            )
-            if created:
-                logger.info("[ensure_benchmark_master] created %s (%s)", obj.code, obj.symbol)
-            else:
-                logger.debug("[ensure_benchmark_master] updated %s (%s)", obj.code, obj.symbol)
+    for item in BENCHMARK_DEFAULTS:
+        BenchmarkMaster.objects.update_or_create(
+            code=item["code"],
+            defaults={
+                "name": item["name"],
+                "kind": item["kind"],
+                "symbol": item["symbol"],
+                "is_active": True,
+                "sort_order": item["sort_order"],
+            },
+        )
 
 
 # =========================================================
-# 価格取得ヘルパ（features に頼らず生OHLCVだけ整形）
+# yfinance → BenchmarkPrice
 # =========================================================
 
-def _download_ohlcv(symbol: str, days: int = 365) -> pd.DataFrame:
+def _download_ohlcv(symbol: str, days: int) -> pd.DataFrame:
     """
-    yfinance から日足OHLCVを取得して、標準化した DataFrame を返す。
-    index: DatetimeIndex, columns: ["Open","High","Low","Close","Volume"]
+    yfinance から単一ティッカーの OHLCV を取得。
+    単一ティッカー前提なので MultiIndex ではなく通常の列構造を想定。
     """
-    period = f"{max(days, 365)}d"
-
-    logger.info("[_download_ohlcv] download %s period=%s", symbol, period)
-    df = yf.download(symbol, period=period, interval="1d", auto_adjust=False, progress=False)
-
+    df = yf.download(
+        symbol,
+        period=f"{days}d",
+        interval="1d",
+        auto_adjust=False,
+        progress=False,
+    )
     if df is None or df.empty:
-        logger.warning("[_download_ohlcv] empty data: %s", symbol)
-        return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+        print(f"[_download_ohlcv] empty data: {symbol}")
+        return pd.DataFrame()
 
-    # ---- MultiIndex カラムならフラット化 ----
-    if isinstance(df.columns, pd.MultiIndex):
-        flat_cols: List[str] = []
-        for col in df.columns:
-            parts = [str(x) for x in col if x is not None and str(x) != ""]
-            flat_cols.append("_".join(parts))
-        df = df.copy()
-        df.columns = flat_cols
-
-    # ここまで来たら df.columns は一次元 Index[str]
-    cols = [str(c) for c in df.columns]
-    lower_map = {c.lower(): c for c in cols}
-
-    def pick(aliases: List[str]) -> Optional[str]:
-        # 完全一致
-        for a in aliases:
-            if a in lower_map:
-                return lower_map[a]
-        # "open_^ndx" みたいなプレフィックス/サフィックスを拾う
-        for c in cols:
-            lc = c.lower()
-            for a in aliases:
-                if lc.startswith(a + "_") or lc.endswith("_" + a):
-                    return c
-        return None
-
-    open_col = pick(["open", "o"])
-    high_col = pick(["high", "h"])
-    low_col = pick(["low", "l"])
-    close_col = pick(["close", "c", "adj close", "adj_close", "adjclose", "price", "last", "last_close"])
-    vol_col = pick(["volume", "vol", "v"])
+    # 列名のゆらぎを吸収して Open / High / Low / Close / Volume を抽出
+    cols: Dict[str, str] = {}
+    for col in df.columns:
+        key = str(col).strip().lower()
+        if "open" in key and "adj" not in key:
+            cols["Open"] = col
+        elif "high" in key:
+            cols["High"] = col
+        elif "low" in key:
+            cols["Low"] = col
+        elif "close" in key and "adj" not in key:
+            cols["Close"] = col
+        elif "volume" in key or key == "vol":
+            cols["Volume"] = col
 
     out = pd.DataFrame(index=df.index.copy())
-
-    def copy_col(out_name: str, src_col: Optional[str]) -> None:
-        if src_col is None:
-            out[out_name] = np.nan
+    for std in ["Open", "High", "Low", "Close", "Volume"]:
+        src = cols.get(std)
+        if src is not None:
+            out[std] = pd.to_numeric(df[src], errors="coerce")
         else:
-            out[out_name] = pd.to_numeric(df[src_col], errors="coerce")
+            out[std] = np.nan
 
-    copy_col("Open", open_col)
-    copy_col("High", high_col)
-    copy_col("Low", low_col)
-    copy_col("Close", close_col)
-    copy_col("Volume", vol_col)
-
-    # Index を Datetime に揃える
-    idx = pd.to_datetime(out.index, errors="coerce")
-    mask = ~idx.isna()
-    out = out.loc[mask]
-    out.index = idx[mask]
-
-    # 同一日重複は後勝ち & ソート
-    out = out[~out.index.duplicated(keep="last")]
-    out = out.sort_index()
-
+    out = out.dropna(subset=["Close"], how="all")
     return out
 
 
-# =========================================================
-# ベンチマーク価格の同期
-# =========================================================
-
+@transaction.atomic
 def sync_benchmark_prices(days: int = 365) -> None:
     """
-    BenchmarkMaster で is_active=True のものについて、
-    直近 days 日くらいの価格を BenchmarkPrice に同期する。
+    BenchmarkMaster に登録されている全ベンチマークについて、
+    直近 days 日分の価格を取得し BenchmarkPrice に upsert する。
     """
     ensure_benchmark_master()
-
-    masters = BenchmarkMaster.objects.filter(is_active=True).order_by("sort_order", "code")
-    if not masters.exists():
-        logger.warning("[sync_benchmark_prices] no active BenchmarkMaster")
-        return
+    masters = BenchmarkMaster.objects.filter(is_active=True)
 
     for bm in masters:
         try:
             df = _download_ohlcv(bm.symbol, days=days)
-        except Exception as e:  # pragma: no cover
-            logger.exception("[sync_benchmark_prices] download error %s: %s", bm.name, e)
+        except Exception as e:  # pragma: no cover - デバッグ用
+            print(f"[sync_benchmark_prices] download error {bm.code}: {e}")
             continue
 
         if df.empty:
             continue
 
-        with transaction.atomic():
-            for idx, row in df.iterrows():
-                d = idx.date()
-                try:
-                    BenchmarkPrice.objects.update_or_create(
-                        benchmark=bm,
-                        date=d,
-                        defaults={
-                            "open": float(row["Open"]) if not pd.isna(row["Open"]) else None,
-                            "high": float(row["High"]) if not pd.isna(row["High"]) else None,
-                            "low": float(row["Low"]) if not pd.isna(row["Low"]) else None,
-                            "close": float(row["Close"]) if not pd.isna(row["Close"]) else None,
-                            "volume": float(row["Volume"]) if not pd.isna(row["Volume"]) else None,
-                        },
-                    )
-                except Exception as e:  # pragma: no cover
-                    logger.exception(
-                        "[sync_benchmark_prices] save error %s %s: %s",
-                        bm.code,
-                        d,
-                        e,
-                    )
+        for idx, row in df.iterrows():
+            d: date = idx.date()
+            BenchmarkPrice.objects.update_or_create(
+                benchmark=bm,
+                date=d,
+                defaults={
+                    "open": float(row["Open"]) if not pd.isna(row["Open"]) else None,
+                    "high": float(row["High"]) if not pd.isna(row["High"]) else None,
+                    "low": float(row["Low"]) if not pd.isna(row["Low"]) else None,
+                    "close": float(row["Close"]) if not pd.isna(row["Close"]) else None,
+                    "volume": float(row["Volume"]) if not pd.isna(row["Volume"]) else None,
+                },
+            )
 
 
 # =========================================================
-# スコアリング用ヘルパ
+# DB → pandas.DataFrame
 # =========================================================
 
-def _calc_ret(close: pd.Series, n: int) -> Optional[float]:
-    if close is None or len(close) <= n:
-        return None
+def _load_price_df(code: str, lookback: int) -> pd.DataFrame:
+    """
+    BenchmarkPrice → pandas.DataFrame(Open,High,Low,Close,Volume)
+    """
     try:
-        c_now = float(close.iloc[-1])
-        c_past = float(close.iloc[-1 - n])
-    except Exception:
-        return None
-    if c_past == 0 or np.isnan(c_now) or np.isnan(c_past):
-        return None
-    return (c_now / c_past) - 1.0
+        bm = BenchmarkMaster.objects.get(code=code, is_active=True)
+    except BenchmarkMaster.DoesNotExist:
+        return pd.DataFrame()
+
+    qs = (
+        BenchmarkPrice.objects.filter(benchmark=bm)
+        .order_by("-date")
+        .values("date", "open", "high", "low", "close", "volume")
+    )[:lookback]
+
+    rows = list(qs)
+    if not rows:
+        return pd.DataFrame()
+
+    rows.reverse()  # 昇順に並べ替え
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.set_index("date")
+    df = df.rename(
+        columns={
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "volume": "Volume",
+        }
+    )
+    return df
 
 
-def _normalize_score(x: Optional[float], max_abs: float = 0.2) -> Optional[float]:
+# =========================================================
+# 個別レジーム計算ヘルパ
+# =========================================================
+
+def _trend_from_features(feat: pd.DataFrame) -> Tuple[Optional[float], str]:
     """
-    ざっくり -max_abs〜+max_abs を -1〜+1 に正規化。
+    MA と SLOPE から -1〜+1 のトレンドスコアとラベルを返す。
     """
-    if x is None:
-        return None
-    if np.isnan(x):
-        return None
-    x_clip = max(-max_abs, min(max_abs, x))
-    return x_clip / max_abs
-
-
-def _label_from_score(x: Optional[float], up="UP", down="DOWN", flat="FLAT") -> str:
-    if x is None:
-        return ""
-    if x > 0.35:
-        return up
-    if x < -0.35:
-        return down
-    return flat
-
-
-def _label_fx_from_score(x: Optional[float]) -> str:
-    """
-    ドル円: score>0 → 円安(YEN_WEAK)、score<0 → 円高(YEN_STRONG)
-    """
-    if x is None:
-        return ""
-    if x > 0.35:
-        return "YEN_WEAK"
-    if x < -0.35:
-        return "YEN_STRONG"
-    return "NEUTRAL"
-
-
-def _label_vol_from_z(z: Optional[float]) -> Tuple[Optional[float], str]:
-    """
-    VIX を「平常 / やや高い / 高い」くらいのラベルにする。
-    z ~ 0 付近を CALM とみなす。
-    """
-    if z is None or np.isnan(z):
+    if feat is None or feat.empty:
         return None, ""
+
+    last = feat.iloc[-1]
+    close = last.get("Close")
+    ma_mid = last.get("MA25") if "MA25" in feat.columns else last.get("MA20")
+    ma_short = last.get("MA5")
+    slope = last.get("SLOPE_25") if "SLOPE_25" in feat.columns else last.get("SLOPE_20")
+
+    score = 0.0
+
+    if pd.notna(close) and pd.notna(ma_mid):
+        if close > ma_mid:
+            score += 0.4
+        else:
+            score -= 0.4
+
+    if pd.notna(ma_short) and pd.notna(ma_mid):
+        if ma_short > ma_mid:
+            score += 0.3
+        else:
+            score -= 0.3
+
+    if pd.notna(slope):
+        # 傾きを 0.3 係数で反映（slope は -1〜+1 を想定）
+        score += float(slope) * 0.3
+
+    # clamp
+    score = max(-1.0, min(1.0, score))
+
+    if score > 0.25:
+        label = "UP"
+    elif score < -0.25:
+        label = "DOWN"
+    else:
+        label = "FLAT"
+
+    return score, label
+
+
+def _fx_regime_from_features(feat: pd.DataFrame) -> Tuple[Optional[float], str]:
+    """
+    ドル円の 20日リターン + 傾きから、円安/円高レジームを算出。
+    """
+    if feat is None or feat.empty:
+        return None, ""
+
+    last = feat.iloc[-1]
+    ret20 = last.get("RET_20")
+    slope = last.get("SLOPE_25") if "SLOPE_25" in feat.columns else last.get("SLOPE_20")
+
+    score = 0.0
+    if pd.notna(ret20):
+        # 20日リターンを強めに反映
+        score += float(ret20) * 3.0
+    if pd.notna(slope):
+        score += float(slope) * 0.5
+
+    score = max(-1.0, min(1.0, score))
+
+    if score > 0.3:
+        label = "YEN_WEAK"   # 円安方向
+    elif score < -0.3:
+        label = "YEN_STRONG"  # 円高方向
+    else:
+        label = "NEUTRAL"
+
+    return score, label
+
+
+def _vol_regime_from_features(feat: pd.DataFrame) -> Tuple[Optional[float], str]:
+    """
+    VIX の BB_Z などからボラティリティレジームを推定。
+    """
+    if feat is None or feat.empty:
+        return None, ""
+
+    last = feat.iloc[-1]
+    z = last.get("BB_Z")
+
+    if pd.isna(z):
+        return None, ""
+
+    z = float(z)
+    # z は 0 〜 2 程度が多い想定で正規化
+    score = max(-1.0, min(1.0, (z - 0.5) / 2.0))
 
     if z < 0.0:
         label = "CALM"
@@ -277,192 +301,202 @@ def _label_vol_from_z(z: Optional[float]) -> Tuple[Optional[float], str]:
         label = "ELEVATED"
     else:
         label = "HIGH"
-    return float(z), label
+
+    return score, label
+
+
+def _build_detail_json(
+    jp_feat: pd.DataFrame,
+    us_feat: pd.DataFrame,
+    fx_feat: pd.DataFrame,
+    vol_feat: pd.DataFrame,
+) -> Dict:
+    """
+    デバッグ・可視化用の detail_json を構築。
+    各ゾーンの最終行近辺の指標を軽く詰め込む。
+    """
+    def last_snapshot(feat: pd.DataFrame, extra_cols=None):
+        if feat is None or feat.empty:
+            return {}
+        extra_cols = extra_cols or []
+        cols = [
+            "Close",
+            "MA5",
+            "MA25",
+            "MA50",
+            "RET_5",
+            "RET_20",
+            "SLOPE_5",
+            "SLOPE_25",
+            "BB_Z",
+        ]
+        cols += extra_cols
+        out = {}
+        last = feat.iloc[-1]
+        for c in cols:
+            if c in feat.columns:
+                v = last.get(c)
+                if pd.notna(v):
+                    out[c] = float(v)
+        return out
+
+    return {
+        "jp": last_snapshot(jp_feat),
+        "us": last_snapshot(us_feat),
+        "fx": last_snapshot(fx_feat),
+        "vol": last_snapshot(vol_feat, extra_cols=["ATR14"]),
+    }
 
 
 # =========================================================
-# レジーム生成メイン
+# メイン: マクロレジーム計算
 # =========================================================
 
-def _get_price_series(code: str, days: int = 365) -> pd.Series:
+@transaction.atomic
+def build_macro_regime_snapshot(days: int = 365, cfg: Optional[RegimeConfig] = None) -> MacroRegimeSnapshot:
     """
-    BenchmarkPrice から、指定ベンチマークの Close シリーズを取得。
+    直近のベンチマーク価格からマクロレジームを集計し、
+    MacroRegimeSnapshot を upsert して返す。
+
+    - sync_benchmark_prices(days) を内部で呼び出す
+    - 日本株 / 米国株 / 為替 / ボラ / 総合レジーム を算出
+    - summary フィールドに 1 行サマリを保存
     """
-    try:
-        bm = BenchmarkMaster.objects.get(code=code)
-    except BenchmarkMaster.DoesNotExist:
-        return pd.Series(dtype="float64")
+    cfg = cfg or RegimeConfig()
+    sync_benchmark_prices(days=days)
 
-    qs = BenchmarkPrice.objects.filter(benchmark=bm).order_by("date")
-    if not qs.exists():
-        return pd.Series(dtype="float64")
+    # ---- 価格 DF をロード ----
+    jp_df_nk = _load_price_df("NK225", cfg.lookback_days)
+    jp_df_tp = _load_price_df("TOPIX", cfg.lookback_days)
+    us_df_spx = _load_price_df("SPX", cfg.lookback_days)
+    us_df_ndx = _load_price_df("NDX", cfg.lookback_days)
+    fx_df = _load_price_df("USDJPY", cfg.lookback_days)
+    vol_df = _load_price_df("VIX", cfg.lookback_days)
 
-    df = pd.DataFrame.from_records(
-        qs.values("date", "close"),
-        index="date",
-    ).sort_index()
-    return df["close"].astype("float64")
+    # スナップショット日付：日本株があれば日経の最終日、なければ US → FX → 今日
+    base_df = None
+    for df in [jp_df_nk, jp_df_tp, us_df_spx, us_df_ndx, fx_df, vol_df]:
+        if df is not None and not df.empty:
+            base_df = df
+            break
 
-
-def build_macro_regime_snapshot(target_date: Optional[_date] = None) -> MacroRegimeSnapshot:
-    """
-    直近のベンチマーク価格から「相場レジーム」を計算して MacroRegimeSnapshot を1件保存し、
-    そのインスタンスを返す。
-
-    target_date が None の場合、今日 (timezone.localdate()) を使う。
-    """
-    if target_date is None:
+    if base_df is not None and not base_df.empty:
+        target_date: date = base_df.index.max().date()
+    else:
         target_date = timezone.localdate()
 
-    # 価格を最新にしておく（多少重くてもOK：日次/朝ジョブ想定）
-    sync_benchmark_prices(days=365)
+    # ---- 特徴量を計算 ----
+    feat_cfg = FeatureConfig(
+        ma_short=5,
+        ma_mid=25,
+        ma_long=75,
+        slope_short=5,
+        slope_mid=25,
+    )
 
-    # ---- 日本株ゾーン（NK225 + TOPIX） ----
-    close_nk = _get_price_series("NK225", days=365)
-    close_tx = _get_price_series("TOPIX", days=365)
+    def make_feat(df: pd.DataFrame) -> pd.DataFrame:
+        if df is None or df.empty:
+            return pd.DataFrame()
+        return make_features(df, cfg=feat_cfg)
 
-    close_jp = pd.concat([close_nk, close_tx], axis=1)
-    close_jp["mean"] = close_jp.mean(axis=1)
-    jp_close = close_jp["mean"].dropna()
+    jp_feat_nk = make_feat(jp_df_nk)
+    jp_feat_tp = make_feat(jp_df_tp)
+    fx_feat = make_feat(fx_df)
+    vol_feat = make_feat(vol_df)
 
-    ret_jp_5 = _calc_ret(jp_close, 5)
-    ret_jp_20 = _calc_ret(jp_close, 20)
-    if ret_jp_5 is None and ret_jp_20 is None:
-        jp_score = None
-    else:
-        base = (ret_jp_20 or 0.0) * 0.6 + (ret_jp_5 or 0.0) * 0.4
-        jp_score = _normalize_score(base, max_abs=0.2)
-    jp_label = _label_from_score(jp_score, up="UP", down="DOWN", flat="FLAT")
-
-    # ---- 米国株ゾーン（SPX + NDX） ----
-    close_spx = _get_price_series("SPX", days=365)
-    close_ndx = _get_price_series("NDX", days=365)
-
-    close_us = pd.concat([close_spx, close_ndx], axis=1)
-    close_us["mean"] = close_us.mean(axis=1)
-    us_close = close_us["mean"].dropna()
-
-    ret_us_5 = _calc_ret(us_close, 5)
-    ret_us_20 = _calc_ret(us_close, 20)
-    if ret_us_5 is None and ret_us_20 is None:
-        us_score = None
-    else:
-        base_us = (ret_us_20 or 0.0) * 0.6 + (ret_us_5 or 0.0) * 0.4
-        us_score = _normalize_score(base_us, max_abs=0.2)
-    us_label = _label_from_score(us_score, up="UP", down="DOWN", flat="FLAT")
-
-    # ---- 為替ゾーン（ドル円） ----
-    close_fx = _get_price_series("USDJPY", days=365)
-    ret_fx_20 = _calc_ret(close_fx, 20)
-    fx_score = _normalize_score(ret_fx_20, max_abs=0.1) if ret_fx_20 is not None else None
-    fx_label = _label_fx_from_score(fx_score)
-
-    # ---- ボラゾーン（VIX） ----
-    close_vix = _get_price_series("VIX", days=365)
-    if len(close_vix) >= 60:
-        last_vix = float(close_vix.iloc[-1])
-        base = close_vix.iloc[-60:]
-        mu = float(base.mean())
-        sd = float(base.std(ddof=0) or 1.0)
-        z_vix = (last_vix - mu) / sd
-    else:
-        z_vix = None
-
-    vol_level, vol_label = _label_vol_from_z(z_vix)
-
-    # ---- 総合レジーム ----
-    components = []
-    if jp_score is not None:
-        components.append(jp_score)
-    if us_score is not None:
-        components.append(us_score)
-
-    if components:
-        eq_score = float(np.mean(components))
-    else:
-        eq_score = None
-
-    if eq_score is None:
-        regime_score = None
-    else:
-        regime_score = eq_score
-        if vol_level is not None:
-            regime_score = regime_score - float(vol_level) * 0.3
-        if fx_score is not None:
-            regime_score = regime_score + float(fx_score) * 0.2
-        regime_score = max(-1.0, min(1.0, regime_score))
-
-    regime_label = _label_from_score(regime_score, up="RISK_ON", down="RISK_OFF", flat="NEUTRAL")
-
-    # ---- detail_json + summary ----
-    detail: Dict[str, Dict[str, object]] = {}
-
-    def _latest_val(s: pd.Series) -> Optional[float]:
-        if s is None or s.empty:
-            return None
-        v = float(s.iloc[-1])
-        return v if not np.isnan(v) else None
-
-    detail["JP"] = {
-        "close_nk225": _latest_val(close_nk),
-        "close_topix": _latest_val(close_tx),
-        "ret_5": ret_jp_5,
-        "ret_20": ret_jp_20,
-        "score": jp_score,
-        "label": jp_label,
-    }
-    detail["US"] = {
-        "close_spx": _latest_val(close_spx),
-        "close_ndx": _latest_val(close_ndx),
-        "ret_5": ret_us_5,
-        "ret_20": ret_us_20,
-        "score": us_score,
-        "label": us_label,
-    }
-    detail["FX"] = {
-        "close_usdjpy": _latest_val(close_fx),
-        "ret_20": ret_fx_20,
-        "score": fx_score,
-        "label": fx_label,
-    }
-    detail["VOL"] = {
-        "close_vix": _latest_val(close_vix),
-        "z_vix": z_vix,
-        "level": vol_level,
-        "label": vol_label,
-    }
-
-    summary_parts: List[str] = []
-    if jp_label:
-        summary_parts.append(f"日本株: {jp_label}")
-    if us_label:
-        summary_parts.append(f"米国株: {us_label}")
-    if fx_label:
-        summary_parts.append(f"為替: {fx_label}")
-    if vol_label:
-        summary_parts.append(f"ボラ: {vol_label}")
-    if regime_label:
-        summary_parts.append(f"総合: {regime_label}")
-    summary = " / ".join(summary_parts)
-
-    with transaction.atomic():
-        snap, _created = MacroRegimeSnapshot.objects.update_or_create(
-            date=target_date,
-            defaults={
-                "jp_trend_score": jp_score,
-                "jp_trend_label": jp_label,
-                "us_trend_score": us_score,
-                "us_trend_label": us_label,
-                "fx_trend_score": fx_score,
-                "fx_trend_label": fx_label,
-                "vol_level": vol_level,
-                "vol_label": vol_label,
-                "regime_score": regime_score,
-                "regime_label": regime_label,
-                "detail_json": detail,
-                "summary": summary,
-            },
+    # 米国株は SPX + NDX を統合（Close の平均）してから特徴量を再計算
+    us_feat_spx = make_feat(us_df_spx)
+    us_feat_ndx = make_feat(us_df_ndx)
+    if not us_feat_spx.empty and not us_feat_ndx.empty:
+        aligned = us_feat_spx[["Close"]].join(
+            us_feat_ndx[["Close"]], how="inner", lsuffix="_spx", rsuffix="_ndx"
         )
+        if not aligned.empty:
+            avg_close = aligned.mean(axis=1)
+            tmp = pd.DataFrame({"Close": avg_close})
+            us_feat = make_features(tmp, cfg=feat_cfg)
+        else:
+            us_feat = us_feat_spx
+    else:
+        us_feat = us_feat_spx if not us_feat_spx.empty else us_feat_ndx
 
-    logger.info("[build_macro_regime_snapshot] %s %s", snap.date, snap.summary)
+    # ---- トレンドスコア & ラベル ----
+    # 日本株：日経 + TOPIX をざっくり平均
+    jp_score_1, jp_label_1 = _trend_from_features(jp_feat_nk)
+    jp_score_2, jp_label_2 = _trend_from_features(jp_feat_tp)
+
+    if jp_score_1 is not None and jp_score_2 is not None:
+        jp_trend_score = (jp_score_1 + jp_score_2) / 2.0
+    else:
+        jp_trend_score = jp_score_1 if jp_score_1 is not None else jp_score_2
+
+    # ラベルは優先度: どちらかが UP/DOWN の場合はそちら、両方 FLAT or 片方 None の場合は残り
+    if jp_label_1 in ("UP", "DOWN"):
+        jp_trend_label = jp_label_1
+    elif jp_label_2 in ("UP", "DOWN"):
+        jp_trend_label = jp_label_2
+    else:
+        jp_trend_label = jp_label_1 or jp_label_2 or ""
+
+    # 米国株
+    us_trend_score, us_trend_label = _trend_from_features(us_feat)
+
+    # 為替
+    fx_trend_score, fx_trend_label = _fx_regime_from_features(fx_feat)
+
+    # ボラティリティ
+    vol_level, vol_label = _vol_regime_from_features(vol_feat)
+
+    # ---- 総合レジームスコア ----
+    # 日本株 40%, 米国株 30%, 為替 15%, ボラ(逆符号) 15%
+    def nz(x: Optional[float]) -> float:
+        return float(x) if x is not None else 0.0
+
+    regime_score = (
+        nz(jp_trend_score) * 0.4
+        + nz(us_trend_score) * 0.3
+        + nz(fx_trend_score) * 0.15
+        - nz(vol_level) * 0.15  # ボラ上昇はリスクオフ方向
+    )
+    regime_score = max(-1.0, min(1.0, regime_score))
+
+    if regime_score > 0.3:
+        regime_label = "RISK_ON"
+    elif regime_score < -0.3:
+        regime_label = "RISK_OFF"
+    else:
+        regime_label = "NEUTRAL"
+
+    # ---- summary テキスト（DB 保存用）----
+    summary = (
+        f"日本株: {jp_trend_label or '?'} / "
+        f"米国株: {us_trend_label or '?'} / "
+        f"為替: {fx_trend_label or '?'} / "
+        f"ボラ: {vol_label or '?'} / "
+        f"総合: {regime_label or '?'}"
+    )
+
+    # ---- detail_json ----
+    jp_feat_for_detail = jp_feat_nk if not jp_feat_nk.empty else jp_feat_tp
+    detail_json = _build_detail_json(jp_feat_for_detail, us_feat, fx_feat, vol_feat)
+
+    # ---- Snapshot upsert ----
+    snap, _created = MacroRegimeSnapshot.objects.update_or_create(
+        date=target_date,
+        defaults={
+            "jp_trend_score": jp_trend_score,
+            "jp_trend_label": jp_trend_label,
+            "us_trend_score": us_trend_score,
+            "us_trend_label": us_trend_label,
+            "fx_trend_score": fx_trend_score,
+            "fx_trend_label": fx_trend_label,
+            "vol_level": vol_level,
+            "vol_label": vol_label,
+            "regime_score": regime_score,
+            "regime_label": regime_label,
+            "summary": summary,          # ★ ここで正式に DB に保存
+            "detail_json": detail_json,
+        },
+    )
+
     return snap
