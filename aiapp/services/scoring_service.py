@@ -17,12 +17,17 @@ scoring_service.py
   Supply/Demand (簡易): VWAP_GAP_PCT（VWAP付近なら中立〜やや好意）
   Event Penalty: 直近のDCROSSは微減点、直近のGCROSSは微加点
 
-score_sample(feat_df) -> 0..1
+さらに本格版として、
+  - regime（MacroRegimeSnapshot 等）をオプション引数で受け取り、
+  - RISK_ON / RISK_OFF、JP/USトレンド、為替、ボラを
+    「スコア計算そのもの」に掛け合わせる。
+
+score_sample(feat_df, regime=None) -> 0..1
 stars_from_score(score01) -> 1..5
 """
 
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, Any, Dict
 
 import numpy as np
 import pandas as pd
@@ -66,11 +71,100 @@ def _sig(x: float) -> float:
     try:
         return 1.0 / (1.0 + np.exp(-float(x)))
     except Exception:
-        return 0.5
+        return 1.0 / 2.0
 
 
 def _nz(x: float, default: float = 0.0) -> float:
     return default if (x is None or not np.isfinite(x)) else float(x)
+
+
+# ====== レジームコンテキスト（本格版） ======
+
+def _extract_regime_ctx(regime: Optional[object]) -> Dict[str, Optional[str]]:
+    """
+    MacroRegimeSnapshot / dict / None のどれでも受け取り、
+    {regime_label, jp_trend_label, us_trend_label, fx_trend_label, vol_label}
+    を大文字ストリング or None に正規化する。
+    """
+    fields = ["regime_label", "jp_trend_label", "us_trend_label", "fx_trend_label", "vol_label"]
+    ctx: Dict[str, Optional[str]] = {k: None for k in fields}
+
+    if regime is None:
+        return ctx
+
+    for k in fields:
+        v: Optional[str] = None
+        try:
+            if isinstance(regime, dict):
+                v = regime.get(k)  # type: ignore[arg-type]
+            else:
+                v = getattr(regime, k, None)
+        except Exception:
+            v = None
+        if isinstance(v, str):
+            ctx[k] = v.strip().upper()
+        elif v is not None:
+            ctx[k] = str(v).strip().upper()
+    return ctx
+
+
+def _regime_multiplier(ctx: Dict[str, Optional[str]]) -> float:
+    """
+    レジームに応じて 0.7〜1.3 程度の倍率を返す。
+    - RISK_ON: 少し攻め寄せ
+    - RISK_OFF: 明確に守り寄せ
+    - 日本株/米国株トレンド: UP でわずかに加点, DOWN で減点
+    - 為替: YEN_WEAK で株にやや追い風, YEN_STRONG で逆
+    - ボラ: CALM / ELEVATED / HIGH でリスクコントロール
+    """
+    base = 1.0
+
+    regime_label = (ctx.get("regime_label") or "").upper()
+    jp = (ctx.get("jp_trend_label") or "").upper()
+    us = (ctx.get("us_trend_label") or "").upper()
+    fx = (ctx.get("fx_trend_label") or "").upper()
+    vol = (ctx.get("vol_label") or "").upper()
+
+    # --- 総合レジーム ---
+    if regime_label == "RISK_ON":
+        base += 0.12
+    elif regime_label == "RISK_OFF":
+        base -= 0.15
+    elif regime_label == "NEUTRAL":
+        base += 0.0
+
+    # --- 日本株・米国株トレンド ---
+    if jp == "UP":
+        base += 0.05
+    elif jp == "DOWN":
+        base -= 0.05
+
+    if us == "UP":
+        base += 0.03
+    elif us == "DOWN":
+        base -= 0.03
+
+    # --- 為替（簡易：YEN_WEAK=株追い風, YEN_STRONG=逆風） ---
+    if fx in ("YEN_WEAK", "WEAK_YEN"):
+        base += 0.03
+    elif fx in ("YEN_STRONG", "STRONG_YEN"):
+        base -= 0.03
+
+    # --- ボラティリティ ---
+    if vol == "CALM":
+        base += 0.04
+    elif vol == "ELEVATED":
+        base -= 0.03
+    elif vol == "HIGH":
+        base -= 0.07
+
+    # RISK_OFF × HIGH ボラ のときは、さらに一段絞る
+    if regime_label == "RISK_OFF" and vol == "HIGH":
+        base -= 0.05
+
+    # 暴れ過ぎないようクランプ（0.7〜1.3倍）
+    base = max(0.7, min(1.3, base))
+    return float(base)
 
 
 # ====== コア指標の取り出し（ある分だけ使う） ======
@@ -138,13 +232,19 @@ def _event_adj(feat: pd.DataFrame) -> float:
 
 # ====== 公開API ======
 
-def score_sample(feat: pd.DataFrame) -> float:
+def score_sample(feat: pd.DataFrame, regime: Optional[object] = None) -> float:
     """
     総合得点の確定ロジック（0..1）。“常に連続値”になるよう調整。
+    regime を渡した場合は、相場レジーム（RISK_ON/OFF, JP/US, FX, VOL）を
+    スコア計算そのものに掛け合わせる。
+
+    - feat: features.make_features() からの DataFrame
+    - regime: MacroRegimeSnapshot インスタンス or dict or None
     """
     if feat is None or len(feat) == 0:
         return 0.0
 
+    # --- テクニカル側の素点 ---
     trend = _block_trend(feat)          # 0..1
     mom = _block_momentum(feat)         # 0..1
     volu = _block_volume(feat)          # 0..1
@@ -152,14 +252,22 @@ def score_sample(feat: pd.DataFrame) -> float:
     sd = _block_supply_demand(feat)     # 0..1
     adj = _event_adj(feat)              # -0.02..+0.02
 
-    # 重みは短期×攻めの仮本番（FULL）
-    score = (
+    # 短期×攻めの仮本番（FULL）
+    base_score = (
         0.34 * trend +
         0.28 * mom +
         0.14 * volu +
         0.14 * vctrl +
         0.08 * sd
     )
+    base_score = max(0.0, min(1.0, base_score))
+
+    # --- マクロレジームを“本体ロジック”に織り込む ---
+    ctx = _extract_regime_ctx(regime)
+    mul = _regime_multiplier(ctx)
+    score = base_score * mul
+
+    # GCROSS/DCROSS 調整を最後に足し合わせ
     score = max(0.0, min(1.0, score + adj))
     return float(score)
 
