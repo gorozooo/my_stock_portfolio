@@ -8,14 +8,23 @@ aiapp.services.reasons
 make_reasons(feat: dict) -> (reasons: list[str], concern: str | None)
 
 feat には少なくとも以下の key が入っている想定（どれか欠けてもOK）:
-  - ema_slope / SLOPE_25 / SLOPE_20 : トレンドの傾き
-  - rel_strength_10                  : 10日間の相対強度（％換算）
-  - rsi14 / RSI14                    : RSI14
-  - vol_ma20_ratio                   : 出来高 / 20日平均出来高（無ければ Volume＋MA25 等から算出）
-  - breakout_flag / BREAKOUT_FLAG    : ブレイクしていれば 1
-  - atr14 / ATR14                    : ATR14
-  - vwap_proximity / VWAP_GAP_PCT    : VWAP からの乖離率（％）
-  - last_price / Close / LAST        : 終値（ATRの大きさ判断に利用）
+  - ema_slope / SLOPE_25 / SLOPE_5        : トレンドの傾き
+  - rel_strength_10                        : 10日間の相対強度（％換算）
+  - rsi14 / RSI14                          : RSI14
+  - vol_ma_ratio                           : 出来高 / 25日平均出来高（無ければ Volume＋MA25 から算出）
+  - breakout_flag                          : ブレイクしていれば 1
+  - atr14 / ATR14                          : ATR14
+  - vwap_proximity / VWAP_GAP_PCT          : VWAP からの乖離率（％）
+  - last_price / Close                     : 終値（ATRの大きさ判断に利用）
+
+※ features.py 側の主な列
+  MA5, MA25, MA75, MA100, MA200
+  RSI14
+  ATR14
+  VWAP, VWAP_GAP_PCT
+  RET_1, RET_5, RET_20
+  SLOPE_5, SLOPE_25
+  GCROSS, DCROSS
 """
 
 from __future__ import annotations
@@ -71,45 +80,37 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
     # ---------------------------
     # 入力マッピング（features の列名 → 内部変数）
     # ---------------------------
-    # トレンド傾き: ema_slope → SLOPE_25 → SLOPE_20 → SLOPE_5 の順で拾う
+
+    # トレンド傾き: ema_slope → SLOPE_25 → SLOPE_5
     ema_slope: Optional[float] = _as_float(
         feat.get("ema_slope")
         or feat.get("SLOPE_25")
-        or feat.get("SLOPE_20")
         or feat.get("SLOPE_5")
     )
 
-    # 相対強度（10日リターン％換算が入ってくる想定）
+    # 相対強度（10日間の指数比。既に％換算されている想定）
     rel10: Optional[float] = _as_float(
         feat.get("rel_strength_10")
-        or feat.get("REL_STRENGTH_10")
     )
 
-    # RSI（features.py では RSI14 列）
+    # RSI（features.py では RSI14）
     rsi: Optional[float] = _as_float(
         feat.get("rsi14")
         or feat.get("RSI14")
     )
 
-    # 出来高倍率
+    # 出来高倍率（Volume / MA25 前提）
     vol_ratio: Optional[float] = _as_float(
-        feat.get("vol_ma20_ratio")
-        or feat.get("VOL_MA20_RATIO")
-        or feat.get("VOL_MA25_RATIO")
+        feat.get("vol_ma_ratio")
     )
 
-    # ブレイクフラグ
-    breakout_flag_raw = (
-        feat.get("breakout_flag", 0)
-        or feat.get("BREAKOUT_FLAG", 0)
-        or 0
-    )
+    breakout_flag_raw = feat.get("breakout_flag", 0) or 0
     try:
         breakout_flag: int = int(breakout_flag_raw)
     except Exception:
         breakout_flag = 0
 
-    # ATR（features.py は ATR14 列）
+    # ATR（features.py は ATR14）
     atr: Optional[float] = _as_float(
         feat.get("atr14")
         or feat.get("ATR14")
@@ -125,19 +126,14 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
     last_price: Optional[float] = _as_float(
         feat.get("last_price")
         or feat.get("Close")
-        or feat.get("LAST")
     )
 
-    # 出来高倍率が無い場合は Volume / MAxx から算出
+    # vol_ratio が dict に無い場合は Volume / MA25 から計算
     if vol_ratio is None:
         vol = _as_float(feat.get("Volume"))
-        ma = (
-            _as_float(feat.get("MA20"))  # 互換用（古いfeatures）
-            or _as_float(feat.get("MA25"))
-            or _as_float(feat.get("MA100"))
-        )
-        if vol is not None and ma is not None and ma > 0:
-            vol_ratio = vol / ma
+        ma25 = _as_float(feat.get("MA25"))
+        if vol is not None and ma25 is not None and ma25 > 0:
+            vol_ratio = vol / ma25
 
     # ---------------------------
     # 1) トレンドの向き（MA傾き）
@@ -160,7 +156,6 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
                 "大きな方向感は出ていませんが、下げ止まりからの持ち直しを狙える位置と判断しています。"
             )
         else:
-            # しっかり下向きだが、あえて拾うケース
             reasons.append(
                 "中期ではまだ下向きのトレンドですが、直近で下げ止まりの兆しが出ているため、反発候補としてピックアップしています。"
             )
@@ -218,7 +213,7 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
             )
 
     # ---------------------------
-    # 4) 出来高（資金の集まり具合） Volume＋MA 起点
+    # 4) 出来高（資金の集まり具合） Volume＋MA25 起点
     # ---------------------------
     if vol_ratio is not None and vol_ratio > 0:
         vr = vol_ratio
@@ -228,7 +223,7 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
             )
         elif vr >= 1.5:
             reasons.append(
-                f"出来高が20日前後の平均の {_fmt_x(vr)} 程度と増えてきており、静かに買いが集まりつつある状況です。"
+                f"出来高が25日平均の {_fmt_x(vr)} 程度と増えてきており、静かに買いが集まりつつある状況です。"
             )
         elif vr >= 0.8:
             reasons.append(
@@ -315,7 +310,6 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
     # 1つにまとめる
     concern_text: Optional[str] = None
     if concerns:
-        # 一番重要そうなものを 1つだけ採用（長くなりすぎないように）
         concern_text = concerns[0]
 
     return reasons[:5], concern_text
