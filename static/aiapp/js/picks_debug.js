@@ -19,8 +19,8 @@
   let resizeHandler = null;
 
   // ★ 現在開いている銘柄の価格表示モード
-  //   "int"       : 価格は整数（4768 など）
-  //   "decimal1"  : 価格は小数1桁（9434 など）
+  //   "int"       : 価格は整数
+  //   "decimal1"  : 価格は小数1桁
   let currentPriceMode = "int";
 
   if (!table || !modal || !chartContainer) {
@@ -207,15 +207,6 @@
           bottom: 0.15,
         },
       },
-      leftPriceScale: {
-        visible: true, // RSI 用
-        borderVisible: false,
-        textColor: "#9ca3af",
-        scaleMargins: {
-          top: 0.1,
-          bottom: 0.1,
-        },
-      },
       timeScale: {
         borderVisible: false,
         rightOffset: 2,
@@ -234,6 +225,7 @@
     });
 
     let baseTimeList = [];
+    let priceValues = [];
 
     if (hasCandles) {
       const candleSeries = lwChart.addCandlestickSeries({
@@ -253,6 +245,9 @@
       });
       candleSeries.setData(candles);
       baseTimeList = candles.map((c) => c.time);
+      candles.forEach((c) => {
+        priceValues.push(c.high, c.low);
+      });
     } else if (hasCloses) {
       const line = lwChart.addLineSeries({
         color: "#38bdf8",
@@ -269,6 +264,21 @@
       }));
       line.setData(data);
       baseTimeList = data.map((d) => d.time);
+      closes.forEach((v) => priceValues.push(v));
+    }
+
+    // 価格帯の min/max（RSI をこのレンジにマッピングする）
+    let priceMin = Number.POSITIVE_INFINITY;
+    let priceMax = Number.NEGATIVE_INFINITY;
+    priceValues.forEach((v) => {
+      const n = Number(v);
+      if (isNaN(n)) return;
+      if (n < priceMin) priceMin = n;
+      if (n > priceMax) priceMax = n;
+    });
+    if (!isFinite(priceMin) || !isFinite(priceMax) || priceMin === priceMax) {
+      priceMin = 0;
+      priceMax = 1;
     }
 
     function addHLine(value, color) {
@@ -293,12 +303,12 @@
       return series;
     }
 
-    function addOverlayLine(list, color, priceScaleId) {
+    function addOverlayLine(list, color) {
       if (!Array.isArray(list) || list.length === 0) return null;
       const series = lwChart.addLineSeries({
         color: color,
         lineWidth: 1.5,
-        priceScaleId: priceScaleId || "right",
+        priceScaleId: "right",
         priceFormat: {
           type: "price",
           precision: 0,
@@ -327,13 +337,23 @@
     addHLine(tp, "#22c55e");
     addHLine(sl, "#ef4444");
 
-    // MA / VWAP（右スケール）
-    addOverlayLine(maShort, "#fbbf24", "right"); // 短期MA
-    addOverlayLine(maMid, "#e5e7eb", "right");   // 中期MA
-    addOverlayLine(vwap, "#38bdf8", "right");    // VWAP
+    // MA / VWAP（そのまま価格スケール）
+    addOverlayLine(maShort, "#fbbf24"); // 短期MA
+    addOverlayLine(maMid, "#e5e7eb");   // 中期MA
+    addOverlayLine(vwap, "#38bdf8");    // VWAP
 
-    // RSI（左スケール 0〜100）
-    addOverlayLine(rsi, "#a855f7", "left");
+    // RSI（0〜100を価格レンジにマッピングして重ねる）
+    if (Array.isArray(rsi) && rsi.length > 0) {
+      const scaledRsi = rsi.map((v) => {
+        if (v === null || v === undefined) return null;
+        const n = Number(v);
+        if (isNaN(n)) return null;
+        const clamped = Math.max(0, Math.min(100, n));
+        const ratio = clamped / 100.0;
+        return priceMin + (priceMax - priceMin) * ratio;
+      });
+      addOverlayLine(scaledRsi, "#a855f7");
+    }
 
     lwChart.timeScale().fitContent();
 
@@ -359,7 +379,7 @@
   function openModal(row) {
     const ds = row.dataset || {};
 
-    // ★ まず現在値の文字列から「整数/小数1桁」を判定
+    // ★ まず現在値から「整数/小数1桁」を判定
     (function decidePriceMode() {
       const raw = (ds.last || "").toString().trim();
       let mode = "int";
