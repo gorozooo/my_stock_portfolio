@@ -123,6 +123,12 @@ try:
 except Exception:  # pragma: no cover
     apply_bias_all = None  # type: ignore
 
+# 追加: マクロレジーム（あれば使う）
+try:
+    from aiapp.models.macro import MacroRegimeSnapshot
+except Exception:  # pragma: no cover
+    MacroRegimeSnapshot = None  # type: ignore
+
 
 # =========================================================
 # 共通設定
@@ -299,7 +305,7 @@ def _extract_chart_ohlc(
         for c in candidates:
             if c in df.columns:
                 return c
-        return None
+            return None
 
     col_o = col_name(["Open", "open", "OPEN"])
     col_h = col_name(["High", "high", "HIGH"])
@@ -485,11 +491,13 @@ def _work_one(
     code: str,
     nbars: int,
     filter_stats: Optional[Dict[str, int]] = None,
+    regime: Optional[object] = None,
 ) -> Optional[Tuple[PickItem, Dict[str, Any]]]:
     """
     単一銘柄について、価格→特徴量→スコア→Entry/TP/SL→Sizing→理由 まで全部まとめて計算。
     sizing_meta には risk_pct / lot_size を入れて返す。
     filter_stats が渡されていれば、picks_filters によるスキップ理由ごとの件数を集計する。
+    regime が渡されていれば scoring_service 側で RISK_ON/OFF 等を織り込む。
     """
     try:
         raw = get_prices(code, nbars=nbars, period="3y")
@@ -542,11 +550,17 @@ def _work_one(
                 if BUILD_LOG:
                     print(f"[picks_build] {code}: filter error {ex}")
 
-        # --- スコア ---
+        # --- スコア（レジーム込み本格版） ---
         if ext_score_sample:
-            s01 = float(ext_score_sample(feat))
+            try:
+                # 新シグネチャ: score_sample(feat, regime=None)
+                s01 = float(ext_score_sample(feat, regime=regime))
+            except TypeError:
+                # 万一、古いシグネチャだった場合のフォールバック
+                s01 = float(ext_score_sample(feat))
         else:
             s01 = _fallback_score_sample(feat)
+
         score100 = _score_to_0_100(s01)
         stars = int(ext_stars_from_score(s01)) if ext_stars_from_score else _fallback_stars(s01)
 
@@ -776,6 +790,26 @@ class Command(BaseCommand):
         codes = _load_universe(universe)
         stockmaster_total = len(codes)
 
+        # ---- マクロレジームの読み込み（あれば） ----
+        macro_regime = None
+        if MacroRegimeSnapshot is not None:
+            try:
+                today = datetime.now(JST).date()
+                macro_regime = (
+                    MacroRegimeSnapshot.objects
+                    .filter(date__lte=today)
+                    .order_by("-date")
+                    .first()
+                )
+                if BUILD_LOG and macro_regime is not None:
+                    print(
+                        f"[picks_build] use MacroRegimeSnapshot "
+                        f"date={macro_regime.date} regime={macro_regime.regime_label}"
+                    )
+            except Exception as ex:
+                if BUILD_LOG:
+                    print(f"[picks_build] macro regime load error: {ex}")
+
         if not codes:
             print("[picks_build] universe empty → 空JSON出力")
             self._emit(
@@ -789,6 +823,9 @@ class Command(BaseCommand):
                 meta_extra={
                     "stockmaster_total": stockmaster_total,
                     "filter_stats": {},
+                    "regime_date": getattr(macro_regime, "date", None) if macro_regime else None,
+                    "regime_label": getattr(macro_regime, "regime_label", None) if macro_regime else None,
+                    "regime_summary": getattr(macro_regime, "summary", None) if macro_regime else None,
                 },
             )
             return
@@ -806,7 +843,13 @@ class Command(BaseCommand):
         filter_stats: Dict[str, int] = {}
 
         for code in codes:
-            res = _work_one(user, code, nbars=nbars, filter_stats=filter_stats)
+            res = _work_one(
+                user,
+                code,
+                nbars=nbars,
+                filter_stats=filter_stats,
+                regime=macro_regime,
+            )
             if res is None:
                 continue
             item, sizing_meta = res
@@ -846,9 +889,13 @@ class Command(BaseCommand):
                 f"total={len(items)} topk={len(top_items)}"
             )
 
-        # 追加メタ（総StockMaster件数 & フィルタ別削除件数）
+        # 追加メタ（総StockMaster件数 & フィルタ別削除件数 & レジーム情報）
         meta_extra["stockmaster_total"] = stockmaster_total
         meta_extra["filter_stats"] = filter_stats
+        if macro_regime is not None:
+            meta_extra["regime_date"] = getattr(macro_regime, "date", None)
+            meta_extra["regime_label"] = getattr(macro_regime, "regime_label", None)
+            meta_extra["regime_summary"] = getattr(macro_regime, "summary", None)
 
         self._emit(
             items,
