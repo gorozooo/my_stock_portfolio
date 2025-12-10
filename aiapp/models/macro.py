@@ -28,7 +28,7 @@ class BenchmarkMaster(models.Model):
     ベンチマークマスタ
     例:
       - code: "NK225", name: "日経平均",    kind: "INDEX_JP", symbol: "^N225"
-      - code: "TOPIX", name: "TOPIX",      kind: "INDEX_JP", symbol: "^TOPX"
+      - code: "TOPIX", name: "TOPIX",      kind: "INDEX_JP", symbol: "1306.T"  # ETF で代理
       - code: "SPX",   name: "S&P500",     kind: "INDEX_US", symbol: "^GSPC"
       - code: "NDX",   name: "NASDAQ100",  kind: "INDEX_US", symbol: "^NDX"
       - code: "USDJPY",name: "ドル円",     kind: "FX",       symbol: "JPY=X"
@@ -130,7 +130,7 @@ class MacroRegimeSnapshot(models.Model):
       - regime_label:    "RISK_ON" / "RISK_OFF" / "NEUTRAL"
 
     数値スコア（*_score）は -1.0〜+1.0 程度を想定。
-    ロジックは services（macro_regime.py）側で実装し、
+    ロジックは services.macro_regime 側で実装し、
     ここでは結果だけを保存する。
     """
 
@@ -200,13 +200,6 @@ class MacroRegimeSnapshot(models.Model):
         help_text="総合レジームのラベル（RISK_ON / RISK_OFF / NEUTRAL 等）",
     )
 
-    # --- テロップ用サマリ（1行テキスト） ---
-    summary = models.CharField(
-        max_length=255,
-        blank=True,
-        help_text="画面上部テロップなどで使う一行サマリ（任意）",
-    )
-
     # --- 詳細情報（デバッグ / 可視化用） ---
     detail_json = models.JSONField(
         default=dict,
@@ -229,3 +222,38 @@ class MacroRegimeSnapshot(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover
         return f"{self.date} {self.regime_label or ''}"
+
+    # =========================================================
+    # 追加: サマリ文字列 & グレード（A〜E）
+    # =========================================================
+    @property
+    def summary(self) -> str:
+        """
+        画面テロップやログ用の要約文字列。
+        例: "日本株: UP / 米国株: FLAT / 為替: YEN_WEAK / ボラ: CALM / 総合: RISK_ON"
+        """
+        jp = self.jp_trend_label or "?"
+        us = self.us_trend_label or "?"
+        fx = self.fx_trend_label or "?"
+        vol = self.vol_label or "?"
+        reg = self.regime_label or "?"
+        return f"日本株: {jp} / 米国株: {us} / 為替: {fx} / ボラ: {vol} / 総合: {reg}"
+
+    @property
+    def regime_grade(self) -> str:
+        """
+        regime_score からざっくり A〜E のレーティングを出す。
+        （フロントでバッジ表示などに使う想定）
+        """
+        if self.regime_score is None:
+            return "-"
+        s = self.regime_score
+        if s >= 0.6:
+            return "A"
+        if s >= 0.2:
+            return "B"
+        if s > -0.2:
+            return "C"
+        if s > -0.6:
+            return "D"
+        return "E"
