@@ -211,16 +211,6 @@ def _build_reasons_features(feat: pd.DataFrame, last: float, atr: float) -> Dict
     """
     reasons.make_reasons 用に、features DataFrame から必要な指標だけ抜き出して
     名前を合わせた dict を組み立てる。
-
-    features.py 側の主な利用列:
-      - SLOPE_5, SLOPE_25
-      - RET_20
-      - RSI14
-      - Volume, MA25
-      - GCROSS
-      - VWAP_GAP_PCT
-      - ATR14
-      - Close
     """
     if feat is None or len(feat) == 0:
         return {}
@@ -242,51 +232,57 @@ def _build_reasons_features(feat: pd.DataFrame, last: float, atr: float) -> Dict
             return None
         return f
 
-    # トレンド傾き: まず SLOPE_25、無ければ SLOPE_5
-    ema_slope = g("SLOPE_25")
-    if ema_slope is None:
-        ema_slope = g("SLOPE_5")
+    # トレンド傾き（中期）
+    ema_slope = g("SLOPE_25") or g("SLOPE_20")
 
-    # 相対強度は「20日リターン」を％換算して利用
+    # 相対強度は「20日リターン」を簡易的に％換算して使う
     rel_strength_10 = None
     r20 = g("RET_20")
     if r20 is not None:
         rel_strength_10 = r20 * 100.0  # 例: 0.12 → 12%
 
-    # RSI14
+    # 直近1日の変動率（イベント検出用）
+    ret1_pct = None
+    r1 = g("RET_1")
+    if r1 is not None:
+        ret1_pct = r1 * 100.0  # 例: 0.08 → 8%
+
+    # RSI
     rsi14 = g("RSI14")
 
-    # 出来高倍率: Volume / MA25
+    # 出来高と平均（Volume / MA25 でざっくり）
     vol = g("Volume")
-    ma25 = g("MA25")
+    ma_base = g("MA25") or g("MA20")
     vol_ma_ratio = None
-    if vol is not None and ma25 is not None and ma25 > 0:
-        vol_ma_ratio = vol / ma25
+    if vol is not None and ma_base is not None and ma_base > 0:
+        # 本来は出来高MAを使うのがベストだが、現状は価格MAを目安として使用
+        vol_ma_ratio = vol / ma_base
 
-    # ブレイクフラグ: 直近GCROSSが立っていれば 1
+    # ブレイクフラグ（ゴールデンクロス）
     breakout_flag = 0
     gcross = g("GCROSS")
     if gcross is not None and gcross > 0:
         breakout_flag = 1
 
-    # VWAP 乖離（％）
+    # VWAP乖離
     vwap_proximity = g("VWAP_GAP_PCT")
+
+    # ATR
+    atr14 = None
+    if np.isfinite(atr):
+        atr14 = float(atr)
 
     # 終値
     last_price = None
     if np.isfinite(last):
         last_price = float(last)
 
-    # ATR14
-    atr14 = None
-    if np.isfinite(atr):
-        atr14 = float(atr)
-
     return {
         "ema_slope": ema_slope,
         "rel_strength_10": rel_strength_10,
+        "ret1_pct": ret1_pct,             # ★ イベント検出用（前日比％）
         "rsi14": rsi14,
-        "vol_ma_ratio": vol_ma_ratio,
+        "vol_ma_ratio": vol_ma_ratio,     # ★ 新しい名前に統一
         "breakout_flag": breakout_flag,
         "atr14": atr14,
         "vwap_proximity": vwap_proximity,
