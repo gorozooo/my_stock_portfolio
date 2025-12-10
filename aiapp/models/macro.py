@@ -28,7 +28,7 @@ class BenchmarkMaster(models.Model):
     ベンチマークマスタ
     例:
       - code: "NK225", name: "日経平均",    kind: "INDEX_JP", symbol: "^N225"
-      - code: "TOPIX", name: "TOPIX",      kind: "INDEX_JP", symbol: "1306.T"  # ETF で代理
+      - code: "TOPIX", name: "TOPIX",      kind: "INDEX_JP", symbol: "1306.T"  # ETF代理
       - code: "SPX",   name: "S&P500",     kind: "INDEX_US", symbol: "^GSPC"
       - code: "NDX",   name: "NASDAQ100",  kind: "INDEX_US", symbol: "^NDX"
       - code: "USDJPY",name: "ドル円",     kind: "FX",       symbol: "JPY=X"
@@ -78,14 +78,14 @@ class BenchmarkMaster(models.Model):
         verbose_name_plural = "ベンチマークマスタ"
         ordering = ["sort_order", "code"]
 
-    def __str__(self) -> str:  # pragma: no cover
+    def __str__(self) -> str:
         return f"{self.code} ({self.name})"
 
 
 class BenchmarkPrice(models.Model):
     """
     ベンチマークの日足OHLCV
-    index=日付、columns=["Open","High","Low","Close","Volume"] 相当。
+    index=日付、columns=["Open","High","Low","Close","Volume"]
     """
 
     benchmark = models.ForeignKey(
@@ -114,24 +114,13 @@ class BenchmarkPrice(models.Model):
         ]
         ordering = ["benchmark", "date"]
 
-    def __str__(self) -> str:  # pragma: no cover
+    def __str__(self):
         return f"{self.benchmark.code} {self.date} close={self.close}"
 
 
 class MacroRegimeSnapshot(models.Model):
     """
     日付ごとの「相場レジーム」まとめ。
-
-    例:
-      - jp_trend_label:  "UP" / "DOWN" / "FLAT"
-      - us_trend_label:  "UP" / "DOWN" / "FLAT"
-      - fx_trend_label:  "YEN_WEAK" / "YEN_STRONG" / "NEUTRAL"
-      - vol_label:       "CALM" / "ELEVATED" / "HIGH"
-      - regime_label:    "RISK_ON" / "RISK_OFF" / "NEUTRAL"
-
-    数値スコア（*_score）は -1.0〜+1.0 程度を想定。
-    ロジックは services.macro_regime 側で実装し、
-    ここでは結果だけを保存する。
     """
 
     date = models.DateField(
@@ -140,97 +129,54 @@ class MacroRegimeSnapshot(models.Model):
         help_text="このレジームが表す営業日（日足ベース）",
     )
 
-    # --- 日本株ゾーン（日経 / TOPIX 等から集約） ---
-    jp_trend_score = models.FloatField(
-        null=True,
+    # --- 日本株 ---
+    jp_trend_score = models.FloatField(null=True, blank=True)
+    jp_trend_label = models.CharField(max_length=16, blank=True)
+
+    # --- 米国株 ---
+    us_trend_score = models.FloatField(null=True, blank=True)
+    us_trend_label = models.CharField(max_length=16, blank=True)
+
+    # --- 為替 ---
+    fx_trend_score = models.FloatField(null=True, blank=True)
+    fx_trend_label = models.CharField(max_length=16, blank=True)
+
+    # --- ボラティリティ ---
+    vol_level = models.FloatField(null=True, blank=True)
+    vol_label = models.CharField(max_length=16, blank=True)
+
+    # --- 総合 ---
+    regime_score = models.FloatField(null=True, blank=True)
+    regime_label = models.CharField(max_length=16, blank=True)
+
+    # --- テロップ用（DBに保持する版）---
+    summary = models.CharField(
+        max_length=255,
         blank=True,
-        help_text="日本株トレンド強度スコア（-1〜+1 目安）",
-    )
-    jp_trend_label = models.CharField(
-        max_length=16,
-        blank=True,
-        help_text="日本株トレンドのラベル（UP / DOWN / FLAT など）",
+        help_text="画面テロップ用の一行サマリ（services 側で生成して保存）",
     )
 
-    # --- 米国株ゾーン（S&P500 / NASDAQ 等） ---
-    us_trend_score = models.FloatField(
-        null=True,
-        blank=True,
-        help_text="米国株トレンド強度スコア（-1〜+1 目安）",
-    )
-    us_trend_label = models.CharField(
-        max_length=16,
-        blank=True,
-        help_text="米国株トレンドのラベル（UP / DOWN / FLAT など）",
-    )
+    # --- 詳細 ---
+    detail_json = models.JSONField(default=dict, blank=True)
 
-    # --- 為替ゾーン（ドル円など） ---
-    fx_trend_score = models.FloatField(
-        null=True,
-        blank=True,
-        help_text="為替トレンド強度スコア（-1〜+1 目安、円安/円高）",
-    )
-    fx_trend_label = models.CharField(
-        max_length=16,
-        blank=True,
-        help_text="為替トレンドのラベル（YEN_WEAK / YEN_STRONG / NEUTRAL 等）",
-    )
-
-    # --- ボラティリティ（VIX 等） ---
-    vol_level = models.FloatField(
-        null=True,
-        blank=True,
-        help_text="ボラティリティ水準（例: 正規化したVIXスコア）",
-    )
-    vol_label = models.CharField(
-        max_length=16,
-        blank=True,
-        help_text="ボラティリティのラベル（CALM / ELEVATED / HIGH など）",
-    )
-
-    # --- 総合レジーム ---
-    regime_score = models.FloatField(
-        null=True,
-        blank=True,
-        help_text="総合レジームスコア（-1.0: 強リスクオフ, +1.0: 強リスクオン）",
-    )
-    regime_label = models.CharField(
-        max_length=16,
-        blank=True,
-        help_text="総合レジームのラベル（RISK_ON / RISK_OFF / NEUTRAL 等）",
-    )
-
-    # --- 詳細情報（デバッグ / 可視化用） ---
-    detail_json = models.JSONField(
-        default=dict,
-        blank=True,
-        help_text=(
-            "各ベンチマークの MA / RSI / RET / SLOPE 等の生データを "
-            "まとめて入れておくためのフィールド。"
-        ),
-    )
-
-    created_at = models.DateTimeField(
-        default=timezone.now,
-        help_text="このスナップショットを生成した日時",
-    )
+    created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         verbose_name = "マクロレジームスナップショット"
         verbose_name_plural = "マクロレジームスナップショット"
         ordering = ["-date"]
 
-    def __str__(self) -> str:  # pragma: no cover
+    def __str__(self):
         return f"{self.date} {self.regime_label or ''}"
 
     # =========================================================
-    # 追加: サマリ文字列 & グレード（A〜E）
+    # 自動生成（Pythonロジック用） summary_text
     # =========================================================
     @property
-    def summary(self) -> str:
+    def summary_text(self) -> str:
         """
-        画面テロップやログ用の要約文字列。
-        例: "日本株: UP / 米国株: FLAT / 為替: YEN_WEAK / ボラ: CALM / 総合: RISK_ON"
+        DB保存版とは別に「毎回動的に生成する summary」。
+        services 側で summary フィールドへ保存するときの元になる。
         """
         jp = self.jp_trend_label or "?"
         us = self.us_trend_label or "?"
@@ -239,15 +185,14 @@ class MacroRegimeSnapshot(models.Model):
         reg = self.regime_label or "?"
         return f"日本株: {jp} / 米国株: {us} / 為替: {fx} / ボラ: {vol} / 総合: {reg}"
 
+    # =========================================================
+    # 総合レーティング（A〜E）
+    # =========================================================
     @property
     def regime_grade(self) -> str:
-        """
-        regime_score からざっくり A〜E のレーティングを出す。
-        （フロントでバッジ表示などに使う想定）
-        """
-        if self.regime_score is None:
-            return "-"
         s = self.regime_score
+        if s is None:
+            return "-"
         if s >= 0.6:
             return "A"
         if s >= 0.2:
