@@ -18,9 +18,7 @@
   let lwChart = null;
   let resizeHandler = null;
 
-  // ★ 現在開いている銘柄の価格表示モード
-  //   "int"       : 価格は整数
-  //   "decimal1"  : 価格は小数1桁
+  // 現在開いている銘柄の価格表示モード
   let currentPriceMode = "int";
 
   if (!table || !modal || !chartContainer) {
@@ -108,7 +106,7 @@
   }
 
   // --------------------------------------
-  // フィルタ（コード・銘柄名・業種）
+  // フィルタ
   // --------------------------------------
   (function setupFilter() {
     if (!filterInput || !table) return;
@@ -130,7 +128,7 @@
   })();
 
   // --------------------------------------
-  // 日付文字列 → BusinessDay 変換 ("YYYY-MM-DD" or "YYYY/MM/DD")
+  // 日付文字列 → BusinessDay
   // --------------------------------------
   function toBusinessDay(dateStr) {
     if (!dateStr) return null;
@@ -145,13 +143,19 @@
   }
 
   // --------------------------------------
-  // lightweight-charts 用：チャート更新
+  // チャート更新
   // --------------------------------------
-  // candles: [{time, open, high, low, close}, ...]
-  // closes : [number, ...]
-  // maShort / maMid / vwap / rsi : [number|null, ...]
-  function updateChart(candles, closes, entry, tp, sl, maShort, maMid, vwap, rsi) {
-    // 既存チャート破棄
+  function updateChart(
+    candles,
+    closes,
+    entry,
+    tp,
+    sl,
+    maShort,
+    maMid,
+    vwap,
+    rsi
+  ) {
     if (lwChart) {
       lwChart.remove();
       lwChart = null;
@@ -267,7 +271,6 @@
       closes.forEach((v) => priceValues.push(v));
     }
 
-    // 価格帯の min/max（RSI をこのレンジにマッピングする）
     let priceMin = Number.POSITIVE_INFINITY;
     let priceMax = Number.NEGATIVE_INFINITY;
     priceValues.forEach((v) => {
@@ -332,17 +335,17 @@
       return series;
     }
 
-    // Entry: 黄色, TP: 緑, SL: 赤
+    // Entry / TP / SL
     addHLine(entry, "#eab308");
     addHLine(tp, "#22c55e");
     addHLine(sl, "#ef4444");
 
-    // MA / VWAP（そのまま価格スケール）
-    addOverlayLine(maShort, "#fbbf24"); // 短期MA
-    addOverlayLine(maMid, "#e5e7eb");   // 中期MA
-    addOverlayLine(vwap, "#38bdf8");    // VWAP
+    // MA / VWAP
+    addOverlayLine(maShort, "#fbbf24");
+    addOverlayLine(maMid, "#e5e7eb");
+    addOverlayLine(vwap, "#38bdf8");
 
-    // RSI（0〜100を価格レンジにマッピングして重ねる）
+    // RSI（0〜100 を価格レンジにマッピング）
     if (Array.isArray(rsi) && rsi.length > 0) {
       const scaledRsi = rsi.map((v) => {
         if (v === null || v === undefined) return null;
@@ -379,7 +382,7 @@
   function openModal(row) {
     const ds = row.dataset || {};
 
-    // ★ まず現在値から「整数/小数1桁」を判定
+    // 価格モード判定
     (function decidePriceMode() {
       const raw = (ds.last || "").toString().trim();
       let mode = "int";
@@ -398,7 +401,6 @@
       currentPriceMode = mode;
     })();
 
-    // タイトル / メタ
     document.getElementById("modalTitle").textContent =
       (ds.code || "") + " " + (ds.name || "");
     document.getElementById("modalSector").textContent = ds.sector || "";
@@ -408,31 +410,25 @@
     document.getElementById("modalStarBadge").textContent =
       "★ " + (ds.stars || "–");
 
-    // 価格・指標
     setText("detailLast", ds.last, "int");
     setText("detailAtr", ds.atr, "int");
 
-    // 数量
     setText("detailQtyRakuten", ds.qtyRakuten, "int");
     setText("detailQtyMatsui", ds.qtyMatsui, "int");
     setText("detailQtySbi", ds.qtySbi, "int");
 
-    // Entry / TP / SL
     setText("detailEntry", ds.entry, "priceAuto");
     setText("detailTp", ds.tp, "priceAuto");
     setText("detailSl", ds.sl, "priceAuto");
 
-    // 必要資金
     setText("detailCashRakuten", ds.cashRakuten, "yen");
     setText("detailCashMatsui", ds.cashMatsui, "yen");
     setText("detailCashSbi", ds.cashSbi, "yen");
 
-    // 想定PL
     setText("detailPlRakuten", ds.plRakuten, "yen");
     setText("detailPlMatsui", ds.plMatsui, "yen");
     setText("detailPlSbi", ds.plSbi, "yen");
 
-    // 想定損失
     setText("detailLossRakuten", ds.lossRakuten, "yen");
     setText("detailLossMatsui", ds.lossMatsui, "yen");
     setText("detailLossSbi", ds.lossSbi, "yen");
@@ -444,7 +440,6 @@
       }
     });
 
-    // 合計行は非表示
     ["detailQtyTotal", "detailPlTotal", "detailLossTotal"].forEach(function (id) {
       const el = document.getElementById(id);
       if (!el) return;
@@ -455,7 +450,6 @@
       el.textContent = "";
     });
 
-    // 理由（AI）
     const ulAi = document.getElementById("detailReasonsAi");
     if (ulAi) {
       ulAi.innerHTML = "";
@@ -471,7 +465,6 @@
       }
     }
 
-    // 理由（数量0など発注条件）
     const ulSizing = document.getElementById("detailReasonsSizing");
     if (ulSizing) {
       ulSizing.innerHTML = "";
@@ -490,13 +483,11 @@
       }
     }
 
-    // 懸念
     const concernEl = document.getElementById("detailConcern");
     if (concernEl) {
       concernEl.textContent = ds.concern || "";
     }
 
-    // ------------- チャート用データ（OHLC + 日付 + MA + VWAP + RSI） -------------
     const opens = parseNumberArray(ds.chartOpen || "");
     const highs = parseNumberArray(ds.chartHigh || "");
     const lows = parseNumberArray(ds.chartLow || "");
@@ -561,7 +552,6 @@
     }
   }
 
-  // 行クリックでモーダル表示
   table.querySelectorAll("tbody tr.pick-row").forEach(function (row) {
     row.addEventListener("click", function () {
       if (!this.dataset.code) return;
@@ -569,19 +559,16 @@
     });
   });
 
-  // モーダル外クリックで閉じる
   modal.addEventListener("click", function (e) {
     if (e.target === modal) {
       closeModal();
     }
   });
 
-  // 閉じるボタン
   if (closeBtn) {
     closeBtn.addEventListener("click", closeModal);
   }
 
-  // ESC キーで閉じる
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape" && modal.classList.contains("show")) {
       closeModal();
