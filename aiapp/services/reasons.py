@@ -80,88 +80,74 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
     # ---------------------------
     # 入力マッピング（features の列名 → 内部変数）
     # ---------------------------
-
-    # トレンド傾き: ema_slope → SLOPE_25 → SLOPE_5
     ema_slope: Optional[float] = _as_float(
         feat.get("ema_slope")
         or feat.get("SLOPE_25")
-        or feat.get("SLOPE_5")
+        or feat.get("SLOPE_20")
     )
 
-    # 相対強度（10日間の指数比。既に％換算されている想定）
     rel10: Optional[float] = _as_float(
         feat.get("rel_strength_10")
+        or feat.get("REL_STRENGTH_10")
     )
 
-    # RSI（features.py では RSI14）
+    # 直近1日の変動率（％）…イベント/材料っぽさの検出に使う
+    ret1_pct: Optional[float] = _as_float(
+        feat.get("ret1_pct")
+        or feat.get("RET1_PCT")
+    )
+
     rsi: Optional[float] = _as_float(
         feat.get("rsi14")
         or feat.get("RSI14")
     )
 
-    # 出来高倍率（Volume / MA25 前提）
     vol_ratio: Optional[float] = _as_float(
         feat.get("vol_ma_ratio")
+        or feat.get("vol_ma20_ratio")
+        or feat.get("VOL_MA20_RATIO")
     )
 
-    breakout_flag_raw = feat.get("breakout_flag", 0) or 0
+    breakout_flag_raw = feat.get("breakout_flag", 0) or feat.get("BREAKOUT_FLAG", 0) or 0
     try:
         breakout_flag: int = int(breakout_flag_raw)
     except Exception:
         breakout_flag = 0
 
-    # ATR（features.py は ATR14）
     atr: Optional[float] = _as_float(
         feat.get("atr14")
         or feat.get("ATR14")
     )
 
-    # VWAP 乖離（％）
     vwap_gap: Optional[float] = _as_float(
         feat.get("vwap_proximity")
         or feat.get("VWAP_GAP_PCT")
     )
 
-    # 終値
     last_price: Optional[float] = _as_float(
         feat.get("last_price")
         or feat.get("Close")
+        or feat.get("LAST")
     )
 
-    # vol_ratio が dict に無い場合は Volume / MA25 から計算
-    if vol_ratio is None:
-        vol = _as_float(feat.get("Volume"))
-        ma25 = _as_float(feat.get("MA25"))
-        if vol is not None and ma25 is not None and ma25 > 0:
-            vol_ratio = vol / ma25
-
     # ---------------------------
-    # 1) トレンドの向き（MA傾き）
+    # 1) トレンドの向き（EMA傾き）
     # ---------------------------
     if ema_slope is not None:
         if ema_slope > 0.8:
-            reasons.append(
-                "短期と中期の平均線がそろって力強い右肩上がりで、はっきりした上昇トレンドに乗りやすい形です。"
-            )
+            reasons.append("短期と中期の平均線がそろって力強い右肩上がりで、はっきりした上昇トレンドに乗りやすい形です。")
         elif ema_slope > 0.3:
-            reasons.append(
-                "平均線が素直な右肩上がりで、押し目を拾いながらトレンドに沿ったエントリーを狙いやすい状態です。"
-            )
+            reasons.append("平均線が素直な右肩上がりで、押し目を拾いながらトレンドに沿ったエントリーを狙いやすい状態です。")
         elif ema_slope > 0.05:
-            reasons.append(
-                "平均線が徐々に上向きに変化しており、本格的な上昇トレンドへの立ち上がりを拾いにいく形です。"
-            )
+            reasons.append("平均線が徐々に上向きに変化しており、本格的な上昇トレンドへの立ち上がりを拾いにいく形です。")
         elif ema_slope > -0.1:
-            reasons.append(
-                "大きな方向感は出ていませんが、下げ止まりからの持ち直しを狙える位置と判断しています。"
-            )
+            reasons.append("大きな方向感は出ていませんが、下げ止まりからの持ち直しを狙える位置と判断しています。")
         else:
-            reasons.append(
-                "中期ではまだ下向きのトレンドですが、直近で下げ止まりの兆しが出ているため、反発候補としてピックアップしています。"
-            )
+            # しっかり下向きだが、あえて拾うケース
+            reasons.append("中期ではまだ下向きのトレンドですが、直近で下げ止まりの兆しが出ているため、反発候補としてピックアップしています。")
 
     # ---------------------------
-    # 2) 相対強度（指数との比較）
+    # 2) 相対強度（指数との比較イメージ）
     # ---------------------------
     if rel10 is not None:
         r = rel10
@@ -192,47 +178,29 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
     if rsi is not None:
         val = _clamp(rsi, 0, 100) or rsi
         if val >= 75:
-            reasons.append(
-                f"RSI14が {val:.0f} とかなり強いゾーンにあり、短期的な勢いが乗っている局面です。"
-            )
+            reasons.append(f"RSI14が {val:.0f} とかなり強いゾーンにあり、短期的な勢いが乗っている局面です。")
         elif val >= 60:
-            reasons.append(
-                f"RSI14が {val:.0f} と買いが優勢な水準で、素直な上昇トレンドに乗りやすい状態です。"
-            )
+            reasons.append(f"RSI14が {val:.0f} と買いが優勢な水準で、素直な上昇トレンドに乗りやすい状態です。")
         elif val >= 45:
-            reasons.append(
-                f"RSI14が {val:.0f} 付近と、中立〜やや強めのバランスで落ち着いており、無理なくエントリーしやすい水準です。"
-            )
+            reasons.append(f"RSI14が {val:.0f} 付近と、中立〜やや強めのバランスで落ち着いており、無理なくエントリーしやすい水準です。")
         elif val >= 30:
-            reasons.append(
-                f"RSI14が {val:.0f} とやや売られ気味のゾーンにあり、反発を狙いやすい位置と見ています。"
-            )
+            reasons.append(f"RSI14が {val:.0f} とやや売られ気味のゾーンにあり、反発を狙いやすい位置と見ています。")
         else:
-            reasons.append(
-                f"RSI14が {val:.0f} と極端な売られすぎゾーンにあり、反発が入った際の戻り幅に期待できる局面です。"
-            )
+            reasons.append(f"RSI14が {val:.0f} と極端な売られすぎゾーンにあり、反発が入った際の戻り幅に期待できる局面です。")
 
     # ---------------------------
-    # 4) 出来高（資金の集まり具合） Volume＋MA25 起点
+    # 4) 出来高（資金の集まり具合）
     # ---------------------------
     if vol_ratio is not None and vol_ratio > 0:
         vr = vol_ratio
         if vr >= 3.0:
-            reasons.append(
-                f"出来高が最近の平均の {_fmt_x(vr)} と非常に多く、短期的に強い資金流入が確認できる銘柄です。"
-            )
+            reasons.append(f"出来高が最近の平均の {_fmt_x(vr)} と非常に多く、短期的に強い資金流入が確認できる銘柄です。")
         elif vr >= 1.5:
-            reasons.append(
-                f"出来高が25日平均の {_fmt_x(vr)} 程度と増えてきており、静かに買いが集まりつつある状況です。"
-            )
+            reasons.append(f"出来高がここ最近の平均の {_fmt_x(vr)} 程度と増えてきており、静かに買いが集まりつつある状況です。")
         elif vr >= 0.8:
-            reasons.append(
-                "出来高はおおむね平均並みで、過度な仕手化や極端な閑散感がなく、素直な値動きが期待しやすい環境です。"
-            )
+            reasons.append("出来高はおおむね平均並みで、過度な仕手化や極端な閑散感がなく、素直な値動きが期待しやすい環境です。")
         else:
-            reasons.append(
-                "出来高はやや控えめですが、その分、急な乱高下が出にくい落ち着いた値動きになっています。"
-            )
+            reasons.append("出来高はやや控えめですが、その分、急な乱高下が出にくい落ち着いた値動きになっています。")
 
     # ---------------------------
     # 5) ブレイク or 位置取り（VWAPとの関係）
@@ -261,7 +229,21 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
     # ---------------------------
     concerns: List[str] = []
 
-    # ATR の大きさ（値動きの荒さ）
+    # ① イベントっぽい大きな値動き（決算/材料の可能性）
+    if ret1_pct is not None:
+        ap = abs(ret1_pct)
+        if ap >= 8.0:
+            concerns.insert(
+                0,
+                f"前日比で約 {_fmt_pct(ret1_pct)} と非常に大きな値動きが出ており、決算や材料ニュースをきっかけにした乱高下が続く可能性があります。ロットと損切り位置には特に注意が必要です。"
+            )
+        elif ap >= 5.0:
+            concerns.insert(
+                0,
+                f"前日比で約 {_fmt_pct(ret1_pct)} のやや大きめの値動きが出ており、決算発表や材料性のあるニュースの影響で日中のボラティリティが高くなりやすい点には注意が必要です。"
+            )
+
+    # ② ATR の大きさ（値動きの荒さ）
     if atr is not None:
         if last_price and last_price > 0:
             atr_pct = (atr / last_price) * 100.0
@@ -279,24 +261,20 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
                     "値動きの幅（ATR）が比較的大きく、短期的な上下に振られやすい銘柄です。ロット管理と損切り位置には注意が必要です。"
                 )
 
-    # 相対強度がかなり弱い
+    # ③ 相対強度がかなり弱い
     if rel10 is not None and rel10 <= -5.0:
         concerns.append(
             f"直近10日間は市場平均よりもかなり弱い動き（約 {_fmt_pct(rel10)} 下回り）が続いており、反発まで時間がかかる可能性があります。"
         )
 
-    # RSI が極端
+    # ④ RSI が極端
     if rsi is not None:
         if rsi >= 80:
-            concerns.append(
-                "短期的にはかなり買われすぎのゾーンに入っており、いつ調整が入ってもおかしくない局面です。"
-            )
+            concerns.append("短期的にはかなり買われすぎのゾーンに入っており、いつ調整が入ってもおかしくない局面です。")
         elif rsi <= 20:
-            concerns.append(
-                "売られすぎの状態が長く続いており、さらに下を試す展開になった場合の割り切りも意識する必要があります。"
-            )
+            concerns.append("売られすぎの状態が長く続いており、さらに下を試す展開になった場合の割り切りも意識する必要があります。")
 
-    # VWAP からの乖離が大きい
+    # ⑤ VWAP からの乖離が大きい
     if vwap_gap is not None and abs(vwap_gap) >= 5.0:
         if vwap_gap > 0:
             concerns.append(
@@ -310,6 +288,7 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
     # 1つにまとめる
     concern_text: Optional[str] = None
     if concerns:
+        # 一番重要そうなものを 1つだけ採用
         concern_text = concerns[0]
 
     return reasons[:5], concern_text
