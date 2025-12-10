@@ -2,7 +2,7 @@
 // AI Picks 診断（picks_debug.html）用 JS
 // - フィルタ
 // - モーダル開閉
-// - lightweight-charts で本物ローソク足 + Entry/TP/SL + MA/VWAP + RSI
+// - lightweight-charts で本物ローソク足 + MA + VWAP + RSI + Entry/TP/SL
 
 (function () {
   const table = document.getElementById("picksTable");
@@ -13,11 +13,9 @@
   const closeBtn = document.getElementById("modalCloseBtn");
 
   const chartContainer = document.getElementById("detailChartContainer");
-  const rsiChartContainer = document.getElementById("detailRsiChartContainer");
   const chartEmptyLabel = document.getElementById("chartEmptyLabel");
 
   let lwChart = null;
-  let lwChartRsi = null;
   let resizeHandler = null;
 
   // ★ 現在開いている銘柄の価格表示モード
@@ -53,7 +51,6 @@
       const n = Number(value);
       txt = isNaN(n) ? "–" : n.toLocaleString();
     } else if (fmt === "price1") {
-      // 価格を小数第1位まで固定表示（使うならそのまま）
       const n = Number(value);
       if (isNaN(n)) {
         txt = "–";
@@ -64,15 +61,12 @@
         });
       }
     } else if (fmt === "priceAuto") {
-      // ★ 現在値のフォーマット（currentPriceMode）に合わせて
-      //    Entry / TP / SL を「整数」または「小数1桁」で表示
       const raw = String(value).trim();
       const n0 = Number(raw);
       if (isNaN(n0)) {
         txt = "–";
       } else {
         if (currentPriceMode === "decimal1") {
-          // 小数銘柄 → 小数1桁に丸めて表示
           const n = Math.round(n0 * 10) / 10;
           if (Number.isInteger(n)) {
             txt = n.toLocaleString();
@@ -83,7 +77,6 @@
             });
           }
         } else {
-          // 整数銘柄 → 整数に丸めて表示
           const n = Math.round(n0);
           txt = n.toLocaleString();
         }
@@ -93,7 +86,6 @@
       if (isNaN(n)) {
         txt = "–";
       } else {
-        // プラスでも "+" は付けない
         txt = n.toLocaleString();
       }
     }
@@ -107,13 +99,10 @@
     return isNaN(n) ? null : n;
   }
 
-  // 文字列 "1,2,3,None,4" → [1,2,3,null,4]
-  function parseSeriesWithNull(str) {
+  function parseNumberArray(str) {
     if (!str) return [];
-    return str.split(",").map(function (s) {
-      const t = s.trim();
-      if (!t || t.toLowerCase() === "none") return null;
-      const n = Number(t);
+    return str.split(",").map((s) => {
+      const n = Number(s.trim());
       return isNaN(n) ? null : n;
     });
   }
@@ -159,29 +148,13 @@
   // lightweight-charts 用：チャート更新
   // --------------------------------------
   // candles: [{time, open, high, low, close}, ...]
-  // closes: [number, ...] （candles が無いときのフォールバック）
-  // maShort / maMid / vwap: [number | null, ...]
-  // rsiValues: [number | null, ...] 0〜100
-  function updateChart(
-    candles,
-    closes,
-    entry,
-    tp,
-    sl,
-    maShort,
-    maMid,
-    vwap,
-    rsiValues,
-    datesForRsi
-  ) {
+  // closes : [number, ...]
+  // maShort / maMid / vwap / rsi : [number|null, ...]
+  function updateChart(candles, closes, entry, tp, sl, maShort, maMid, vwap, rsi) {
     // 既存チャート破棄
     if (lwChart) {
       lwChart.remove();
       lwChart = null;
-    }
-    if (lwChartRsi) {
-      lwChartRsi.remove();
-      lwChartRsi = null;
     }
     if (resizeHandler) {
       window.removeEventListener("resize", resizeHandler);
@@ -193,33 +166,22 @@
 
     if (!hasCandles && !hasCloses) {
       if (chartEmptyLabel) chartEmptyLabel.style.display = "flex";
-      if (rsiChartContainer) rsiChartContainer.style.display = "none";
       return;
     } else {
       if (chartEmptyLabel) chartEmptyLabel.style.display = "none";
-      if (rsiChartContainer) rsiChartContainer.style.display = "";
     }
 
-    // ▼ カードの内側に左右余白を強制的に確保 & はみ出し隠す
-    const INNER_PAD = 16; // px（左右とも）
+    const INNER_PAD = 16;
     chartContainer.style.paddingLeft = INNER_PAD + "px";
     chartContainer.style.paddingRight = INNER_PAD + "px";
     chartContainer.style.boxSizing = "border-box";
     chartContainer.style.overflow = "hidden";
 
-    if (rsiChartContainer) {
-      rsiChartContainer.style.paddingLeft = INNER_PAD + "px";
-      rsiChartContainer.style.paddingRight = INNER_PAD + "px";
-      rsiChartContainer.style.boxSizing = "border-box";
-      rsiChartContainer.style.overflow = "hidden";
-    }
-
-    // 内側の幅を取得（スクロール幅じゃなく clientWidth を使う）
     const containerInnerWidth =
       chartContainer.clientWidth || chartContainer.getBoundingClientRect().width || 0;
     let chartWidth = containerInnerWidth - INNER_PAD * 2;
     if (!isFinite(chartWidth) || chartWidth <= 0) {
-      chartWidth = 320; // 最低幅の保険
+      chartWidth = 320;
     }
 
     const rect = chartContainer.getBoundingClientRect();
@@ -243,6 +205,15 @@
         scaleMargins: {
           top: 0.15,
           bottom: 0.15,
+        },
+      },
+      leftPriceScale: {
+        visible: true, // RSI 用
+        borderVisible: false,
+        textColor: "#9ca3af",
+        scaleMargins: {
+          top: 0.1,
+          bottom: 0.1,
         },
       },
       timeScale: {
@@ -277,8 +248,8 @@
           precision: 0,
           minMove: 1,
         },
-        lastValueVisible: false, // 現在値ラベル非表示
-        priceLineVisible: false, // 現在値の横破線も非表示
+        lastValueVisible: false,
+        priceLineVisible: false,
       });
       candleSeries.setData(candles);
       baseTimeList = candles.map((c) => c.time);
@@ -291,8 +262,6 @@
           precision: 0,
           minMove: 1,
         },
-        lastValueVisible: false,
-        priceLineVisible: false,
       });
       const data = closes.map((v, i) => ({
         time: i + 1,
@@ -300,60 +269,6 @@
       }));
       line.setData(data);
       baseTimeList = data.map((d) => d.time);
-    }
-
-    function buildLineData(srcArr) {
-      if (!Array.isArray(srcArr) || !srcArr.length || !baseTimeList.length) return null;
-      const len = Math.min(srcArr.length, baseTimeList.length);
-      const out = [];
-      for (let i = 0; i < len; i++) {
-        const v = srcArr[i];
-        if (v === null || v === undefined || !isFinite(Number(v))) {
-          out.push({ time: baseTimeList[i], value: null });
-        } else {
-          out.push({ time: baseTimeList[i], value: Number(v) });
-        }
-      }
-      return out;
-    }
-
-    // --- MA・VWAP のライン ---
-    const maShortData = buildLineData(maShort);
-    const maMidData = buildLineData(maMid);
-    const vwapData = buildLineData(vwap);
-
-    if (maShortData) {
-      const maShortSeries = lwChart.addLineSeries({
-        color: "#f97316", // オレンジ
-        lineWidth: 2,
-        priceFormat: { type: "price", precision: 0, minMove: 1 },
-        lastValueVisible: false,
-        priceLineVisible: false,
-      });
-      maShortSeries.setData(maShortData);
-    }
-
-    if (maMidData) {
-      const maMidSeries = lwChart.addLineSeries({
-        color: "#3b82f6", // ブルー
-        lineWidth: 2,
-        priceFormat: { type: "price", precision: 0, minMove: 1 },
-        lastValueVisible: false,
-        priceLineVisible: false,
-      });
-      maMidSeries.setData(maMidData);
-    }
-
-    if (vwapData) {
-      const vwapSeries = lwChart.addLineSeries({
-        color: "#a855f7", // パープル
-        lineWidth: 2,
-        lineStyle: LW.LineStyle.Dotted,
-        priceFormat: { type: "price", precision: 0, minMove: 1 },
-        lastValueVisible: false,
-        priceLineVisible: false,
-      });
-      vwapSeries.setData(vwapData);
     }
 
     function addHLine(value, color) {
@@ -369,8 +284,6 @@
           precision: 0,
           minMove: 1,
         },
-        lastValueVisible: false,
-        priceLineVisible: false,
       });
       const data = baseTimeList.map((t) => ({
         time: t,
@@ -380,124 +293,62 @@
       return series;
     }
 
+    function addOverlayLine(list, color, priceScaleId) {
+      if (!Array.isArray(list) || list.length === 0) return null;
+      const series = lwChart.addLineSeries({
+        color: color,
+        lineWidth: 1.5,
+        priceScaleId: priceScaleId || "right",
+        priceFormat: {
+          type: "price",
+          precision: 0,
+          minMove: 1,
+        },
+        lastValueVisible: false,
+        priceLineVisible: false,
+      });
+      const data = [];
+      const n = Math.min(baseTimeList.length, list.length);
+      for (let i = 0; i < n; i++) {
+        const v = list[i];
+        if (v === null || v === undefined) continue;
+        const num = Number(v);
+        if (!isNaN(num)) {
+          data.push({ time: baseTimeList[i], value: num });
+        }
+      }
+      if (data.length === 0) return null;
+      series.setData(data);
+      return series;
+    }
+
     // Entry: 黄色, TP: 緑, SL: 赤
     addHLine(entry, "#eab308");
     addHLine(tp, "#22c55e");
     addHLine(sl, "#ef4444");
 
-    // 全体がカード内に収まるように自動フィット
+    // MA / VWAP（右スケール）
+    addOverlayLine(maShort, "#fbbf24", "right"); // 短期MA
+    addOverlayLine(maMid, "#e5e7eb", "right");   // 中期MA
+    addOverlayLine(vwap, "#38bdf8", "right");    // VWAP
+
+    // RSI（左スケール 0〜100）
+    addOverlayLine(rsi, "#a855f7", "left");
+
     lwChart.timeScale().fitContent();
 
-    // --- RSI チャート（下段） ---
-    if (rsiChartContainer) {
-      const hasRsi = Array.isArray(rsiValues) && rsiValues.length > 0;
-      if (!hasRsi) {
-        rsiChartContainer.style.display = "none";
-      } else {
-        rsiChartContainer.style.display = "";
-
-        const rsiRect = rsiChartContainer.getBoundingClientRect();
-        const rsiWidth = chartWidth;
-        const rsiHeight = rsiRect.height || 80;
-
-        lwChartRsi = LW.createChart(rsiChartContainer, {
-          width: rsiWidth,
-          height: rsiHeight,
-          layout: {
-            background: { type: "solid", color: "rgba(15,23,42,0)" },
-            textColor: "#e5edff",
-          },
-          grid: {
-            vertLines: { color: "rgba(148,163,184,0.16)" },
-            horzLines: { color: "rgba(148,163,184,0.24)" },
-          },
-          rightPriceScale: {
-            visible: true,
-            borderVisible: false,
-            textColor: "#e5edff",
-            scaleMargins: { top: 0.1, bottom: 0.1 },
-          },
-          timeScale: {
-            borderVisible: false,
-            rightOffset: 2,
-            barSpacing: 7,
-          },
-          crosshair: {
-            mode: LW.CrosshairMode.Normal,
-          },
-        });
-
-        const rsiTimes = baseTimeList.length
-          ? baseTimeList
-          : Array.from({ length: rsiValues.length }, (_, i) => i + 1);
-
-        const lenRsi = Math.min(rsiValues.length, rsiTimes.length);
-        const rsiData = [];
-        for (let i = 0; i < lenRsi; i++) {
-          const v = rsiValues[i];
-          const n = v === null || v === undefined ? NaN : Number(v);
-          rsiData.push({
-            time: rsiTimes[i],
-            value: isNaN(n) ? null : n,
-          });
-        }
-
-        const rsiSeries = lwChartRsi.addLineSeries({
-          color: "#22c55e",
-          lineWidth: 2,
-          priceFormat: {
-            type: "price",
-            precision: 0,
-            minMove: 1,
-          },
-          lastValueVisible: false,
-          priceLineVisible: false,
-        });
-        rsiSeries.setData(rsiData);
-
-        // 30/70 ライン
-        function addRsiHLine(v, color) {
-          const series = lwChartRsi.addLineSeries({
-            color: color,
-            lineWidth: 1,
-            lineStyle: LW.LineStyle.Dotted,
-            priceFormat: { type: "price", precision: 0, minMove: 1 },
-            lastValueVisible: false,
-            priceLineVisible: false,
-          });
-          const data = rsiTimes.map((t) => ({ time: t, value: v }));
-          series.setData(data);
-        }
-        addRsiHLine(30, "rgba(239,68,68,0.5)");
-        addRsiHLine(70, "rgba(34,197,94,0.5)");
-
-        lwChartRsi.timeScale().fitContent();
-      }
-    }
-
-    // リサイズ対応（余白維持）
     resizeHandler = function () {
       if (!lwChart) return;
       const innerWidth =
         chartContainer.clientWidth || chartContainer.getBoundingClientRect().width || 0;
       let w = innerWidth - INNER_PAD * 2;
       if (!isFinite(w) || w <= 0) w = 320;
-
-      const r1 = chartContainer.getBoundingClientRect();
-      const h1 = r1.height || 260;
+      const r = chartContainer.getBoundingClientRect();
+      const h = r.height || 260;
       lwChart.applyOptions({
         width: w,
-        height: h1,
+        height: h,
       });
-
-      if (lwChartRsi && rsiChartContainer) {
-        const r2 = rsiChartContainer.getBoundingClientRect();
-        const h2 = r2.height || 80;
-        lwChartRsi.applyOptions({
-          width: w,
-          height: h2,
-        });
-      }
     };
     window.addEventListener("resize", resizeHandler, { passive: true });
   }
@@ -508,17 +359,16 @@
   function openModal(row) {
     const ds = row.dataset || {};
 
-    // ★ まず現在値の文字列から「整数/小数1桁」を判定して currentPriceMode を更新
+    // ★ まず現在値の文字列から「整数/小数1桁」を判定
     (function decidePriceMode() {
       const raw = (ds.last || "").toString().trim();
       let mode = "int";
       if (raw) {
         const dot = raw.indexOf(".");
         if (dot >= 0) {
-          // 小数点以下の「0を除いた桁数」を見る
           const decimals = raw
             .slice(dot + 1)
-            .replace(/0+$/, "") // 末尾の 0 は無視
+            .replace(/0+$/, "")
             .length;
           if (decimals >= 1) {
             mode = "decimal1";
@@ -547,7 +397,7 @@
     setText("detailQtyMatsui", ds.qtyMatsui, "int");
     setText("detailQtySbi", ds.qtySbi, "int");
 
-    // Entry / TP / SL → currentPriceMode に合わせて表示
+    // Entry / TP / SL
     setText("detailEntry", ds.entry, "priceAuto");
     setText("detailTp", ds.tp, "priceAuto");
     setText("detailSl", ds.sl, "priceAuto");
@@ -562,7 +412,7 @@
     setText("detailPlMatsui", ds.plMatsui, "yen");
     setText("detailPlSbi", ds.plSbi, "yen");
 
-    // 想定損失（文字色は赤）
+    // 想定損失
     setText("detailLossRakuten", ds.lossRakuten, "yen");
     setText("detailLossMatsui", ds.lossMatsui, "yen");
     setText("detailLossSbi", ds.lossSbi, "yen");
@@ -574,7 +424,7 @@
       }
     });
 
-    // 数量・想定利益・想定損失の「合計」行は非表示
+    // 合計行は非表示
     ["detailQtyTotal", "detailPlTotal", "detailLossTotal"].forEach(function (id) {
       const el = document.getElementById(id);
       if (!el) return;
@@ -626,38 +476,20 @@
       concernEl.textContent = ds.concern || "";
     }
 
-    // ------------- チャート用データ（OHLC + 日付 + MA/VWAP/RSI） -------------
-    const openStr = ds.chartOpen || "";
-    const highStr = ds.chartHigh || "";
-    const lowStr = ds.chartLow || "";
-    const closeStr = ds.chartClose || "";
-    const datesStr = ds.chartDates || "";
+    // ------------- チャート用データ（OHLC + 日付 + MA + VWAP + RSI） -------------
+    const opens = parseNumberArray(ds.chartOpen || "");
+    const highs = parseNumberArray(ds.chartHigh || "");
+    const lows = parseNumberArray(ds.chartLow || "");
+    const closes = parseNumberArray(ds.chartClose || "");
+    const dates = (ds.chartDates || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
 
-    const maShortStr = ds.chartMaShort || "";
-    const maMidStr = ds.chartMaMid || "";
-    const vwapStr = ds.chartVwap || "";
-    const rsiStr = ds.chartRsi || "";
-
-    const opens = openStr
-      ? openStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
-      : [];
-    const highs = highStr
-      ? highStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
-      : [];
-    const lows = lowStr
-      ? lowStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
-      : [];
-    const closes = closeStr
-      ? closeStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
-      : [];
-    const dates = datesStr
-      ? datesStr.split(",").map((s) => s.trim()).filter((s) => s.length > 0)
-      : [];
-
-    const maShortArr = parseSeriesWithNull(maShortStr);
-    const maMidArr = parseSeriesWithNull(maMidStr);
-    const vwapArr = parseSeriesWithNull(vwapStr);
-    const rsiArr = parseSeriesWithNull(rsiStr);
+    const maShort = parseNumberArray(ds.chartMaShort || "");
+    const maMid = parseNumberArray(ds.chartMaMid || "");
+    const vwap = parseNumberArray(ds.chartVwap || "");
+    const rsi = parseNumberArray(ds.chartRsi || "");
 
     let candles = [];
     const len = Math.min(opens.length, highs.length, lows.length, closes.length);
@@ -689,18 +521,7 @@
     const tp = toNumberOrNull(ds.tp);
     const sl = toNumberOrNull(ds.sl);
 
-    updateChart(
-      candles,
-      closes,
-      entry,
-      tp,
-      sl,
-      maShortArr,
-      maMidArr,
-      vwapArr,
-      rsiArr,
-      dates
-    );
+    updateChart(candles, closes, entry, tp, sl, maShort, maMid, vwap, rsi);
 
     modal.classList.add("show");
     body.classList.add("modal-open");
@@ -713,10 +534,6 @@
     if (lwChart) {
       lwChart.remove();
       lwChart = null;
-    }
-    if (lwChartRsi) {
-      lwChartRsi.remove();
-      lwChartRsi = null;
     }
     if (resizeHandler) {
       window.removeEventListener("resize", resizeHandler);
