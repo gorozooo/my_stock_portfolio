@@ -47,7 +47,7 @@ class BenchmarkDef:
 BENCHMARK_DEFS: List[BenchmarkDef] = [
     # 日本株
     BenchmarkDef("NK225", "日経平均", "INDEX_JP", "^N225", 10),
-    BenchmarkDef("TOPIX", "TOPIX", "INDEX_JP", "^TOPX", 20),
+    BenchmarkDef("TOPIX", "TOPIX（ETF 1306.T）", "INDEX_JP", "1306.T", 20),
     # 米国株
     BenchmarkDef("SPX", "S&P500", "INDEX_US", "^GSPC", 30),
     BenchmarkDef("NDX", "NASDAQ100", "INDEX_US", "^NDX", 40),
