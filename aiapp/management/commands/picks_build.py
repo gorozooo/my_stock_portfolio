@@ -178,6 +178,27 @@ def _safe_series(x) -> pd.Series:
     except Exception:
         return pd.Series(dtype="float64")
 
+def _series_tail_to_list(s, max_points: int = 60) -> Optional[List[Optional[float]]]:
+    """
+    pd.Series などから末尾 max_points 本だけ取り出して
+    JSON 化しやすい Python の list[float | None] に変換する。
+    NaN / inf は None にする。
+    """
+    ser = _safe_series(s)
+    if ser.empty:
+        return None
+    ser = ser.tail(max_points)
+    out: List[Optional[float]] = []
+    for v in ser:
+        try:
+            f = float(v)
+        except Exception:
+            f = float("nan")
+        if not np.isfinite(f):
+            out.append(None)
+        else:
+            out.append(f)
+    return out if out else None
 
 def _safe_float(x) -> float:
     """
@@ -457,6 +478,12 @@ class PickItem:
     chart_closes: Optional[List[float]] = None  # 終値のみ（ライン用）
     chart_dates: Optional[List[str]] = None     # X軸用日付（YYYY-MM-DD）
 
+    # テクニカル系オーバーレイ
+    chart_ma_short: Optional[List[Optional[float]]] = None  # 例: MA5
+    chart_ma_mid: Optional[List[Optional[float]]] = None    # 例: MA25
+    chart_vwap: Optional[List[Optional[float]]] = None      # VWAP
+    chart_rsi: Optional[List[Optional[float]]] = None       # RSI14
+
     last_close: Optional[float] = None
     atr: Optional[float] = None
 
@@ -521,21 +548,34 @@ def _work_one(
             return None
 
         # チャート用 OHLC（ローソク足＋終値ライン＋日付）
+        max_points = 60
         chart_open, chart_high, chart_low, chart_closes, chart_dates = _extract_chart_ohlc(
-            raw, max_points=60
+            raw, max_points=max_points
         )
 
-        feat = make_features(raw, cfg=FeatureConfig())
+        # 特徴量（MA / RSI / VWAP 等）
+        cfg = FeatureConfig()
+        feat = make_features(raw, cfg=cfg)
         if feat is None or len(feat) == 0:
             if BUILD_LOG:
                 print(f"[picks_build] {code}: empty features")
             return None
 
         close_s = _safe_series(feat.get("Close"))
-        atr_s = _safe_series(feat.get("ATR14") if "ATR14" in feat else feat.get("ATR", None))
+        atr_s = _safe_series(feat.get(f"ATR{cfg.atr_period}") if f"ATR{cfg.atr_period}" in feat else None)
 
         last = _safe_float(close_s.iloc[-1] if len(close_s) else np.nan)
         atr = _safe_float(atr_s.iloc[-1] if len(atr_s) else np.nan)
+
+        # --- チャート用オーバーレイ（MA / RSI / VWAP） ---
+        ma_short_col = f"MA{cfg.ma_short}"
+        ma_mid_col = f"MA{cfg.ma_mid}"
+        rsi_col = f"RSI{cfg.rsi_period}"
+
+        chart_ma_short = _series_tail_to_list(feat.get(ma_short_col), max_points=max_points)
+        chart_ma_mid = _series_tail_to_list(feat.get(ma_mid_col), max_points=max_points)
+        chart_vwap = _series_tail_to_list(feat.get("VWAP"), max_points=max_points)
+        chart_rsi = _series_tail_to_list(feat.get(rsi_col), max_points=max_points)
 
         # --- 仕手株・流動性などのフィルタリング層 ---
         if picks_check_all is not None and FilterContext is not None:
@@ -622,6 +662,10 @@ def _work_one(
             chart_low=chart_low,
             chart_closes=chart_closes,
             chart_dates=chart_dates,
+            chart_ma_short=chart_ma_short,
+            chart_ma_mid=chart_ma_mid,
+            chart_vwap=chart_vwap,
+            chart_rsi=chart_rsi,
         )
 
         # --- Sizing（数量・必要資金・想定PL/損失 + 見送り理由） ---
