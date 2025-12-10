@@ -305,7 +305,7 @@ def _extract_chart_ohlc(
         for c in candidates:
             if c in df.columns:
                 return c
-            return None
+        return None
 
     col_o = col_name(["Open", "open", "OPEN"])
     col_h = col_name(["High", "high", "HIGH"])
@@ -810,8 +810,16 @@ class Command(BaseCommand):
                 if BUILD_LOG:
                     print(f"[picks_build] macro regime load error: {ex}")
 
+        # 空ユニバースのとき
         if not codes:
             print("[picks_build] universe empty → 空JSON出力")
+
+            regime_date_str = None
+            if macro_regime is not None:
+                d = getattr(macro_regime, "date", None)
+                if d is not None:
+                    regime_date_str = d.isoformat()
+
             self._emit(
                 [],
                 [],
@@ -823,7 +831,7 @@ class Command(BaseCommand):
                 meta_extra={
                     "stockmaster_total": stockmaster_total,
                     "filter_stats": {},
-                    "regime_date": getattr(macro_regime, "date", None) if macro_regime else None,
+                    "regime_date": regime_date_str,
                     "regime_label": getattr(macro_regime, "regime_label", None) if macro_regime else None,
                     "regime_summary": getattr(macro_regime, "summary", None) if macro_regime else None,
                 },
@@ -892,8 +900,11 @@ class Command(BaseCommand):
         # 追加メタ（総StockMaster件数 & フィルタ別削除件数 & レジーム情報）
         meta_extra["stockmaster_total"] = stockmaster_total
         meta_extra["filter_stats"] = filter_stats
+
         if macro_regime is not None:
-            meta_extra["regime_date"] = getattr(macro_regime, "date", None)
+            d = getattr(macro_regime, "date", None)
+            regime_date_str = d.isoformat() if d is not None else None
+            meta_extra["regime_date"] = regime_date_str
             meta_extra["regime_label"] = getattr(macro_regime, "regime_label", None)
             meta_extra["regime_summary"] = getattr(macro_regime, "summary", None)
 
