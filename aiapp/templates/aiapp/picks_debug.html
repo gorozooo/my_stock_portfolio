@@ -117,7 +117,7 @@
               data-chart-close="{% if it.chart_closes %}{{ it.chart_closes|join:',' }}{% endif %}"
               data-chart-dates="{% if it.chart_dates %}{{ it.chart_dates|join:',' }}{% endif %}"
 
-              {# MA / VWAP / RSI （picks_build から出てくる配列） #}
+              {# MA / VWAP / RSI （CSV） #}
               data-chart-ma-short="{% if it.chart_ma_short %}{{ it.chart_ma_short|join:',' }}{% endif %}"
               data-chart-ma-mid="{% if it.chart_ma_mid %}{{ it.chart_ma_mid|join:',' }}{% endif %}"
               data-chart-vwap="{% if it.chart_vwap %}{{ it.chart_vwap|join:',' }}{% endif %}"
@@ -173,7 +173,7 @@
       </div>
     </div>
 
-    <!-- チャートカード（ローソク足 + MA + VWAP + RSI） -->
+    <!-- チャートカード（ローソク + MA + VWAP + RSI + Entry/TP/SL） -->
     <div class="detail-card chart-card">
       <div class="detail-card-title">日足チャート（終値・MA・VWAP・RSI）</div>
       <div class="chart-inner">
@@ -183,10 +183,10 @@
         </div>
       </div>
       <div class="chart-legend">
+        <span class="legend-line legend-close">終値</span>
         <span class="legend-line legend-entry">Entry</span>
         <span class="legend-line legend-tp">TP</span>
         <span class="legend-line legend-sl">SL</span>
-        {# MA / VWAP / RSI 用の色ラベルは CSS で調整してもOK #}
       </div>
     </div>
 
@@ -197,9 +197,7 @@
       <div class="detail-card">
         <div class="detail-card-title">現在値</div>
         <div class="detail-main-value" id="detailLast">–</div>
-        <div class="detail-main-sub">
-          ATR <span id="detailAtr">–</span>
-        </div>
+        <div class="detail-main-sub">ATR <span id="detailAtr">–</span></div>
       </div>
 
       <!-- 数量 -->
@@ -320,5 +318,5 @@
 </div>
 
 <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js" defer></script>
-<script src="{% static 'aiapp/js/picks_debug.js' %}?v=28" defer></script>
+<script src="{% static 'aiapp/js/picks_debug.js' %}?v=29" defer></script>
 {% endblock %}
