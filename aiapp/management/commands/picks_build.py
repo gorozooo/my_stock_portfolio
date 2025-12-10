@@ -211,6 +211,16 @@ def _build_reasons_features(feat: pd.DataFrame, last: float, atr: float) -> Dict
     """
     reasons.make_reasons 用に、features DataFrame から必要な指標だけ抜き出して
     名前を合わせた dict を組み立てる。
+
+    features.py 側の主な利用列:
+      - SLOPE_5, SLOPE_25
+      - RET_20
+      - RSI14
+      - Volume, MA25
+      - GCROSS
+      - VWAP_GAP_PCT
+      - ATR14
+      - Close
     """
     if feat is None or len(feat) == 0:
         return {}
@@ -232,34 +242,42 @@ def _build_reasons_features(feat: pd.DataFrame, last: float, atr: float) -> Dict
             return None
         return f
 
-    ema_slope = g("SLOPE_20")
-    # 相対強度は「20日リターン」を簡易的に％換算して使う
+    # トレンド傾き: まず SLOPE_25、無ければ SLOPE_5
+    ema_slope = g("SLOPE_25")
+    if ema_slope is None:
+        ema_slope = g("SLOPE_5")
+
+    # 相対強度は「20日リターン」を％換算して利用
     rel_strength_10 = None
     r20 = g("RET_20")
     if r20 is not None:
         rel_strength_10 = r20 * 100.0  # 例: 0.12 → 12%
 
+    # RSI14
     rsi14 = g("RSI14")
 
+    # 出来高倍率: Volume / MA25
     vol = g("Volume")
-    ma20 = g("MA20")
-    vol_ma20_ratio = None
-    if vol is not None and ma20 is not None and ma20 > 0:
-        # 仕様上は「出来高 / 20日平均出来高」を想定しているが、
-        # 現状 MA20 は価格ベースなので「目安」として扱う。
-        vol_ma20_ratio = vol / ma20
+    ma25 = g("MA25")
+    vol_ma_ratio = None
+    if vol is not None and ma25 is not None and ma25 > 0:
+        vol_ma_ratio = vol / ma25
 
+    # ブレイクフラグ: 直近GCROSSが立っていれば 1
     breakout_flag = 0
     gcross = g("GCROSS")
     if gcross is not None and gcross > 0:
         breakout_flag = 1
 
+    # VWAP 乖離（％）
     vwap_proximity = g("VWAP_GAP_PCT")
 
+    # 終値
     last_price = None
     if np.isfinite(last):
         last_price = float(last)
 
+    # ATR14
     atr14 = None
     if np.isfinite(atr):
         atr14 = float(atr)
@@ -268,7 +286,7 @@ def _build_reasons_features(feat: pd.DataFrame, last: float, atr: float) -> Dict
         "ema_slope": ema_slope,
         "rel_strength_10": rel_strength_10,
         "rsi14": rsi14,
-        "vol_ma20_ratio": vol_ma20_ratio,
+        "vol_ma_ratio": vol_ma_ratio,
         "breakout_flag": breakout_flag,
         "atr14": atr14,
         "vwap_proximity": vwap_proximity,
