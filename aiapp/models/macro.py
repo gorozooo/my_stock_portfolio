@@ -130,7 +130,7 @@ class MacroRegimeSnapshot(models.Model):
       - regime_label:    "RISK_ON" / "RISK_OFF" / "NEUTRAL"
 
     数値スコア（*_score）は -1.0〜+1.0 程度を想定。
-    ロジックは management command 側で実装し、
+    ロジックは services（macro_regime.py）側で実装し、
     ここでは結果だけを保存する。
     """
 
@@ -198,6 +198,13 @@ class MacroRegimeSnapshot(models.Model):
         max_length=16,
         blank=True,
         help_text="総合レジームのラベル（RISK_ON / RISK_OFF / NEUTRAL 等）",
+    )
+
+    # --- テロップ用サマリ（1行テキスト） ---
+    summary = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="画面上部テロップなどで使う一行サマリ（任意）",
     )
 
     # --- 詳細情報（デバッグ / 可視化用） ---
