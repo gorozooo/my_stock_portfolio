@@ -117,6 +117,12 @@
               data-chart-close="{% if it.chart_closes %}{{ it.chart_closes|join:',' }}{% endif %}"
               data-chart-dates="{% if it.chart_dates %}{{ it.chart_dates|join:',' }}{% endif %}"
 
+              {# MA / VWAP / RSI 用（CSV, None は "None" になるので JS 側で null にする） #}
+              data-chart-ma-short="{% if it.chart_ma_short %}{{ it.chart_ma_short|join:',' }}{% endif %}"
+              data-chart-ma-mid="{% if it.chart_ma_mid %}{{ it.chart_ma_mid|join:',' }}{% endif %}"
+              data-chart-vwap="{% if it.chart_vwap %}{{ it.chart_vwap|join:',' }}{% endif %}"
+              data-chart-rsi="{% if it.chart_rsi %}{{ it.chart_rsi|join:',' }}{% endif %}"
+
               data-concern="{{ it.reason_concern|default:'' }}"
           >
             <td class="code">{{ it.code }}</td>
@@ -169,18 +175,23 @@
 
     <!-- チャートカード（本物ローソク足 + 価格目盛り） -->
     <div class="detail-card chart-card">
-      <div class="detail-card-title">日足チャート（終値・概略）</div>
+      <div class="detail-card-title">日足チャート（終値・MA・VWAP・RSI）</div>
       <div class="chart-inner">
-        <div id="detailChartContainer" class="chart-container"></div>
+        <div id="detailChartContainer" class="chart-container" style="height:220px;"></div>
+        <div id="detailRsiChartContainer" class="chart-container" style="height:80px;margin-top:12px;"></div>
         <div id="chartEmptyLabel" class="chart-empty-label">
           チャート用データが不足しています
         </div>
       </div>
       <div class="chart-legend">
         <span class="legend-line legend-close">終値</span>
+        <span class="legend-line legend-ma-short">短期MA</span>
+        <span class="legend-line legend-ma-mid">中期MA</span>
+        <span class="legend-line legend-vwap">VWAP</span>
         <span class="legend-line legend-entry">Entry</span>
         <span class="legend-line legend-tp">TP</span>
         <span class="legend-line legend-sl">SL</span>
+        <span class="legend-line legend-rsi">RSI（下段）</span>
       </div>
     </div>
 
@@ -312,5 +323,5 @@
 </div>
 
 <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js" defer></script>
-<script src="{% static 'aiapp/js/picks_debug.js' %}?v=24" defer></script>
+<script src="{% static 'aiapp/js/picks_debug.js' %}?v=25" defer></script>
 {% endblock %}
