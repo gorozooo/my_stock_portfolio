@@ -8,14 +8,14 @@ aiapp.services.reasons
 make_reasons(feat: dict) -> (reasons: list[str], concern: str | None)
 
 feat には少なくとも以下の key が入っている想定（どれか欠けてもOK）:
-  - SLOPE_20 / ema_slope      : トレンドの傾き
-  - REL_STRENGTH_10           : 10日間の相対強度（あれば）
-  - RSI14 / rsi14             : RSI14
-  - VOL_MA20_RATIO            : 出来高 / 20日平均出来高（無ければ Volume＋MA20 から算出）
-  - BREAKOUT_FLAG / breakout_flag : ブレイクしていれば 1
-  - ATR14 / atr14             : ATR14
-  - VWAP_GAP_PCT / vwap_proximity : VWAP からの乖離率（％）
-  - Close / last_price        : 終値（ATRの大きさ判断に利用）
+  - ema_slope / SLOPE_25 / SLOPE_20 : トレンドの傾き
+  - rel_strength_10                  : 10日間の相対強度（％換算）
+  - rsi14 / RSI14                    : RSI14
+  - vol_ma20_ratio                   : 出来高 / 20日平均出来高（無ければ Volume＋MA25 等から算出）
+  - breakout_flag / BREAKOUT_FLAG    : ブレイクしていれば 1
+  - atr14 / ATR14                    : ATR14
+  - vwap_proximity / VWAP_GAP_PCT    : VWAP からの乖離率（％）
+  - last_price / Close / LAST        : 終値（ATRの大きさ判断に利用）
 """
 
 from __future__ import annotations
@@ -71,70 +71,99 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
     # ---------------------------
     # 入力マッピング（features の列名 → 内部変数）
     # ---------------------------
+    # トレンド傾き: ema_slope → SLOPE_25 → SLOPE_20 → SLOPE_5 の順で拾う
     ema_slope: Optional[float] = _as_float(
         feat.get("ema_slope")
+        or feat.get("SLOPE_25")
         or feat.get("SLOPE_20")
+        or feat.get("SLOPE_5")
     )
 
+    # 相対強度（10日リターン％換算が入ってくる想定）
     rel10: Optional[float] = _as_float(
         feat.get("rel_strength_10")
         or feat.get("REL_STRENGTH_10")
     )
 
+    # RSI（features.py では RSI14 列）
     rsi: Optional[float] = _as_float(
         feat.get("rsi14")
         or feat.get("RSI14")
     )
 
+    # 出来高倍率
     vol_ratio: Optional[float] = _as_float(
         feat.get("vol_ma20_ratio")
         or feat.get("VOL_MA20_RATIO")
+        or feat.get("VOL_MA25_RATIO")
     )
 
-    breakout_flag_raw = feat.get("breakout_flag", 0) or feat.get("BREAKOUT_FLAG", 0) or 0
+    # ブレイクフラグ
+    breakout_flag_raw = (
+        feat.get("breakout_flag", 0)
+        or feat.get("BREAKOUT_FLAG", 0)
+        or 0
+    )
     try:
         breakout_flag: int = int(breakout_flag_raw)
     except Exception:
         breakout_flag = 0
 
+    # ATR（features.py は ATR14 列）
     atr: Optional[float] = _as_float(
         feat.get("atr14")
         or feat.get("ATR14")
     )
 
+    # VWAP 乖離（％）
     vwap_gap: Optional[float] = _as_float(
         feat.get("vwap_proximity")
         or feat.get("VWAP_GAP_PCT")
     )
 
+    # 終値
     last_price: Optional[float] = _as_float(
         feat.get("last_price")
         or feat.get("Close")
         or feat.get("LAST")
     )
 
-    # 出来高倍率が無い場合は Volume / MA20 から算出
+    # 出来高倍率が無い場合は Volume / MAxx から算出
     if vol_ratio is None:
         vol = _as_float(feat.get("Volume"))
-        ma20 = _as_float(feat.get("MA20"))
-        if vol is not None and ma20 is not None and ma20 > 0:
-            vol_ratio = vol / ma20
+        ma = (
+            _as_float(feat.get("MA20"))  # 互換用（古いfeatures）
+            or _as_float(feat.get("MA25"))
+            or _as_float(feat.get("MA100"))
+        )
+        if vol is not None and ma is not None and ma > 0:
+            vol_ratio = vol / ma
 
     # ---------------------------
-    # 1) トレンドの向き（EMA傾き）
+    # 1) トレンドの向き（MA傾き）
     # ---------------------------
     if ema_slope is not None:
         if ema_slope > 0.8:
-            reasons.append("短期と中期の平均線がそろって力強い右肩上がりで、はっきりした上昇トレンドに乗りやすい形です。")
+            reasons.append(
+                "短期と中期の平均線がそろって力強い右肩上がりで、はっきりした上昇トレンドに乗りやすい形です。"
+            )
         elif ema_slope > 0.3:
-            reasons.append("平均線が素直な右肩上がりで、押し目を拾いながらトレンドに沿ったエントリーを狙いやすい状態です。")
+            reasons.append(
+                "平均線が素直な右肩上がりで、押し目を拾いながらトレンドに沿ったエントリーを狙いやすい状態です。"
+            )
         elif ema_slope > 0.05:
-            reasons.append("平均線が徐々に上向きに変化しており、本格的な上昇トレンドへの立ち上がりを拾いにいく形です。")
+            reasons.append(
+                "平均線が徐々に上向きに変化しており、本格的な上昇トレンドへの立ち上がりを拾いにいく形です。"
+            )
         elif ema_slope > -0.1:
-            reasons.append("大きな方向感は出ていませんが、下げ止まりからの持ち直しを狙える位置と判断しています。")
+            reasons.append(
+                "大きな方向感は出ていませんが、下げ止まりからの持ち直しを狙える位置と判断しています。"
+            )
         else:
             # しっかり下向きだが、あえて拾うケース
-            reasons.append("中期ではまだ下向きのトレンドですが、直近で下げ止まりの兆しが出ているため、反発候補としてピックアップしています。")
+            reasons.append(
+                "中期ではまだ下向きのトレンドですが、直近で下げ止まりの兆しが出ているため、反発候補としてピックアップしています。"
+            )
 
     # ---------------------------
     # 2) 相対強度（指数との比較）
@@ -168,29 +197,47 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
     if rsi is not None:
         val = _clamp(rsi, 0, 100) or rsi
         if val >= 75:
-            reasons.append(f"RSI14が {val:.0f} とかなり強いゾーンにあり、短期的な勢いが乗っている局面です。")
+            reasons.append(
+                f"RSI14が {val:.0f} とかなり強いゾーンにあり、短期的な勢いが乗っている局面です。"
+            )
         elif val >= 60:
-            reasons.append(f"RSI14が {val:.0f} と買いが優勢な水準で、素直な上昇トレンドに乗りやすい状態です。")
+            reasons.append(
+                f"RSI14が {val:.0f} と買いが優勢な水準で、素直な上昇トレンドに乗りやすい状態です。"
+            )
         elif val >= 45:
-            reasons.append(f"RSI14が {val:.0f} 付近と、中立〜やや強めのバランスで落ち着いており、無理なくエントリーしやすい水準です。")
+            reasons.append(
+                f"RSI14が {val:.0f} 付近と、中立〜やや強めのバランスで落ち着いており、無理なくエントリーしやすい水準です。"
+            )
         elif val >= 30:
-            reasons.append(f"RSI14が {val:.0f} とやや売られ気味のゾーンにあり、反発を狙いやすい位置と見ています。")
+            reasons.append(
+                f"RSI14が {val:.0f} とやや売られ気味のゾーンにあり、反発を狙いやすい位置と見ています。"
+            )
         else:
-            reasons.append(f"RSI14が {val:.0f} と極端な売られすぎゾーンにあり、反発が入った際の戻り幅に期待できる局面です。")
+            reasons.append(
+                f"RSI14が {val:.0f} と極端な売られすぎゾーンにあり、反発が入った際の戻り幅に期待できる局面です。"
+            )
 
     # ---------------------------
-    # 4) 出来高（資金の集まり具合） Volume＋MA20 起点
+    # 4) 出来高（資金の集まり具合） Volume＋MA 起点
     # ---------------------------
     if vol_ratio is not None and vol_ratio > 0:
         vr = vol_ratio
         if vr >= 3.0:
-            reasons.append(f"出来高が最近の平均の {_fmt_x(vr)} と非常に多く、短期的に強い資金流入が確認できる銘柄です。")
+            reasons.append(
+                f"出来高が最近の平均の {_fmt_x(vr)} と非常に多く、短期的に強い資金流入が確認できる銘柄です。"
+            )
         elif vr >= 1.5:
-            reasons.append(f"出来高が20日平均の {_fmt_x(vr)} 程度と増えてきており、静かに買いが集まりつつある状況です。")
+            reasons.append(
+                f"出来高が20日前後の平均の {_fmt_x(vr)} 程度と増えてきており、静かに買いが集まりつつある状況です。"
+            )
         elif vr >= 0.8:
-            reasons.append("出来高はおおむね平均並みで、過度な仕手化や極端な閑散感がなく、素直な値動きが期待しやすい環境です。")
+            reasons.append(
+                "出来高はおおむね平均並みで、過度な仕手化や極端な閑散感がなく、素直な値動きが期待しやすい環境です。"
+            )
         else:
-            reasons.append("出来高はやや控えめですが、その分、急な乱高下が出にくい落ち着いた値動きになっています。")
+            reasons.append(
+                "出来高はやや控えめですが、その分、急な乱高下が出にくい落ち着いた値動きになっています。"
+            )
 
     # ---------------------------
     # 5) ブレイク or 位置取り（VWAPとの関係）
@@ -246,9 +293,13 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
     # RSI が極端
     if rsi is not None:
         if rsi >= 80:
-            concerns.append("短期的にはかなり買われすぎのゾーンに入っており、いつ調整が入ってもおかしくない局面です。")
+            concerns.append(
+                "短期的にはかなり買われすぎのゾーンに入っており、いつ調整が入ってもおかしくない局面です。"
+            )
         elif rsi <= 20:
-            concerns.append("売られすぎの状態が長く続いており、さらに下を試す展開になった場合の割り切りも意識する必要があります。")
+            concerns.append(
+                "売られすぎの状態が長く続いており、さらに下を試す展開になった場合の割り切りも意識する必要があります。"
+            )
 
     # VWAP からの乖離が大きい
     if vwap_gap is not None and abs(vwap_gap) >= 5.0:
