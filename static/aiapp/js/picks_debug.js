@@ -2,7 +2,7 @@
 // AI Picks 診断（picks_debug.html）用 JS
 // - フィルタ
 // - モーダル開閉
-// - lightweight-charts で本物ローソク足 + MA + VWAP + RSI + Entry/TP/SL
+// - lightweight-charts でローソク足 + MA + VWAP + RSI + Entry/TP/SL
 
 (function () {
   const table = document.getElementById("picksTable");
@@ -18,7 +18,9 @@
   let lwChart = null;
   let resizeHandler = null;
 
-  // 現在開いている銘柄の価格表示モード
+  // ★ 現在開いている銘柄の価格表示モード
+  //   "int"       : 価格は整数（4768 など）
+  //   "decimal1"  : 価格は小数1桁（9434 など）
   let currentPriceMode = "int";
 
   if (!table || !modal || !chartContainer) {
@@ -97,16 +99,29 @@
     return isNaN(n) ? null : n;
   }
 
-  function parseNumberArray(str) {
-    if (!str) return [];
-    return str.split(",").map((s) => {
-      const n = Number(s.trim());
+  // CSV "1,2,3" → [1,2,3] （"None"/空は null）
+  function parseCsvNumbersAllowNull(str) {
+    if (!str) return null;
+    const parts = String(str)
+      .split(",")
+      .map((s) => s.trim());
+    if (!parts.length) return null;
+
+    const out = parts.map((s) => {
+      if (!s || s.toLowerCase() === "none" || s.toLowerCase() === "nan") {
+        return null;
+      }
+      const n = Number(s);
       return isNaN(n) ? null : n;
     });
+
+    // すべて null の場合は null 扱い
+    if (out.every((v) => v === null)) return null;
+    return out;
   }
 
   // --------------------------------------
-  // フィルタ
+  // フィルタ（コード・銘柄名・業種）
   // --------------------------------------
   (function setupFilter() {
     if (!filterInput || !table) return;
@@ -128,7 +143,7 @@
   })();
 
   // --------------------------------------
-  // 日付文字列 → BusinessDay
+  // 日付文字列 → BusinessDay 変換 ("YYYY-MM-DD" or "YYYY/MM/DD")
   // --------------------------------------
   function toBusinessDay(dateStr) {
     if (!dateStr) return null;
@@ -143,19 +158,19 @@
   }
 
   // --------------------------------------
-  // チャート更新
+  // lightweight-charts 用：チャート更新
   // --------------------------------------
-  function updateChart(
-    candles,
-    closes,
-    entry,
-    tp,
-    sl,
-    maShort,
-    maMid,
-    vwap,
-    rsi
-  ) {
+  // candles: [{time, open, high, low, close}, ...]
+  // closes: [number, ...]
+  // overlays: { maShort, maMid, vwap, rsi }
+  function updateChart(candles, closes, entry, tp, sl, overlays) {
+    overlays = overlays || {};
+    const maShort = overlays.maShort || null;
+    const maMid = overlays.maMid || null;
+    const vwap = overlays.vwap || null;
+    const rsi = overlays.rsi || null;
+
+    // 既存チャート破棄
     if (lwChart) {
       lwChart.remove();
       lwChart = null;
@@ -175,20 +190,8 @@
       if (chartEmptyLabel) chartEmptyLabel.style.display = "none";
     }
 
-    const INNER_PAD = 16;
-    chartContainer.style.paddingLeft = INNER_PAD + "px";
-    chartContainer.style.paddingRight = INNER_PAD + "px";
-    chartContainer.style.boxSizing = "border-box";
-    chartContainer.style.overflow = "hidden";
-
-    const containerInnerWidth =
-      chartContainer.clientWidth || chartContainer.getBoundingClientRect().width || 0;
-    let chartWidth = containerInnerWidth - INNER_PAD * 2;
-    if (!isFinite(chartWidth) || chartWidth <= 0) {
-      chartWidth = 320;
-    }
-
     const rect = chartContainer.getBoundingClientRect();
+    const chartWidth = (rect.width || 0) > 0 ? rect.width : 320;
     const chartHeight = rect.height || 260;
 
     lwChart = LW.createChart(chartContainer, {
@@ -229,7 +232,8 @@
     });
 
     let baseTimeList = [];
-    let priceValues = [];
+    let priceMin = Number.POSITIVE_INFINITY;
+    let priceMax = Number.NEGATIVE_INFINITY;
 
     if (hasCandles) {
       const candleSeries = lwChart.addCandlestickSeries({
@@ -249,8 +253,14 @@
       });
       candleSeries.setData(candles);
       baseTimeList = candles.map((c) => c.time);
+
       candles.forEach((c) => {
-        priceValues.push(c.high, c.low);
+        if (typeof c.high === "number") {
+          if (c.high > priceMax) priceMax = c.high;
+        }
+        if (typeof c.low === "number") {
+          if (c.low < priceMin) priceMin = c.low;
+        }
       });
     } else if (hasCloses) {
       const line = lwChart.addLineSeries({
@@ -268,20 +278,19 @@
       }));
       line.setData(data);
       baseTimeList = data.map((d) => d.time);
-      closes.forEach((v) => priceValues.push(v));
+
+      closes.forEach((v) => {
+        if (typeof v === "number") {
+          if (v > priceMax) priceMax = v;
+          if (v < priceMin) priceMin = v;
+        }
+      });
     }
 
-    let priceMin = Number.POSITIVE_INFINITY;
-    let priceMax = Number.NEGATIVE_INFINITY;
-    priceValues.forEach((v) => {
-      const n = Number(v);
-      if (isNaN(n)) return;
-      if (n < priceMin) priceMin = n;
-      if (n > priceMax) priceMax = n;
-    });
-    if (!isFinite(priceMin) || !isFinite(priceMax) || priceMin === priceMax) {
+    // priceMin / priceMax が変な値なら適当に補正
+    if (!isFinite(priceMin) || !isFinite(priceMax) || priceMin >= priceMax) {
       priceMin = 0;
-      priceMax = 1;
+      priceMax = 100;
     }
 
     function addHLine(value, color) {
@@ -306,68 +315,98 @@
       return series;
     }
 
-    function addOverlayLine(list, color) {
-      if (!Array.isArray(list) || list.length === 0) return null;
+    function addOverlayLine(values, color, width) {
+      if (!Array.isArray(values) || !values.length) return;
+      const data = [];
+      let hasValid = false;
+
+      for (let i = 0; i < baseTimeList.length; i++) {
+        const t = baseTimeList[i];
+        const v = i < values.length ? values[i] : null;
+        if (v === null || v === undefined || isNaN(Number(v))) {
+          data.push({ time: t, value: null });
+        } else {
+          const num = Number(v);
+          data.push({ time: t, value: num });
+          hasValid = true;
+        }
+      }
+
+      if (!hasValid) return;
+
       const series = lwChart.addLineSeries({
         color: color,
-        lineWidth: 1.5,
-        priceScaleId: "right",
+        lineWidth: width || 1,
         priceFormat: {
           type: "price",
           precision: 0,
           minMove: 1,
         },
-        lastValueVisible: false,
-        priceLineVisible: false,
       });
-      const data = [];
-      const n = Math.min(baseTimeList.length, list.length);
-      for (let i = 0; i < n; i++) {
-        const v = list[i];
-        if (v === null || v === undefined) continue;
-        const num = Number(v);
-        if (!isNaN(num)) {
-          data.push({ time: baseTimeList[i], value: num });
-        }
-      }
-      if (data.length === 0) return null;
       series.setData(data);
-      return series;
     }
 
-    // Entry / TP / SL
+    function addRsiOverlay(values, color, width) {
+      if (!Array.isArray(values) || !values.length) return;
+
+      // RSI(0〜100) を 価格レンジ [priceMin, priceMax] に線形マップ
+      const lo = priceMin;
+      const hi = priceMax;
+      const rLo = 0;
+      const rHi = 100;
+      const scale = hi > lo ? (hi - lo) / (rHi - rLo) : 1;
+
+      const data = [];
+      let hasValid = false;
+
+      for (let i = 0; i < baseTimeList.length; i++) {
+        const t = baseTimeList[i];
+        const v = i < values.length ? values[i] : null;
+        if (v === null || v === undefined || isNaN(Number(v))) {
+          data.push({ time: t, value: null });
+        } else {
+          const r = Number(v);
+          const mapped = lo + (r - rLo) * scale;
+          data.push({ time: t, value: mapped });
+          hasValid = true;
+        }
+      }
+
+      if (!hasValid) return;
+
+      const series = lwChart.addLineSeries({
+        color: color,
+        lineWidth: width || 1,
+        lineStyle: LW.LineStyle.Solid,
+        priceFormat: {
+          type: "price",
+          precision: 0,
+          minMove: 1,
+        },
+      });
+      series.setData(data);
+    }
+
+    // Entry: 黄色, TP: 緑, SL: 赤
     addHLine(entry, "#eab308");
     addHLine(tp, "#22c55e");
     addHLine(sl, "#ef4444");
 
-    // MA / VWAP
-    addOverlayLine(maShort, "#fbbf24");
-    addOverlayLine(maMid, "#e5e7eb");
-    addOverlayLine(vwap, "#38bdf8");
+    // MA / VWAP / RSI オーバーレイ
+    if (maShort) addOverlayLine(maShort, "#a855f7", 1.2); // 短期MA
+    if (maMid) addOverlayLine(maMid, "#38bdf8", 1.2);    // 中期MA
+    if (vwap) addOverlayLine(vwap, "#f97316", 1.2);      // VWAP
+    if (rsi) addRsiOverlay(rsi, "#22c55e", 1.0);         // RSI (0〜100 → 価格レンジにマップ)
 
-    // RSI（0〜100 を価格レンジにマッピング）
-    if (Array.isArray(rsi) && rsi.length > 0) {
-      const scaledRsi = rsi.map((v) => {
-        if (v === null || v === undefined) return null;
-        const n = Number(v);
-        if (isNaN(n)) return null;
-        const clamped = Math.max(0, Math.min(100, n));
-        const ratio = clamped / 100.0;
-        return priceMin + (priceMax - priceMin) * ratio;
-      });
-      addOverlayLine(scaledRsi, "#a855f7");
-    }
-
+    // 全体がカード内に収まるように自動フィット
     lwChart.timeScale().fitContent();
 
+    // リサイズ対応
     resizeHandler = function () {
       if (!lwChart) return;
-      const innerWidth =
-        chartContainer.clientWidth || chartContainer.getBoundingClientRect().width || 0;
-      let w = innerWidth - INNER_PAD * 2;
-      if (!isFinite(w) || w <= 0) w = 320;
-      const r = chartContainer.getBoundingClientRect();
-      const h = r.height || 260;
+      const r2 = chartContainer.getBoundingClientRect();
+      const w = (r2.width || 0) > 0 ? r2.width : 320;
+      const h = r2.height || 260;
       lwChart.applyOptions({
         width: w,
         height: h,
@@ -401,6 +440,7 @@
       currentPriceMode = mode;
     })();
 
+    // タイトル / メタ
     document.getElementById("modalTitle").textContent =
       (ds.code || "") + " " + (ds.name || "");
     document.getElementById("modalSector").textContent = ds.sector || "";
@@ -410,25 +450,31 @@
     document.getElementById("modalStarBadge").textContent =
       "★ " + (ds.stars || "–");
 
+    // 価格・指標
     setText("detailLast", ds.last, "int");
     setText("detailAtr", ds.atr, "int");
 
+    // 数量
     setText("detailQtyRakuten", ds.qtyRakuten, "int");
     setText("detailQtyMatsui", ds.qtyMatsui, "int");
     setText("detailQtySbi", ds.qtySbi, "int");
 
+    // Entry / TP / SL
     setText("detailEntry", ds.entry, "priceAuto");
     setText("detailTp", ds.tp, "priceAuto");
     setText("detailSl", ds.sl, "priceAuto");
 
+    // 必要資金
     setText("detailCashRakuten", ds.cashRakuten, "yen");
     setText("detailCashMatsui", ds.cashMatsui, "yen");
     setText("detailCashSbi", ds.cashSbi, "yen");
 
+    // 想定PL
     setText("detailPlRakuten", ds.plRakuten, "yen");
     setText("detailPlMatsui", ds.plMatsui, "yen");
     setText("detailPlSbi", ds.plSbi, "yen");
 
+    // 想定損失
     setText("detailLossRakuten", ds.lossRakuten, "yen");
     setText("detailLossMatsui", ds.lossMatsui, "yen");
     setText("detailLossSbi", ds.lossSbi, "yen");
@@ -440,6 +486,7 @@
       }
     });
 
+    // 合計行は非表示
     ["detailQtyTotal", "detailPlTotal", "detailLossTotal"].forEach(function (id) {
       const el = document.getElementById(id);
       if (!el) return;
@@ -450,6 +497,7 @@
       el.textContent = "";
     });
 
+    // 理由（AI）
     const ulAi = document.getElementById("detailReasonsAi");
     if (ulAi) {
       ulAi.innerHTML = "";
@@ -465,6 +513,7 @@
       }
     }
 
+    // 理由（数量0など発注条件）
     const ulSizing = document.getElementById("detailReasonsSizing");
     if (ulSizing) {
       ulSizing.innerHTML = "";
@@ -483,24 +532,34 @@
       }
     }
 
+    // 懸念
     const concernEl = document.getElementById("detailConcern");
     if (concernEl) {
       concernEl.textContent = ds.concern || "";
     }
 
-    const opens = parseNumberArray(ds.chartOpen || "");
-    const highs = parseNumberArray(ds.chartHigh || "");
-    const lows = parseNumberArray(ds.chartLow || "");
-    const closes = parseNumberArray(ds.chartClose || "");
-    const dates = (ds.chartDates || "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
+    // ------------- チャート用データ（OHLC + 日付） -------------
+    const openStr = ds.chartOpen || "";
+    const highStr = ds.chartHigh || "";
+    const lowStr = ds.chartLow || "";
+    const closeStr = ds.chartClose || "";
+    const datesStr = ds.chartDates || "";
 
-    const maShort = parseNumberArray(ds.chartMaShort || "");
-    const maMid = parseNumberArray(ds.chartMaMid || "");
-    const vwap = parseNumberArray(ds.chartVwap || "");
-    const rsi = parseNumberArray(ds.chartRsi || "");
+    const opens = openStr
+      ? openStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
+      : [];
+    const highs = highStr
+      ? highStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
+      : [];
+    const lows = lowStr
+      ? lowStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
+      : [];
+    const closes = closeStr
+      ? closeStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
+      : [];
+    const dates = datesStr
+      ? datesStr.split(",").map((s) => s.trim()).filter((s) => s.length > 0)
+      : [];
 
     let candles = [];
     const len = Math.min(opens.length, highs.length, lows.length, closes.length);
@@ -532,7 +591,18 @@
     const tp = toNumberOrNull(ds.tp);
     const sl = toNumberOrNull(ds.sl);
 
-    updateChart(candles, closes, entry, tp, sl, maShort, maMid, vwap, rsi);
+    // ------------- オーバーレイ用データ（MA / VWAP / RSI） -------------
+    const maShortArr = parseCsvNumbersAllowNull(ds.chartMaShort || "");
+    const maMidArr = parseCsvNumbersAllowNull(ds.chartMaMid || "");
+    const vwapArr = parseCsvNumbersAllowNull(ds.chartVwap || "");
+    const rsiArr = parseCsvNumbersAllowNull(ds.chartRsi || "");
+
+    updateChart(candles, closes, entry, tp, sl, {
+      maShort: maShortArr,
+      maMid: maMidArr,
+      vwap: vwapArr,
+      rsi: rsiArr,
+    });
 
     modal.classList.add("show");
     body.classList.add("modal-open");
@@ -552,6 +622,7 @@
     }
   }
 
+  // 行クリックでモーダル表示
   table.querySelectorAll("tbody tr.pick-row").forEach(function (row) {
     row.addEventListener("click", function () {
       if (!this.dataset.code) return;
@@ -559,16 +630,19 @@
     });
   });
 
+  // モーダル外クリックで閉じる
   modal.addEventListener("click", function (e) {
     if (e.target === modal) {
       closeModal();
     }
   });
 
+  // 閉じるボタン
   if (closeBtn) {
     closeBtn.addEventListener("click", closeModal);
   }
 
+  // ESC キーで閉じる
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape" && modal.classList.contains("show")) {
       closeModal();
