@@ -372,7 +372,7 @@
 }
 
 /* ------------------------------
-   RSI ラベル（RSI 〜 のところ）
+   RSI ヘッダー
 ------------------------------ */
 .rsi-header {
   display: flex;
@@ -380,16 +380,6 @@
   align-items: center;
   font-size: 12px;
   margin: 4px 2px 2px;
-}
-
-/* 左側の「RSI 65.7」っぽい最初の要素を強制的に消す */
-.rsi-header > :first-child {
-  display: none;
-}
-
-/* もし .rsi-title クラスがあればそれも消す（保険） */
-.rsi-title {
-  display: none;
 }
 
 .rsi-badge {
@@ -449,3 +439,10 @@
 #detailEntry { color: #eab308; } /* Entry → 黄色 */
 #detailTp    { color: #22c55e; } /* TP    → 緑   */
 #detailSl    { color: #ef4444; } /* SL    → 赤   */
+
+/* ------------------------------
+   RSI 左側の「RSI 65.7」テキストを強制的に隠す
+------------------------------ */
+#detailRsiLatest {
+  display: none !important;
+}
