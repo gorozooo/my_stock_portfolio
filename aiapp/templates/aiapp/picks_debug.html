@@ -5,7 +5,7 @@
 {% block title %}AI Picks 診断{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'aiapp/css/picks_debug.css' %}?v=16">
+<link rel="stylesheet" href="{% static 'aiapp/css/picks_debug.css' %}?v=17">
 {% endblock %}
 
 {% block content %}
@@ -173,48 +173,51 @@
       </div>
     </div>
 
-    <!-- チャートカード（上: 価格 / 下: RSI） -->
+    <!-- チャートカード（上段:終値+MA+VWAP+Entry/TP/SL、下段:RSI） -->
     <div class="detail-card chart-card">
       <div class="detail-card-title">日足チャート（終値・MA・VWAP・RSI）</div>
       <div class="chart-inner">
-        <div id="detailChartContainer" class="chart-container-outer">
-          <!-- 上段: 価格チャート -->
-          <div id="detailChartPriceContainer" class="chart-container chart-container-price"></div>
+        <div id="detailChartContainer" class="chart-container">
+          <div id="detailChartPriceContainer" class="chart-container chart-price"></div>
 
-          <!-- 下段: RSI パネル -->
-          <div class="chart-rsi-block">
-            <div class="chart-rsi-header">
-              <span class="chart-rsi-label">RSI</span>
-              <span id="detailRsiLatest" class="chart-rsi-value">–</span>
-            </div>
-            <div id="detailChartRsiContainer" class="chart-container chart-container-rsi"></div>
+          <div class="rsi-header">
+            <span class="rsi-label">RSI</span>
+            <span class="rsi-badge">
+              <span id="detailRsiLatest">–</span>
+            </span>
           </div>
+
+          <div id="detailChartRsiContainer" class="chart-container chart-rsi"></div>
         </div>
         <div id="chartEmptyLabel" class="chart-empty-label">
           チャート用データが不足しています
         </div>
       </div>
 
-      <!-- 凡例：Entry / TP / SL 以外は数値付き -->
       <div class="chart-legend">
         <span class="legend-line legend-close">
-          終値 <span id="legendCloseValue" class="legend-value">–</span>
+          終値
+          <span class="legend-value" id="legendCloseValue">–</span>
         </span>
         <span class="legend-line legend-ma-short">
-          短期MA <span id="legendMaShortValue" class="legend-value">–</span>
+          5MA
+          <span class="legend-value" id="legendMaShortValue">–</span>
         </span>
         <span class="legend-line legend-ma-mid">
-          中期MA <span id="legendMaMidValue" class="legend-value">–</span>
+          25MA
+          <span class="legend-value" id="legendMaMidValue">–</span>
         </span>
         <span class="legend-line legend-vwap">
-          VWAP <span id="legendVwapValue" class="legend-value">–</span>
+          VWAP
+          <span class="legend-value" id="legendVwapValue">–</span>
+        </span>
+        <span class="legend-line legend-rsi">
+          RSI
+          <span class="legend-value" id="legendRsiValue">–</span>
         </span>
         <span class="legend-line legend-entry">Entry</span>
         <span class="legend-line legend-tp">TP</span>
         <span class="legend-line legend-sl">SL</span>
-        <span class="legend-line legend-rsi">
-          RSI <span id="legendRsiValue" class="legend-value">–</span>
-        </span>
       </div>
     </div>
 
@@ -346,5 +349,5 @@
 </div>
 
 <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js" defer></script>
-<script src="{% static 'aiapp/js/picks_debug.js' %}?v=42" defer></script>
+<script src="{% static 'aiapp/js/picks_debug.js' %}?v=43" defer></script>
 {% endblock %}
