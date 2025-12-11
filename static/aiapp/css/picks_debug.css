@@ -277,15 +277,25 @@
 
 .chart-inner {
   position: relative;
-  border: 1px dashed var(--line);
   border-radius: 12px;
   padding: 8px;
   margin-bottom: 10px;
+  background: radial-gradient(circle at top left, rgba(37, 99, 235, .12), transparent 55%),
+              rgba(15, 23, 42, .85);
 }
 
-#detailChart {
+/* 上段・下段キャンバス */
+.chart-container {
   width: 100%;
-  height: 260px;
+}
+
+.chart-price {
+  height: 230px;
+}
+
+.chart-rsi {
+  height: 90px;
+  margin-top: 6px;
 }
 
 .chart-empty-label {
@@ -293,18 +303,27 @@
   inset: 0;
   color: var(--sub);
   font-size: 14px;
-  display: flex;
+  display: none;
   justify-content: center;
   align-items: center;
 }
 
-/* Legend（今回は非表示にする） */
+/* ------------------------------
+   Legend
+------------------------------ */
 .chart-legend {
-  display: none;
-  gap: 12px;
-  font-size: 12px;
+  display: flex;              /* ← ここを表示にする */
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11px;
   color: var(--sub);
-  padding-left: 6px;
+  padding: 2px 4px 0;
+}
+
+.legend-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .legend-line::before {
@@ -313,14 +332,55 @@
   width: 14px;
   height: 3px;
   border-radius: 2px;
-  margin-right: 4px;
   vertical-align: middle;
 }
 
-.legend-close::before { background: #38bdf8; }
-.legend-entry::before { background: #10b981; }
-.legend-tp::before    { background: #eab308; }
-.legend-sl::before    { background: #ef4444; }
+/* 線ごとの色 */
+.legend-close::before      { background: #e5e7eb; }  /* 終値（ローソク） */
+.legend-ma-short::before   { background: #38bdf8; }  /* 短期MA */
+.legend-ma-mid::before     { background: #6366f1; }  /* 中期MA */
+.legend-vwap::before       { background: #f97316; }  /* VWAP */
+.legend-rsi::before        { background: #facc15; }  /* RSI */
+.legend-entry::before      { background: #eab308; }  /* Entry (水平線) */
+.legend-tp::before         { background: #22c55e; }  /* TP */
+.legend-sl::before         { background: #ef4444; }  /* SL */
+
+/* 数値バッジ（終値/MA/VWAP/RSI 用） */
+.legend-value {
+  margin-left: 2px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(15,23,42,0.95);
+  border: 1px solid rgba(148,163,184,.6);
+  color: var(--fg);
+  min-width: 40px;
+  text-align: right;
+}
+
+/* ------------------------------
+   RSI ラベル（RSI 65.7 のところ）
+------------------------------ */
+.rsi-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  margin: 4px 2px 2px;
+}
+
+.rsi-title {
+  font-weight: 600;
+}
+
+.rsi-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: #facc15;
+  color: #1f2937;
+  font-weight: 600;
+}
 
 /* ------------------------------
    Reasons
@@ -367,6 +427,6 @@
 }
 
 /* Entry / TP / SL の色をチャートと揃える */
-#detailEntry { color: #eab308; } /* Entry → 黄色（チャートの Entry と同じ） */
-#detailTp    { color: #22c55e; } /* TP    → 緑   （チャートの TP と同じ） */
-#detailSl    { color: #ef4444; } /* SL    → 赤   （チャートの SL と同じ） */
+#detailEntry { color: #eab308; } /* Entry → 黄色 */
+#detailTp    { color: #22c55e; } /* TP    → 緑   */
+#detailSl    { color: #ef4444; } /* SL    → 赤   */
