@@ -275,6 +275,11 @@
   padding-top: 14px;
 }
 
+/* タイトル（「日足チャート（〜）」）は非表示 */
+.chart-card .detail-card-title {
+  display: none;
+}
+
 .chart-inner {
   position: relative;
   border-radius: 12px;
@@ -312,7 +317,7 @@
    Legend
 ------------------------------ */
 .chart-legend {
-  display: flex;              /* ← ここを表示にする */
+  display: flex;
   flex-wrap: wrap;
   gap: 4px 12px;
   font-size: 11px;
@@ -358,19 +363,28 @@
   text-align: right;
 }
 
+/* Entry / TP / SL / RSI は凡例から消す */
+.legend-entry,
+.legend-tp,
+.legend-sl,
+.legend-rsi {
+  display: none;
+}
+
 /* ------------------------------
-   RSI ラベル（RSI 65.7 のところ）
+   RSI ラベル（RSI 〜 のところ）
 ------------------------------ */
 .rsi-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   font-size: 12px;
   margin: 4px 2px 2px;
 }
 
+/* 左側の「RSI 65.7」は要らないので非表示 */
 .rsi-title {
-  font-weight: 600;
+  display: none;
 }
 
 .rsi-badge {
