@@ -117,7 +117,7 @@
               data-chart-close="{% if it.chart_closes %}{{ it.chart_closes|join:',' }}{% endif %}"
               data-chart-dates="{% if it.chart_dates %}{{ it.chart_dates|join:',' }}{% endif %}"
 
-              {# オーバーレイ線: MA / VWAP / RSI #}
+              {# MA / VWAP / RSI も CSV で埋め込む #}
               data-chart-ma-short="{% if it.chart_ma_short %}{{ it.chart_ma_short|join:',' }}{% endif %}"
               data-chart-ma-mid="{% if it.chart_ma_mid %}{{ it.chart_ma_mid|join:',' }}{% endif %}"
               data-chart-vwap="{% if it.chart_vwap %}{{ it.chart_vwap|join:',' }}{% endif %}"
@@ -173,9 +173,9 @@
       </div>
     </div>
 
-    <!-- チャートカード（ローソク足 + MA + VWAP + RSI） -->
+    <!-- チャートカード（ローソク足 + MA + VWAP） -->
     <div class="detail-card chart-card">
-      <div class="detail-card-title">日足チャート（終値・MA・VWAP・RSI）</div>
+      <div class="detail-card-title">日足チャート（終値・MA・VWAP）</div>
       <div class="chart-inner">
         <div id="detailChartContainer" class="chart-container"></div>
         <div id="chartEmptyLabel" class="chart-empty-label">
@@ -187,7 +187,6 @@
         <span class="legend-line legend-ma-short">短期MA</span>
         <span class="legend-line legend-ma-mid">中期MA</span>
         <span class="legend-line legend-vwap">VWAP</span>
-        <span class="legend-line legend-rsi">RSI(0–100を価格帯にマップ)</span>
         <span class="legend-line legend-entry">Entry</span>
         <span class="legend-line legend-tp">TP</span>
         <span class="legend-line legend-sl">SL</span>
@@ -322,5 +321,5 @@
 </div>
 
 <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js" defer></script>
-<script src="{% static 'aiapp/js/picks_debug.js' %}?v=30" defer></script>
+<script src="{% static 'aiapp/js/picks_debug.js' %}?v=31" defer></script>
 {% endblock %}
