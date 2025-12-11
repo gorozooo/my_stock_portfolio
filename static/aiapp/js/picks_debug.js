@@ -5,6 +5,7 @@
 // - lightweight-charts で
 //    上段: ローソク足 + MA + VWAP + Entry/TP/SL
 //    下段: RSI 専用パネル
+//    凡例: 終値 / MA / VWAP / RSI の最新値を表示（Entry/TP/SL はラベルのみ）
 
 (function () {
   const table = document.getElementById("picksTable");
@@ -20,11 +21,18 @@
   const chartEmptyLabel = document.getElementById("chartEmptyLabel");
   const rsiLatestLabel = document.getElementById("detailRsiLatest");
 
+  // 凡例の数値表示用
+  const legendCloseVal = document.getElementById("legendCloseValue");
+  const legendMaShortVal = document.getElementById("legendMaShortValue");
+  const legendMaMidVal = document.getElementById("legendMaMidValue");
+  const legendVwapVal = document.getElementById("legendVwapValue");
+  const legendRsiVal = document.getElementById("legendRsiValue");
+
   let priceChart = null;
   let rsiChart = null;
   let resizeHandler = null;
 
-  // ★ 現在開いている銘柄の価格表示モード
+  // 現在開いている銘柄の価格表示モード
   //   "int"       : 価格は整数
   //   "decimal1"  : 価格は小数1桁
   let currentPriceMode = "int";
@@ -103,6 +111,43 @@
     if (v === undefined || v === null || v === "") return null;
     const n = Number(v);
     return isNaN(n) ? null : n;
+  }
+
+  // 凡例用：価格フォーマット
+  function formatPriceForLegend(v) {
+    if (v === null || v === undefined || isNaN(Number(v))) return "–";
+    const n0 = Number(v);
+    if (currentPriceMode === "decimal1") {
+      const n = Math.round(n0 * 10) / 10;
+      if (Number.isInteger(n)) {
+        return n.toLocaleString();
+      }
+      return n.toLocaleString(undefined, {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+      });
+    } else {
+      const n = Math.round(n0);
+      return n.toLocaleString();
+    }
+  }
+
+  // 凡例用：RSIフォーマット
+  function formatRsiForLegend(v) {
+    if (v === null || v === undefined || isNaN(Number(v))) return "–";
+    return Number(v).toFixed(3);
+  }
+
+  // 配列の末尾から有効な数値を探す
+  function getLatestNumber(arr) {
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const v = arr[i];
+      if (v === null || v === undefined) continue;
+      const n = Number(v);
+      if (!isNaN(n)) return n;
+    }
+    return null;
   }
 
   // --------------------------------------
@@ -252,6 +297,8 @@
           precision: 0,
           minMove: 1,
         },
+        lastValueVisible: false,
+        priceLineVisible: false,
       });
       const data = closes.map((v, i) => ({
         time: i + 1,
@@ -291,6 +338,9 @@
           precision: 0,
           minMove: 1,
         },
+        // MA / VWAP は水平ライン・右ラベルを出さない
+        lastValueVisible: false,
+        priceLineVisible: false,
       });
       series.setData(data);
       return series;
@@ -314,6 +364,9 @@
           precision: 0,
           minMove: 1,
         },
+        // Entry / TP / SL だけ水平線＆右ラベルを出す
+        lastValueVisible: true,
+        priceLineVisible: true,
       });
       const data = baseTimeList.map((t) => ({
         time: t,
@@ -631,23 +684,40 @@
         })
       : [];
 
-    // RSI 最新値ラベル
+    // RSI 最新値ラベル（RSIパネル上の "RSI xx.xxx"）
     if (rsiLatestLabel) {
-      let latest = null;
-      for (let i = rsiValues.length - 1; i >= 0; i--) {
-        const v = rsiValues[i];
-        if (v !== null && !isNaN(v)) {
-          latest = v;
-          break;
-        }
-      }
-      if (latest === null) {
+      const latestRsi = getLatestNumber(rsiValues);
+      if (latestRsi === null) {
         rsiLatestLabel.textContent = "–";
       } else {
-        rsiLatestLabel.textContent = latest.toFixed(3);
+        rsiLatestLabel.textContent = latestRsi.toFixed(3);
       }
     }
 
+    // 凡例の数値更新（終値 / MA / VWAP / RSI）
+    const latestClose = getLatestNumber(closes);
+    const latestMaShort = getLatestNumber(maShort);
+    const latestMaMid = getLatestNumber(maMid);
+    const latestVwap = getLatestNumber(vwap);
+    const latestRsiForLegend = getLatestNumber(rsiValues);
+
+    if (legendCloseVal) {
+      legendCloseVal.textContent = formatPriceForLegend(latestClose);
+    }
+    if (legendMaShortVal) {
+      legendMaShortVal.textContent = formatPriceForLegend(latestMaShort);
+    }
+    if (legendMaMidVal) {
+      legendMaMidVal.textContent = formatPriceForLegend(latestMaMid);
+    }
+    if (legendVwapVal) {
+      legendVwapVal.textContent = formatPriceForLegend(latestVwap);
+    }
+    if (legendRsiVal) {
+      legendRsiVal.textContent = formatRsiForLegend(latestRsiForLegend);
+    }
+
+    // ローソク足データ生成
     let candles = [];
     const len = Math.min(opens.length, highs.length, lows.length, closes.length);
     for (let i = 0; i < len; i++) {
