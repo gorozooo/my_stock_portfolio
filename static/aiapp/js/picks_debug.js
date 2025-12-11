@@ -5,7 +5,7 @@
 // - lightweight-charts で
 //    上段: ローソク足 + MA + VWAP + Entry/TP/SL
 //    下段: RSI 専用パネル
-//    凡例: 終値 / MA / VWAP / RSI の最新値を表示（Entry/TP/SL はラベルのみ）
+//    凡例: 終値 / MA / VWAP / RSI の最新値を表示
 
 (function () {
   const table = document.getElementById("picksTable");
@@ -32,7 +32,7 @@
   let rsiChart = null;
   let resizeHandler = null;
 
-  // 現在開いている銘柄の価格表示モード
+  // 価格表示モード
   //   "int"       : 価格は整数
   //   "decimal1"  : 価格は小数1桁
   let currentPriceMode = "int";
@@ -113,6 +113,14 @@
     return isNaN(n) ? null : n;
   }
 
+  // 価格フォーマット（チャート用）
+  function getPriceFormat() {
+    if (currentPriceMode === "decimal1") {
+      return { type: "price", precision: 1, minMove: 0.1 };
+    }
+    return { type: "price", precision: 0, minMove: 1 };
+  }
+
   // 凡例用：価格フォーマット
   function formatPriceForLegend(v) {
     if (v === null || v === undefined || isNaN(Number(v))) return "–";
@@ -132,10 +140,10 @@
     }
   }
 
-  // 凡例用：RSIフォーマット
+  // 凡例用：RSIフォーマット（1桁）
   function formatRsiForLegend(v) {
     if (v === null || v === undefined || isNaN(Number(v))) return "–";
-    return Number(v).toFixed(3);
+    return Number(v).toFixed(1);
   }
 
   // 配列の末尾から有効な数値を探す
@@ -173,7 +181,7 @@
   })();
 
   // --------------------------------------
-  // 日付文字列 → BusinessDay 変換 ("YYYY-MM-DD" or "YYYY/MM/DD")
+  // 日付文字列 → BusinessDay 変換
   // --------------------------------------
   function toBusinessDay(dateStr) {
     if (!dateStr) return null;
@@ -188,13 +196,9 @@
   }
 
   // --------------------------------------
-  // lightweight-charts 用：チャート更新
+  // チャート更新
   // --------------------------------------
-  // candles: [{time, open, high, low, close}, ...]
-  // closes: [number, ...]
-  // maShort, maMid, vwap, rsi: [number | null, ...]
   function updateChart(candles, closes, entry, tp, sl, maShort, maMid, vwap, rsiValues) {
-    // 既存チャート破棄
     if (priceChart) {
       priceChart.remove();
       priceChart = null;
@@ -230,6 +234,8 @@
     const PRICE_HEIGHT = 230;
     const RSI_HEIGHT = 90;
 
+    const priceFormat = getPriceFormat();
+
     // 上段: 価格チャート
     priceChart = LW.createChart(priceContainer, {
       width: baseWidth,
@@ -263,7 +269,15 @@
         priceFormatter: (price) => {
           const n = Number(price);
           if (isNaN(n)) return "";
-          return n.toLocaleString();
+          if (currentPriceMode === "decimal1") {
+            const x = Math.round(n * 10) / 10;
+            if (Number.isInteger(x)) return x.toLocaleString();
+            return x.toLocaleString(undefined, {
+              minimumFractionDigits: 1,
+              maximumFractionDigits: 1,
+            });
+          }
+          return Math.round(n).toLocaleString();
         },
       },
     });
@@ -278,11 +292,7 @@
         borderDownColor: "#ef4444",
         wickUpColor: "#9ca3af",
         wickDownColor: "#9ca3af",
-        priceFormat: {
-          type: "price",
-          precision: 0,
-          minMove: 1,
-        },
+        priceFormat: priceFormat,
         lastValueVisible: false,
         priceLineVisible: false,
       });
@@ -292,11 +302,7 @@
       const line = priceChart.addLineSeries({
         color: "#38bdf8",
         lineWidth: 2,
-        priceFormat: {
-          type: "price",
-          precision: 0,
-          minMove: 1,
-        },
+        priceFormat: priceFormat,
         lastValueVisible: false,
         priceLineVisible: false,
       });
@@ -308,7 +314,7 @@
       baseTimeList = data.map((d) => d.time);
     }
 
-    // オーバーレイ用ヘルパ（baseTimeList に合わせて末尾を揃える）
+    // オーバーレイ用ヘルパ
     function addOverlayLine(values, color) {
       if (!Array.isArray(values) || values.length === 0) return null;
       if (!Array.isArray(baseTimeList) || baseTimeList.length === 0) return null;
@@ -333,12 +339,7 @@
       const series = priceChart.addLineSeries({
         color: color,
         lineWidth: 1.5,
-        priceFormat: {
-          type: "price",
-          precision: 0,
-          minMove: 1,
-        },
-        // MA / VWAP は水平ライン・右ラベルを出さない
+        priceFormat: priceFormat,
         lastValueVisible: false,
         priceLineVisible: false,
       });
@@ -346,11 +347,12 @@
       return series;
     }
 
-    // MA / VWAP オーバーレイ
-    addOverlayLine(maShort, "#38bdf8"); // 短期MA
-    addOverlayLine(maMid, "#6366f1");   // 中期MA
-    addOverlayLine(vwap, "#f97316");    // VWAP
+    // MA / VWAP
+    addOverlayLine(maShort, "#38bdf8");
+    addOverlayLine(maMid, "#6366f1");
+    addOverlayLine(vwap, "#f97316");
 
+    // Entry / TP / SL（水平線と右ラベルあり）
     function addHLine(value, color) {
       if (value === null || value === undefined) return null;
       const num = Number(value);
@@ -359,12 +361,7 @@
         color: color,
         lineWidth: 1,
         lineStyle: LW.LineStyle.Dashed,
-        priceFormat: {
-          type: "price",
-          precision: 0,
-          minMove: 1,
-        },
-        // Entry / TP / SL だけ水平線＆右ラベルを出す
+        priceFormat: priceFormat,
         lastValueVisible: true,
         priceLineVisible: true,
       });
@@ -376,14 +373,13 @@
       return series;
     }
 
-    // Entry: 黄色, TP: 緑, SL: 赤
-    addHLine(entry, "#eab308");
-    addHLine(tp, "#22c55e");
-    addHLine(sl, "#ef4444");
+    addHLine(entry, "#eab308"); // Entry
+    addHLine(tp, "#22c55e");   // TP
+    addHLine(sl, "#ef4444");   // SL
 
     priceChart.timeScale().fitContent();
 
-    // 下段: RSI パネル
+    // 下段: RSI
     const hasRsi = Array.isArray(rsiValues) && rsiValues.length > 0;
     if (rsiContainer) {
       rsiContainer.style.display = hasRsi ? "block" : "none";
@@ -477,7 +473,7 @@
 
       rsiChart.timeScale().fitContent();
 
-      // 上下の timeScale を連動
+      // 上下 timeScale 連動
       const ts = priceChart.timeScale();
       const rsiTs = rsiChart.timeScale();
       ts.subscribeVisibleLogicalRangeChange((range) => {
@@ -631,7 +627,7 @@
       concernEl.textContent = ds.concern || "";
     }
 
-    // ------------- チャート用データ（OHLC + 日付 + MA + VWAP + RSI） -------------
+    // ------------- チャート用データ -------------
     const openStr = ds.chartOpen || "";
     const highStr = ds.chartHigh || "";
     const lowStr = ds.chartLow || "";
@@ -684,13 +680,13 @@
         })
       : [];
 
-    // RSI 最新値ラベル（RSIパネル上の "RSI xx.xxx"）
+    // RSI 最新値ラベル（上部「RSI xx.x」）
     if (rsiLatestLabel) {
       const latestRsi = getLatestNumber(rsiValues);
       if (latestRsi === null) {
         rsiLatestLabel.textContent = "–";
       } else {
-        rsiLatestLabel.textContent = latestRsi.toFixed(3);
+        rsiLatestLabel.textContent = latestRsi.toFixed(1);
       }
     }
 
