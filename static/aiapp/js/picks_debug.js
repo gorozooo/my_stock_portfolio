@@ -5,7 +5,7 @@
 // - lightweight-charts で
 //    上段: ローソク足 + MA + VWAP + Entry/TP/SL
 //    下段: RSI 専用パネル
-//    凡例: 終値 / MA / VWAP / RSI の最新値を表示
+//    凡例: 終値 / MA / VWAP の最新値を表示
 
 (function () {
   const table = document.getElementById("picksTable");
@@ -300,7 +300,7 @@
       baseTimeList = candles.map((c) => c.time);
     } else if (hasCloses) {
       const line = priceChart.addLineSeries({
-        color: "#38bdf8",
+        color: "#e5e7eb",
         lineWidth: 2,
         priceFormat: priceFormat,
         lastValueVisible: false,
@@ -348,9 +348,10 @@
     }
 
     // MA / VWAP
-    addOverlayLine(maShort, "#38bdf8");
-    addOverlayLine(maMid, "#6366f1");
-    addOverlayLine(vwap, "#f97316");
+    // 5MA → 明るいシアン / 25MA → ピンク系 / VWAP → オレンジ
+    addOverlayLine(maShort, "#22d3ee"); // 5MA
+    addOverlayLine(maMid, "#f472b6");   // 25MA
+    addOverlayLine(vwap, "#f97316");    // VWAP
 
     // Entry / TP / SL（水平線と右ラベルあり）
     function addHLine(value, color) {
@@ -680,7 +681,7 @@
         })
       : [];
 
-    // RSI 最新値ラベル（上部「RSI xx.x」）
+    // RSI 最新値ラベル（上部のバッジ用）
     if (rsiLatestLabel) {
       const latestRsi = getLatestNumber(rsiValues);
       if (latestRsi === null) {
