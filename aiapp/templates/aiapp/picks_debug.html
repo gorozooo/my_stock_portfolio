@@ -194,15 +194,27 @@
           チャート用データが不足しています
         </div>
       </div>
+
+      <!-- 凡例：Entry / TP / SL 以外は数値付き -->
       <div class="chart-legend">
-        <span class="legend-line legend-close">終値</span>
-        <span class="legend-line legend-ma-short">短期MA</span>
-        <span class="legend-line legend-ma-mid">中期MA</span>
-        <span class="legend-line legend-vwap">VWAP</span>
+        <span class="legend-line legend-close">
+          終値 <span id="legendCloseValue" class="legend-value">–</span>
+        </span>
+        <span class="legend-line legend-ma-short">
+          短期MA <span id="legendMaShortValue" class="legend-value">–</span>
+        </span>
+        <span class="legend-line legend-ma-mid">
+          中期MA <span id="legendMaMidValue" class="legend-value">–</span>
+        </span>
+        <span class="legend-line legend-vwap">
+          VWAP <span id="legendVwapValue" class="legend-value">–</span>
+        </span>
         <span class="legend-line legend-entry">Entry</span>
         <span class="legend-line legend-tp">TP</span>
         <span class="legend-line legend-sl">SL</span>
-        <span class="legend-line legend-rsi">RSI</span>
+        <span class="legend-line legend-rsi">
+          RSI <span id="legendRsiValue" class="legend-value">–</span>
+        </span>
       </div>
     </div>
 
@@ -334,5 +346,5 @@
 </div>
 
 <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js" defer></script>
-<script src="{% static 'aiapp/js/picks_debug.js' %}?v=40" defer></script>
+<script src="{% static 'aiapp/js/picks_debug.js' %}?v=41" defer></script>
 {% endblock %}
