@@ -340,12 +340,12 @@
   vertical-align: middle;
 }
 
-/* 線ごとの色 */
+/* 線ごとの色（JS の色と合わせる） */
 .legend-close::before      { background: #e5e7eb; }  /* 終値（ローソク） */
-.legend-ma-short::before   { background: #38bdf8; }  /* 短期MA */
-.legend-ma-mid::before     { background: #6366f1; }  /* 中期MA */
-.legend-vwap::before       { background: #f97316; }  /* VWAP */
-.legend-rsi::before        { background: #facc15; }  /* RSI */
+.legend-ma-short::before   { background: #22d3ee; }  /* 5MA（明るいシアン） */
+.legend-ma-mid::before     { background: #f472b6; }  /* 25MA（ピンク系） */
+.legend-vwap::before       { background: #f97316; }  /* VWAP（オレンジ） */
+.legend-rsi::before        { background: #facc15; }  /* RSI（黄） */
 .legend-entry::before      { background: #eab308; }  /* Entry (水平線) */
 .legend-tp::before         { background: #22c55e; }  /* TP */
 .legend-sl::before         { background: #ef4444; }  /* SL */
@@ -376,10 +376,15 @@
 ------------------------------ */
 .rsi-header {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   align-items: center;
   font-size: 12px;
   margin: 4px 2px 2px;
+  gap: 8px;
+}
+
+.rsi-label {
+  color: var(--sub);
 }
 
 .rsi-badge {
