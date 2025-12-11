@@ -303,7 +303,7 @@
     addOverlayLine(maMid, "#6366f1");   // 中期MA
     addOverlayLine(vwap, "#f97316");    // VWAP
 
-    // 水平線（Entry / TP / SL）
+    // 水平線（Entry / TP / SL）★ラベル復活：lastValueVisible/priceLineVisible を有効にする
     function addHLine(value, color) {
       if (value === null || value === undefined) return null;
       const num = Number(value);
@@ -315,8 +315,7 @@
         lineWidth: 1,
         lineStyle: LW.LineStyle.Dashed,
         priceFormat: { type: "price", precision: 0, minMove: 1 },
-        lastValueVisible: false,
-        priceLineVisible: false,
+        // ← lastValueVisible / priceLineVisible はデフォルト（true）に任せる
       });
       const data = baseTimeList.map((t) => ({ time: t, value: num }));
       series.setData(data);
@@ -473,8 +472,7 @@
     const maShortStr = ds.chartMaShort || "";
     const maMidStr = ds.chartMaMid || "";
     const vwapStr = ds.chartVwap || "";
-    // RSI は別パネルにするまで未使用
-    // const rsiStr = ds.chartRsi || "";
+    // const rsiStr = ds.chartRsi || ""; // 今は未使用
 
     const opens = openStr
       ? openStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
@@ -511,7 +509,6 @@
         })
       : [];
 
-    // デバッグ用（必要なら Safari のコンソールで確認できるように）
     console.debug("picks_debug chart lengths:", {
       code: ds.code,
       opens: opens.length,
