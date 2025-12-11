@@ -382,7 +382,12 @@
   margin: 4px 2px 2px;
 }
 
-/* 左側の「RSI 65.7」は要らないので非表示 */
+/* 左側の「RSI 65.7」っぽい最初の要素を強制的に消す */
+.rsi-header > :first-child {
+  display: none;
+}
+
+/* もし .rsi-title クラスがあればそれも消す（保険） */
 .rsi-title {
   display: none;
 }
