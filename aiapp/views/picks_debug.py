@@ -23,18 +23,29 @@ class PickDebugItem:
     name: Optional[str] = None
     sector_display: Optional[str] = None
 
-    # チャート用 OHLC（picks_build からそのまま受け取る）
+    # チャート用 OHLC
     chart_open: Optional[List[float]] = None
     chart_high: Optional[List[float]] = None
     chart_low: Optional[List[float]] = None
     chart_closes: Optional[List[float]] = None
-    chart_dates: Optional[List[str]] = None  # 日付リスト（YYYY-MM-DD）
+    chart_dates: Optional[List[str]] = None  # "YYYY-MM-DD"
 
-    # ★ ここから MA / VWAP / RSI （picks_build の出力をそのまま持たせる）
-    chart_ma_short: Optional[List[float]] = None
-    chart_ma_mid: Optional[List[float]] = None
+    # MA 系（5 / 25 / 75 / 100 / 200）
+    chart_ma_5: Optional[List[float]] = None
+    chart_ma_25: Optional[List[float]] = None
+    chart_ma_75: Optional[List[float]] = None
+    chart_ma_100: Optional[List[float]] = None
+    chart_ma_200: Optional[List[float]] = None
+
+    # VWAP / RSI
     chart_vwap: Optional[List[float]] = None
     chart_rsi: Optional[List[float]] = None
+
+    # 52週・上場来 高安値（水平線用）
+    hi_52w: Optional[float] = None
+    lo_52w: Optional[float] = None
+    hi_all_time: Optional[float] = None
+    lo_all_time: Optional[float] = None
 
     last_close: Optional[float] = None
     atr: Optional[float] = None
@@ -107,17 +118,17 @@ def _to_int(v: Any) -> Optional[int]:
 
 
 def _to_float(v: Any) -> Optional[float]:
-    try:
-        if v is None:
-            return None
-        return float(v)
-    except Exception:
-        return None
+  try:
+      if v is None:
+          return None
+      return float(v)
+  except Exception:
+      return None
 
 
 def _to_float_list(v: Any) -> Optional[List[float]]:
     """
-    chart_open / chart_high / chart_low / chart_closes / chart_ma_* / chart_vwap / chart_rsi 用。
+    chart_open / chart_high / chart_low / chart_closes / MA / VWAP / RSI 用。
     JSON から読み込んだ list を float list に正規化する。
     """
     if not isinstance(v, (list, tuple)):
@@ -201,10 +212,19 @@ def _load_json(
             chart_dates = _normalize_str_list(row.get("chart_dates"))
 
             # ----- MA / VWAP / RSI -----
-            chart_ma_short = _to_float_list(row.get("chart_ma_short"))
-            chart_ma_mid = _to_float_list(row.get("chart_ma_mid"))
+            chart_ma_5 = _to_float_list(row.get("chart_ma_5") or row.get("chart_ma_short"))
+            chart_ma_25 = _to_float_list(row.get("chart_ma_25") or row.get("chart_ma_mid"))
+            chart_ma_75 = _to_float_list(row.get("chart_ma_75"))
+            chart_ma_100 = _to_float_list(row.get("chart_ma_100"))
+            chart_ma_200 = _to_float_list(row.get("chart_ma_200"))
             chart_vwap = _to_float_list(row.get("chart_vwap"))
             chart_rsi = _to_float_list(row.get("chart_rsi"))
+
+            # ----- 52週 / 上場来 高安値 -----
+            hi_52w = _to_float(row.get("hi_52w"))
+            lo_52w = _to_float(row.get("lo_52w"))
+            hi_all_time = _to_float(row.get("hi_all_time"))
+            lo_all_time = _to_float(row.get("lo_all_time"))
 
             it = PickDebugItem(
                 code=str(row.get("code") or ""),
@@ -215,10 +235,17 @@ def _load_json(
                 chart_low=chart_low,
                 chart_closes=chart_closes,
                 chart_dates=chart_dates,
-                chart_ma_short=chart_ma_short,
-                chart_ma_mid=chart_ma_mid,
+                chart_ma_5=chart_ma_5,
+                chart_ma_25=chart_ma_25,
+                chart_ma_75=chart_ma_75,
+                chart_ma_100=chart_ma_100,
+                chart_ma_200=chart_ma_200,
                 chart_vwap=chart_vwap,
                 chart_rsi=chart_rsi,
+                hi_52w=hi_52w,
+                lo_52w=lo_52w,
+                hi_all_time=hi_all_time,
+                lo_all_time=lo_all_time,
                 last_close=row.get("last_close"),
                 atr=row.get("atr"),
                 entry=row.get("entry"),
