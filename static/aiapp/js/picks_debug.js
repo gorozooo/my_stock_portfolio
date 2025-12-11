@@ -2,7 +2,9 @@
 // AI Picks 診断（picks_debug.html）用 JS
 // - フィルタ
 // - モーダル開閉
-// - lightweight-charts でローソク足 + MA + VWAP + RSI + Entry/TP/SL
+// - lightweight-charts で
+//    上段: ローソク足 + MA + VWAP + Entry/TP/SL
+//    下段: RSI 専用パネル
 
 (function () {
   const table = document.getElementById("picksTable");
@@ -12,10 +14,14 @@
   const modal = document.getElementById("pickModal");
   const closeBtn = document.getElementById("modalCloseBtn");
 
-  const chartContainer = document.getElementById("detailChartContainer");
+  const chartWrapper = document.getElementById("detailChartContainer");
+  const priceContainer = document.getElementById("detailChartPriceContainer");
+  const rsiContainer = document.getElementById("detailChartRsiContainer");
   const chartEmptyLabel = document.getElementById("chartEmptyLabel");
+  const rsiLatestLabel = document.getElementById("detailRsiLatest");
 
-  let lwChart = null;
+  let priceChart = null;
+  let rsiChart = null;
   let resizeHandler = null;
 
   // ★ 現在開いている銘柄の価格表示モード
@@ -23,7 +29,7 @@
   //   "decimal1"  : 価格は小数1桁
   let currentPriceMode = "int";
 
-  if (!table || !modal || !chartContainer) {
+  if (!table || !modal || !chartWrapper || !priceContainer) {
     return;
   }
 
@@ -142,11 +148,15 @@
   // candles: [{time, open, high, low, close}, ...]
   // closes: [number, ...]
   // maShort, maMid, vwap, rsi: [number | null, ...]
-  function updateChart(candles, closes, entry, tp, sl, maShort, maMid, vwap, rsi) {
+  function updateChart(candles, closes, entry, tp, sl, maShort, maMid, vwap, rsiValues) {
     // 既存チャート破棄
-    if (lwChart) {
-      lwChart.remove();
-      lwChart = null;
+    if (priceChart) {
+      priceChart.remove();
+      priceChart = null;
+    }
+    if (rsiChart) {
+      rsiChart.remove();
+      rsiChart = null;
     }
     if (resizeHandler) {
       window.removeEventListener("resize", resizeHandler);
@@ -157,32 +167,28 @@
     const hasCloses = Array.isArray(closes) && closes.length > 0;
 
     if (!hasCandles && !hasCloses) {
+      if (chartWrapper) chartWrapper.style.display = "none";
       if (chartEmptyLabel) chartEmptyLabel.style.display = "flex";
+      if (rsiContainer) rsiContainer.style.display = "none";
       return;
     } else {
+      if (chartWrapper) chartWrapper.style.display = "block";
       if (chartEmptyLabel) chartEmptyLabel.style.display = "none";
     }
 
-    // ▼ カード内の左右余白
-    const INNER_PAD = 16;
-    chartContainer.style.paddingLeft = INNER_PAD + "px";
-    chartContainer.style.paddingRight = INNER_PAD + "px";
-    chartContainer.style.boxSizing = "border-box";
-    chartContainer.style.overflow = "hidden";
+    const baseWidth =
+      chartWrapper.clientWidth ||
+      chartWrapper.getBoundingClientRect().width ||
+      priceContainer.clientWidth ||
+      320;
 
-    const containerInnerWidth =
-      chartContainer.clientWidth || chartContainer.getBoundingClientRect().width || 0;
-    let chartWidth = containerInnerWidth - INNER_PAD * 2;
-    if (!isFinite(chartWidth) || chartWidth <= 0) {
-      chartWidth = 320;
-    }
+    const PRICE_HEIGHT = 230;
+    const RSI_HEIGHT = 90;
 
-    const rect = chartContainer.getBoundingClientRect();
-    const chartHeight = rect.height || 260;
-
-    lwChart = LW.createChart(chartContainer, {
-      width: chartWidth,
-      height: chartHeight,
+    // 上段: 価格チャート
+    priceChart = LW.createChart(priceContainer, {
+      width: baseWidth,
+      height: PRICE_HEIGHT,
       layout: {
         background: { type: "solid", color: "rgba(15,23,42,0)" },
         textColor: "#e5edff",
@@ -195,16 +201,6 @@
         visible: true,
         borderVisible: false,
         textColor: "#e5edff",
-        scaleMargins: {
-          top: 0.15,
-          bottom: 0.15,
-        },
-      },
-      // ★ RSI 用の左スケール
-      leftPriceScale: {
-        visible: true,
-        borderVisible: false,
-        textColor: "#9ca3af",
         scaleMargins: {
           top: 0.15,
           bottom: 0.15,
@@ -230,7 +226,7 @@
     let baseTimeList = [];
 
     if (hasCandles) {
-      const candleSeries = lwChart.addCandlestickSeries({
+      const candleSeries = priceChart.addCandlestickSeries({
         upColor: "#22c55e",
         downColor: "#ef4444",
         borderUpColor: "#22c55e",
@@ -248,7 +244,7 @@
       candleSeries.setData(candles);
       baseTimeList = candles.map((c) => c.time);
     } else if (hasCloses) {
-      const line = lwChart.addLineSeries({
+      const line = priceChart.addLineSeries({
         color: "#38bdf8",
         lineWidth: 2,
         priceFormat: {
@@ -287,45 +283,9 @@
 
       if (data.length === 0) return null;
 
-      const series = lwChart.addLineSeries({
+      const series = priceChart.addLineSeries({
         color: color,
         lineWidth: 1.5,
-        priceFormat: {
-          type: "price",
-          precision: 0,
-          minMove: 1,
-        },
-      });
-      series.setData(data);
-      return series;
-    }
-
-    // ★ RSI 用（左スケール）
-    function addRsiLine(values, color) {
-      if (!Array.isArray(values) || values.length === 0) return null;
-      if (!Array.isArray(baseTimeList) || baseTimeList.length === 0) return null;
-
-      const len = Math.min(values.length, baseTimeList.length);
-      if (!len) return null;
-
-      const data = [];
-      const offsetV = values.length - len;
-      const offsetT = baseTimeList.length - len;
-
-      for (let i = 0; i < len; i++) {
-        const vRaw = values[offsetV + i];
-        const n = Number(vRaw);
-        if (isNaN(n)) continue;
-        const t = baseTimeList[offsetT + i];
-        data.push({ time: t, value: n });
-      }
-
-      if (!data.length) return null;
-
-      const series = lwChart.addLineSeries({
-        color: color,
-        lineWidth: 1.5,
-        priceScaleId: "left",
         priceFormat: {
           type: "price",
           precision: 0,
@@ -341,14 +301,11 @@
     addOverlayLine(maMid, "#6366f1");   // 中期MA
     addOverlayLine(vwap, "#f97316");    // VWAP
 
-    // RSI ライン（0〜100）※ 左スケール
-    addRsiLine(rsi, "#facc15");
-
     function addHLine(value, color) {
       if (value === null || value === undefined) return null;
       const num = Number(value);
       if (isNaN(num)) return null;
-      const series = lwChart.addLineSeries({
+      const series = priceChart.addLineSeries({
         color: color,
         lineWidth: 1,
         lineStyle: LW.LineStyle.Dashed,
@@ -371,21 +328,131 @@
     addHLine(tp, "#22c55e");
     addHLine(sl, "#ef4444");
 
-    lwChart.timeScale().fitContent();
+    priceChart.timeScale().fitContent();
+
+    // 下段: RSI パネル
+    const hasRsi = Array.isArray(rsiValues) && rsiValues.length > 0;
+    if (rsiContainer) {
+      rsiContainer.style.display = hasRsi ? "block" : "none";
+    }
+
+    if (hasRsi && rsiContainer && baseTimeList.length > 0) {
+      rsiChart = LW.createChart(rsiContainer, {
+        width: baseWidth,
+        height: RSI_HEIGHT,
+        layout: {
+          background: { type: "solid", color: "rgba(15,23,42,0)" },
+          textColor: "#e5edff",
+        },
+        grid: {
+          vertLines: { color: "rgba(148,163,184,0.16)" },
+          horzLines: { color: "rgba(148,163,184,0.24)" },
+        },
+        rightPriceScale: {
+          visible: true,
+          borderVisible: false,
+          scaleMargins: {
+            top: 0.15,
+            bottom: 0.15,
+          },
+        },
+        timeScale: {
+          borderVisible: false,
+          rightOffset: 2,
+          barSpacing: 7,
+        },
+        crosshair: {
+          mode: LW.CrosshairMode.Normal,
+        },
+        localization: {
+          priceFormatter: (v) => {
+            const n = Number(v);
+            if (isNaN(n)) return "";
+            return n.toFixed(1);
+          },
+        },
+      });
+
+      const len = Math.min(rsiValues.length, baseTimeList.length);
+      const offsetV = rsiValues.length - len;
+      const offsetT = baseTimeList.length - len;
+
+      const rsiData = [];
+      for (let i = 0; i < len; i++) {
+        const raw = rsiValues[offsetV + i];
+        const n = typeof raw === "number" ? raw : Number(raw);
+        if (isNaN(n)) continue;
+        const t = baseTimeList[offsetT + i];
+        rsiData.push({ time: t, value: n });
+      }
+
+      const rsiSeries = rsiChart.addLineSeries({
+        color: "#facc15",
+        lineWidth: 2,
+        priceFormat: {
+          type: "price",
+          precision: 1,
+          minMove: 0.1,
+        },
+        lastValueVisible: true,
+        priceLineVisible: false,
+      });
+      rsiSeries.setData(rsiData);
+
+      // 30 / 50 / 70 の水平ライン
+      function addRsiRef(level, color) {
+        const v = Number(level);
+        if (!isFinite(v)) return;
+        const data = baseTimeList.map((t) => ({ time: t, value: v }));
+        const s = rsiChart.addLineSeries({
+          color: color,
+          lineWidth: 1,
+          lineStyle: LW.LineStyle.Dashed,
+          priceFormat: {
+            type: "price",
+            precision: 1,
+            minMove: 0.1,
+          },
+          lastValueVisible: false,
+          priceLineVisible: false,
+        });
+        s.setData(data);
+      }
+      addRsiRef(30, "rgba(248,250,252,0.45)");
+      addRsiRef(50, "rgba(248,250,252,0.45)");
+      addRsiRef(70, "rgba(248,250,252,0.45)");
+
+      rsiChart.timeScale().fitContent();
+
+      // 上下の timeScale を連動
+      const ts = priceChart.timeScale();
+      const rsiTs = rsiChart.timeScale();
+      ts.subscribeVisibleLogicalRangeChange((range) => {
+        if (!range) return;
+        rsiTs.setVisibleLogicalRange(range);
+      });
+    }
 
     // リサイズ対応
     resizeHandler = function () {
-      if (!lwChart) return;
-      const innerWidth =
-        chartContainer.clientWidth || chartContainer.getBoundingClientRect().width || 0;
-      let w = innerWidth - INNER_PAD * 2;
-      if (!isFinite(w) || w <= 0) w = 320;
-      const r = chartContainer.getBoundingClientRect();
-      const h = r.height || 260;
-      lwChart.applyOptions({
-        width: w,
-        height: h,
-      });
+      const baseW =
+        chartWrapper.clientWidth ||
+        chartWrapper.getBoundingClientRect().width ||
+        priceContainer.clientWidth ||
+        320;
+
+      if (priceChart) {
+        priceChart.applyOptions({
+          width: baseW,
+          height: PRICE_HEIGHT,
+        });
+      }
+      if (rsiChart) {
+        rsiChart.applyOptions({
+          width: baseW,
+          height: RSI_HEIGHT,
+        });
+      }
     };
     window.addEventListener("resize", resizeHandler, { passive: true });
   }
@@ -557,12 +624,29 @@
           return isNaN(n) ? null : n;
         })
       : [];
-    const rsi = rsiStr
+    const rsiValues = rsiStr
       ? rsiStr.split(",").map((s) => {
           const n = Number(s.trim());
           return isNaN(n) ? null : n;
         })
       : [];
+
+    // RSI 最新値ラベル
+    if (rsiLatestLabel) {
+      let latest = null;
+      for (let i = rsiValues.length - 1; i >= 0; i--) {
+        const v = rsiValues[i];
+        if (v !== null && !isNaN(v)) {
+          latest = v;
+          break;
+        }
+      }
+      if (latest === null) {
+        rsiLatestLabel.textContent = "–";
+      } else {
+        rsiLatestLabel.textContent = latest.toFixed(3);
+      }
+    }
 
     let candles = [];
     const len = Math.min(opens.length, highs.length, lows.length, closes.length);
@@ -594,7 +678,7 @@
     const tp = toNumberOrNull(ds.tp);
     const sl = toNumberOrNull(ds.sl);
 
-    updateChart(candles, closes, entry, tp, sl, maShort, maMid, vwap, rsi);
+    updateChart(candles, closes, entry, tp, sl, maShort, maMid, vwap, rsiValues);
 
     modal.classList.add("show");
     body.classList.add("modal-open");
@@ -604,9 +688,13 @@
     modal.classList.remove("show");
     body.classList.remove("modal-open");
 
-    if (lwChart) {
-      lwChart.remove();
-      lwChart = null;
+    if (priceChart) {
+      priceChart.remove();
+      priceChart = null;
+    }
+    if (rsiChart) {
+      rsiChart.remove();
+      rsiChart = null;
     }
     if (resizeHandler) {
       window.removeEventListener("resize", resizeHandler);
