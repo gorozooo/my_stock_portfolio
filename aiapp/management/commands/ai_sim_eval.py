@@ -3,45 +3,31 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandParser
 from django.utils import timezone
 
-# ---- 新しく作ったサービスを使用（中で Level3 ロジックを呼ぶ想定）----
+from aiapp.models.vtrade import VirtualTrade
 from aiapp.services.sim_eval_service import eval_sim_record
 
 
 def _ensure_trade_date(rec: Dict[str, Any]) -> None:
-    """
-    Level3 評価で必要になる trade_date を、
-    古いログでもできるだけ補完する。
-
-    優先順位:
-      1) 既に trade_date があればそのまま
-      2) run_date
-      3) price_date
-      4) ts(ISO文字列) の日付部分
-    """
-    # 1) すでに trade_date があるなら何もしない
     td = rec.get("trade_date")
     if isinstance(td, str) and td:
         return
 
-    # 2) run_date を優先（ai_simulate_auto が入れてくる想定）
     run_date = rec.get("run_date")
     if isinstance(run_date, str) and run_date:
         rec["trade_date"] = run_date
         return
 
-    # 3) price_date （AI Picks 由来の価格日）
     price_date = rec.get("price_date")
     if isinstance(price_date, str) and price_date:
         rec["trade_date"] = price_date
         return
 
-    # 4) ts から日付を引っこ抜く
     ts_str = rec.get("ts")
     if isinstance(ts_str, str) and ts_str:
         try:
@@ -51,34 +37,30 @@ def _ensure_trade_date(rec: Dict[str, Any]) -> None:
             rec["trade_date"] = timezone.localtime(dt).date().isoformat()
             return
         except Exception:
-            # ts が壊れていた場合はどうしようもないので諦める
             pass
 
-    # ここまで来たら trade_date は設定できなかったが、
-    # eval_sim_record 側で最後のフォールバックをしてもらう前提。
-    return
+
+def _parse_dt_iso(ts: Any):
+    if not isinstance(ts, str) or not ts:
+        return None
+    try:
+        dt = timezone.datetime.fromisoformat(ts)
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt, timezone.get_default_timezone())
+        return timezone.localtime(dt)
+    except Exception:
+        return None
 
 
 class Command(BaseCommand):
-    """
-    シミュレログ (/media/aiapp/simulate/*.jsonl) を読み取り、
-    sim_eval_service（Level3: 5分足ベース）で計算した結果
-    （win/lose/flat・PL・TP/SL 到達日・exit_reason 等）を rec に付与して書き戻す。
-
-    使い方:
-      python manage.py ai_sim_eval
-      python manage.py ai_sim_eval --days 5
-      python manage.py ai_sim_eval --force
-    """
-
-    help = "AIシミュレログに結果（PL / ラベル / exit情報）を付与する"
+    help = "AIシミュレログに結果（PL / ラベル / exit情報）を付与 + VirtualTrade同期"
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
             "--days",
             type=int,
             default=getattr(settings, "AIAPP_SIM_HORIZON_DAYS", 5),
-            help="評価に使う営業日数（何営業日後の値動きまでチェックするか）",
+            help="評価に使う営業日数",
         )
         parser.add_argument(
             "--force",
@@ -92,31 +74,25 @@ class Command(BaseCommand):
 
         sim_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "simulate"
         if not sim_dir.exists():
-            self.stdout.write(
-                self.style.WARNING(
-                    f"[ai_sim_eval] シミュレディレクトリが存在しません: {sim_dir}"
-                )
-            )
+            self.stdout.write(self.style.WARNING(f"[ai_sim_eval] dir not found: {sim_dir}"))
             return
 
-        self.stdout.write(
-            f"[ai_sim_eval] dir={sim_dir} horizon_days={horizon_days} force={force}"
-        )
+        self.stdout.write(f"[ai_sim_eval] dir={sim_dir} horizon_days={horizon_days} force={force}")
 
         total = 0
         evaluated = 0
+        db_updated = 0
+        db_missed = 0
 
-        # ===== 全 JSONL ファイルを処理 =====
         for path in sorted(sim_dir.glob("*.jsonl")):
             self.stdout.write(f"  読み込み中: {path.name}")
 
             try:
-                text = path.read_text(encoding="utf-8")
+                lines = path.read_text(encoding="utf-8").splitlines()
             except Exception as e:
                 self.stdout.write(self.style.ERROR(f"    読み込み失敗: {e}"))
                 continue
 
-            lines = text.splitlines()
             new_lines: List[str] = []
 
             for line in lines:
@@ -127,70 +103,110 @@ class Command(BaseCommand):
                 try:
                     rec: Dict[str, Any] = json.loads(raw)
                 except Exception:
-                    # 壊れた行はそのまま残す
                     new_lines.append(raw)
                     continue
 
                 total += 1
 
-                # ===== 既存評価がある場合のスキップ判定 =====
                 already_has_eval = (
                     "eval_label_rakuten" in rec
                     or "eval_label_matsui" in rec
                     or "eval_close_px" in rec
                 )
-
                 if already_has_eval and not force:
                     new_lines.append(json.dumps(rec, ensure_ascii=False))
                     continue
 
-                # ===== Level3 用に trade_date を補完 =====
                 _ensure_trade_date(rec)
 
-                # ===== sim_eval_service に評価させる =====
                 try:
                     updated = eval_sim_record(rec, horizon_days=horizon_days)
                 except Exception as e:
                     code = rec.get("code")
                     ts = rec.get("ts")
-                    self.stdout.write(
-                        self.style.ERROR(
-                            f"    評価中にエラー: {e} "
-                            f"(file={path.name}, code={code}, ts={ts})"
-                        )
-                    )
-                    # 壊さないために rec をそのまま使用
+                    self.stdout.write(self.style.ERROR(f"    評価エラー: {e} (file={path.name}, code={code}, ts={ts})"))
                     updated = rec
 
-                # updated は rec に eval_ 系が付いた dict
                 new_lines.append(json.dumps(updated, ensure_ascii=False))
                 evaluated += 1
 
-            # ===== バックアップ作成 & 上書き =====
-            backup = path.with_suffix(path.suffix + ".bak")
+                # ---- DB sync (CLOSE) ----
+                try:
+                    user_id = updated.get("user_id")
+                    run_id = updated.get("run_id")
+                    code = updated.get("code")
 
+                    if not (user_id and run_id and code):
+                        db_missed += 1
+                        continue
+
+                    try:
+                        vt = VirtualTrade.objects.get(user_id=int(user_id), run_id=str(run_id), code=str(code))
+                    except VirtualTrade.DoesNotExist:
+                        db_missed += 1
+                        continue
+
+                    vt.eval_horizon_days = updated.get("eval_horizon_days")
+
+                    vt.eval_label_rakuten = str(updated.get("eval_label_rakuten") or "")
+                    vt.eval_label_matsui = str(updated.get("eval_label_matsui") or "")
+                    vt.eval_label_sbi = str(updated.get("eval_label_sbi") or "")
+
+                    vt.eval_pl_rakuten = updated.get("eval_pl_rakuten")
+                    vt.eval_pl_matsui = updated.get("eval_pl_matsui")
+                    vt.eval_pl_sbi = updated.get("eval_pl_sbi")
+
+                    vt.eval_exit_px = updated.get("eval_close_px")
+                    vt.eval_exit_reason = str(updated.get("eval_exit_reason") or "")
+
+                    vt.eval_entry_px = updated.get("eval_entry_px")
+
+                    entry_ts = _parse_dt_iso(updated.get("eval_entry_ts"))
+                    exit_ts = _parse_dt_iso(updated.get("eval_exit_ts"))
+                    vt.eval_entry_ts = entry_ts
+                    vt.eval_exit_ts = exit_ts
+
+                    # “強制クローズ完了” の本体：closed_at を埋める
+                    if exit_ts is not None and vt.closed_at is None:
+                        vt.closed_at = exit_ts
+
+                    # replayにも最新評価を残す（デバッグ用）
+                    rp = vt.replay or {}
+                    rp["last_eval"] = updated
+                    vt.replay = rp
+
+                    # R を計算して保存
+                    vt.recompute_r()
+
+                    vt.save(update_fields=[
+                        "eval_horizon_days",
+                        "eval_label_rakuten", "eval_label_matsui", "eval_label_sbi",
+                        "eval_pl_rakuten", "eval_pl_matsui", "eval_pl_sbi",
+                        "eval_exit_px", "eval_exit_reason",
+                        "eval_entry_px", "eval_entry_ts",
+                        "eval_exit_ts", "closed_at",
+                        "replay",
+                        "result_r_rakuten", "result_r_sbi", "result_r_matsui",
+                    ])
+                    db_updated += 1
+
+                except Exception:
+                    db_missed += 1
+                    continue
+
+            backup = path.with_suffix(path.suffix + ".bak")
             try:
                 if backup.exists():
                     backup.unlink()
-
-                path.replace(backup)  # 現ファイル → backup
+                path.replace(backup)
                 path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-
-                self.stdout.write(
-                    self.style.SUCCESS(
-                        f"  → 書き込み完了: {path.name} (backup: {backup.name})"
-                    )
-                )
+                self.stdout.write(self.style.SUCCESS(f"  → 書き込み完了: {path.name} (backup: {backup.name})"))
             except Exception as e:
                 self.stdout.write(self.style.ERROR(f"  書き込み失敗: {e}"))
-                # 書き込み失敗時はバックアップを復旧
                 if backup.exists() and not path.exists():
                     backup.replace(path)
 
         self.stdout.write("")
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"[ai_sim_eval] 全レコード: {total}件 / 評価したレコード: {evaluated}件"
-            )
-        )
+        self.stdout.write(self.style.SUCCESS(f"[ai_sim_eval] 全レコード: {total} / 評価: {evaluated}"))
+        self.stdout.write(self.style.SUCCESS(f"[ai_sim_eval] DB更新: {db_updated} / DB取りこぼし: {db_missed}"))
         self.stdout.write(self.style.SUCCESS("[ai_sim_eval] 完了"))
