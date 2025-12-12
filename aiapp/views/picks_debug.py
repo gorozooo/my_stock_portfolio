@@ -118,12 +118,15 @@ def _to_int(v: Any) -> Optional[int]:
 
 
 def _to_float(v: Any) -> Optional[float]:
-  try:
-      if v is None:
-          return None
-      return float(v)
-  except Exception:
-      return None
+    """
+    単一スカラーを float に変換。失敗時は None。
+    """
+    try:
+        if v is None:
+            return None
+        return float(v)
+    except Exception:
+        return None
 
 
 def _to_float_list(v: Any) -> Optional[List[float]]:
@@ -212,6 +215,7 @@ def _load_json(
             chart_dates = _normalize_str_list(row.get("chart_dates"))
 
             # ----- MA / VWAP / RSI -----
+            # chart_ma_short / chart_ma_mid でも来る可能性があるので両対応
             chart_ma_5 = _to_float_list(row.get("chart_ma_5") or row.get("chart_ma_short"))
             chart_ma_25 = _to_float_list(row.get("chart_ma_25") or row.get("chart_ma_mid"))
             chart_ma_75 = _to_float_list(row.get("chart_ma_75"))
