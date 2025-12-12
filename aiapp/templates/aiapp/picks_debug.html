@@ -117,20 +117,20 @@
               data-chart-close="{% if it.chart_closes %}{{ it.chart_closes|join:',' }}{% endif %}"
               data-chart-dates="{% if it.chart_dates %}{{ it.chart_dates|join:',' }}{% endif %}"
 
-              {# MA / VWAP / RSI も CSV で埋め込む #}
-              data-chart-ma-5="{% if it.chart_ma_5 %}{{ it.chart_ma_5|join:',' }}{% endif %}"
-              data-chart-ma-25="{% if it.chart_ma_25 %}{{ it.chart_ma_25|join:',' }}{% endif %}"
+              {# MA / VWAP / RSI も CSV で埋め込む（PickItem フィールド名に合わせる） #}
+              data-chart-ma-5="{% if it.chart_ma_short %}{{ it.chart_ma_short|join:',' }}{% endif %}"
+              data-chart-ma-25="{% if it.chart_ma_mid %}{{ it.chart_ma_mid|join:',' }}{% endif %}"
               data-chart-ma-75="{% if it.chart_ma_75 %}{{ it.chart_ma_75|join:',' }}{% endif %}"
               data-chart-ma-100="{% if it.chart_ma_100 %}{{ it.chart_ma_100|join:',' }}{% endif %}"
               data-chart-ma-200="{% if it.chart_ma_200 %}{{ it.chart_ma_200|join:',' }}{% endif %}"
               data-chart-vwap="{% if it.chart_vwap %}{{ it.chart_vwap|join:',' }}{% endif %}"
               data-chart-rsi="{% if it.chart_rsi %}{{ it.chart_rsi|join:',' }}{% endif %}"
 
-              {# 52週 / 上場来 高安値（水平線用） #}
-              data-hi-52w="{{ it.hi_52w|default:'' }}"
-              data-lo-52w="{{ it.lo_52w|default:'' }}"
-              data-hi-all="{{ it.hi_all_time|default:'' }}"
-              data-lo-all="{{ it.lo_all_time|default:'' }}"
+              {# 52週 / 上場来 高安値（PickItem の high_* / low_* に合わせる） #}
+              data-hi-52w="{{ it.high_52w|default:'' }}"
+              data-lo-52w="{{ it.low_52w|default:'' }}"
+              data-hi-all="{{ it.high_all|default:'' }}"
+              data-lo-all="{{ it.low_all|default:'' }}"
 
               data-concern="{{ it.reason_concern|default:'' }}"
           >
