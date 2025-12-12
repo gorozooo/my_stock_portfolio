@@ -53,7 +53,7 @@
   const LW = window.LightweightCharts;
 
   // --------------------------------------
-  // 共通フォーマッタ
+  // 共通ヘルパ
   // --------------------------------------
   function setText(id, value, fmt) {
     const el = document.getElementById(id);
@@ -118,7 +118,6 @@
     return isNaN(n) ? null : n;
   }
 
-  // 価格フォーマット（チャート用）
   function getPriceFormat() {
     if (currentPriceMode === "decimal1") {
       return { type: "price", precision: 1, minMove: 0.1 };
@@ -126,7 +125,6 @@
     return { type: "price", precision: 0, minMove: 1 };
   }
 
-  // 凡例用：価格フォーマット
   function formatPriceForLegend(v) {
     if (v === null || v === undefined || isNaN(Number(v))) return "–";
     const n0 = Number(v);
@@ -145,7 +143,6 @@
     }
   }
 
-  // 配列の末尾から有効な数値を探す
   function getLatestNumber(arr) {
     if (!Array.isArray(arr) || arr.length === 0) return null;
     for (let i = arr.length - 1; i >= 0; i--) {
@@ -155,6 +152,18 @@
       if (!isNaN(n)) return n;
     }
     return null;
+  }
+
+  // ★ 複数候補の data-* 名から、最初に見つかったものを返す
+  function getAttrMulti(row, names) {
+    if (!row) return "";
+    for (const name of names) {
+      const v = row.getAttribute(name);
+      if (v !== null && v !== undefined && v !== "") {
+        return v;
+      }
+    }
+    return "";
   }
 
   // --------------------------------------
@@ -553,7 +562,6 @@
   // --------------------------------------
   function openModal(row) {
     const ds = row.dataset || {};
-    const attr = (name) => row.getAttribute(name) || "";
 
     // 現在値から整数/小数判定
     (function decidePriceMode() {
@@ -671,20 +679,26 @@
     }
 
     // ------------- チャート用データ -------------
-    // ★ 数字付き data-* は dataset ではなく getAttribute で読む ★
-    const openStr  = attr("data-chart-open");
-    const highStr  = attr("data-chart-high");
-    const lowStr   = attr("data-chart-low");
-    const closeStr = attr("data-chart-close");
-    const datesStr = attr("data-chart-dates");
+    // ★ 数字付き data-* は dataset ではなく getAttribute 系で読む
+    const openStr  = getAttrMulti(row, ["data-chart-open"]);
+    const highStr  = getAttrMulti(row, ["data-chart-high"]);
+    const lowStr   = getAttrMulti(row, ["data-chart-low"]);
+    const closeStr = getAttrMulti(row, ["data-chart-close"]);
+    const datesStr = getAttrMulti(row, ["data-chart-dates"]);
 
-    const ma5Str     = attr("data-chart-ma-5");
-    const ma25Str    = attr("data-chart-ma-25");
-    const ma75Str    = attr("data-chart-ma-75");
-    const ma100Str   = attr("data-chart-ma-100");
-    const ma200Str   = attr("data-chart-ma-200");
-    const vwapStr    = attr("data-chart-vwap");
-    const rsiStr     = attr("data-chart-rsi");
+    const ma5Str     = getAttrMulti(row, ["data-chart-ma-5", "data-chart-ma5"]);
+    const ma25Str    = getAttrMulti(row, ["data-chart-ma-25", "data-chart-ma25"]);
+    const ma75Str    = getAttrMulti(row, ["data-chart-ma-75", "data-chart-ma75"]);
+    const ma100Str   = getAttrMulti(row, ["data-chart-ma-100", "data-chart-ma100"]);
+    // ★ 200MA だけテンプレ側で表記ゆれしていても拾えるよう候補を増やす
+    const ma200Str   = getAttrMulti(row, [
+      "data-chart-ma-200",
+      "data-chart-ma200",
+      "data-ma-200",
+      "data-ma200"
+    ]);
+    const vwapStr    = getAttrMulti(row, ["data-chart-vwap"]);
+    const rsiStr     = getAttrMulti(row, ["data-chart-rsi"]);
 
     const opens = openStr
       ? openStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
@@ -719,13 +733,13 @@
     const vwapArr = parseFloatArray(vwapStr);
     const rsiList = parseFloatArray(rsiStr);
 
-    // 52週 / 上場来（こちらも data-hi-52w などを getAttribute で読む）
-    const hi52w  = toNumberOrNull(attr("data-hi-52w"));
-    const lo52w  = toNumberOrNull(attr("data-lo-52w"));
-    const hiAll  = toNumberOrNull(attr("data-hi-all"));
-    const loAll  = toNumberOrNull(attr("data-lo-all"));
+    // 52週 / 上場来（こちらも data-* を getAttribute で読む）
+    const hi52w  = toNumberOrNull(getAttrMulti(row, ["data-hi-52w"]));
+    const lo52w  = toNumberOrNull(getAttrMulti(row, ["data-lo-52w"]));
+    const hiAll  = toNumberOrNull(getAttrMulti(row, ["data-hi-all"]));
+    const loAll  = toNumberOrNull(getAttrMulti(row, ["data-lo-all"]));
 
-    // 凡例の数値更新（終値 / MA / VWAP / 高安値）
+    // 凡例の数値更新
     const latestClose  = getLatestNumber(closes);
     const latestMa5    = getLatestNumber(ma5);
     const latestMa25   = getLatestNumber(ma25);
