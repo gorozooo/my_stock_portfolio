@@ -1,3 +1,4 @@
+# aiapp/models/features.py
 # -*- coding: utf-8 -*-
 """
 aiapp.models.features
@@ -17,6 +18,7 @@ aiapp.models.features
 - RET_1, RET_5, RET_20
 - SLOPE_5, SLOPE_25
 - GCROSS, DCROSS
+- HIGH_52W, LOW_52W, HIGH_ALL, LOW_ALL
 """
 
 from dataclasses import dataclass
@@ -273,40 +275,50 @@ def make_features(raw: pd.DataFrame, cfg: Optional[FeatureConfig] = None) -> pd.
     df["Low"] = df["Low"].fillna(df[["Open", "Close"]].min(axis=1))
     df["Volume"] = df["Volume"].fillna(0)
 
-    # --- 移動平均・ボリンジャー ---
-    df[f"MA{cfg.ma_short}"] = _sma(df["Close"], cfg.ma_short)
-    df[f"MA{cfg.ma_mid}"] = _sma(df["Close"], cfg.ma_mid)
-    df[f"MA{cfg.ma_long}"] = _sma(df["Close"], cfg.ma_long)
-    df[f"MA{cfg.ma_extra1}"] = _sma(df["Close"], cfg.ma_extra1)
-    df[f"MA{cfg.ma_extra2}"] = _sma(df["Close"], cfg.ma_extra2)
+    close = df["Close"].astype("float64")
 
-    bb_u, bb_m, bb_l = _bollinger(df["Close"], cfg.bb_window, cfg.bb_sigma)
+    # --- 移動平均・ボリンジャー ---
+    df[f"MA{cfg.ma_short}"] = _sma(close, cfg.ma_short)
+    df[f"MA{cfg.ma_mid}"] = _sma(close, cfg.ma_mid)
+    df[f"MA{cfg.ma_long}"] = _sma(close, cfg.ma_long)
+    df[f"MA{cfg.ma_extra1}"] = _sma(close, cfg.ma_extra1)
+    df[f"MA{cfg.ma_extra2}"] = _sma(close, cfg.ma_extra2)
+
+    bb_u, bb_m, bb_l = _bollinger(close, cfg.bb_window, cfg.bb_sigma)
     df["BBU"], df["BBM"], df["BBL"] = bb_u, bb_m, bb_l
-    df["BB_Z"] = _zscore(df["Close"], cfg.bb_window)
+    df["BB_Z"] = _zscore(close, cfg.bb_window)
 
     # --- RSI / MACD / ATR ---
-    df[f"RSI{cfg.rsi_period}"] = _rsi(df["Close"], cfg.rsi_period)
-    macd_line, macd_signal, macd_hist = _macd(df["Close"], cfg.macd_fast, cfg.macd_slow, cfg.macd_signal)
+    df[f"RSI{cfg.rsi_period}"] = _rsi(close, cfg.rsi_period)
+    macd_line, macd_signal, macd_hist = _macd(close, cfg.macd_fast, cfg.macd_slow, cfg.macd_signal)
     df["MACD"], df["MACD_SIGNAL"], df["MACD_HIST"] = macd_line, macd_signal, macd_hist
-    df[f"ATR{cfg.atr_period}"] = _atr(df["High"], df["Low"], df["Close"], cfg.atr_period)
+    df[f"ATR{cfg.atr_period}"] = _atr(df["High"], df["Low"], close, cfg.atr_period)
 
     # --- VWAP とその乖離 ---
     df["VWAP"] = _vwap(df)
-    df["VWAP_GAP_PCT"] = (df["Close"] / df["VWAP"] - 1) * 100.0
+    df["VWAP_GAP_PCT"] = (close / df["VWAP"] - 1) * 100.0
 
     # --- 収益率・傾き ---
-    df["RET_1"] = _safe_pct_change(df["Close"], 1)
-    df["RET_5"] = _safe_pct_change(df["Close"], 5)
-    df["RET_20"] = _safe_pct_change(df["Close"], 20)
+    df["RET_1"] = _safe_pct_change(close, 1)
+    df["RET_5"] = _safe_pct_change(close, 5)
+    df["RET_20"] = _safe_pct_change(close, 20)
 
-    df[f"SLOPE_{cfg.slope_short}"] = _slope(df["Close"], cfg.slope_short)
-    df[f"SLOPE_{cfg.slope_mid}"] = _slope(df["Close"], cfg.slope_mid)
+    df[f"SLOPE_{cfg.slope_short}"] = _slope(close, cfg.slope_short)
+    df[f"SLOPE_{cfg.slope_mid}"] = _slope(close, cfg.slope_mid)
 
     # --- ゴールデンクロス/デッドクロスのフラグ（例：短中期）---
     ma_s, ma_m = df[f"MA{cfg.ma_short}"], df[f"MA{cfg.ma_mid}"]
     cross = (ma_s > ma_m).astype(int) - (ma_s.shift(1) > ma_m.shift(1)).astype(int)
     df["GCROSS"] = (cross == 1).astype(int)
     df["DCROSS"] = (cross == -1).astype(int)
+
+    # --- 52週高安値 / 上場来高安値 ---
+    # 52週 ≒ 252営業日で近似
+    window_52w = 252
+    df["HIGH_52W"] = close.rolling(window_52w, min_periods=1).max()
+    df["LOW_52W"] = close.rolling(window_52w, min_periods=1).min()
+    df["HIGH_ALL"] = close.cummax()
+    df["LOW_ALL"] = close.cummin()
 
     # --- 最終の軽い欠損処理 ---
     price_cols = ["Open", "High", "Low", "Close", "VWAP", "BBU", "BBM", "BBL"]
@@ -334,6 +346,10 @@ def make_features(raw: pd.DataFrame, cfg: Optional[FeatureConfig] = None) -> pd.
         "RET_20",
         "GCROSS",
         "DCROSS",
+        "HIGH_52W",
+        "LOW_52W",
+        "HIGH_ALL",
+        "LOW_ALL",
     ]
     for c in indi_cols:
         if c in df.columns:
