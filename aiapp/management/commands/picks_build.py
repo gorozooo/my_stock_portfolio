@@ -10,6 +10,7 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
   2. 特徴量生成（テクニカル指標など）
   3. フィルタリング層（仕手株・流動性・異常値などで土台から除外）
   4. スコアリング / ⭐️算出
+     ★本番仕様：⭐️は BehaviorStats（銘柄×mode_period×mode_aggr別）を参照（無ければフォールバック）
   5. Entry / TP / SL の計算
   6. Sizing（数量・必要資金・想定PL/損失・見送り理由）
   7. 理由テキスト生成（選定理由×最大5行 + 懸念1行）
@@ -27,10 +28,12 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
     （OHLCV から MA, ボリンジャー, RSI, MACD, ATR, VWAP,
       RET_x, SLOPE_x, GCROSS/DCROSS などを計算）
 
-  ・スコア / ⭐️:
+  ・スコア:
       aiapp.services.scoring_service.score_sample
-      aiapp.services.scoring_service.stars_from_score
-    ※ モジュールが無い場合は、picks_build 内のフォールバックで算出。
+
+  ・⭐️（本番）:
+      aiapp.models.behavior_stats.BehaviorStats
+      （code × mode_period × mode_aggr の stars を参照）
 
   ・Entry / TP / SL:
       aiapp.services.entry_service.compute_entry_tp_sl
@@ -41,32 +44,19 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
 
   ・理由5つ + 懸念（日本語テキスト）:
       aiapp.services.reasons.make_reasons
-    （内部では picks_build 側の _build_reasons_features で
-      ema_slope / rel_strength_10 / rsi14 / vol_ma20_ratio /
-      breakout_flag / atr14 / vwap_proximity / last_price を渡す）
 
-  ・銘柄フィルタ層（どの銘柄を土台から落とすか）:
+  ・銘柄フィルタ層:
       aiapp.services.picks_filters.FilterContext
       aiapp.services.picks_filters.check_all
-    （仕手株っぽい銘柄 / 出来高極端 / 価格・ATR異常 などを除外）
 
   ・セクター波 / 大型・小型バランス調整:
       aiapp.services.picks_bias.apply_all
-    （PickItem の score を軽く上下させて、全体の並びをチューニング）
 
 ========================================
 ▼ 出力ファイル
 ========================================
   - media/aiapp/picks/latest_full_all.json
-      → 全評価銘柄（検証・バックテスト・ログ用途）
-
   - media/aiapp/picks/latest_full.json
-      → 上位 TopK 銘柄のみ（UI / LINE などが読むメインのJSON）
-
-※ この management command（picks_build）は、
-   上記サービス群をオーケストレーションして JSON を生成する役割に徹し、
-   個々の「評価ロジック」は scoring_service / reasons / filters / bias
-   などの専用モジュール側で管理する。
 """
 
 from __future__ import annotations
@@ -101,7 +91,7 @@ except Exception:  # pragma: no cover
 try:
     from aiapp.services.scoring_service import (
         score_sample as ext_score_sample,
-        stars_from_score as ext_stars_from_score,
+        stars_from_score as ext_stars_from_score,  # ※フォールバック用途（本番は BehaviorStats）
     )
 except Exception:  # pragma: no cover
     ext_score_sample = None  # type: ignore
@@ -132,6 +122,12 @@ try:
     from aiapp.models.macro import MacroRegimeSnapshot
 except Exception:  # pragma: no cover
     MacroRegimeSnapshot = None  # type: ignore
+
+# ★追加: 行動統計（⭐️本番仕様）
+try:
+    from aiapp.models.behavior_stats import BehaviorStats
+except Exception:  # pragma: no cover
+    BehaviorStats = None  # type: ignore
 
 
 # =========================================================
@@ -467,6 +463,53 @@ def _score_to_0_100(s01: float) -> int:
     return int(round(max(0.0, min(1.0, s01)) * 100))
 
 
+def _normalize_code(code: str) -> str:
+    """
+    DB/JSON でぶれないように銘柄コードを正規化。
+    - "7203.T" → "7203"
+    - "7203"   → "7203"
+    """
+    s = str(code or "").strip()
+    if not s:
+        return s
+    if s.endswith(".T"):
+        s = s[:-2]
+    return s
+
+
+def _mode_period_from_horizon(horizon: str) -> str:
+    """
+    picks_build の horizon を BehaviorStats の mode_period に合わせる。
+      short/mid/long はそのまま
+      それ以外は short 扱いに寄せる（壊さない）
+    """
+    h = (horizon or "").strip().lower()
+    if h in ("short", "mid", "long"):
+        return h
+    return "short"
+
+
+def _mode_aggr_from_style(style: str) -> str:
+    """
+    picks_build の style を BehaviorStats の mode_aggr に合わせる。
+      aggressive -> aggr
+      normal     -> norm
+      defensive  -> def
+    既に aggr/norm/def が来た場合はそのまま
+    """
+    s = (style or "").strip().lower()
+    if s in ("aggr", "norm", "def"):
+        return s
+    if s in ("aggressive", "attack", "atk"):
+        return "aggr"
+    if s in ("normal", "standard", "norm"):
+        return "norm"
+    if s in ("defensive", "defence", "def"):
+        return "def"
+    # 既存 default に寄せる（壊さない）
+    return "aggr"
+
+
 # =========================================================
 # 出力アイテム
 # =========================================================
@@ -546,14 +589,20 @@ def _work_one(
     user,
     code: str,
     nbars: int,
+    *,
+    mode_period: str,
+    mode_aggr: str,
+    behavior_stars_map: Optional[Dict[Tuple[str, str, str], int]] = None,
     filter_stats: Optional[Dict[str, int]] = None,
     regime: Optional[object] = None,
 ) -> Optional[Tuple[PickItem, Dict[str, Any]]]:
     """
-    単一銘柄について、価格→特徴量→スコア→Entry/TP/SL→Sizing→理由 まで全部まとめて計算。
+    単一銘柄について、価格→特徴量→スコア→⭐️→Entry/TP/SL→Sizing→理由 まで全部まとめて計算。
     sizing_meta には risk_pct / lot_size を入れて返す。
-    filter_stats が渡されていれば、picks_filters によるスキップ理由ごとの件数を集計する。
-    regime が渡されていれば scoring_service 側で RISK_ON/OFF 等を織り込む。
+
+    ★本番仕様（⭐️）:
+      - BehaviorStats(code, mode_period, mode_aggr) の stars を優先
+      - 取得できない場合のみ score→stars のフォールバック
     """
     try:
         raw = get_prices(code, nbars=nbars, period="3y")
@@ -657,10 +706,32 @@ def _work_one(
             s01 = _fallback_score_sample(feat)
 
         score100 = _score_to_0_100(s01)
-        stars = int(ext_stars_from_score(s01)) if ext_stars_from_score else _fallback_stars(s01)
+
+        # =========================================================
+        # ⭐️（本番仕様）：BehaviorStats を参照（銘柄×mode_period×mode_aggr）
+        # =========================================================
+        stars: int
+        code_norm = _normalize_code(code)
+
+        stars_from_behavior: Optional[int] = None
+        if behavior_stars_map is not None:
+            stars_from_behavior = behavior_stars_map.get((code_norm, mode_period, mode_aggr))
+
+        if isinstance(stars_from_behavior, int) and 1 <= stars_from_behavior <= 5:
+            stars = int(stars_from_behavior)
+        else:
+            # DBが無い/未集計の銘柄だけフォールバック
+            if ext_stars_from_score:
+                try:
+                    stars = int(ext_stars_from_score(s01))
+                except Exception:
+                    stars = _fallback_stars(s01)
+            else:
+                stars = _fallback_stars(s01)
 
         # --- Entry / TP / SL ---
         if ext_entry_tp_sl:
+            # picks_buildの style/horizon を使う（既存仕様）
             e, t, s = ext_entry_tp_sl(last, atr, mode="aggressive", horizon="short")
         else:
             e, t, s = _fallback_entry_tp_sl(last, atr)
@@ -683,11 +754,12 @@ def _work_one(
         if BUILD_LOG:
             print(
                 f"[picks_build] {code} last={last} atr={atr} "
-                f"score01={s01:.3f} score100={score100}"
+                f"score01={s01:.3f} score100={score100} stars={stars} "
+                f"(period={mode_period} aggr={mode_aggr})"
             )
 
         item = PickItem(
-            code=str(code),
+            code=str(code_norm),
             last_close=_nan_to_none(last),
             atr=_nan_to_none(atr),
             entry=_nan_to_none(e),
@@ -719,7 +791,7 @@ def _work_one(
         # --- Sizing（数量・必要資金・想定PL/損失 + 見送り理由） ---
         sizing = compute_position_sizing(
             user=user,
-            code=str(code),
+            code=str(code_norm),
             last_price=last,
             atr=atr,
             entry=e,
@@ -893,6 +965,10 @@ class Command(BaseCommand):
         horizon = (opts.get("horizon") or "short").lower()
         topk = int(opts.get("topk") or 10)
 
+        # ★ 本番仕様（⭐️）キー
+        mode_period = _mode_period_from_horizon(horizon)
+        mode_aggr = _mode_aggr_from_style(style)
+
         codes = _load_universe(universe)
         stockmaster_total = len(codes)
 
@@ -915,6 +991,32 @@ class Command(BaseCommand):
             except Exception as ex:
                 if BUILD_LOG:
                     print(f"[picks_build] macro regime load error: {ex}")
+
+        # ★ BehaviorStats の⭐️をまとめて引く（銘柄×mode_period×mode_aggr）
+        behavior_stars_map: Dict[Tuple[str, str, str], int] = {}
+        if BehaviorStats is not None and codes:
+            try:
+                codes_norm = [_normalize_code(c) for c in codes if c]
+                qs = (
+                    BehaviorStats.objects
+                    .filter(code__in=codes_norm, mode_period=mode_period, mode_aggr=mode_aggr)
+                    .values("code", "mode_period", "mode_aggr", "stars")
+                )
+                for r in qs:
+                    c = _normalize_code(r.get("code"))
+                    mp = (r.get("mode_period") or "").strip().lower()
+                    ma = (r.get("mode_aggr") or "").strip().lower()
+                    st = r.get("stars")
+                    if c and mp and ma and isinstance(st, int):
+                        behavior_stars_map[(c, mp, ma)] = int(st)
+                if BUILD_LOG:
+                    print(
+                        f"[picks_build] BehaviorStats loaded: "
+                        f"{len(behavior_stars_map)} rows (period={mode_period} aggr={mode_aggr})"
+                    )
+            except Exception as ex:
+                if BUILD_LOG:
+                    print(f"[picks_build] BehaviorStats load error: {ex}")
 
         # 空ユニバースのとき
         if not codes:
@@ -940,6 +1042,10 @@ class Command(BaseCommand):
                     "regime_date": regime_date_str,
                     "regime_label": getattr(macro_regime, "regime_label", None) if macro_regime else None,
                     "regime_summary": getattr(macro_regime, "summary", None) if macro_regime else None,
+                    # ★ 追加メタ（UI/デバッグ用）
+                    "stars_mode_period": mode_period,
+                    "stars_mode_aggr": mode_aggr,
+                    "behaviorstats_rows": len(behavior_stars_map),
                 },
             )
             return
@@ -961,6 +1067,9 @@ class Command(BaseCommand):
                 user,
                 code,
                 nbars=nbars,
+                mode_period=mode_period,
+                mode_aggr=mode_aggr,
+                behavior_stars_map=behavior_stars_map,
                 filter_stats=filter_stats,
                 regime=macro_regime,
             )
@@ -1013,6 +1122,11 @@ class Command(BaseCommand):
             meta_extra["regime_date"] = regime_date_str
             meta_extra["regime_label"] = getattr(macro_regime, "regime_label", None)
             meta_extra["regime_summary"] = getattr(macro_regime, "summary", None)
+
+        # ★ ⭐️本番仕様メタ
+        meta_extra["stars_mode_period"] = mode_period
+        meta_extra["stars_mode_aggr"] = mode_aggr
+        meta_extra["behaviorstats_rows"] = len(behavior_stars_map)
 
         self._emit(
             items,
