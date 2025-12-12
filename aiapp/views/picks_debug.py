@@ -87,6 +87,9 @@ class PickDebugItem:
     reason_sbi: Optional[str] = None                  # SBIだけ0株の理由など
 
 
+# =========================================================
+# ヘルパ
+# =========================================================
 def _normalize_str_list(v: Any) -> Optional[List[str]]:
     """
     JSON 側から来る文字列 or 配列を「文字列リスト」に正規化。
@@ -118,9 +121,6 @@ def _to_int(v: Any) -> Optional[int]:
 
 
 def _to_float(v: Any) -> Optional[float]:
-    """
-    単一スカラーを float に変換。失敗時は None。
-    """
     try:
         if v is None:
             return None
@@ -145,6 +145,9 @@ def _to_float_list(v: Any) -> Optional[List[float]]:
     return out or None
 
 
+# =========================================================
+# JSON ロード
+# =========================================================
 def _load_json(
     kind: str = "all",
 ) -> Tuple[Dict[str, Any], List[PickDebugItem], Optional[str], Optional[str]]:
@@ -178,6 +181,9 @@ def _load_json(
 
     for row in raw_items:
         # row は picks_build の asdict(PickItem) 相当の dict
+        if not isinstance(row, dict):
+            continue
+
         try:
             # ----- 理由系 -----
             reason_lines = _normalize_str_list(row.get("reason_lines"))
@@ -211,24 +217,42 @@ def _load_json(
             chart_open = _to_float_list(row.get("chart_open"))
             chart_high = _to_float_list(row.get("chart_high"))
             chart_low = _to_float_list(row.get("chart_low"))
-            chart_closes = _to_float_list(row.get("chart_closes"))
+            chart_closes = _to_float_list(row.get("chart_closes") or row.get("chart_close"))
             chart_dates = _normalize_str_list(row.get("chart_dates"))
 
             # ----- MA / VWAP / RSI -----
-            # chart_ma_short / chart_ma_mid でも来る可能性があるので両対応
-            chart_ma_5 = _to_float_list(row.get("chart_ma_5") or row.get("chart_ma_short"))
-            chart_ma_25 = _to_float_list(row.get("chart_ma_25") or row.get("chart_ma_mid"))
-            chart_ma_75 = _to_float_list(row.get("chart_ma_75"))
-            chart_ma_100 = _to_float_list(row.get("chart_ma_100"))
-            chart_ma_200 = _to_float_list(row.get("chart_ma_200"))
-            chart_vwap = _to_float_list(row.get("chart_vwap"))
-            chart_rsi = _to_float_list(row.get("chart_rsi"))
+            # picks_build.PickItem: chart_ma_short / chart_ma_mid / chart_ma_75 / chart_ma_100 / chart_ma_200
+            chart_ma_5 = _to_float_list(
+                row.get("chart_ma_5") or
+                row.get("chart_ma_short") or
+                row.get("ma_5")
+            )
+            chart_ma_25 = _to_float_list(
+                row.get("chart_ma_25") or
+                row.get("chart_ma_mid") or
+                row.get("ma_25")
+            )
+            chart_ma_75 = _to_float_list(
+                row.get("chart_ma_75") or
+                row.get("ma_75")
+            )
+            chart_ma_100 = _to_float_list(
+                row.get("chart_ma_100") or
+                row.get("ma_100")
+            )
+            chart_ma_200 = _to_float_list(
+                row.get("chart_ma_200") or
+                row.get("ma_200")
+            )
+            chart_vwap = _to_float_list(row.get("chart_vwap") or row.get("vwap"))
+            chart_rsi = _to_float_list(row.get("chart_rsi") or row.get("rsi") or row.get("rsi14"))
 
             # ----- 52週 / 上場来 高安値 -----
-            hi_52w = _to_float(row.get("hi_52w"))
-            lo_52w = _to_float(row.get("lo_52w"))
-            hi_all_time = _to_float(row.get("hi_all_time"))
-            lo_all_time = _to_float(row.get("lo_all_time"))
+            # JSON 側は high_52w / low_52w / high_all / low_all
+            hi_52w = _to_float(row.get("hi_52w") or row.get("high_52w"))
+            lo_52w = _to_float(row.get("lo_52w") or row.get("low_52w"))
+            hi_all_time = _to_float(row.get("hi_all_time") or row.get("high_all"))
+            lo_all_time = _to_float(row.get("lo_all_time") or row.get("low_all"))
 
             it = PickDebugItem(
                 code=str(row.get("code") or ""),
@@ -250,24 +274,24 @@ def _load_json(
                 lo_52w=lo_52w,
                 hi_all_time=hi_all_time,
                 lo_all_time=lo_all_time,
-                last_close=row.get("last_close"),
-                atr=row.get("atr"),
-                entry=row.get("entry"),
-                tp=row.get("tp"),
-                sl=row.get("sl"),
-                score=row.get("score"),
-                score_100=row.get("score_100"),
-                stars=row.get("stars"),
+                last_close=_to_float(row.get("last_close")),
+                atr=_to_float(row.get("atr")),
+                entry=_to_float(row.get("entry")),
+                tp=_to_float(row.get("tp")),
+                sl=_to_float(row.get("sl")),
+                score=_to_float(row.get("score")),
+                score_100=_to_int(row.get("score_100")),
+                stars=_to_int(row.get("stars")),
                 qty_rakuten=qty_rakuten,
-                required_cash_rakuten=row.get("required_cash_rakuten"),
+                required_cash_rakuten=_to_float(row.get("required_cash_rakuten")),
                 est_pl_rakuten=est_pl_rakuten,
                 est_loss_rakuten=est_loss_rakuten,
                 qty_matsui=qty_matsui,
-                required_cash_matsui=row.get("required_cash_matsui"),
+                required_cash_matsui=_to_float(row.get("required_cash_matsui")),
                 est_pl_matsui=est_pl_matsui,
                 est_loss_matsui=est_loss_matsui,
                 qty_sbi=qty_sbi,
-                required_cash_sbi=row.get("required_cash_sbi"),
+                required_cash_sbi=_to_float(row.get("required_cash_sbi")),
                 est_pl_sbi=est_pl_sbi,
                 est_loss_sbi=est_loss_sbi,
                 reasons_text=reasons_text,
@@ -313,6 +337,9 @@ def _load_json(
     return meta, items, updated_at_label, str(path)
 
 
+# =========================================================
+# ビュー
+# =========================================================
 @login_required
 def picks_debug_view(request: HttpRequest) -> HttpResponse:
     """
