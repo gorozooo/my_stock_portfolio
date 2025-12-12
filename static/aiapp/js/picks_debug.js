@@ -582,8 +582,8 @@
       "★ " + (ds.stars || "–");
 
     // 価格・指標
-    setText("detailLast", ds.last, "int");
-    setText("detailAtr", ds.atr, "int");
+    setText("detailLast", ds.last, "priceAuto");
+    setText("detailAtr", ds.atr, "priceAuto");
 
     // 数量
     setText("detailQtyRakuten", ds.qtyRakuten, "int");
@@ -617,7 +617,7 @@
       }
     });
 
-    // 合計行は非表示
+    // 合計行は現状「診断用」なので非表示のままにしておく
     ["detailQtyTotal", "detailPlTotal", "detailLossTotal"].forEach(function (id) {
       const el = document.getElementById(id);
       if (!el) return;
