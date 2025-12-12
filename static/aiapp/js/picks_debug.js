@@ -464,12 +464,12 @@
         },
       });
 
-      const len = Math.min(rsiValues.length, baseTimeList.length);
-      const offsetV = rsiValues.length - len;
-      const offsetT = baseTimeList.length - len;
+      const len2 = Math.min(rsiValues.length, baseTimeList.length);
+      const offsetV = rsiValues.length - len2;
+      const offsetT = baseTimeList.length - len2;
 
       const rsiData = [];
-      for (let i = 0; i < len; i++) {
+      for (let i = 0; i < len2; i++) {
         const raw = rsiValues[offsetV + i];
         const n = typeof raw === "number" ? raw : Number(raw);
         if (isNaN(n)) continue;
@@ -485,7 +485,7 @@
           precision: 1,
           minMove: 0.1,
         },
-        lastValueVisible: true,   // 右側の小さい黄色ラベル
+        lastValueVisible: true,
         priceLineVisible: false,
       });
       rsiSeries.setData(rsiData);
@@ -553,6 +553,7 @@
   // --------------------------------------
   function openModal(row) {
     const ds = row.dataset || {};
+    const attr = (name) => row.getAttribute(name) || "";
 
     // 現在値から整数/小数判定
     (function decidePriceMode() {
@@ -670,19 +671,20 @@
     }
 
     // ------------- チャート用データ -------------
-    const openStr  = ds.chartOpen || "";
-    const highStr  = ds.chartHigh || "";
-    const lowStr   = ds.chartLow || "";
-    const closeStr = ds.chartClose || "";
-    const datesStr = ds.chartDates || "";
+    // ★ 数字付き data-* は dataset ではなく getAttribute で読む ★
+    const openStr  = attr("data-chart-open");
+    const highStr  = attr("data-chart-high");
+    const lowStr   = attr("data-chart-low");
+    const closeStr = attr("data-chart-close");
+    const datesStr = attr("data-chart-dates");
 
-    const ma5Str     = ds.chartMa5 || "";
-    const ma25Str    = ds.chartMa25 || "";
-    const ma75Str    = ds.chartMa75 || "";
-    const ma100Str   = ds.chartMa100 || "";
-    const ma200Str   = ds.chartMa200 || "";
-    const vwapStr    = ds.chartVwap || "";
-    const rsiStr     = ds.chartRsi || "";
+    const ma5Str     = attr("data-chart-ma-5");
+    const ma25Str    = attr("data-chart-ma-25");
+    const ma75Str    = attr("data-chart-ma-75");
+    const ma100Str   = attr("data-chart-ma-100");
+    const ma200Str   = attr("data-chart-ma-200");
+    const vwapStr    = attr("data-chart-vwap");
+    const rsiStr     = attr("data-chart-rsi");
 
     const opens = openStr
       ? openStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
@@ -714,13 +716,14 @@
     const ma75    = parseFloatArray(ma75Str);
     const ma100   = parseFloatArray(ma100Str);
     const ma200   = parseFloatArray(ma200Str);
-    const vwap    = parseFloatArray(vwapStr);
+    const vwapArr = parseFloatArray(vwapStr);
     const rsiList = parseFloatArray(rsiStr);
 
-    const hi52w  = toNumberOrNull(ds.hi52w);
-    const lo52w  = toNumberOrNull(ds.lo52w);
-    const hiAll  = toNumberOrNull(ds.hiAll);
-    const loAll  = toNumberOrNull(ds.loAll);
+    // 52週 / 上場来（こちらも data-hi-52w などを getAttribute で読む）
+    const hi52w  = toNumberOrNull(attr("data-hi-52w"));
+    const lo52w  = toNumberOrNull(attr("data-lo-52w"));
+    const hiAll  = toNumberOrNull(attr("data-hi-all"));
+    const loAll  = toNumberOrNull(attr("data-lo-all"));
 
     // 凡例の数値更新（終値 / MA / VWAP / 高安値）
     const latestClose  = getLatestNumber(closes);
@@ -729,7 +732,7 @@
     const latestMa75   = getLatestNumber(ma75);
     const latestMa100  = getLatestNumber(ma100);
     const latestMa200  = getLatestNumber(ma200);
-    const latestVwap   = getLatestNumber(vwap);
+    const latestVwap   = getLatestNumber(vwapArr);
 
     if (legendCloseVal)  legendCloseVal.textContent  = formatPriceForLegend(latestClose);
     if (legendMa5Val)    legendMa5Val.textContent    = formatPriceForLegend(latestMa5);
@@ -785,7 +788,7 @@
       ma75,
       ma100,
       ma200,
-      vwap,
+      vwapArr,
       rsiList,
       hi52w,
       lo52w,
