@@ -563,7 +563,7 @@ def _work_one(
             return None
 
         # チャート用 OHLC（ローソク足＋終値ライン＋日付）
-        max_points = 60
+        max_points = 260
         chart_open, chart_high, chart_low, chart_closes, chart_dates = _extract_chart_ohlc(
             raw, max_points=max_points
         )
@@ -872,7 +872,7 @@ class Command(BaseCommand):
         parser.add_argument("--sample", type=int, default=None)
         parser.add_argument("--head", type=int, default=None)
         parser.add_argument("--budget", type=int, default=None)
-        parser.add_argument("--nbars", type=int, default=180)
+        parser.add_argument("--nbars", type=int, default=260)
         parser.add_argument("--nbars-lite", type=int, default=45)
         parser.add_argument("--use-snapshot", action="store_true")
         parser.add_argument("--lite-only", action="store_true")
@@ -888,7 +888,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **opts):
         universe = opts.get("universe") or "nk225"
-        nbars = int(opts.get("nbars") or 180)
+        nbars = int(opts.get("nbars") or 260)
         style = (opts.get("style") or "aggressive").lower()
         horizon = (opts.get("horizon") or "short").lower()
         topk = int(opts.get("topk") or 10)
