@@ -1,3 +1,4 @@
+# aiapp/management/commands/picks_build.py
 # -*- coding: utf-8 -*-
 """
 AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
@@ -121,6 +122,9 @@ except Exception:  # pragma: no cover
 try:
     from aiapp.services.picks_bias import apply_all as apply_bias_all
 except Exception:  # pragma: no cover
+    apply_all_bias = apply_bias_all  # typo防止
+    apply_bias_all = apply_bias_all  # type: ignore
+except NameError:
     apply_bias_all = None  # type: ignore
 
 # 追加: マクロレジーム（あれば使う）
@@ -178,6 +182,7 @@ def _safe_series(x) -> pd.Series:
     except Exception:
         return pd.Series(dtype="float64")
 
+
 def _series_tail_to_list(s, max_points: int = 60) -> Optional[List[Optional[float]]]:
     """
     pd.Series などから末尾 max_points 本だけ取り出して
@@ -199,6 +204,7 @@ def _series_tail_to_list(s, max_points: int = 60) -> Optional[List[Optional[floa
         else:
             out.append(f)
     return out if out else None
+
 
 def _safe_float(x) -> float:
     """
@@ -481,8 +487,17 @@ class PickItem:
     # テクニカル系オーバーレイ
     chart_ma_short: Optional[List[Optional[float]]] = None  # 例: MA5
     chart_ma_mid: Optional[List[Optional[float]]] = None    # 例: MA25
+    chart_ma_75: Optional[List[Optional[float]]] = None     # MA75
+    chart_ma_100: Optional[List[Optional[float]]] = None    # MA100
+    chart_ma_200: Optional[List[Optional[float]]] = None    # MA200
     chart_vwap: Optional[List[Optional[float]]] = None      # VWAP
     chart_rsi: Optional[List[Optional[float]]] = None       # RSI14
+
+    # 52週高安値 / 上場来高安値
+    high_52w: Optional[float] = None
+    low_52w: Optional[float] = None
+    high_all: Optional[float] = None
+    low_all: Optional[float] = None
 
     last_close: Optional[float] = None
     atr: Optional[float] = None
@@ -567,15 +582,41 @@ def _work_one(
         last = _safe_float(close_s.iloc[-1] if len(close_s) else np.nan)
         atr = _safe_float(atr_s.iloc[-1] if len(atr_s) else np.nan)
 
-        # --- チャート用オーバーレイ（MA / RSI / VWAP） ---
-        ma_short_col = f"MA{cfg.ma_short}"
-        ma_mid_col = f"MA{cfg.ma_mid}"
+        # --- MA 系オーバーレイ ---
+        ma_short_col = f"MA{cfg.ma_short}"    # 5
+        ma_mid_col = f"MA{cfg.ma_mid}"        # 25
+        ma_75_col = f"MA{cfg.ma_long}"        # 75
+        ma_100_col = f"MA{cfg.ma_extra1}"     # 100
+        ma_200_col = f"MA{cfg.ma_extra2}"     # 200
         rsi_col = f"RSI{cfg.rsi_period}"
 
         chart_ma_short = _series_tail_to_list(feat.get(ma_short_col), max_points=max_points)
         chart_ma_mid = _series_tail_to_list(feat.get(ma_mid_col), max_points=max_points)
+        chart_ma_75 = _series_tail_to_list(feat.get(ma_75_col), max_points=max_points)
+        chart_ma_100 = _series_tail_to_list(feat.get(ma_100_col), max_points=max_points)
+        chart_ma_200 = _series_tail_to_list(feat.get(ma_200_col), max_points=max_points)
         chart_vwap = _series_tail_to_list(feat.get("VWAP"), max_points=max_points)
         chart_rsi = _series_tail_to_list(feat.get(rsi_col), max_points=max_points)
+
+        # --- 52週高安値 / 上場来高安値（スカラー） ---
+        high_52w = None
+        low_52w = None
+        high_all = None
+        low_all = None
+
+        if "HIGH_52W" in feat.columns:
+            high_52w = _safe_float(_safe_series(feat["HIGH_52W"]).iloc[-1])
+        if "LOW_52W" in feat.columns:
+            low_52w = _safe_float(_safe_series(feat["LOW_52W"]).iloc[-1])
+        if "HIGH_ALL" in feat.columns:
+            high_all = _safe_float(_safe_series(feat["HIGH_ALL"]).iloc[-1])
+        if "LOW_ALL" in feat.columns:
+            low_all = _safe_float(_safe_series(feat["LOW_ALL"]).iloc[-1])
+
+        high_52w = _nan_to_none(high_52w)
+        low_52w = _nan_to_none(low_52w)
+        high_all = _nan_to_none(high_all)
+        low_all = _nan_to_none(low_all)
 
         # --- 仕手株・流動性などのフィルタリング層 ---
         if picks_check_all is not None and FilterContext is not None:
@@ -664,8 +705,15 @@ def _work_one(
             chart_dates=chart_dates,
             chart_ma_short=chart_ma_short,
             chart_ma_mid=chart_ma_mid,
+            chart_ma_75=chart_ma_75,
+            chart_ma_100=chart_ma_100,
+            chart_ma_200=chart_ma_200,
             chart_vwap=chart_vwap,
             chart_rsi=chart_rsi,
+            high_52w=high_52w,
+            low_52w=low_52w,
+            high_all=high_all,
+            low_all=low_all,
         )
 
         # --- Sizing（数量・必要資金・想定PL/損失 + 見送り理由） ---
@@ -848,7 +896,7 @@ class Command(BaseCommand):
         codes = _load_universe(universe)
         stockmaster_total = len(codes)
 
-        # ---- マクロレジームの読み込み（あれば） ----
+        # ---- マクロレジームの読み込み（あれば）----
         macro_regime = None
         if MacroRegimeSnapshot is not None:
             try:
