@@ -5,7 +5,7 @@ ai_simulate_auto
 07:00 バッチ用の「フル自動シミュレ（紙トレ自動エントリー）」コマンド。
 
 役割:
-- 04:30 の picks_build が出力した media/aiapp/picks/latest_full.json を読み込む
+- picks_build が出力した media/aiapp/picks/latest_full.json を読み込む
 - TopK 銘柄すべてに対して「DEMOモードの紙トレ注文」を JSONL に起票する
 - 出力先は /media/aiapp/simulate/sim_orders_YYYY-MM-DD.jsonl
   → レベル3判定・行動データセット・行動モデルが読む前提のフォーマット
