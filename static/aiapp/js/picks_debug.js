@@ -3,9 +3,9 @@
 // - フィルタ
 // - モーダル開閉
 // - lightweight-charts で
-//    上段: ローソク足 + MA + VWAP + Entry/TP/SL
+//    上段: ローソク足 + 5/25/75/100/200MA + VWAP + Entry/TP/SL + 52週/上場来ライン
 //    下段: RSI 専用パネル
-//    凡例: 終値 / MA / VWAP の最新値を表示
+//    凡例: 終値 / 各MA / VWAP / 52週高安値 / 上場来高安値
 
 (function () {
   const table = document.getElementById("picksTable");
@@ -19,14 +19,19 @@
   const priceContainer = document.getElementById("detailChartPriceContainer");
   const rsiContainer = document.getElementById("detailChartRsiContainer");
   const chartEmptyLabel = document.getElementById("chartEmptyLabel");
-  const rsiLatestLabel = document.getElementById("detailRsiLatest");
 
   // 凡例の数値表示用
-  const legendCloseVal = document.getElementById("legendCloseValue");
-  const legendMaShortVal = document.getElementById("legendMaShortValue");
-  const legendMaMidVal = document.getElementById("legendMaMidValue");
-  const legendVwapVal = document.getElementById("legendVwapValue");
-  const legendRsiVal = document.getElementById("legendRsiValue");
+  const legendCloseVal   = document.getElementById("legendCloseValue");
+  const legendMa5Val     = document.getElementById("legendMa5Value");
+  const legendMa25Val    = document.getElementById("legendMa25Value");
+  const legendMa75Val    = document.getElementById("legendMa75Value");
+  const legendMa100Val   = document.getElementById("legendMa100Value");
+  const legendMa200Val   = document.getElementById("legendMa200Value");
+  const legendVwapVal    = document.getElementById("legendVwapValue");
+  const legendHi52wVal   = document.getElementById("legendHi52wValue");
+  const legendLo52wVal   = document.getElementById("legendLo52wValue");
+  const legendHiAllVal   = document.getElementById("legendHiAllValue");
+  const legendLoAllVal   = document.getElementById("legendLoAllValue");
 
   let priceChart = null;
   let rsiChart = null;
@@ -140,12 +145,6 @@
     }
   }
 
-  // 凡例用：RSIフォーマット（1桁）
-  function formatRsiForLegend(v) {
-    if (v === null || v === undefined || isNaN(Number(v))) return "–";
-    return Number(v).toFixed(1);
-  }
-
   // 配列の末尾から有効な数値を探す
   function getLatestNumber(arr) {
     if (!Array.isArray(arr) || arr.length === 0) return null;
@@ -198,7 +197,24 @@
   // --------------------------------------
   // チャート更新
   // --------------------------------------
-  function updateChart(candles, closes, entry, tp, sl, maShort, maMid, vwap, rsiValues) {
+  function updateChart(
+    candles,
+    closes,
+    entry,
+    tp,
+    sl,
+    ma5,
+    ma25,
+    ma75,
+    ma100,
+    ma200,
+    vwap,
+    rsiValues,
+    hi52w,
+    lo52w,
+    hiAll,
+    loAll
+  ) {
     if (priceChart) {
       priceChart.remove();
       priceChart = null;
@@ -300,7 +316,7 @@
       baseTimeList = candles.map((c) => c.time);
     } else if (hasCloses) {
       const line = priceChart.addLineSeries({
-        color: "#e5e7eb",
+        color: "#38bdf8",
         lineWidth: 2,
         priceFormat: priceFormat,
         lastValueVisible: false,
@@ -348,10 +364,12 @@
     }
 
     // MA / VWAP
-    // 5MA → 明るいシアン / 25MA → ピンク系 / VWAP → オレンジ
-    addOverlayLine(maShort, "#22d3ee"); // 5MA
-    addOverlayLine(maMid, "#f472b6");   // 25MA
-    addOverlayLine(vwap, "#f97316");    // VWAP
+    addOverlayLine(ma5,   "#22d3ee"); // 5MA
+    addOverlayLine(ma25,  "#f97316"); // 25MA
+    addOverlayLine(ma75,  "#a855f7"); // 75MA
+    addOverlayLine(ma100, "#22c55e"); // 100MA
+    addOverlayLine(ma200, "#e5e7eb"); // 200MA
+    addOverlayLine(vwap,  "#facc15"); // VWAP
 
     // Entry / TP / SL（水平線と右ラベルあり）
     function addHLine(value, color) {
@@ -375,8 +393,31 @@
     }
 
     addHLine(entry, "#eab308"); // Entry
-    addHLine(tp, "#22c55e");   // TP
-    addHLine(sl, "#ef4444");   // SL
+    addHLine(tp,    "#22c55e"); // TP
+    addHLine(sl,    "#ef4444"); // SL
+
+    // 52週 / 上場来 高安値（ラベルなしの補助ライン）
+    function addRefLine(value, color) {
+      if (value === null || value === undefined) return null;
+      const num = Number(value);
+      if (isNaN(num)) return null;
+      const series = priceChart.addLineSeries({
+        color: color,
+        lineWidth: 1,
+        lineStyle: LW.LineStyle.Dotted,
+        priceFormat: priceFormat,
+        lastValueVisible: false,
+        priceLineVisible: false,
+      });
+      const data = baseTimeList.map((t) => ({ time: t, value: num }));
+      series.setData(data);
+      return series;
+    }
+
+    addRefLine(hi52w,  "rgba(96,165,250,0.7)");
+    addRefLine(lo52w,  "rgba(96,165,250,0.7)");
+    addRefLine(hiAll,  "rgba(248,250,252,0.8)");
+    addRefLine(loAll,  "rgba(248,250,252,0.8)");
 
     priceChart.timeScale().fitContent();
 
@@ -444,7 +485,7 @@
           precision: 1,
           minMove: 0.1,
         },
-        lastValueVisible: true,
+        lastValueVisible: true,   // 右側の小さい黄色ラベル
         priceLineVisible: false,
       });
       rsiSeries.setData(rsiData);
@@ -629,16 +670,19 @@
     }
 
     // ------------- チャート用データ -------------
-    const openStr = ds.chartOpen || "";
-    const highStr = ds.chartHigh || "";
-    const lowStr = ds.chartLow || "";
+    const openStr  = ds.chartOpen || "";
+    const highStr  = ds.chartHigh || "";
+    const lowStr   = ds.chartLow || "";
     const closeStr = ds.chartClose || "";
     const datesStr = ds.chartDates || "";
 
-    const maShortStr = ds.chartMaShort || "";
-    const maMidStr = ds.chartMaMid || "";
-    const vwapStr = ds.chartVwap || "";
-    const rsiStr = ds.chartRsi || "";
+    const ma5Str     = ds.chartMa5 || "";
+    const ma25Str    = ds.chartMa25 || "";
+    const ma75Str    = ds.chartMa75 || "";
+    const ma100Str   = ds.chartMa100 || "";
+    const ma200Str   = ds.chartMa200 || "";
+    const vwapStr    = ds.chartVwap || "";
+    const rsiStr     = ds.chartRsi || "";
 
     const opens = openStr
       ? openStr.split(",").map((s) => Number(s.trim())).filter((v) => !isNaN(v))
@@ -656,63 +700,48 @@
       ? datesStr.split(",").map((s) => s.trim()).filter((s) => s.length > 0)
       : [];
 
-    const maShort = maShortStr
-      ? maShortStr.split(",").map((s) => {
-          const n = Number(s.trim());
-          return isNaN(n) ? null : n;
-        })
-      : [];
-    const maMid = maMidStr
-      ? maMidStr.split(",").map((s) => {
-          const n = Number(s.trim());
-          return isNaN(n) ? null : n;
-        })
-      : [];
-    const vwap = vwapStr
-      ? vwapStr.split(",").map((s) => {
-          const n = Number(s.trim());
-          return isNaN(n) ? null : n;
-        })
-      : [];
-    const rsiValues = rsiStr
-      ? rsiStr.split(",").map((s) => {
-          const n = Number(s.trim());
-          return isNaN(n) ? null : n;
-        })
-      : [];
-
-    // RSI 最新値ラベル（上部のバッジ用）
-    if (rsiLatestLabel) {
-      const latestRsi = getLatestNumber(rsiValues);
-      if (latestRsi === null) {
-        rsiLatestLabel.textContent = "–";
-      } else {
-        rsiLatestLabel.textContent = latestRsi.toFixed(1);
-      }
+    function parseFloatArray(str) {
+      return str
+        ? str.split(",").map((s) => {
+            const n = Number(s.trim());
+            return isNaN(n) ? null : n;
+          })
+        : [];
     }
 
-    // 凡例の数値更新（終値 / MA / VWAP / RSI）
-    const latestClose = getLatestNumber(closes);
-    const latestMaShort = getLatestNumber(maShort);
-    const latestMaMid = getLatestNumber(maMid);
-    const latestVwap = getLatestNumber(vwap);
-    const latestRsiForLegend = getLatestNumber(rsiValues);
+    const ma5     = parseFloatArray(ma5Str);
+    const ma25    = parseFloatArray(ma25Str);
+    const ma75    = parseFloatArray(ma75Str);
+    const ma100   = parseFloatArray(ma100Str);
+    const ma200   = parseFloatArray(ma200Str);
+    const vwap    = parseFloatArray(vwapStr);
+    const rsiList = parseFloatArray(rsiStr);
 
-    if (legendCloseVal) {
-      legendCloseVal.textContent = formatPriceForLegend(latestClose);
-    }
-    if (legendMaShortVal) {
-      legendMaShortVal.textContent = formatPriceForLegend(latestMaShort);
-    }
-    if (legendMaMidVal) {
-      legendMaMidVal.textContent = formatPriceForLegend(latestMaMid);
-    }
-    if (legendVwapVal) {
-      legendVwapVal.textContent = formatPriceForLegend(latestVwap);
-    }
-    if (legendRsiVal) {
-      legendRsiVal.textContent = formatRsiForLegend(latestRsiForLegend);
-    }
+    const hi52w  = toNumberOrNull(ds.hi52w);
+    const lo52w  = toNumberOrNull(ds.lo52w);
+    const hiAll  = toNumberOrNull(ds.hiAll);
+    const loAll  = toNumberOrNull(ds.loAll);
+
+    // 凡例の数値更新（終値 / MA / VWAP / 高安値）
+    const latestClose  = getLatestNumber(closes);
+    const latestMa5    = getLatestNumber(ma5);
+    const latestMa25   = getLatestNumber(ma25);
+    const latestMa75   = getLatestNumber(ma75);
+    const latestMa100  = getLatestNumber(ma100);
+    const latestMa200  = getLatestNumber(ma200);
+    const latestVwap   = getLatestNumber(vwap);
+
+    if (legendCloseVal)  legendCloseVal.textContent  = formatPriceForLegend(latestClose);
+    if (legendMa5Val)    legendMa5Val.textContent    = formatPriceForLegend(latestMa5);
+    if (legendMa25Val)   legendMa25Val.textContent   = formatPriceForLegend(latestMa25);
+    if (legendMa75Val)   legendMa75Val.textContent   = formatPriceForLegend(latestMa75);
+    if (legendMa100Val)  legendMa100Val.textContent  = formatPriceForLegend(latestMa100);
+    if (legendMa200Val)  legendMa200Val.textContent  = formatPriceForLegend(latestMa200);
+    if (legendVwapVal)   legendVwapVal.textContent   = formatPriceForLegend(latestVwap);
+    if (legendHi52wVal)  legendHi52wVal.textContent  = formatPriceForLegend(hi52w);
+    if (legendLo52wVal)  legendLo52wVal.textContent  = formatPriceForLegend(lo52w);
+    if (legendHiAllVal)  legendHiAllVal.textContent  = formatPriceForLegend(hiAll);
+    if (legendLoAllVal)  legendLoAllVal.textContent  = formatPriceForLegend(loAll);
 
     // ローソク足データ生成
     let candles = [];
@@ -742,10 +771,27 @@
     }
 
     const entry = toNumberOrNull(ds.entry);
-    const tp = toNumberOrNull(ds.tp);
-    const sl = toNumberOrNull(ds.sl);
+    const tp    = toNumberOrNull(ds.tp);
+    const sl    = toNumberOrNull(ds.sl);
 
-    updateChart(candles, closes, entry, tp, sl, maShort, maMid, vwap, rsiValues);
+    updateChart(
+      candles,
+      closes,
+      entry,
+      tp,
+      sl,
+      ma5,
+      ma25,
+      ma75,
+      ma100,
+      ma200,
+      vwap,
+      rsiList,
+      hi52w,
+      lo52w,
+      hiAll,
+      loAll
+    );
 
     modal.classList.add("show");
     body.classList.add("modal-open");
