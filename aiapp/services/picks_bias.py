@@ -8,10 +8,9 @@ aiapp.services.picks_bias
 を行う「後段バイアス」レイヤー。
 picks_build で PickItem のリストが揃った後に apply_all(items) を呼ぶ想定。
 
-★重要（あなたの「育つAI」方針に合わせて固定）:
-- ⭐️の最終決定権は confidence_service（司令塔）だけ。
-- picks_bias は score / score_100 の微調整のみ。
-- stars は絶対に上書きしない（司令塔の結果を壊さない）。
+★重要（本番仕様）:
+- ⭐️は confidence_service の専権事項。
+- このモジュールは score / score_100 のみ調整し、stars は絶対に変更しない。
 """
 
 from __future__ import annotations
@@ -40,11 +39,9 @@ def _load_meta_for_items(items: Iterable[Any]) -> Dict[str, Dict[str, Any]]:
     """
     if StockMaster is None:
         return {}
-
     codes = sorted({str(getattr(it, "code", "")).strip() for it in items if getattr(it, "code", None)})
     if not codes:
         return {}
-
     try:
         qs = StockMaster.objects.filter(code__in=codes).values("code", "market_cap", "sector_name")
         meta: Dict[str, Dict[str, Any]] = {}
@@ -144,7 +141,7 @@ def apply_all(items: List[Any]) -> None:
     を加え、score / score_100 を更新する。
 
     ★重要:
-    - stars は上書き禁止（confidence_service の最終結果を守る）。
+    - stars は絶対に変更しない（confidence_service の最終結果を保持する）
     """
     if not items:
         return
@@ -170,10 +167,9 @@ def apply_all(items: List[Any]) -> None:
         sec = getattr(it, "sector_display", None) or "UNKNOWN"
         b_sector = sector_bias.get(sec, 0.0)
 
-        # スコアだけ調整（starsは触らない）
         s_adj = _clamp01(base + b_size + b_sector)
         it.score = s_adj
         it.score_100 = int(round(s_adj * 100))
 
-        # ここでは絶対に it.stars を変更しない
-        # （司令塔 confidence_service の結果を壊さない）
+        # ★ stars は触らない（ここが今回の修正ポイント）
+        # it.stars = ... などは絶対にしない
