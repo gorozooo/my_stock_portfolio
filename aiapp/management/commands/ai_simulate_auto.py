@@ -9,6 +9,11 @@ ai_simulate_auto
 - media/aiapp/picks/latest_full.json を読み込む
 - TopK の注文を JSONL に起票する（既存パイプライン互換）
 - 同時に VirtualTrade(DB) に "OPEN" として同期する（UI/⭐️集計用）
+
+★ 本体化（Step1）対応：
+- VirtualTrade.replay に「特徴量スナップショット（安定性用）」を保存
+- VirtualTrade.replay に「Entry→TP/SL 距離指標（距離妥当性用）」を保存
+  ※ yfinance等の取得失敗でも落とさず、保存できる範囲だけ保存する
 """
 
 from __future__ import annotations
@@ -23,6 +28,18 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from aiapp.models.vtrade import VirtualTrade
+
+# ★追加：紙シミュ保存の本体化（特徴量 & 距離）
+try:
+    from aiapp.services.fetch_price import get_prices
+except Exception:  # pragma: no cover
+    get_prices = None  # type: ignore
+
+try:
+    from aiapp.models.features import make_features, FeatureConfig
+except Exception:  # pragma: no cover
+    make_features = None  # type: ignore
+    FeatureConfig = None  # type: ignore
 
 
 # ========= パス定義（MEDIA_ROOT ベース） =========
@@ -59,6 +76,175 @@ def _parse_dt_iso(ts: str) -> Optional[timezone.datetime]:
         return timezone.localtime(dt)
     except Exception:
         return None
+
+
+# ========= 数値ヘルパ =========
+def _safe_float(x) -> Optional[float]:
+    try:
+        if x is None:
+            return None
+        f = float(x)
+        if f != f:  # NaN
+            return None
+        return f
+    except Exception:
+        return None
+
+def _safe_int(x) -> Optional[int]:
+    try:
+        if x is None:
+            return None
+        return int(x)
+    except Exception:
+        return None
+
+
+# ========= 本体化：特徴量・距離の保存 =========
+def _build_feat_last_and_distance(
+    code: str,
+    *,
+    entry: Optional[float],
+    tp: Optional[float],
+    sl: Optional[float],
+    last_close: Optional[float],
+    atr_pick: Optional[float],
+) -> Dict[str, Any]:
+    """
+    VirtualTrade.replay に入れる payload を組み立てる。
+    - feat_last: 特徴量スナップショット（安定性評価の材料）
+    - distance: 距離妥当性評価の材料（ATR正規化）
+    """
+    out: Dict[str, Any] = {}
+
+    # 1) 特徴量スナップショット
+    feat_last: Optional[Dict[str, Any]] = None
+    atr_from_feat: Optional[float] = None
+
+    if get_prices is not None and make_features is not None and FeatureConfig is not None:
+        try:
+            raw = get_prices(code, nbars=260, period="3y")
+            if raw is not None and len(raw) > 0:
+                cfg = FeatureConfig()
+                feat_df = make_features(raw, cfg=cfg)
+                if feat_df is not None and len(feat_df) > 0:
+                    row = feat_df.iloc[-1]
+
+                    # 安定性評価に使う「軽くてブレに強い」代表特徴だけ保存
+                    keep_keys = [
+                        f"RSI{getattr(cfg, 'rsi_period', 14)}",
+                        "BB_Z",
+                        "VWAP_GAP_PCT",
+                        "RET_1",
+                        "RET_5",
+                        "RET_20",
+                        f"SLOPE_{getattr(cfg, 'slope_short', 5)}",
+                        f"SLOPE_{getattr(cfg, 'slope_mid', 25)}",
+                        f"ATR{getattr(cfg, 'atr_period', 14)}",
+                        "GCROSS",
+                        "DCROSS",
+                    ]
+
+                    tmp: Dict[str, Any] = {}
+                    for k in keep_keys:
+                        if k in row.index:
+                            v = row.get(k)
+                            # JSONにしやすい型に寄せる
+                            if v is None:
+                                tmp[k] = None
+                            else:
+                                try:
+                                    fv = float(v)
+                                    if fv != fv:  # NaN
+                                        tmp[k] = None
+                                    else:
+                                        # フラグは int 寄せ
+                                        if k in ("GCROSS", "DCROSS"):
+                                            tmp[k] = int(fv)
+                                        else:
+                                            tmp[k] = fv
+                                except Exception:
+                                    try:
+                                        tmp[k] = int(v)
+                                    except Exception:
+                                        tmp[k] = str(v)
+
+                    # 参照しやすい別名（固定キー）も作る
+                    # （将来 cfg の期間を変えても downstream を壊しにくい）
+                    def pick_float(key: str) -> Optional[float]:
+                        return _safe_float(tmp.get(key))
+
+                    atr_key = f"ATR{getattr(cfg, 'atr_period', 14)}"
+                    atr_from_feat = pick_float(atr_key)
+
+                    feat_last = {
+                        "RSI14": pick_float(f"RSI{getattr(cfg, 'rsi_period', 14)}"),
+                        "BB_Z": pick_float("BB_Z"),
+                        "VWAP_GAP_PCT": pick_float("VWAP_GAP_PCT"),
+                        "RET_1": pick_float("RET_1"),
+                        "RET_5": pick_float("RET_5"),
+                        "RET_20": pick_float("RET_20"),
+                        "SLOPE_5": pick_float(f"SLOPE_{getattr(cfg, 'slope_short', 5)}"),
+                        "SLOPE_25": pick_float(f"SLOPE_{getattr(cfg, 'slope_mid', 25)}"),
+                        "ATR14": atr_from_feat,
+                        "GCROSS": tmp.get("GCROSS"),
+                        "DCROSS": tmp.get("DCROSS"),
+                        # 生の保持（デバッグ/将来拡張用）
+                        "raw": tmp,
+                    }
+        except Exception:
+            feat_last = None
+            atr_from_feat = None
+
+    if feat_last is not None:
+        out["feat_last"] = feat_last
+
+    # 2) 距離妥当性（ATR正規化）
+    # ATR は「特徴量由来」を最優先、無ければ picks 側の atr を使う
+    atr = atr_from_feat if atr_from_feat is not None else atr_pick
+    atr = _safe_float(atr)
+
+    e = _safe_float(entry)
+    t = _safe_float(tp)
+    s = _safe_float(sl)
+    lc = _safe_float(last_close)
+
+    dist: Dict[str, Any] = {
+        "entry": e,
+        "tp": t,
+        "sl": s,
+        "last_close": lc,
+        "atr": atr,
+    }
+
+    if e is not None and t is not None and s is not None and atr is not None and atr > 0:
+        dist_tp_atr = (t - e) / atr
+        dist_sl_atr = (e - s) / atr
+        rr = None
+        if dist_sl_atr is not None and dist_sl_atr > 0:
+            rr = dist_tp_atr / dist_sl_atr
+
+        # 変な値は落としておく（極端な暴発防止）
+        def clamp(x: Optional[float], lo: float, hi: float) -> Optional[float]:
+            if x is None:
+                return None
+            if x != x:
+                return None
+            if x < lo:
+                return lo
+            if x > hi:
+                return hi
+            return x
+
+        dist["dist_tp_atr"] = clamp(_safe_float(dist_tp_atr), -50.0, 50.0)
+        dist["dist_sl_atr"] = clamp(_safe_float(dist_sl_atr), -50.0, 50.0)
+        dist["rr"] = clamp(_safe_float(rr), -50.0, 50.0)
+    else:
+        dist["dist_tp_atr"] = None
+        dist["dist_sl_atr"] = None
+        dist["rr"] = None
+
+    out["distance"] = dist
+    return out
 
 
 class Command(BaseCommand):
@@ -140,6 +326,7 @@ class Command(BaseCommand):
                 tp = it.get("tp")
                 sl = it.get("sl")
                 last_close = it.get("last_close")
+                atr_pick = it.get("atr")  # picks_build が入れている想定（無ければ None）
 
                 qty_rakuten = it.get("qty_rakuten")
                 qty_sbi = it.get("qty_sbi")
@@ -176,6 +363,7 @@ class Command(BaseCommand):
                     "tp": tp,
                     "sl": sl,
                     "last_close": last_close,
+                    "atr": atr_pick,
                     "qty_rakuten": qty_rakuten,
                     "qty_sbi": qty_sbi,
                     "qty_matsui": qty_matsui,
@@ -201,6 +389,16 @@ class Command(BaseCommand):
                 fw.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 written += 1
 
+                # ★ 本体化：安定性/距離妥当性の材料を作って replay に保存
+                payload_extra = _build_feat_last_and_distance(
+                    code=code,
+                    entry=_safe_float(entry),
+                    tp=_safe_float(tp),
+                    sl=_safe_float(sl),
+                    last_close=_safe_float(last_close),
+                    atr_pick=_safe_float(atr_pick),
+                )
+
                 # ---- DB sync (OPEN) ----
                 defaults = dict(
                     run_date=run_date,
@@ -214,7 +412,7 @@ class Command(BaseCommand):
                     universe=str(universe or ""),
                     style=str(style or ""),
                     horizon=str(horizon or ""),
-                    topk=topk if isinstance(topk, int) else None,
+                    topk=topk if isinstance(topk, int) else _safe_int(topk),
                     score=score if score is None else float(score),
                     score_100=score_100 if score_100 is None else int(score_100),
                     stars=stars if stars is None else int(stars),
@@ -237,7 +435,10 @@ class Command(BaseCommand):
                     est_loss_sbi=est_loss_sbi if est_loss_sbi is None else float(est_loss_sbi),
                     est_loss_matsui=est_loss_matsui if est_loss_matsui is None else float(est_loss_matsui),
                     opened_at=opened_at_dt,
-                    replay={"sim_order": rec},
+                    replay={
+                        "sim_order": rec,
+                        **payload_extra,   # feat_last / distance
+                    },
                 )
 
                 obj, created = VirtualTrade.objects.update_or_create(
