@@ -18,6 +18,7 @@ class BehaviorStats(models.Model):
     重要:
       - stars だけでなく、n(試行数) や win_rate 等を正式に保持することで、
         データが少ない銘柄の過信を防ぎ、育つほど重みが上がる。
+      - stability / design_q を保存して「おすすめ順」の根拠をDBに固定する。
     """
 
     MODE_PERIOD_CHOICES = [
@@ -41,7 +42,7 @@ class BehaviorStats(models.Model):
     # --- headline ---
     stars = models.PositiveSmallIntegerField(default=1)
 
-    # --- learning summary (new) ---
+    # --- learning summary ---
     n = models.PositiveIntegerField(default=0)          # 試行数（ラベルが win/lose/flat のもの）
     win = models.PositiveIntegerField(default=0)
     lose = models.PositiveIntegerField(default=0)
@@ -50,6 +51,10 @@ class BehaviorStats(models.Model):
 
     avg_pl = models.FloatField(null=True, blank=True)  # 直近N日平均損益（円）
     std_pl = models.FloatField(null=True, blank=True)  # 損益の標準偏差（円）
+
+    # --- new: 根拠スコア（おすすめ順の固定） ---
+    stability = models.FloatField(null=True, blank=True)  # 0.0..1.0（特徴量の安定度/再現性）
+    design_q = models.FloatField(null=True, blank=True)   # 0.0..1.0（設計RR/ATR整合などの妥当性）
 
     # 評価ウィンドウ（再現性/監査用）
     window_days = models.PositiveIntegerField(default=90)
@@ -61,6 +66,8 @@ class BehaviorStats(models.Model):
         indexes = [
             models.Index(fields=["mode_period", "mode_aggr", "stars"]),
             models.Index(fields=["mode_period", "mode_aggr", "n"]),
+            models.Index(fields=["mode_period", "mode_aggr", "stability"]),
+            models.Index(fields=["mode_period", "mode_aggr", "design_q"]),
         ]
 
     def __str__(self) -> str:
