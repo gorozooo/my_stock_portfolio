@@ -1,4 +1,3 @@
-# aiapp/views/behavior.py
 from __future__ import annotations
 
 import json
@@ -19,7 +18,7 @@ Number = Optional[float]
 
 @dataclass
 class TradeSide:
-    broker: str          # "楽天" or "松井"
+    broker: str          # "楽天" / "SBI" / "松井"
     pl: float            # 損益
     r: Optional[float]   # R
     label: str           # "win" / "lose" / "flat" / "no_position" / "none"
@@ -55,6 +54,7 @@ def _dedup_records(raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     行動データ latest_behavior.jsonl から読み込んだレコードを
     「同日・同コード・同モード・同エントリー・同数量」で重複除外する。
+    （SBI追加：qty_sbi もキーに入れる）
     """
     seen: set[Tuple[Any, ...]] = set()
     deduped: List[Dict[str, Any]] = []
@@ -65,9 +65,10 @@ def _dedup_records(raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             r.get("user_id"),
             r.get("mode"),
             r.get("code"),
-            r.get("price_date"),
+            r.get("price_date") or r.get("trade_date") or r.get("run_date"),
             round(entry, 3),
             _safe_float(r.get("qty_rakuten")) or 0.0,
+            _safe_float(r.get("qty_sbi")) or 0.0,
             _safe_float(r.get("qty_matsui")) or 0.0,
         )
         if key in seen:
@@ -202,17 +203,41 @@ def _build_insights(
     return msgs
 
 
+def _safe_str(v: Any) -> str:
+    if v is None:
+        return ""
+    return str(v)
+
+
+def _parse_date_yyyy_mm_dd(s: str) -> Optional[timezone.datetime.date]:
+    """
+    "2025-12-13" を date に寄せる。失敗したら None。
+    """
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        # Django timezone の dateutil は使わずに安全に
+        y, m, d = s.split("-")
+        return timezone.datetime(int(y), int(m), int(d)).date()
+    except Exception:
+        return None
+
+
 @login_required
 def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     """
     latest_behavior.jsonl を読み込んで、
     - 重複シミュレを除外
-    - 楽天 + 松井 をまとめて集計
+    - 楽天 + SBI + 松井 をまとめて集計
     - KPI / セクター / 相性マップ / TOP トレード / インサイト
     を表示するダッシュボード。
 
     さらに latest_behavior_model_uX.json（行動モデル）も読み込んで、
     「AI がどう学習したか」の要約も表示する。
+
+    追加：
+    - picks_debug の白枠っぽい「本日/合計/評価済/未来/skip/unknown」ピル用集計
     """
     user = request.user
     behavior_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "behavior"
@@ -254,13 +279,103 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     # ---------- モード別件数 ----------
     mode_counts = Counter()
     for r in rows:
-        mode = (r.get("mode") or "").lower()
+        mode = (_safe_str(r.get("mode"))).lower()
         if mode not in ("live", "demo"):
             mode = "other"
         mode_counts[mode] += 1
 
-    # ---------- 楽天 / 松井ごとの勝敗カウント & 全体KPI ----------
+    # ---------- picks_debug の白枠ピル用（本日/合計/評価済/未来/skip/unknown） ----------
+    today = timezone.localdate()
+    today_label = today.strftime("%Y-%m-%d")
+
+    def _is_today(r: Dict[str, Any]) -> bool:
+        # run_date / trade_date / price_date を優先的に見る
+        d = _parse_date_yyyy_mm_dd(_safe_str(r.get("run_date"))) \
+            or _parse_date_yyyy_mm_dd(_safe_str(r.get("trade_date"))) \
+            or _parse_date_yyyy_mm_dd(_safe_str(r.get("price_date")))
+        if d is None:
+            # ts から日付拾える場合は拾う
+            dt = _parse_dt(_safe_str(r.get("ts")))
+            if dt is not None:
+                d = dt.date()
+        return d == today
+
+    def _qty3(r: Dict[str, Any]) -> Tuple[float, float, float]:
+        qr = _safe_float(r.get("qty_rakuten")) or 0.0
+        qs = _safe_float(r.get("qty_sbi")) or 0.0
+        qm = _safe_float(r.get("qty_matsui")) or 0.0
+        return qr, qs, qm
+
+    def _combined_label(r: Dict[str, Any]) -> str:
+        v = r.get("_combined_label")
+        if v is None:
+            return ""
+        return _safe_str(v).strip().lower()
+
+    def _is_evaluated(r: Dict[str, Any]) -> bool:
+        # “評価済” = combined_label が win/lose/flat
+        cl = _combined_label(r)
+        if cl in ("win", "lose", "flat"):
+            return True
+
+        # フォールバック：どれかのブローカーで win/lose/flat が付いてたら評価済扱い
+        for k in ("eval_label_rakuten", "eval_label_sbi", "eval_label_matsui"):
+            lab = _safe_str(r.get(k)).strip().lower()
+            if lab in ("win", "lose", "flat"):
+                return True
+        return False
+
+    def _is_skip(r: Dict[str, Any]) -> bool:
+        cl = _combined_label(r)
+        if cl == "skip":
+            return True
+        qr, qs, qm = _qty3(r)
+        return (qr == 0 and qs == 0 and qm == 0)
+
+    def _is_future(r: Dict[str, Any]) -> bool:
+        # eval_close_date が今日より未来なら future
+        d = _parse_date_yyyy_mm_dd(_safe_str(r.get("eval_close_date")))
+        if d is None:
+            return False
+        return d > today
+
+    def _is_unknown(r: Dict[str, Any]) -> bool:
+        # unknown = 評価済でもskipでもfutureでもないのに、判定ラベルが不明瞭
+        cl = _combined_label(r)
+        if cl == "unknown":
+            return True
+        if _is_evaluated(r) or _is_skip(r) or _is_future(r):
+            return False
+
+        # 3社とも eval_label が空/none っぽい or 変な値
+        labels = []
+        for k in ("eval_label_rakuten", "eval_label_sbi", "eval_label_matsui"):
+            labels.append(_safe_str(r.get(k)).strip().lower())
+
+        allowed = {"win", "lose", "flat", "no_position", "none", "", "null"}
+        if all(l in allowed for l in labels):
+            # allowed しかないのに、評価済/skip/future でもないなら unknown 側に倒す
+            return True
+        return True
+
+    today_rows = [r for r in rows if _is_today(r)]
+    today_total = len(today_rows)
+    today_evaluated = sum(1 for r in today_rows if _is_evaluated(r))
+    today_future = sum(1 for r in today_rows if _is_future(r))
+    today_skip = sum(1 for r in today_rows if _is_skip(r))
+    today_unknown = max(0, today_total - today_evaluated - today_future - today_skip)
+
+    today_counts = {
+        "total": today_total,
+        "evaluated": today_evaluated,
+        "future": today_future,
+        "skip": today_skip,
+        "unknown": today_unknown,
+    }
+
+    # ---------- 楽天 / SBI / 松井ごとの勝敗カウント & 全体KPI ----------
     pl_counts_r = Counter()
+    pl_counts_s = Counter()
     pl_counts_m = Counter()
 
     all_trades: List[TradeSide] = []
@@ -271,13 +386,18 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
             pl_key = "eval_pl_rakuten"
             r_key = "eval_r_rakuten"
             qty_key = "qty_rakuten"
+        elif broker == "SBI":
+            label_key = "eval_label_sbi"
+            pl_key = "eval_pl_sbi"
+            r_key = "eval_r_sbi"
+            qty_key = "qty_sbi"
         else:
             label_key = "eval_label_matsui"
             pl_key = "eval_pl_matsui"
             r_key = "eval_r_matsui"
             qty_key = "qty_matsui"
 
-        label = (r.get(label_key) or "none").lower()
+        label = (_safe_str(r.get(label_key)) or "none").lower()
         pl_val = _safe_float(r.get(pl_key))
         r_val = _safe_float(r.get(r_key))
         qty = _safe_float(r.get(qty_key)) or 0.0
@@ -291,6 +411,8 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         # カウンタ更新
         if broker == "楽天":
             pl_counts_r[label] += 1
+        elif broker == "SBI":
+            pl_counts_s[label] += 1
         else:
             pl_counts_m[label] += 1
 
@@ -303,19 +425,20 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
                 pl=float(pl_val),
                 r=r_val,
                 label=label,
-                ts=str(r.get("ts") or ""),
-                ts_label=_make_ts_label(str(r.get("ts") or "")),
-                code=str(r.get("code") or ""),
-                name=str(r.get("name") or ""),
-                mode=str(r.get("mode") or ""),
+                ts=_safe_str(r.get("ts") or ""),
+                ts_label=_make_ts_label(_safe_str(r.get("ts") or "")),
+                code=_safe_str(r.get("code") or ""),
+                name=_safe_str(r.get("name") or ""),
+                mode=_safe_str(r.get("mode") or ""),
             )
             all_trades.append(trade)
 
     for r in rows:
         add_side("楽天", r)
+        add_side("SBI", r)
         add_side("松井", r)
 
-    # 勝率・平均R・平均利益/損失（楽天＋松井 全体）
+    # 勝率・平均R・平均利益/損失（3社合算）
     win_trades = [t for t in all_trades if t.label == "win"]
     lose_trades = [t for t in all_trades if t.label == "lose"]
 
@@ -337,13 +460,13 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     if lose_trades:
         avg_loss = sum(t.pl for t in lose_trades) / len(lose_trades)
 
-    # ---------- セクター別勝率（楽天のみ） ----------
+    # ---------- セクター別勝率（楽天のみ：従来のまま） ----------
     sector_counter_trials: Dict[str, int] = defaultdict(int)
     sector_counter_win: Dict[str, int] = defaultdict(int)
 
     for r in rows:
-        label = (r.get("eval_label_rakuten") or "none").lower()
-        sector = str(r.get("sector") or "(未分類)")
+        label = (_safe_str(r.get("eval_label_rakuten")) or "none").lower()
+        sector = _safe_str(r.get("sector") or "(未分類)")
         if label in ("win", "lose", "flat"):
             sector_counter_trials[sector] += 1
             if label == "win":
@@ -366,17 +489,20 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     slope_counter: Dict[str, int] = defaultdict(int)
 
     for r in rows:
-        trend = str(r.get("trend_daily") or "不明")
+        trend = _safe_str(r.get("trend_daily") or "不明")
         trend_counter[trend] += 1
 
-        time_bucket = _bucket_time_of_day(str(r.get("ts") or ""))
+        time_bucket = _bucket_time_of_day(_safe_str(r.get("ts") or ""))
         time_counter[time_bucket] += 1
 
         atr = _safe_float(r.get("atr_14"))
         atr_bucket = _bucket_atr(atr)
         atr_counter[atr_bucket] += 1
 
+        # NOTE: 元コードは slope_20 を見ていたが、ログ例は slope_25 なので両対応
         slope = _safe_float(r.get("slope_20"))
+        if slope is None:
+            slope = _safe_float(r.get("slope_25"))
         slope_bucket = _bucket_slope(slope)
         slope_counter[slope_bucket] += 1
 
@@ -399,7 +525,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     atr_stats = _build_dist_list(atr_counter)
     slope_stats = _build_dist_list(slope_counter)
 
-    # ---------- TOP 勝ち / 負け（楽天＋松井 混在） ----------
+    # ---------- TOP 勝ち / 負け（3社混在） ----------
     top_win: List[Dict[str, Any]] = []
     for t in sorted(win_trades, key=lambda x: x.pl, reverse=True)[:5]:
         top_win.append(
@@ -463,7 +589,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
             # broker 別
             brokers: List[Dict[str, Any]] = []
             broker_map = by_feature.get("broker", {}) or {}
-            label_map = {"rakuten": "楽天", "matsui": "松井"}
+            label_map = {"rakuten": "楽天", "sbi": "SBI", "matsui": "松井"}
             for key, val in broker_map.items():
                 brokers.append(
                     {
@@ -554,13 +680,17 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
             "demo": mode_counts.get("demo", 0),
             "other": mode_counts.get("other", 0),
         },
-        # KPI（楽天＋松井 全体）
+        # 本日ピル
+        "today_label": today_label,
+        "today_counts": today_counts,
+        # KPI（3社合算）
         "kpi_win_rate": win_rate_all,
         "kpi_avg_r": avg_r,
         "kpi_avg_win": avg_win,
         "kpi_avg_loss": avg_loss,
-        # 勝敗サマリ（楽天 / 松井）
+        # 勝敗サマリ（楽天 / SBI / 松井）
         "pl_counts_r": pl_counts_r,
+        "pl_counts_s": pl_counts_s,
         "pl_counts_m": pl_counts_m,
         # セクター・相性マップ
         "sector_stats": sector_stats,
