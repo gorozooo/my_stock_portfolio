@@ -1,4 +1,5 @@
 # aiapp/models/behavior_stats.py
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 from django.db import models
@@ -7,45 +8,60 @@ from django.utils import timezone
 
 class BehaviorStats(models.Model):
     """
-    銘柄 × mode_period × mode_aggr ごとの「本番用⭐️」集計結果を保存するテーブル。
+    BehaviorStats（本番用⭐️信頼度の根拠DB）
 
-    - window_days: 直近何日で集計したか（基本 90）
-    - stars: 1〜5（本番表示用）
-    - win_rate / avg_r / trades: 検証とデバッグのために保持
+    目的:
+      - code × mode_period × mode_aggr ごとに、
+        「直近N日」の紙シミュ実績サマリを保持し、
+        picks_build/confidence_service が参照して⭐️を決める。
+
+    重要:
+      - stars だけでなく、n(試行数) や win_rate 等を正式に保持することで、
+        データが少ない銘柄の過信を防ぎ、育つほど重みが上がる。
     """
 
-    code = models.CharField(max_length=8)
-    mode_period = models.CharField(max_length=8)  # "short"/"mid"/"long"
-    mode_aggr = models.CharField(max_length=8)    # "aggr"/"norm"/"def"
+    MODE_PERIOD_CHOICES = [
+        ("short", "short"),
+        ("mid", "mid"),
+        ("long", "long"),
+        ("all", "all"),
+    ]
+    MODE_AGGR_CHOICES = [
+        ("aggr", "aggr"),
+        ("norm", "norm"),
+        ("def", "def"),
+        ("all", "all"),
+    ]
 
-    window_days = models.IntegerField(default=90)
+    # --- key ---
+    code = models.CharField(max_length=10, db_index=True)
+    mode_period = models.CharField(max_length=10, choices=MODE_PERIOD_CHOICES, db_index=True)
+    mode_aggr = models.CharField(max_length=10, choices=MODE_AGGR_CHOICES, db_index=True)
 
-    trades = models.IntegerField(default=0)
-    wins = models.IntegerField(default=0)
-    losses = models.IntegerField(default=0)
-    flats = models.IntegerField(default=0)
+    # --- headline ---
+    stars = models.PositiveSmallIntegerField(default=1)
 
-    win_rate = models.FloatField(default=0.0)
-    avg_r = models.FloatField(default=0.0)
+    # --- learning summary (new) ---
+    n = models.PositiveIntegerField(default=0)          # 試行数（ラベルが win/lose/flat のもの）
+    win = models.PositiveIntegerField(default=0)
+    lose = models.PositiveIntegerField(default=0)
+    flat = models.PositiveIntegerField(default=0)
+    win_rate = models.FloatField(default=0.0)          # 0..100（%）
 
-    score_0_1 = models.FloatField(default=0.0)    # 内部スコア(0..1)
-    stars = models.IntegerField(default=3)
+    avg_pl = models.FloatField(null=True, blank=True)  # 直近N日平均損益（円）
+    std_pl = models.FloatField(null=True, blank=True)  # 損益の標準偏差（円）
 
-    computed_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
+    # 評価ウィンドウ（再現性/監査用）
+    window_days = models.PositiveIntegerField(default=90)
+
+    updated_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
-        db_table = "aiapp_behavior_stats"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["code", "mode_period", "mode_aggr"],
-                name="uq_aiapp_behavior_stats_key",
-            )
-        ]
+        unique_together = (("code", "mode_period", "mode_aggr"),)
         indexes = [
-            models.Index(fields=["code", "mode_period", "mode_aggr"]),
-            models.Index(fields=["computed_at"]),
+            models.Index(fields=["mode_period", "mode_aggr", "stars"]),
+            models.Index(fields=["mode_period", "mode_aggr", "n"]),
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} {self.mode_period}/{self.mode_aggr} stars={self.stars} trades={self.trades}"
+        return f"{self.code} {self.mode_period}/{self.mode_aggr} stars={self.stars} n={self.n}"
