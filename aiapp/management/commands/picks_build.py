@@ -114,9 +114,6 @@ except Exception:  # pragma: no cover
 try:
     from aiapp.services.picks_bias import apply_all as apply_bias_all
 except Exception:  # pragma: no cover
-    apply_all_bias = apply_bias_all  # typo防止
-    apply_bias_all = apply_bias_all  # type: ignore
-except NameError:
     apply_bias_all = None  # type: ignore
 
 # 追加: マクロレジーム（あれば使う）
@@ -131,6 +128,12 @@ try:
 except Exception:  # pragma: no cover
     compute_confidence_star = None  # type: ignore
     compute_confidence_detail = None  # type: ignore
+
+# ★追加: BehaviorStats（picks_buildで一括ロード→cache渡し）
+try:
+    from aiapp.models.behavior_stats import BehaviorStats
+except Exception:  # pragma: no cover
+    BehaviorStats = None  # type: ignore
 
 
 # =========================================================
@@ -596,6 +599,7 @@ def _work_one(
     *,
     mode_period: str,
     mode_aggr: str,
+    behavior_cache: Optional[Dict[Tuple[str, str, str], Dict[str, Any]]] = None,
     filter_stats: Optional[Dict[str, int]] = None,
     regime: Optional[object] = None,
 ) -> Optional[Tuple[PickItem, Dict[str, Any]]]:
@@ -606,6 +610,7 @@ def _work_one(
     ★本番仕様（⭐️）:
       - confidence_service.compute_confidence_star が最終決定
         （BehaviorStats実績 + 安定性 + 距離適正 + scoring補助）
+      - BehaviorStats は picks_build 側で一括ロードし、behavior_cache 経由で渡す（DB連打防止）
       - 万一confidence_serviceが利用不可なら、score→stars のフォールバック
     """
     try:
@@ -738,21 +743,24 @@ def _work_one(
         conf_meta: Dict[str, Any] = {}
         if compute_confidence_star is not None:
             try:
-                stars = int(
-                    compute_confidence_star(
-                        code=str(code_norm),
-                        feat_df=feat,
-                        entry=e,
-                        tp=t,
-                        sl=s,
-                        mode_period=mode_period,
-                        mode_aggr=mode_aggr,
-                        regime=regime,
+                # behavior_cache 対応版/非対応版どちらでも動くようにする
+                try:
+                    stars = int(
+                        compute_confidence_star(
+                            code=str(code_norm),
+                            feat_df=feat,
+                            entry=e,
+                            tp=t,
+                            sl=s,
+                            mode_period=mode_period,
+                            mode_aggr=mode_aggr,
+                            regime=regime,
+                            behavior_cache=behavior_cache,
+                        )
                     )
-                )
-                if CONF_DETAIL and compute_confidence_detail is not None:
-                    try:
-                        d = compute_confidence_detail(
+                except TypeError:
+                    stars = int(
+                        compute_confidence_star(
                             code=str(code_norm),
                             feat_df=feat,
                             entry=e,
@@ -762,7 +770,36 @@ def _work_one(
                             mode_aggr=mode_aggr,
                             regime=regime,
                         )
-                        # JSONに入れられる形へ
+                    )
+
+                if CONF_DETAIL and compute_confidence_detail is not None:
+                    try:
+                        # behavior_cache 対応版/非対応版どちらでも動くようにする
+                        try:
+                            d = compute_confidence_detail(
+                                code=str(code_norm),
+                                feat_df=feat,
+                                entry=e,
+                                tp=t,
+                                sl=s,
+                                mode_period=mode_period,
+                                mode_aggr=mode_aggr,
+                                regime=regime,
+                                behavior_cache=behavior_cache,
+                            )
+                        except TypeError:
+                            d = compute_confidence_detail(
+                                code=str(code_norm),
+                                feat_df=feat,
+                                entry=e,
+                                tp=t,
+                                sl=s,
+                                mode_period=mode_period,
+                                mode_aggr=mode_aggr,
+                                regime=regime,
+                            )
+
+                        # JSONに入れられる形へ（typo修正：perf_avg_pl）
                         conf_meta = {
                             "stars_final": int(d.stars_final),
                             "stars_perf": d.stars_perf,
@@ -773,7 +810,7 @@ def _work_one(
                             "perf_source": d.perf_source,
                             "perf_n": d.perf_n,
                             "perf_win_rate": d.perf_win_rate,
-                            "perf_avg_r": d.perf_avg_r,
+                            "perf_avg_pl": d.perf_avg_pl,
                             "w_perf": float(d.w_perf),
                             "w_stability": float(d.w_stability),
                             "w_distance": float(d.w_distance),
@@ -991,7 +1028,7 @@ def _enrich_meta(items: List[PickItem]) -> None:
 # =========================================================
 
 class Command(BaseCommand):
-    help = "AIピック生成（FULL + TopK + Sizing + 理由テキスト）"
+    help = "AIピック生成（FULL + TopK + Sizing + 理由テキキスト）"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -1079,6 +1116,7 @@ class Command(BaseCommand):
                     "stars_engine": "confidence_service",
                     "stars_mode_period": mode_period,
                     "stars_mode_aggr": mode_aggr,
+                    "behaviorstats_cache_rows": 0,
                 },
             )
             return
@@ -1098,6 +1136,39 @@ class Command(BaseCommand):
         # confidence_detail を meta に1つだけ載せたい（確認用）
         first_conf_detail: Optional[Dict[str, Any]] = None
 
+        # =========================================================
+        # ★ BehaviorStats を一括ロードしてキャッシュ化（DB連打防止）
+        #    - (code, mode_period, mode_aggr)
+        #    - 同モードが無ければ confidence_service 側が all/all を拾う前提
+        # =========================================================
+        behavior_cache: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+        if BehaviorStats is not None and codes:
+            try:
+                codes_norm = [_normalize_code(c) for c in codes if c]
+                qs = (
+                    BehaviorStats.objects
+                    .filter(code__in=codes_norm)
+                    .values("code", "mode_period", "mode_aggr", "stars", "n", "win_rate", "avg_pl")
+                )
+                for r in qs:
+                    c = _normalize_code(r.get("code"))
+                    mp = (r.get("mode_period") or "").strip().lower()
+                    ma = (r.get("mode_aggr") or "").strip().lower()
+                    if not c or not mp or not ma:
+                        continue
+                    behavior_cache[(c, mp, ma)] = {
+                        "stars": r.get("stars"),
+                        "n": r.get("n"),
+                        "win_rate": r.get("win_rate"),
+                        "avg_pl": r.get("avg_pl"),
+                    }
+                if BUILD_LOG:
+                    print(f"[picks_build] BehaviorStats cache rows: {len(behavior_cache)}")
+            except Exception as ex:
+                if BUILD_LOG:
+                    print(f"[picks_build] BehaviorStats cache load error: {ex}")
+                behavior_cache = {}
+
         for code in codes:
             res = _work_one(
                 user,
@@ -1105,6 +1176,7 @@ class Command(BaseCommand):
                 nbars=nbars,
                 mode_period=mode_period,
                 mode_aggr=mode_aggr,
+                behavior_cache=behavior_cache,
                 filter_stats=filter_stats,
                 regime=macro_regime,
             )
@@ -1165,6 +1237,7 @@ class Command(BaseCommand):
         meta_extra["stars_engine"] = "confidence_service"
         meta_extra["stars_mode_period"] = mode_period
         meta_extra["stars_mode_aggr"] = mode_aggr
+        meta_extra["behaviorstats_cache_rows"] = len(behavior_cache)
         if first_conf_detail is not None:
             meta_extra["confidence_detail_sample"] = first_conf_detail
 
