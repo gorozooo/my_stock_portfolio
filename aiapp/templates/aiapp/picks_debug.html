@@ -6,6 +6,45 @@
 
 {% block head %}
 <link rel="stylesheet" href="{% static 'aiapp/css/picks_debug.css' %}?v=20">
+
+<style>
+  /* バナー最小CSS（picks_debug.cssに移してもOK） */
+  .banner-row{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-top:10px;
+    padding-top:10px;
+    border-top:1px solid rgba(148,163,184,.18);
+  }
+  .banner-date{
+    font-weight:800;
+    letter-spacing:.02em;
+  }
+  .banner-badges{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    align-items:center;
+  }
+  .banner-badge{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:6px 10px;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,.35);
+    font-size:12px;
+    line-height:1;
+    background:rgba(15,23,42,.55);
+    user-select:none;
+  }
+  .banner-badge.ok{ border-color:rgba(34,197,94,.45); }
+  .banner-badge.warn{ border-color:rgba(234,179,8,.45); }
+  .banner-badge.bad{ border-color:rgba(239,68,68,.45); }
+  .banner-badge.dim{ opacity:.85; }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -53,6 +92,20 @@
     <div class="meta">
       ※ picks_build が出力した JSON（PickItem 相当）をそのまま一覧表示します。<br>
       ※ 並び順は score_100 降順 → 株価降順です。
+    </div>
+
+    <!-- ===== ここが追加：本日 + 評価パイプライン状況 ===== -->
+    <div class="banner-row">
+      <div class="banner-date">
+        本日 {{ behavior_banner.today_str|default:"-" }}
+      </div>
+      <div class="banner-badges">
+        <span class="banner-badge">合計 {{ behavior_banner.total|default:0 }}</span>
+        <span class="banner-badge ok">✅ 評価済 {{ behavior_banner.counts.evaluated|default:0 }}</span>
+        <span class="banner-badge warn">⏳ 未来 {{ behavior_banner.counts.pending_future|default:0 }}</span>
+        <span class="banner-badge dim">💤 skip {{ behavior_banner.counts.skip|default:0 }}</span>
+        <span class="banner-badge bad">❓ unknown {{ behavior_banner.counts.unknown|default:0 }}</span>
+      </div>
     </div>
   </div>
 
