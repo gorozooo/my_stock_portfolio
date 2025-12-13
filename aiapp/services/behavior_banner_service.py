@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone as dt_timezone
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from django.conf import settings
 from django.utils import timezone
@@ -24,19 +24,21 @@ def _to_date_any(v: Any) -> Optional[date]:
         if v.tzinfo is None:
             return v.date()
         return v.astimezone(JST).date()
+
     if not isinstance(v, str) or not v:
         return None
 
     s = v.strip()
+
+    # "YYYY-MM-DD"
     try:
-        # "2025-12-13"
         if len(s) >= 10 and s[4] == "-" and s[7] == "-":
             return date.fromisoformat(s[:10])
     except Exception:
         pass
 
+    # "YYYY-MM-DDTHH:MM:SS+09:00" / "Z"
     try:
-        # "2025-12-13T12:34:56+09:00" / "Z"
         dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
         if dt.tzinfo is None:
             return dt.date()
@@ -60,13 +62,22 @@ def _classify_row(rec: Dict[str, Any], today: date) -> str:
     """
     1レコードをカテゴリに分類する。
     """
-    # まず “未来評価” 判定
-    td = _to_date_any(rec.get("trade_date")) or _to_date_any(rec.get("run_date")) or _to_date_any(rec.get("price_date")) or _to_date_any(rec.get("ts"))
+    # 未来評価（例：trade_date/run_date/price_date/ts が未来）
+    td = (
+        _to_date_any(rec.get("trade_date"))
+        or _to_date_any(rec.get("run_date"))
+        or _to_date_any(rec.get("price_date"))
+        or _to_date_any(rec.get("ts"))
+    )
     if td is not None and td > today:
         return "pending_future"
 
-    # ラベルが無い / 5分足取れず等
-    has_eval = ("eval_label_rakuten" in rec) or ("eval_label_matsui" in rec) or ("eval_close_px" in rec)
+    has_eval = (
+        ("eval_label_rakuten" in rec)
+        or ("eval_label_matsui" in rec)
+        or ("eval_close_px" in rec)
+        or ("eval_exit_reason" in rec)
+    )
     if not has_eval:
         return "unknown"
 
@@ -85,7 +96,6 @@ def _classify_row(rec: Dict[str, Any], today: date) -> str:
     if qty_r == 0.0 and qty_m == 0.0:
         return "skip"
 
-    # 片側でも win/lose/flat があれば評価済み（evaluated）
     labels = set()
     for k in ("eval_label_rakuten", "eval_label_matsui"):
         v = rec.get(k)
@@ -95,7 +105,6 @@ def _classify_row(rec: Dict[str, Any], today: date) -> str:
     if labels & {"win", "lose", "flat"}:
         return "evaluated"
 
-    # ここまで来たら “評価情報はあるがラベルが謎” → unknown
     return "unknown"
 
 
@@ -109,12 +118,10 @@ class BehaviorBanner:
 def build_behavior_banner_summary(*, days: int = 30) -> BehaviorBanner:
     """
     latest_behavior.jsonl をざっくり集計して、Picks上部に出すバナー情報を返す。
-    - days: “直近days日” っぽい範囲に絞る（ts/trade_date等が取れたものだけ）
     """
     today = timezone.localdate()
     today_str = today.strftime("%Y-%m-%d")
 
-    path = _read_latest_behavior_path()
     counts = {
         "evaluated": 0,
         "pending_future": 0,
@@ -123,10 +130,10 @@ def build_behavior_banner_summary(*, days: int = 30) -> BehaviorBanner:
     }
     total = 0
 
+    path = _read_latest_behavior_path()
     if not path.exists():
         return BehaviorBanner(today_str=today_str, counts=counts, total=0)
 
-    # 直近daysのざっくりカット（dateが取れるものだけ）
     cutoff = today - timedelta(days=int(days))
 
     try:
@@ -147,7 +154,12 @@ def build_behavior_banner_summary(*, days: int = 30) -> BehaviorBanner:
         if not code:
             continue
 
-        d = _to_date_any(rec.get("trade_date")) or _to_date_any(rec.get("run_date")) or _to_date_any(rec.get("price_date")) or _to_date_any(rec.get("ts"))
+        d = (
+            _to_date_any(rec.get("trade_date"))
+            or _to_date_any(rec.get("run_date"))
+            or _to_date_any(rec.get("price_date"))
+            or _to_date_any(rec.get("ts"))
+        )
         if d is not None and d < cutoff:
             continue
 
