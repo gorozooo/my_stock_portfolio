@@ -23,6 +23,14 @@ JST = dt_timezone(timedelta(hours=9))
 BROKERS = ("rakuten", "sbi", "matsui")
 
 
+def _clip01(x: float) -> float:
+    if x < 0.0:
+        return 0.0
+    if x > 1.0:
+        return 1.0
+    return float(x)
+
+
 def _safe_float(x: Any) -> Optional[float]:
     if x in (None, "", "null"):
         return None
@@ -30,7 +38,7 @@ def _safe_float(x: Any) -> Optional[float]:
         v = float(x)
         if not np.isfinite(v):
             return None
-        return v
+        return float(v)
     except Exception:
         return None
 
@@ -131,6 +139,14 @@ def _fallback_label_from_brokers(d: Dict[str, Any]) -> Optional[str]:
     return "unknown"
 
 
+def _first_float(d: Dict[str, Any], keys: List[str]) -> Optional[float]:
+    for k in keys:
+        v = _safe_float(d.get(k))
+        if v is not None:
+            return v
+    return None
+
+
 @dataclass
 class Rec:
     code: str
@@ -140,6 +156,10 @@ class Rec:
     eval_label: Optional[str]
     eval_pl: Optional[float]
     run_date: Optional[datetime]
+    # --- design / stability 用（あれば使う。無ければ None） ---
+    design_rr: Optional[float]
+    risk_atr: Optional[float]
+    reward_atr: Optional[float]
 
 
 def _load_latest_behavior_jsonl(
@@ -211,6 +231,12 @@ def _load_latest_behavior_jsonl(
             # どうしても無い古いデータ → 最後の砦（楽天だけ）
             plv = _safe_float(d.get("eval_pl_rakuten"))
 
+        # ===== design/stability の素材 =====
+        # JSON内のキーが将来変わっても拾えるように「候補キー」で拾う
+        design_rr = _first_float(d, ["design_rr", "design_rrr", "rr_design", "design_rratio"])
+        risk_atr = _first_float(d, ["risk_atr", "design_risk_atr", "atr_risk"])
+        reward_atr = _first_float(d, ["reward_atr", "design_reward_atr", "atr_reward"])
+
         out.append(
             Rec(
                 code=code,
@@ -220,6 +246,9 @@ def _load_latest_behavior_jsonl(
                 eval_label=label,
                 eval_pl=plv,
                 run_date=run_date,
+                design_rr=design_rr,
+                risk_atr=risk_atr,
+                reward_atr=reward_atr,
             )
         )
 
@@ -255,6 +284,98 @@ def _stars_rule(win_rate_pct: float, n: int, avg_pl: Optional[float]) -> int:
     if wr >= 45:
         return 2
     return 1
+
+
+def _calc_stability(
+    *,
+    n: int,
+    win_rate_pct: float,
+    avg_pl: Optional[float],
+    std_pl: Optional[float],
+) -> Optional[float]:
+    """
+    stability: 0..1（「再現性がありそう」ほど高い）
+    - 勝率が極端に低い/高い
+    - PLのバラつきが小さい
+    - 試行数が多い
+    を総合して雑に一本化（学習が育つほど自然に上がる）
+
+    ※ “おすすめ順” をブレにくくする目的なので、計算は安定重視（単純・決定的）
+    """
+    if n <= 0:
+        return None
+
+    # 試行数（育ってるほど信頼できる）
+    # 20回でほぼ頭打ち
+    n_factor = float(np.log1p(n) / np.log1p(20.0))
+    n_factor = _clip01(n_factor)
+
+    # 勝率（0..1）
+    wr_factor = _clip01(float(win_rate_pct) / 100.0)
+
+    # ばらつき（小さいほど良い）
+    # avg_pl が小さいと割り算が暴れるので 5000 を床にする
+    base = max(5000.0, float(abs(avg_pl)) if avg_pl is not None else 5000.0)
+    if std_pl is None:
+        vol_factor = 0.5  # 情報不足は中立
+    else:
+        ratio = float(std_pl) / base
+        vol_factor = 1.0 / (1.0 + ratio)  # ratio=0 ->1, ratio=1 ->0.5, ratio=2 ->0.33...
+        vol_factor = _clip01(vol_factor)
+
+    # 合成（勝率と安定性を主役、試行数で下支え）
+    st = 0.40 * wr_factor + 0.35 * vol_factor + 0.25 * n_factor
+    return _clip01(st)
+
+
+def _calc_design_q(
+    *,
+    rr_list: List[float],
+    risk_atr_list: List[float],
+    reward_atr_list: List[float],
+) -> Optional[float]:
+    """
+    design_q: 0..1（「設計がまともそう」ほど高い）
+    - design_rr が取れるならそれを優先
+    - 無ければ reward_atr / risk_atr で RR を推定
+    - 大きすぎるRRは上限で丸める（過剰最適化に見えるので）
+    """
+    rr_values: List[float] = []
+
+    # まず design_rr
+    for rr in rr_list:
+        if rr is None:
+            continue
+        if not np.isfinite(rr):
+            continue
+        if rr <= 0:
+            continue
+        rr_values.append(float(rr))
+
+    # 無ければ reward_atr / risk_atr
+    if not rr_values and risk_atr_list and reward_atr_list:
+        m = min(len(risk_atr_list), len(reward_atr_list))
+        for i in range(m):
+            r = float(risk_atr_list[i])
+            w = float(reward_atr_list[i])
+            if not np.isfinite(r) or not np.isfinite(w):
+                continue
+            if r <= 0:
+                continue
+            rr_values.append(w / r)
+
+    if not rr_values:
+        return None
+
+    rr_avg = float(np.mean(rr_values))
+
+    # rr=1 で 0.5、rr=2 で 0.8、rr>=3 は 1.0 に近づく（上限丸め）
+    # 単純でブレないカーブにする
+    rr_norm = rr_avg / 3.0
+    rr_norm = _clip01(rr_norm)
+
+    # 「RRが高い＝良い」だけじゃないので、過剰な値は丸める（上のclipでOK）
+    return rr_norm
 
 
 class Command(BaseCommand):
@@ -294,6 +415,9 @@ class Command(BaseCommand):
                     "lose": 0,
                     "flat": 0,
                     "pls": [],
+                    "rrs": [],
+                    "risk_atrs": [],
+                    "reward_atrs": [],
                 },
             )
 
@@ -306,8 +430,16 @@ class Command(BaseCommand):
                     b["lose"] += 1
                 else:
                     b["flat"] += 1
+
                 if r.eval_pl is not None:
                     b["pls"].append(float(r.eval_pl))
+
+                if r.design_rr is not None:
+                    b["rrs"].append(float(r.design_rr))
+                if r.risk_atr is not None:
+                    b["risk_atrs"].append(float(r.risk_atr))
+                if r.reward_atr is not None:
+                    b["reward_atrs"].append(float(r.reward_atr))
 
         # n>0 の銘柄だけを本体にする（n=0 はDBに作らない）
         bucket = {code: st for code, st in bucket.items() if int(st.get("n") or 0) > 0}
@@ -316,14 +448,14 @@ class Command(BaseCommand):
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("===== rebuild_behavior_stats preview (ALL combined) ====="))
         self.stdout.write(f"  days={days}  include_live={include_live}  dry_run={dry_run}  cleanup_zero={cleanup_zero}")
-        self.stdout.write(f"  brokers=rakuten+sbi+matsui (always)")
+        self.stdout.write("  brokers=rakuten+sbi+matsui (always)")
         self.stdout.write(f"  unique_codes(n>0)={unique_codes}")
 
         if unique_codes == 0:
             self.stdout.write(self.style.WARNING("[rebuild_behavior_stats] n>0 の銘柄がありません（pending/unknown/skip ばかりの可能性）。"))
             return
 
-        # 表示用（n降順）
+        # 表示/計算用
         def _avg(xs: List[float]) -> Optional[float]:
             if not xs:
                 return None
@@ -334,22 +466,55 @@ class Command(BaseCommand):
                 return None
             return float(np.std(xs, ddof=0))
 
-        preview_rows: List[Tuple[str, int, float, Optional[float], Optional[float], int]] = []
+        # preview_rows:
+        # (code, n, wr, avg_pl, std_pl, stars, stability, design_q)
+        preview_rows: List[Tuple[str, int, float, Optional[float], Optional[float], int, Optional[float], Optional[float]]] = []
+
         for code, st in bucket.items():
             n = int(st["n"])
             win = int(st["win"])
             wr = (100.0 * win / n) if n > 0 else 0.0
+
             avg_pl = _avg(st["pls"])
             std_pl = _std(st["pls"])
+
             stars = _stars_rule(wr, n, avg_pl)
-            preview_rows.append((code, n, wr, avg_pl, std_pl, stars))
 
-        preview_rows.sort(key=lambda x: x[1], reverse=True)
+            stability = _calc_stability(n=n, win_rate_pct=wr, avg_pl=avg_pl, std_pl=std_pl)
+            design_q = _calc_design_q(
+                rr_list=st["rrs"],
+                risk_atr_list=st["risk_atrs"],
+                reward_atr_list=st["reward_atrs"],
+            )
 
-        for code, n, wr, avg_pl, std_pl, stars in preview_rows[:30]:
-            ap = 0.0 if avg_pl is None else avg_pl
+            preview_rows.append((code, n, wr, avg_pl, std_pl, stars, stability, design_q))
+
+        # ===== おすすめ順 =====
+        # stars → stability → design_q → n → win_rate → avg_pl の順で安定ソート
+        def _k(row: Tuple[str, int, float, Optional[float], Optional[float], int, Optional[float], Optional[float]]):
+            code, n, wr, avg_pl, std_pl, stars, stability, design_q = row
+            stv = float(stability) if stability is not None else -1.0
+            dq = float(design_q) if design_q is not None else -1.0
+            ap = float(avg_pl) if avg_pl is not None else -1e18
+            return (
+                int(stars),
+                stv,
+                dq,
+                int(n),
+                float(wr),
+                ap,
+                code,
+            )
+
+        preview_rows.sort(key=_k, reverse=True)
+
+        # 表示（おすすめ順）
+        for code, n, wr, avg_pl, std_pl, stars, stability, design_q in preview_rows[:30]:
+            ap = 0.0 if avg_pl is None else float(avg_pl)
+            stv = "-" if stability is None else f"{float(stability):.3f}"
+            dq = "-" if design_q is None else f"{float(design_q):.3f}"
             self.stdout.write(
-                f"  {code} [all/all]: n={n:3d} win_rate={wr:5.1f}% avg_pl={ap:7.1f} -> stars={stars}"
+                f"  {code} [all/all]: n={n:3d} win_rate={wr:5.1f}% avg_pl={ap:8.1f} stars={stars} stability={stv} design_q={dq}"
             )
 
         if dry_run:
@@ -366,7 +531,7 @@ class Command(BaseCommand):
                 deleted, _ = BehaviorStats.objects.filter(mode_period="all", mode_aggr="all", n=0).delete()
                 self.stdout.write(self.style.WARNING(f"[rebuild_behavior_stats] cleanup_zero: deleted={deleted}"))
 
-            for code, n, wr, avg_pl, std_pl, stars in preview_rows:
+            for code, n, wr, avg_pl, std_pl, stars, stability, design_q in preview_rows:
                 win = int(bucket[code]["win"])
                 lose = int(bucket[code]["lose"])
                 flat = int(bucket[code]["flat"])
@@ -384,6 +549,8 @@ class Command(BaseCommand):
                         "win_rate": float(round(wr, 1)),
                         "avg_pl": float(avg_pl) if avg_pl is not None else None,
                         "std_pl": float(std_pl) if std_pl is not None else None,
+                        "stability": float(stability) if stability is not None else None,
+                        "design_q": float(design_q) if design_q is not None else None,
                         "window_days": int(days),
                         "updated_at": now,
                     },
