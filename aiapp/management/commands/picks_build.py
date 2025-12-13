@@ -10,7 +10,7 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
   2. 特徴量生成（テクニカル指標など）
   3. フィルタリング層（仕手株・流動性・異常値などで土台から除外）
   4. スコアリング / ⭐️算出
-     ★本番仕様：⭐️は BehaviorStats（銘柄×mode_period×mode_aggr別）を参照（無ければフォールバック）
+     ★本番仕様：⭐️は BehaviorStats（銘柄×mode_period×mode_aggr別）を参照（無ければハイブリッド or フォールバック）
   5. Entry / TP / SL の計算
   6. Sizing（数量・必要資金・想定PL/損失・見送り理由）
   7. 理由テキスト生成（選定理由×最大5行 + 懸念1行）
@@ -34,6 +34,8 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
   ・⭐️（本番）:
       aiapp.models.behavior_stats.BehaviorStats
       （code × mode_period × mode_aggr の stars を参照）
+    ★追加: 精度重視ハイブリッド
+      - BehaviorStats がある場合は、(市場適合⭐️ × 実績適合⭐️) を信頼度でブレンド
 
   ・Entry / TP / SL:
       aiapp.services.entry_service.compute_entry_tp_sl
@@ -91,7 +93,7 @@ except Exception:  # pragma: no cover
 try:
     from aiapp.services.scoring_service import (
         score_sample as ext_score_sample,
-        stars_from_score as ext_stars_from_score,  # ※フォールバック用途（本番は BehaviorStats）
+        stars_from_score as ext_stars_from_score,  # 市場適合⭐️（フォールバック/ハイブリッド基礎）
     )
 except Exception:  # pragma: no cover
     ext_score_sample = None  # type: ignore
@@ -228,6 +230,86 @@ def _nan_to_none(x):
     if isinstance(x, (float, int)) and x != x:  # NaN
         return None
     return x
+
+
+def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
+    try:
+        v = float(x)
+    except Exception:
+        return lo
+    if not np.isfinite(v):
+        return lo
+    return float(max(lo, min(hi, v)))
+
+
+def _to_float_or_none(x: Any) -> Optional[float]:
+    if x is None:
+        return None
+    try:
+        v = float(x)
+    except Exception:
+        return None
+    if not np.isfinite(v):
+        return None
+    return v
+
+
+def _to_int_or_none(x: Any) -> Optional[int]:
+    if x is None:
+        return None
+    try:
+        v = int(x)
+    except Exception:
+        return None
+    return v
+
+
+def _compute_behavior_confidence(
+    n: Optional[int],
+    win_rate: Optional[float],
+    avg_pl: Optional[float],
+) -> float:
+    """
+    精度重視版 confidence
+
+    conf_n        = clamp(n / 20, 0..1)
+    conf_winrate  = clamp((win_rate - 0.45) / 0.15, 0..1)
+    conf_pl       = clamp(avg_pl / 5000, 0..1)
+
+    confidence = 0.5*conf_n + 0.3*conf_winrate + 0.2*conf_pl
+    """
+    nn = _to_int_or_none(n)
+    wr = _to_float_or_none(win_rate)
+    pl = _to_float_or_none(avg_pl)
+
+    conf_n = _clamp((nn or 0) / 20.0, 0.0, 1.0)
+
+    # win_rate は 0..1 想定。もし 0..100 で来ても壊さない
+    if wr is not None and wr > 1.0:
+        wr = wr / 100.0
+    conf_win = _clamp(((wr or 0.0) - 0.45) / 0.15, 0.0, 1.0)
+
+    conf_pl = _clamp((pl or 0.0) / 5000.0, 0.0, 1.0)
+
+    conf = 0.5 * conf_n + 0.3 * conf_win + 0.2 * conf_pl
+    return float(_clamp(conf, 0.0, 1.0))
+
+
+def _blend_stars(
+    stars_model: int,
+    stars_behavior: int,
+    confidence: float,
+) -> int:
+    """
+    final = (1-conf)*model + conf*behavior
+    roundして 1..5
+    """
+    sm = int(max(1, min(5, int(stars_model))))
+    sb = int(max(1, min(5, int(stars_behavior))))
+    c = _clamp(confidence, 0.0, 1.0)
+    v = (1.0 - c) * sm + c * sb
+    out = int(round(v))
+    return int(max(1, min(5, out)))
 
 
 def _build_reasons_features(feat: pd.DataFrame, last: float, atr: float) -> Dict[str, Any]:
@@ -382,6 +464,10 @@ def _extract_chart_ohlc(
     return opens, highs, lows, closes, (dates or None)
 
 
+# =========================================================
+# フォールバック実装（サービスが無い場合）
+# =========================================================
+
 def _fallback_score_sample(feat: pd.DataFrame) -> float:
     """
     0.0〜1.0 のスコアに正規化する簡易ロジック（テスト用）。
@@ -506,14 +592,6 @@ def _mode_aggr_from_style(style: str) -> str:
     return "aggr"
 
 
-def _model_has_field(model, field_name: str) -> bool:
-    try:
-        model._meta.get_field(field_name)
-        return True
-    except Exception:
-        return False
-
-
 # =========================================================
 # 出力アイテム
 # =========================================================
@@ -596,7 +674,8 @@ def _work_one(
     *,
     mode_period: str,
     mode_aggr: str,
-    behavior_stars_map: Optional[Dict[Tuple[str, str, str], int]] = None,
+    behavior_map_primary: Optional[Dict[Tuple[str, str, str], Dict[str, Any]]] = None,
+    behavior_map_all: Optional[Dict[Tuple[str, str, str], Dict[str, Any]]] = None,
     filter_stats: Optional[Dict[str, int]] = None,
     regime: Optional[object] = None,
 ) -> Optional[Tuple[PickItem, Dict[str, Any]]]:
@@ -604,13 +683,11 @@ def _work_one(
     単一銘柄について、価格→特徴量→スコア→⭐️→Entry/TP/SL→Sizing→理由 まで全部まとめて計算。
     sizing_meta には risk_pct / lot_size を入れて返す。
 
-    ★本番仕様（⭐️）:
-      - BehaviorStats(code, mode_period, mode_aggr) の stars を優先
-      - 取得できない場合のみ score→stars のフォールバック
-
-    ★今回対応:
-      - BehaviorStats が all/all にしか無い運用（モード無関係学習）の場合、
-        (code, mode_period, mode_aggr) が無ければ (code, "all", "all") を参照する。
+    ★本番仕様（⭐️）: 精度重視ハイブリッド
+      - 市場適合⭐️（scoring_service）と、実績適合⭐️（BehaviorStats）を
+        confidence（n, win_rate, avg_pl）でブレンドする。
+      - BehaviorStats が無い銘柄は市場適合⭐️のみ（安全）。
+      - BehaviorStats はまず (code, mode_period, mode_aggr) を見て、無ければ (code, all, all) を見る。
     """
     try:
         raw = get_prices(code, nbars=nbars, period="3y")
@@ -716,31 +793,82 @@ def _work_one(
         score100 = _score_to_0_100(s01)
 
         # =========================================================
-        # ⭐️（本番仕様）：BehaviorStats を参照（銘柄×mode_period×mode_aggr）
-        #   対応: 無ければ all/all を参照
+        # ⭐️（精度重視ハイブリッド）
+        #   stars_model    : scoring_service（市場適合）
+        #   stars_behavior : BehaviorStats（実績適合）
+        #   confidence     : n / win_rate / avg_pl
         # =========================================================
-        stars: int
         code_norm = _normalize_code(code)
 
-        stars_from_behavior: Optional[int] = None
-        if behavior_stars_map is not None:
-            # まず “指定モード”
-            stars_from_behavior = behavior_stars_map.get((code_norm, mode_period, mode_aggr))
-            # 無ければ “モード無関係学習（all/all）”
-            if stars_from_behavior is None:
-                stars_from_behavior = behavior_stars_map.get((code_norm, "all", "all"))
-
-        if isinstance(stars_from_behavior, int) and 1 <= stars_from_behavior <= 5:
-            stars = int(stars_from_behavior)
+        # まず市場適合⭐️（常に出せる）
+        if ext_stars_from_score:
+            try:
+                stars_model = int(ext_stars_from_score(s01))
+            except Exception:
+                stars_model = _fallback_stars(s01)
         else:
-            # DBが無い/未集計の銘柄だけフォールバック
-            if ext_stars_from_score:
-                try:
-                    stars = int(ext_stars_from_score(s01))
-                except Exception:
-                    stars = _fallback_stars(s01)
+            stars_model = _fallback_stars(s01)
+        stars_model = int(max(1, min(5, stars_model)))
+
+        # 次に実績適合⭐️（あれば使う）
+        behavior_row: Optional[Dict[str, Any]] = None
+        if behavior_map_primary is not None:
+            behavior_row = behavior_map_primary.get((code_norm, mode_period, mode_aggr))
+
+        # 無ければ all/all を見る
+        if behavior_row is None and behavior_map_all is not None:
+            behavior_row = behavior_map_all.get((code_norm, "all", "all"))
+
+        stars: int = stars_model  # デフォは市場適合⭐️
+
+        if behavior_row is not None:
+            sb = behavior_row.get("stars")
+            stars_behavior = _to_int_or_none(sb)
+
+            # confidence用
+            # まずよくある候補名から探す（モデル差分に強くする）
+            n = (
+                behavior_row.get("trade_count")
+                if behavior_row.get("trade_count") is not None
+                else behavior_row.get("n")
+            )
+            if n is None:
+                n = behavior_row.get("count")
+
+            win_rate = (
+                behavior_row.get("win_rate")
+                if behavior_row.get("win_rate") is not None
+                else behavior_row.get("winrate")
+            )
+            avg_pl = (
+                behavior_row.get("avg_pl")
+                if behavior_row.get("avg_pl") is not None
+                else behavior_row.get("avg_profit")
+            )
+
+            if isinstance(stars_behavior, int) and 1 <= stars_behavior <= 5:
+                confidence = _compute_behavior_confidence(
+                    _to_int_or_none(n),
+                    _to_float_or_none(win_rate),
+                    _to_float_or_none(avg_pl),
+                )
+                stars = _blend_stars(stars_model, stars_behavior, confidence)
+
+                if BUILD_LOG:
+                    mp = behavior_row.get("mode_period")
+                    ma = behavior_row.get("mode_aggr")
+                    print(
+                        f"[picks_build] {code_norm} stars_hybrid="
+                        f"{stars} (model={stars_model}, behavior={stars_behavior}, conf={confidence:.2f}, "
+                        f"n={_to_int_or_none(n)}, wr={_to_float_or_none(win_rate)}, pl={_to_float_or_none(avg_pl)}, "
+                        f"bs_mode={mp}/{ma})"
+                    )
             else:
-                stars = _fallback_stars(s01)
+                # 実績レコードはあるが stars が壊れてる → 市場適合⭐️
+                stars = stars_model
+        else:
+            # 実績が無い → 市場適合⭐️
+            stars = stars_model
 
         # --- Entry / TP / SL ---
         if ext_entry_tp_sl:
@@ -766,7 +894,7 @@ def _work_one(
 
         if BUILD_LOG:
             print(
-                f"[picks_build] {code} last={last} atr={atr} "
+                f"[picks_build] {code_norm} last={last} atr={atr} "
                 f"score01={s01:.3f} score100={score100} stars={stars} "
                 f"(period={mode_period} aggr={mode_aggr})"
             )
@@ -978,7 +1106,7 @@ class Command(BaseCommand):
         horizon = (opts.get("horizon") or "short").lower()
         topk = int(opts.get("topk") or 10)
 
-        # ★ 本番仕様（⭐️）キー（ただし、all/all がある運用ではフォールバックする）
+        # ★ 本番仕様（⭐️）キー
         mode_period = _mode_period_from_horizon(horizon)
         mode_aggr = _mode_aggr_from_style(style)
 
@@ -1005,54 +1133,90 @@ class Command(BaseCommand):
                 if BUILD_LOG:
                     print(f"[picks_build] macro regime load error: {ex}")
 
-        # ★ BehaviorStats の⭐️をまとめて引く
-        #   対応:
-        #     - まず mode_period/mode_aggr の行があれば読む
-        #     - さらに all/all も読む（モード無関係学習の結果を使えるようにする）
-        behavior_stars_map: Dict[Tuple[str, str, str], int] = {}
+        # ★ BehaviorStats をまとめて引く（primary: period/aggr, fallback: all/all）
+        behavior_map_primary: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+        behavior_map_all: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+
         if BehaviorStats is not None and codes:
+            codes_norm = [_normalize_code(c) for c in codes if c]
+
+            # ---- primary（mode_period/mode_aggr）----
             try:
-                codes_norm = [_normalize_code(c) for c in codes if c]
-
-                has_broker = _model_has_field(BehaviorStats, "broker")
-
-                # 1) 指定モード（従来）
-                qs1 = BehaviorStats.objects.filter(
-                    code__in=codes_norm,
-                    mode_period=mode_period,
-                    mode_aggr=mode_aggr,
+                # まず“拡張フィールド”込みで試す（無ければexceptで落として最小にする）
+                qs = (
+                    BehaviorStats.objects
+                    .filter(code__in=codes_norm, mode_period=mode_period, mode_aggr=mode_aggr)
+                    .values(
+                        "code", "mode_period", "mode_aggr", "stars",
+                        "trade_count", "n", "count",
+                        "win_rate", "winrate",
+                        "avg_pl", "avg_profit",
+                    )
                 )
-                if has_broker:
-                    qs1 = qs1.filter(broker="all")
-                qs1 = qs1.values("code", "mode_period", "mode_aggr", "stars")
-
-                # 2) all/all（今回の運用）
-                qs2 = BehaviorStats.objects.filter(
-                    code__in=codes_norm,
-                    mode_period="all",
-                    mode_aggr="all",
-                )
-                if has_broker:
-                    qs2 = qs2.filter(broker="all")
-                qs2 = qs2.values("code", "mode_period", "mode_aggr", "stars")
-
-                # map へ投入（両方）
-                for r in list(qs1) + list(qs2):
+                for r in qs:
                     c = _normalize_code(r.get("code"))
                     mp = (r.get("mode_period") or "").strip().lower()
                     ma = (r.get("mode_aggr") or "").strip().lower()
-                    st = r.get("stars")
-                    if c and mp and ma and isinstance(st, int):
-                        behavior_stars_map[(c, mp, ma)] = int(st)
-
-                if BUILD_LOG:
-                    print(
-                        f"[picks_build] BehaviorStats loaded: {len(behavior_stars_map)} rows "
-                        f"(want={mode_period}/{mode_aggr}, plus=all/all)"
+                    if c and mp and ma:
+                        behavior_map_primary[(c, mp, ma)] = dict(r)
+            except Exception:
+                try:
+                    qs = (
+                        BehaviorStats.objects
+                        .filter(code__in=codes_norm, mode_period=mode_period, mode_aggr=mode_aggr)
+                        .values("code", "mode_period", "mode_aggr", "stars")
                     )
-            except Exception as ex:
-                if BUILD_LOG:
-                    print(f"[picks_build] BehaviorStats load error: {ex}")
+                    for r in qs:
+                        c = _normalize_code(r.get("code"))
+                        mp = (r.get("mode_period") or "").strip().lower()
+                        ma = (r.get("mode_aggr") or "").strip().lower()
+                        if c and mp and ma:
+                            behavior_map_primary[(c, mp, ma)] = dict(r)
+                except Exception as ex:
+                    if BUILD_LOG:
+                        print(f"[picks_build] BehaviorStats primary load error: {ex}")
+
+            # ---- all/all（fallback）----
+            try:
+                qs_all = (
+                    BehaviorStats.objects
+                    .filter(code__in=codes_norm, mode_period="all", mode_aggr="all")
+                    .values(
+                        "code", "mode_period", "mode_aggr", "stars",
+                        "trade_count", "n", "count",
+                        "win_rate", "winrate",
+                        "avg_pl", "avg_profit",
+                    )
+                )
+                for r in qs_all:
+                    c = _normalize_code(r.get("code"))
+                    mp = (r.get("mode_period") or "").strip().lower()
+                    ma = (r.get("mode_aggr") or "").strip().lower()
+                    if c and mp and ma:
+                        behavior_map_all[(c, mp, ma)] = dict(r)
+            except Exception:
+                try:
+                    qs_all = (
+                        BehaviorStats.objects
+                        .filter(code__in=codes_norm, mode_period="all", mode_aggr="all")
+                        .values("code", "mode_period", "mode_aggr", "stars")
+                    )
+                    for r in qs_all:
+                        c = _normalize_code(r.get("code"))
+                        mp = (r.get("mode_period") or "").strip().lower()
+                        ma = (r.get("mode_aggr") or "").strip().lower()
+                        if c and mp and ma:
+                            behavior_map_all[(c, mp, ma)] = dict(r)
+                except Exception as ex:
+                    if BUILD_LOG:
+                        print(f"[picks_build] BehaviorStats all/all load error: {ex}")
+
+            if BUILD_LOG:
+                print(
+                    f"[picks_build] BehaviorStats loaded: "
+                    f"primary={len(behavior_map_primary)} rows (period={mode_period} aggr={mode_aggr}) "
+                    f"+ all/all={len(behavior_map_all)} rows"
+                )
 
         # 空ユニバースのとき
         if not codes:
@@ -1081,8 +1245,8 @@ class Command(BaseCommand):
                     # ★ 追加メタ（UI/デバッグ用）
                     "stars_mode_period": mode_period,
                     "stars_mode_aggr": mode_aggr,
-                    "behaviorstats_rows": len(behavior_stars_map),
-                    "behaviorstats_has_all_all": True,
+                    "behaviorstats_primary_rows": len(behavior_map_primary),
+                    "behaviorstats_all_rows": len(behavior_map_all),
                 },
             )
             return
@@ -1106,7 +1270,8 @@ class Command(BaseCommand):
                 nbars=nbars,
                 mode_period=mode_period,
                 mode_aggr=mode_aggr,
-                behavior_stars_map=behavior_stars_map,
+                behavior_map_primary=behavior_map_primary,
+                behavior_map_all=behavior_map_all,
                 filter_stats=filter_stats,
                 regime=macro_regime,
             )
@@ -1163,8 +1328,8 @@ class Command(BaseCommand):
         # ★ ⭐️本番仕様メタ
         meta_extra["stars_mode_period"] = mode_period
         meta_extra["stars_mode_aggr"] = mode_aggr
-        meta_extra["behaviorstats_rows"] = len(behavior_stars_map)
-        meta_extra["behaviorstats_has_all_all"] = True
+        meta_extra["behaviorstats_primary_rows"] = len(behavior_map_primary)
+        meta_extra["behaviorstats_all_rows"] = len(behavior_map_all)
 
         self._emit(
             items,
