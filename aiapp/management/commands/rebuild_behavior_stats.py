@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone as dt_timezone
+from math import log
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -56,11 +57,21 @@ def _to_date(s: Optional[str]) -> Optional[datetime]:
         return None
 
 
-def _clamp01(x: Any) -> float:
-    v = _safe_float(x)
-    if v is None:
-        return 0.0
-    return float(max(0.0, min(1.0, v)))
+def _clamp01(x: float) -> float:
+    try:
+        x = float(x)
+    except Exception:
+        return 0.5
+    if not np.isfinite(x):
+        return 0.5
+    return float(min(1.0, max(0.0, x)))
+
+
+def _sigmoid(x: float) -> float:
+    try:
+        return float(1.0 / (1.0 + np.exp(-float(x))))
+    except Exception:
+        return 0.5
 
 
 def _sum_eval_pl_all_brokers(d: Dict[str, Any]) -> Optional[float]:
@@ -138,131 +149,142 @@ def _fallback_label_from_brokers(d: Dict[str, Any]) -> Optional[str]:
     return "unknown"
 
 
-def _compute_stability01_from_record(d: Dict[str, Any]) -> Optional[float]:
+def _extract_rr_design_hint(d: Dict[str, Any]) -> Optional[float]:
     """
-    stability(0..1) を “1レコード” から計算。
-    使うのは behavior jsonl に既に入っている feature_snapshot を優先。
+    design_q（設計品質）を作るためのヒントをJSONから拾う。
+    取れたら「RR（reward/risk）」相当を返す。
 
-    直感:
-      - SLOPE と RET の符号一致 → 安定
-      - RSI の極端（>=85 or <=15）→ 不安定
-      - BB_Z が極端（|z|が大）→ 不安定（過熱/投げ）
-      - VWAP_GAP_PCT が極端 → 不安定
-
-    ※ あくまで「育つAI用の蓄積指標」で、完璧な学術モデルではなく
-       “一貫したルールで積み上がる” ことを最優先にしている。
+    対応（あるものだけ使う）:
+      - rr / RR
+      - entry,tp,sl
+      - entry,tp,sl,atr があってもRRは atr不要なので entry/tp/sl 優先
     """
-    snap = d.get("feature_snapshot") or {}
-    if not isinstance(snap, dict):
-        snap = {}
+    rr = _safe_float(d.get("rr"))
+    if rr is None:
+        rr = _safe_float(d.get("RR"))
+    if rr is not None and rr > 0:
+        return float(rr)
 
-    slope = _safe_float(snap.get("SLOPE_25") or d.get("slope_25"))
-    ret20 = _safe_float(snap.get("RET_20") or d.get("ret_20"))
-    rsi = _safe_float(snap.get("RSI14"))
-    bbz = _safe_float(snap.get("BB_Z"))
-    vwap_gap = _safe_float(snap.get("VWAP_GAP_PCT"))
-
-    # どれも無い古いレコードは None
-    if slope is None and ret20 is None and rsi is None and bbz is None and vwap_gap is None:
+    e = _safe_float(d.get("entry"))
+    t = _safe_float(d.get("tp"))
+    s = _safe_float(d.get("sl"))
+    if e is None or t is None or s is None:
         return None
-
-    score = 0.6  # 中立スタート
-
-    # slope/ret の符号一致
-    if slope is not None and ret20 is not None:
-        if (slope >= 0 and ret20 >= 0) or (slope <= 0 and ret20 <= 0):
-            score += 0.25
-        else:
-            score -= 0.25
-
-    # RSIの極端/張り付き
-    if rsi is not None:
-        if rsi >= 85 or rsi <= 15:
-            score -= 0.20
-        elif 45 <= rsi <= 55:
-            score -= 0.05  # ずっと50付近は「勢いが弱い」側で軽く減点
-        else:
-            score += 0.05
-
-    # BB_Z（ボリンジャーz）の極端
-    if bbz is not None:
-        az = abs(float(bbz))
-        if az >= 2.5:
-            score -= 0.20
-        elif az >= 1.8:
-            score -= 0.10
-        elif az <= 0.6:
-            score += 0.05
-
-    # VWAP gap
-    if vwap_gap is not None:
-        ag = abs(float(vwap_gap))
-        if ag >= 2.0:
-            score -= 0.15
-        elif ag >= 1.0:
-            score -= 0.08
-        else:
-            score += 0.03
-
-    return float(max(0.0, min(1.0, score)))
-
-
-def _compute_design_q01_from_record(d: Dict[str, Any]) -> Optional[float]:
-    """
-    design_q(0..1) を “1レコード” から計算。
-    使うのは behavior jsonl に入っている design_rr / risk_atr / reward_atr を優先。
-
-    直感:
-      - RRが高いほど良い
-      - risk_atrが極端に小さい/大きいのはダメ
-      - reward_atrが極端に大きい（遠すぎ）もダメ
-    """
-    rr = _safe_float(d.get("design_rr"))
-    risk_atr = _safe_float(d.get("risk_atr"))
-    reward_atr = _safe_float(d.get("reward_atr"))
-
-    # 欠損だらけの古いレコードは None
-    if rr is None and risk_atr is None and reward_atr is None:
+    reward = float(t) - float(e)
+    risk = float(e) - float(s)
+    if reward <= 0 or risk <= 0:
         return None
+    return float(reward / risk)
 
-    score = 0.5  # 中立
 
-    # RR
-    if rr is not None:
-        if rr >= 2.0:
-            score += 0.35
-        elif rr >= 1.2:
-            score += 0.20
-        elif rr >= 1.0:
-            score += 0.10
-        elif rr < 0.9:
-            score -= 0.15
-        else:
-            score -= 0.05
+def _compute_stability(
+    *,
+    n: int,
+    win: int,
+    lose: int,
+    flat: int,
+    avg_pl: Optional[float],
+    std_pl: Optional[float],
+) -> float:
+    """
+    stability = 0..1（“再現性/ブレ耐性”）
+    ねらい:
+      - 勝ってる/負けてる以前に「ブレが少ない」ほど上げる
+      - 試行数 n が少ないときは必ず 0.50 に寄せる（過信防止）
 
-    # risk_atr（近すぎ/遠すぎを嫌う）
-    if risk_atr is not None:
-        ra = float(risk_atr)
-        if ra < 0.25:
-            score -= 0.15
-        elif ra < 0.40:
-            score -= 0.08
-        elif ra <= 2.5:
-            score += 0.06
-        else:
-            score -= 0.12
+    要素:
+      1) outcomeのエントロピー（win/lose/flat の偏りがあるほど安定）
+      2) PLの分散（std_pl が小さいほど安定）
+    """
+    if n <= 0:
+        return 0.50
 
-    # reward_atr（遠すぎを嫌う）
-    if reward_atr is not None:
-        wa = float(reward_atr)
-        if wa > 6.0:
-            score -= 0.12
-        elif wa > 4.0:
-            score -= 0.06
-        else:
-            score += 0.03
+    # nゲート（少数データは中立へ）
+    r = _sigmoid((n - 8) / 3.0)  # 0..1
 
-    return float(max(0.0, min(1.0, score)))
+    # --- (1) outcome entropy ---
+    w = max(0, int(win))
+    l = max(0, int(lose))
+    f = max(0, int(flat))
+    tot = w + l + f
+    if tot <= 0:
+        entropy_norm = 1.0
+    else:
+        ps = []
+        for x in (w, l, f):
+            if x > 0:
+                ps.append(x / tot)
+        # entropy in [0, log(3)]
+        ent = 0.0
+        for p in ps:
+            ent -= p * log(p)
+        ent_max = log(3.0)
+        entropy_norm = (ent / ent_max) if ent_max > 0 else 1.0  # 0..1
+    # 偏りがある=entropy小=安定が高い
+    stab_outcome = 1.0 - float(entropy_norm)  # 0..1
+
+    # --- (2) PL stability ---
+    ap = float(avg_pl) if (avg_pl is not None and np.isfinite(avg_pl)) else 0.0
+    sp = float(std_pl) if (std_pl is not None and np.isfinite(std_pl)) else None
+
+    if sp is None:
+        stab_pl = 0.50
+    else:
+        # スケールは “だいたいの許容ブレ” を作る（銘柄でPL水準が違うので abs(avg_pl)も少し反映）
+        scale = max(1200.0, 0.5 * abs(ap) + 1200.0)
+        stab_pl = 1.0 / (1.0 + (sp / scale))  # 0..1-ish
+        stab_pl = _clamp01(stab_pl)
+
+    base = 0.60 * stab_outcome + 0.40 * stab_pl
+    base = _clamp01(base)
+
+    # 少数データは中立へブレンド
+    blended = (1.0 - r) * 0.50 + r * base
+    return _clamp01(blended)
+
+
+def _compute_design_q(
+    *,
+    n: int,
+    avg_pl: Optional[float],
+    rr_vals: List[float],
+) -> float:
+    """
+    design_q = 0..1（“設計品質”）
+    ねらい:
+      - Entry/TP/SL設計が良い（RRが良い）ほど上げる
+      - 結果が悪い（avg_plが極端にマイナス）なら少し抑える
+      - rrデータが無い場合は中立0.50
+      - nが少ない場合は中立へ寄せる
+    """
+    if n <= 0:
+        return 0.50
+
+    # nゲート（少数データは中立へ）
+    r_gate = _sigmoid((n - 8) / 3.0)
+
+    # RR由来（中心 1.0 を境に上げる）
+    rr_score = None
+    vals = [float(x) for x in rr_vals if x is not None and np.isfinite(x) and x > 0]
+    if vals:
+        rr_med = float(np.median(vals))
+        rr_score = _sigmoid((rr_med - 1.0) * 2.2)  # rr=1 →0.5, rr=1.5→~0.75, rr=2→~0.90
+        rr_score = _clamp01(rr_score)
+
+    if rr_score is None:
+        base = 0.50
+    else:
+        base = rr_score
+
+    # 平均PLで微調整（設計は良いが結果が悪い“地雷”を軽く抑える）
+    ap = float(avg_pl) if (avg_pl is not None and np.isfinite(avg_pl)) else 0.0
+    pl_adj = _sigmoid(ap / 3000.0)  # ap=0→0.5, ap=+3000→~0.73, ap=-3000→~0.27
+    # 調整幅は小さく（設計を主役にする）
+    base2 = _clamp01(0.80 * base + 0.20 * pl_adj)
+
+    # 少数データは中立へブレンド
+    blended = (1.0 - r_gate) * 0.50 + r_gate * base2
+    return _clamp01(blended)
 
 
 @dataclass
@@ -274,8 +296,7 @@ class Rec:
     eval_label: Optional[str]
     eval_pl: Optional[float]
     run_date: Optional[datetime]
-    stability01: Optional[float]
-    design_q01: Optional[float]
+    rr_hint: Optional[float]
 
 
 def _load_latest_behavior_jsonl(
@@ -291,7 +312,6 @@ def _load_latest_behavior_jsonl(
     ★重要：証券会社は常に 楽天・SBI・松井 を統合した世界で扱う。
       - label: _combined_label を最優先
       - pl   : eval_pl_rakuten + eval_pl_sbi + eval_pl_matsui
-      - stability/design_q: レコードの feature_snapshot/design_* から計算して蓄積
     """
     behavior_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "behavior"
     latest_path = behavior_dir / "latest_behavior.jsonl"
@@ -348,9 +368,8 @@ def _load_latest_behavior_jsonl(
             # どうしても無い古いデータ → 最後の砦（楽天だけ）
             plv = _safe_float(d.get("eval_pl_rakuten"))
 
-        # ===== growable signals（0..1）=====
-        stability01 = _compute_stability01_from_record(d)
-        design_q01 = _compute_design_q01_from_record(d)
+        # ===== design hint（RR）=====
+        rr_hint = _extract_rr_design_hint(d)
 
         out.append(
             Rec(
@@ -361,8 +380,7 @@ def _load_latest_behavior_jsonl(
                 eval_label=label,
                 eval_pl=plv,
                 run_date=run_date,
-                stability01=stability01,
-                design_q01=design_q01,
+                rr_hint=rr_hint,
             )
         )
 
@@ -401,7 +419,7 @@ def _stars_rule(win_rate_pct: float, n: int, avg_pl: Optional[float]) -> int:
 
 
 class Command(BaseCommand):
-    help = "BehaviorStats を再集計してDBへ upsert（紙シミュ育成: all/all・楽天/SBI/松井統合・stability/design_q蓄積）"
+    help = "BehaviorStats を再集計してDBへ upsert（紙シミュ育成: all/all・楽天/SBI/松井統合）"
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--days", type=int, default=90)
@@ -437,8 +455,7 @@ class Command(BaseCommand):
                     "lose": 0,
                     "flat": 0,
                     "pls": [],
-                    "stabs": [],   # stability01
-                    "dqs": [],     # design_q01
+                    "rrs": [],
                 },
             )
 
@@ -451,15 +468,10 @@ class Command(BaseCommand):
                     b["lose"] += 1
                 else:
                     b["flat"] += 1
-
                 if r.eval_pl is not None:
                     b["pls"].append(float(r.eval_pl))
-
-                if r.stability01 is not None:
-                    b["stabs"].append(float(_clamp01(r.stability01)))
-
-                if r.design_q01 is not None:
-                    b["dqs"].append(float(_clamp01(r.design_q01)))
+                if r.rr_hint is not None and np.isfinite(float(r.rr_hint)) and float(r.rr_hint) > 0:
+                    b["rrs"].append(float(r.rr_hint))
 
         # n>0 の銘柄だけを本体にする（n=0 はDBに作らない）
         bucket = {code: st for code, st in bucket.items() if int(st.get("n") or 0) > 0}
@@ -486,28 +498,44 @@ class Command(BaseCommand):
                 return None
             return float(np.std(xs, ddof=0))
 
-        preview_rows: List[Tuple[str, int, float, Optional[float], Optional[float], int, Optional[float], Optional[float]]] = []
+        preview_rows: List[Tuple[str, int, float, Optional[float], Optional[float], float, float, int]] = []
         for code, st in bucket.items():
             n = int(st["n"])
             win = int(st["win"])
+            lose = int(st["lose"])
+            flat = int(st["flat"])
+
             wr = (100.0 * win / n) if n > 0 else 0.0
             avg_pl = _avg(st["pls"])
             std_pl = _std(st["pls"])
+
+            stability = _compute_stability(
+                n=n,
+                win=win,
+                lose=lose,
+                flat=flat,
+                avg_pl=avg_pl,
+                std_pl=std_pl,
+            )
+
+            design_q = _compute_design_q(
+                n=n,
+                avg_pl=avg_pl,
+                rr_vals=st.get("rrs") or [],
+            )
+
             stars = _stars_rule(wr, n, avg_pl)
-
-            stab01 = _avg(st.get("stabs") or [])
-            dq01 = _avg(st.get("dqs") or [])
-
-            preview_rows.append((code, n, wr, avg_pl, std_pl, stars, stab01, dq01))
+            preview_rows.append((code, n, wr, avg_pl, std_pl, stability, design_q, stars))
 
         preview_rows.sort(key=lambda x: x[1], reverse=True)
 
-        for code, n, wr, avg_pl, std_pl, stars, stab01, dq01 in preview_rows[:30]:
+        for code, n, wr, avg_pl, std_pl, stability, design_q, stars in preview_rows[:30]:
             ap = 0.0 if avg_pl is None else avg_pl
-            ss = "-" if stab01 is None else f"{stab01:.2f}"
-            dq = "-" if dq01 is None else f"{dq01:.2f}"
+            stv = float(stability)
+            dqv = float(design_q)
             self.stdout.write(
-                f"  {code} [all/all]: n={n:3d} win_rate={wr:5.1f}% avg_pl={ap:7.1f} -> stars={stars}  stab={ss}  design_q={dq}"
+                f"  {code} [all/all]: n={n:3d} win_rate={wr:5.1f}% avg_pl={ap:7.1f} "
+                f"stability={stv:.2f} design_q={dqv:.2f} -> stars={stars}"
             )
 
         if dry_run:
@@ -524,7 +552,7 @@ class Command(BaseCommand):
                 deleted, _ = BehaviorStats.objects.filter(mode_period="all", mode_aggr="all", n=0).delete()
                 self.stdout.write(self.style.WARNING(f"[rebuild_behavior_stats] cleanup_zero: deleted={deleted}"))
 
-            for code, n, wr, avg_pl, std_pl, stars, stab01, dq01 in preview_rows:
+            for code, n, wr, avg_pl, std_pl, stability, design_q, stars in preview_rows:
                 win = int(bucket[code]["win"])
                 lose = int(bucket[code]["lose"])
                 flat = int(bucket[code]["flat"])
@@ -542,8 +570,8 @@ class Command(BaseCommand):
                         "win_rate": float(round(wr, 1)),
                         "avg_pl": float(avg_pl) if avg_pl is not None else None,
                         "std_pl": float(std_pl) if std_pl is not None else None,
-                        "stability": float(stab01) if stab01 is not None else None,
-                        "design_q": float(dq01) if dq01 is not None else None,
+                        "stability": float(_clamp01(stability)),
+                        "design_q": float(_clamp01(design_q)),
                         "window_days": int(days),
                         "updated_at": now,
                     },
