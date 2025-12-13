@@ -3,10 +3,14 @@
 """
 confidence_service.py（本番：⭐️司令塔）
 
-本番仕様:
+本番仕様（現行）:
 - ⭐️は「BehaviorStats（同モード→無ければ all/all） + 特徴量の安定性 + Entry/TP/SL距離の適正 + scoring_service」を合成して確定
 - BehaviorStats は picks_build 側で一括ロードした behavior_cache を渡せる（DB連打防止）
 - n（試行数）が小さいときは perf の重みを自動で下げる（精度重視）
+
+★追加（あなたの方針）:
+- BehaviorStats に stability / design_q がある場合、それも参照して「おすすめ順（stars→stability→design_q→n）」の思想に寄せる
+- ただし DB に列が無い環境でも落ちない（互換維持）
 """
 
 from __future__ import annotations
@@ -58,6 +62,12 @@ class ConfidenceDetail:
     w_distance: float
     w_score: float
 
+    # --- optional: behavior extras（DBに列があれば入る） ---
+    perf_hist_stability: Optional[float] = None   # 0..1想定（なければNone）
+    perf_hist_design_q: Optional[float] = None    # 0..1想定（なければNone）
+    stars_hist_stability: Optional[int] = None    # 1..5
+    stars_hist_design: Optional[int] = None       # 1..5
+
 
 # =========================================================
 # utils
@@ -98,6 +108,39 @@ def _sigmoid(x: float) -> float:
         return 0.5
 
 
+def _safe01(v: Any) -> Optional[float]:
+    """
+    0..1 の指標想定（stability/design_q など）
+    """
+    try:
+        if v is None:
+            return None
+        f = float(v)
+        if not np.isfinite(f):
+            return None
+        return float(_clamp(f, 0.0, 1.0))
+    except Exception:
+        return None
+
+
+def _stars_from_01(x01: Optional[float]) -> Optional[int]:
+    """
+    0..1 を 1..5 に変換（score と同じ段階）
+    """
+    if x01 is None:
+        return None
+    x = float(_clamp(x01, 0.0, 1.0))
+    if x < 0.20:
+        return 1
+    if x < 0.40:
+        return 2
+    if x < 0.60:
+        return 3
+    if x < 0.80:
+        return 4
+    return 5
+
+
 # =========================================================
 # BehaviorStats lookup（cache優先 / DB fallback）
 # =========================================================
@@ -114,7 +157,7 @@ def _get_behavior_row(
       (row_dict, source)
       source: "mode" / "all" / "none"
 
-    row_dict は {stars,n,win_rate,avg_pl} を想定（キーが無くてもOK）
+    row_dict は {stars,n,win_rate,avg_pl, stability?, design_q?} を想定（キーが無くてもOK）
     """
     c = _norm_code(code)
     mp = _norm_key(mode_period)
@@ -135,27 +178,46 @@ def _get_behavior_row(
     if BehaviorStats is None:
         return None, "none"
 
+    def _db_fetch(period: str, aggr: str) -> Optional[Dict[str, Any]]:
+        # ★列がある環境なら stability/design_q も取る（無い環境でも落ちない）
+        try:
+            r = (
+                BehaviorStats.objects
+                .filter(code=c, mode_period=period, mode_aggr=aggr)
+                .values("stars", "n", "win_rate", "avg_pl", "stability", "design_q")
+                .first()
+            )
+            if r:
+                return dict(r)
+        except Exception:
+            # 列が無い / DBが違う / 互換など
+            pass
+
+        try:
+            r = (
+                BehaviorStats.objects
+                .filter(code=c, mode_period=period, mode_aggr=aggr)
+                .values("stars", "n", "win_rate", "avg_pl")
+                .first()
+            )
+            if r:
+                return dict(r)
+        except Exception:
+            pass
+
+        return None
+
     try:
-        r = (
-            BehaviorStats.objects
-            .filter(code=c, mode_period=mp, mode_aggr=ma)
-            .values("stars", "n", "win_rate", "avg_pl")
-            .first()
-        )
+        r = _db_fetch(mp, ma)
         if r:
-            return dict(r), "mode"
+            return r, "mode"
     except Exception:
         pass
 
     try:
-        r = (
-            BehaviorStats.objects
-            .filter(code=c, mode_period="all", mode_aggr="all")
-            .values("stars", "n", "win_rate", "avg_pl")
-            .first()
-        )
+        r = _db_fetch("all", "all")
         if r:
-            return dict(r), "all"
+            return r, "all"
     except Exception:
         pass
 
@@ -231,7 +293,6 @@ def _stars_stability(feat_df: pd.DataFrame) -> int:
             base = 3
         else:
             ratio = ok / total  # 0..1
-            # 0.5=3, 0.7=4, 0.85=5 くらいの感触
             if ratio >= 0.85:
                 base = 5
             elif ratio >= 0.70:
@@ -243,7 +304,6 @@ def _stars_stability(feat_df: pd.DataFrame) -> int:
             else:
                 base = 1
 
-        # RSIの張り付き（極端 or ずっと50付近）を軽く減点
         rr = rsi.dropna()
         if len(rr) >= 20:
             rmin = float(rr.min())
@@ -280,14 +340,11 @@ def _stars_distance(entry: Optional[float], tp: Optional[float], sl: Optional[fl
         return 1
 
     rr = reward / risk
-
-    # ATR倍率の妥当性（極端な近すぎ/遠すぎを嫌う）
     risk_atr = risk / a
     rew_atr = reward / a
 
     base = 3
 
-    # RR重視
     if rr >= 2.0:
         base += 2
     elif rr >= 1.2:
@@ -295,7 +352,6 @@ def _stars_distance(entry: Optional[float], tp: Optional[float], sl: Optional[fl
     elif rr < 0.9:
         base -= 1
 
-    # ATRスケール（精度重視：極端は落とす）
     if risk_atr < 0.25:
         base -= 1
     if risk_atr > 2.5:
@@ -306,13 +362,18 @@ def _stars_distance(entry: Optional[float], tp: Optional[float], sl: Optional[fl
     return int(max(1, min(5, base)))
 
 
-def _stars_perf_from_behavior(row: Optional[Dict[str, Any]]) -> Tuple[Optional[int], int, Optional[float], Optional[float]]:
+def _stars_perf_from_behavior(
+    row: Optional[Dict[str, Any]]
+) -> Tuple[Optional[int], int, Optional[float], Optional[float], Optional[float], Optional[float], Optional[int], Optional[int]]:
     """
-    BehaviorStats 側の stars を採用しつつ、n が小さいときは「中立(3)へ寄せる」。
-    戻り: (stars_perf, n, win_rate, avg_pl)
+    BehaviorStats 側の stars をベースにしつつ、stability/design_q があれば perf 内で合成して採用。
+    さらに n が小さいときは「中立(3)へ寄せる」。
+
+    戻り:
+      (stars_perf, n, win_rate, avg_pl, hist_stab01, hist_design01, stars_hist_stab, stars_hist_design)
     """
     if not row:
-        return None, 0, None, None
+        return None, 0, None, None, None, None, None, None
 
     try:
         stars_raw = row.get("stars")
@@ -320,21 +381,46 @@ def _stars_perf_from_behavior(row: Optional[Dict[str, Any]]) -> Tuple[Optional[i
         win_rate = row.get("win_rate", None)
         avg_pl = row.get("avg_pl", None)
 
+        # optional extras（0..1想定）
+        hist_stab01 = _safe01(row.get("stability"))
+        hist_design01 = _safe01(row.get("design_q"))
+        stars_hist_stab = _stars_from_01(hist_stab01)
+        stars_hist_design = _stars_from_01(hist_design01)
+
         if stars_raw is None:
-            return None, n, win_rate, avg_pl
+            return None, n, win_rate, avg_pl, hist_stab01, hist_design01, stars_hist_stab, stars_hist_design
 
         s = int(stars_raw)
         s = max(1, min(5, s))
 
+        # perf 合成（おすすめ順：stars → stability → design_q）
+        perf_components: list[float] = [float(s)]
+        # stability/design_q は「補助輪」扱いで軽めに混ぜる
+        if stars_hist_stab is not None:
+            perf_components.append(float(stars_hist_stab) * 0.9)
+        if stars_hist_design is not None:
+            perf_components.append(float(stars_hist_design) * 0.8)
+
+        s_mix = float(np.mean(perf_components)) if perf_components else float(s)
+        s_mix = _clamp(s_mix, 1.0, 5.0)
+
         # n が少ないときは 3 に寄せる（精度重視）
-        # 例: n=0→ほぼ3, n=5→半分, n=15→ほぼ採用
         r = _sigmoid((n - 8) / 3.0)  # 0..1
-        s_blend = (1.0 - r) * 3.0 + r * float(s)
+        s_blend = (1.0 - r) * 3.0 + r * float(s_mix)
         s_perf = int(round(_clamp(s_blend, 1.0, 5.0)))
 
-        return s_perf, n, (float(win_rate) if win_rate is not None else None), (float(avg_pl) if avg_pl is not None else None)
+        return (
+            s_perf,
+            n,
+            (float(win_rate) if win_rate is not None else None),
+            (float(avg_pl) if avg_pl is not None else None),
+            hist_stab01,
+            hist_design01,
+            stars_hist_stab,
+            stars_hist_design,
+        )
     except Exception:
-        return None, 0, None, None
+        return None, 0, None, None, None, None, None, None
 
 
 # =========================================================
@@ -359,13 +445,12 @@ def compute_confidence_detail(
     # 1) scoring
     stars_score, score01 = _stars_from_score(feat_df, regime=regime)
 
-    # 2) stability
+    # 2) stability（特徴量）
     stars_stab = _stars_stability(feat_df)
 
-    # 3) distance
+    # 3) distance（Entry/TP/SL）
     atr = None
     try:
-        # FeatureConfigのatr_periodが14前提のため ATR14 を優先、無ければ ATR を探す
         if feat_df is not None and len(feat_df) > 0:
             last_row = feat_df.iloc[-1]
             for k in ("ATR14", "ATR_14", "ATR"):
@@ -383,7 +468,16 @@ def compute_confidence_detail(
         mode_aggr=mode_aggr,
         behavior_cache=behavior_cache,
     )
-    stars_perf, perf_n, perf_wr, perf_pl = _stars_perf_from_behavior(row)
+    (
+        stars_perf,
+        perf_n,
+        perf_wr,
+        perf_pl,
+        hist_stab01,
+        hist_design01,
+        stars_hist_stab,
+        stars_hist_design,
+    ) = _stars_perf_from_behavior(row)
 
     # =========================================================
     # weights（精度重視）
@@ -394,10 +488,8 @@ def compute_confidence_detail(
     w_dist_base = 0.20
     w_score_base = 0.15
 
-    # n による perf 信頼度（0..1）
     perf_r = _sigmoid((perf_n - 8) / 3.0) if perf_n > 0 else 0.0
 
-    # perf が無い時は 0 扱い（残りを再正規化）
     if stars_perf is None:
         w_perf = 0.0
     else:
@@ -407,7 +499,6 @@ def compute_confidence_detail(
     w_dist = w_dist_base
     w_score = w_score_base
 
-    # 正規化（合計1）
     tot = w_perf + w_stab + w_dist + w_score
     if tot <= 0:
         w_perf, w_stab, w_dist, w_score = 0.0, 0.5, 0.3, 0.2
@@ -445,6 +536,10 @@ def compute_confidence_detail(
         w_stability=float(w_stab),
         w_distance=float(w_dist),
         w_score=float(w_score),
+        perf_hist_stability=hist_stab01,
+        perf_hist_design_q=hist_design01,
+        stars_hist_stability=stars_hist_stab,
+        stars_hist_design=stars_hist_design,
     )
 
 
