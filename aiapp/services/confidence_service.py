@@ -10,17 +10,12 @@ import pandas as pd
 
 from aiapp.models.behavior_stats import BehaviorStats
 
-# scoring_service は補助輪（スコア由来の⭐️）
 try:
     from aiapp.services.scoring_service import score_sample, stars_from_score
 except Exception:  # pragma: no cover
     score_sample = None  # type: ignore
     stars_from_score = None  # type: ignore
 
-
-# =========================
-# dataclass
-# =========================
 
 @dataclass
 class ConfidenceDetail:
@@ -47,16 +42,11 @@ class ConfidenceDetail:
     w_score: float
 
 
-# =========================
-# helpers
-# =========================
-
 def _clamp(x: float, lo: float, hi: float) -> float:
     return float(max(lo, min(hi, x)))
 
 
 def _stars_from_winrate(win_rate: float, n: int, avg_pl: Optional[float]) -> int:
-    # rebuild_behavior_stats と同じ方向性（矛盾させない）
     if n < 5:
         return 1
 
@@ -79,11 +69,6 @@ def _stars_from_winrate(win_rate: float, n: int, avg_pl: Optional[float]) -> int
 
 
 def _stability_star(feat_df: pd.DataFrame) -> int:
-    """
-    特徴量の安定性（超軽量）
-    - 直近60本の SLOPE_20, RET_20, RSI14 の “符号/ばらつき” を見て雑に⭐️化
-    - 欠損だらけなら中立2
-    """
     if feat_df is None or len(feat_df) < 30:
         return 2
 
@@ -108,11 +93,9 @@ def _stability_star(feat_df: pd.DataFrame) -> int:
     if not valid:
         return 2
 
-    # “符号がコロコロ変わる”ほど不安定とみなす
     def flips(s: pd.Series) -> float:
         v = s.values
         sign = np.sign(v)
-        # 0は直前に寄せる
         for i in range(1, len(sign)):
             if sign[i] == 0:
                 sign[i] = sign[i - 1]
@@ -122,7 +105,6 @@ def _stability_star(feat_df: pd.DataFrame) -> int:
     flip_rates = [flips(s) for s in valid]
     fr = float(np.mean(flip_rates))
 
-    # 0.00〜0.60 ぐらいのレンジ想定。低いほど安定。
     if fr <= 0.08:
         return 5
     if fr <= 0.14:
@@ -135,10 +117,6 @@ def _stability_star(feat_df: pd.DataFrame) -> int:
 
 
 def _distance_star(entry: Optional[float], tp: Optional[float], sl: Optional[float], atr: Optional[float]) -> int:
-    """
-    Entry→TP/SL距離の適正
-    - ATR基準で TP/SL が極端なら⭐️を下げる
-    """
     if entry is None or tp is None or sl is None or atr is None:
         return 2
     try:
@@ -150,7 +128,6 @@ def _distance_star(entry: Optional[float], tp: Optional[float], sl: Optional[flo
     except Exception:
         return 2
 
-    # だいたい TP 0.5〜1.5ATR / SL 0.4〜1.2ATR を良しとする（短期前提）
     ok = 0
     if 0.5 <= tp_d <= 1.6:
         ok += 1
@@ -177,23 +154,62 @@ def _score_star(feat_df: pd.DataFrame, regime: Optional[object]) -> Tuple[int, O
         return 2, None
 
 
-def _get_perf_stats(code: str, mode_period: str, mode_aggr: str) -> Tuple[str, int, Optional[float], Optional[float], Optional[int]]:
+# -----------------------------
+# BehaviorStats 取得（キャッシュ対応）
+# -----------------------------
+
+# cache key: (code, mode_period, mode_aggr)
+# value: {"n":int, "win_rate":float|None, "avg_pl":float|None, "stars":int|None}
+BehaviorCache = Dict[Tuple[str, str, str], Dict[str, Any]]
+
+
+def _normalize_code(code: str) -> str:
+    s = str(code or "").strip()
+    if s.endswith(".T"):
+        s = s[:-2]
+    return s
+
+
+def _get_perf_stats(
+    code: str,
+    mode_period: str,
+    mode_aggr: str,
+    *,
+    behavior_cache: Optional[BehaviorCache] = None,
+) -> Tuple[str, int, Optional[float], Optional[float], Optional[int]]:
     """
-    BehaviorStats を参照
     優先順:
       1) code + mode_period + mode_aggr
       2) code + all/all
       3) none
-    戻り:
-      (source, n, win_rate, avg_pl, stars_perf)
     """
-    code = str(code).strip()
-    if code.endswith(".T"):
-        code = code[:-2]
+    code = _normalize_code(code)
+    mp = (mode_period or "").strip().lower() or "all"
+    ma = (mode_aggr or "").strip().lower() or "all"
 
+    if behavior_cache is not None:
+        row = behavior_cache.get((code, mp, ma))
+        if row:
+            n = int(row.get("n") or 0)
+            wr = row.get("win_rate")
+            ap = row.get("avg_pl")
+            st = row.get("stars")
+            return "mode", n, (float(wr) if wr is not None else None), (float(ap) if ap is not None else None), (int(st) if st is not None else None)
+
+        row = behavior_cache.get((code, "all", "all"))
+        if row:
+            n = int(row.get("n") or 0)
+            wr = row.get("win_rate")
+            ap = row.get("avg_pl")
+            st = row.get("stars")
+            return "all", n, (float(wr) if wr is not None else None), (float(ap) if ap is not None else None), (int(st) if st is not None else None)
+
+        return "none", 0, None, None, None
+
+    # DB fallback（キャッシュ無しのときだけ）
     row = (
         BehaviorStats.objects
-        .filter(code=code, mode_period=mode_period, mode_aggr=mode_aggr)
+        .filter(code=code, mode_period=mp, mode_aggr=ma)
         .values("n", "win_rate", "avg_pl", "stars")
         .first()
     )
@@ -220,9 +236,9 @@ def _get_perf_stats(code: str, mode_period: str, mode_aggr: str) -> Tuple[str, i
     return "none", 0, None, None, None
 
 
-# =========================
+# -----------------------------
 # public API
-# =========================
+# -----------------------------
 
 def compute_confidence_detail(
     *,
@@ -234,27 +250,24 @@ def compute_confidence_detail(
     mode_period: str,
     mode_aggr: str,
     regime: Optional[object] = None,
+    behavior_cache: Optional[BehaviorCache] = None,
 ) -> ConfidenceDetail:
     """
-    ⭐️最終決定の内訳を返す（picks_build のデバッグにも使える）
+    ⭐️最終決定の内訳を返す（精度重視ハイブリッド）
     """
+    perf_source, perf_n, perf_wr, perf_avg_pl, perf_st = _get_perf_stats(
+        code, mode_period, mode_aggr, behavior_cache=behavior_cache
+    )
 
-    # --- perf ---
-    perf_source, perf_n, perf_wr, perf_avg_pl, perf_st = _get_perf_stats(code, mode_period, mode_aggr)
-
-    # perf⭐️は、DBに stars があるならそれを尊重。
-    # 無い場合は win_rateから作る（保険）
     stars_perf: Optional[int] = None
     if isinstance(perf_st, int) and 1 <= perf_st <= 5:
         stars_perf = int(perf_st)
     elif perf_wr is not None:
         stars_perf = int(_stars_from_winrate(float(perf_wr), int(perf_n), perf_avg_pl))
 
-    # --- stability / distance / score ---
     st_stability = int(_stability_star(feat_df))
     st_score, score01 = _score_star(feat_df, regime)
 
-    # ATR は features から拾う（無ければ None）
     atr = None
     try:
         if feat_df is not None and len(feat_df) > 0:
@@ -267,25 +280,15 @@ def compute_confidence_detail(
 
     st_distance = int(_distance_star(entry, tp, sl, atr))
 
-    # =========================
-    # weights（ここが “nで賢くなる” 部分）
-    # =========================
-    # perf の重みは nで上がる（育つほど “実績” を信じる）
-    # - n=0〜5: 0.10〜0.18
-    # - n=10:   0.30
-    # - n=20:   0.45
-    # - n=30+:  0.55（上限）
+    # ---- 重み（nで賢くなる）----
     w_perf = _clamp(0.10 + (float(perf_n) / 30.0) * 0.45, 0.10, 0.55)
-
-    # 残りを安定性/距離/スコアへ配分（精度重視：スコアも残すが主役にしない）
     remain = 1.0 - w_perf
+
+    # 精度重視：安定性/距離を厚め、スコアは補助
     w_stability = remain * 0.40
     w_distance = remain * 0.35
     w_score = remain * 0.25
 
-    # =========================
-    # combine
-    # =========================
     def n01(star: Optional[int]) -> float:
         if star is None:
             return 0.0
@@ -333,6 +336,7 @@ def compute_confidence_star(
     mode_period: str,
     mode_aggr: str,
     regime: Optional[object] = None,
+    behavior_cache: Optional[BehaviorCache] = None,
 ) -> int:
     d = compute_confidence_detail(
         code=code,
@@ -343,5 +347,6 @@ def compute_confidence_star(
         mode_period=mode_period,
         mode_aggr=mode_aggr,
         regime=regime,
+        behavior_cache=behavior_cache,
     )
     return int(d.stars_final)
