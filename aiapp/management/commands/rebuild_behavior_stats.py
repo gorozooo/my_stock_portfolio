@@ -103,7 +103,6 @@ def _load_latest_behavior_jsonl(
 
         # live を入れるかはオプション（基本は紙シミュ育成）
         if not include_live:
-            # liveなら除外。demo/blank/otherは許容
             if mode == "live":
                 continue
 
@@ -123,8 +122,10 @@ def _load_latest_behavior_jsonl(
         if label is None:
             label = d.get("eval_label_rakuten")
         if label is not None:
-            label = str(label)
+            label = str(label).lower()
 
+        # pending/unknown/skip は学習対象外（nに数えない）
+        # → ここでは保持してもOKだが、集計時に弾く
         pl = d.get("eval_pl_rakuten")
         plv = _safe_float(pl)
 
@@ -153,7 +154,6 @@ def _stars_rule(win_rate_pct: float, n: int, avg_pl: Optional[float]) -> int:
     if n < 5:
         return 1
 
-    # 勝率ベース（安全側）
     wr = win_rate_pct
 
     # 平均PLが大きくマイナスなら上限を抑える（地雷抑止）
@@ -182,6 +182,7 @@ class Command(BaseCommand):
         parser.add_argument("--days", type=int, default=90)
         parser.add_argument("--include-live", action="store_true", help="LIVE も統合に含める（基本はOFF）")
         parser.add_argument("--dry-run", action="store_true", help="DB更新せずプレビューだけ")
+        parser.add_argument("--cleanup-zero", action="store_true", help="n=0 の既存行を掃除してから upsert")
         # 互換オプション（昔の呼び方でも落とさない）
         parser.add_argument("--broker", type=str, default=None)
         parser.add_argument("--mode_period", type=str, default=None)
@@ -191,6 +192,7 @@ class Command(BaseCommand):
         days = int(opts.get("days") or 90)
         include_live = bool(opts.get("include_live") or False)
         dry_run = bool(opts.get("dry_run") or False)
+        cleanup_zero = bool(opts.get("cleanup_zero") or False)
 
         # 互換オプションは “無視” して all/all に統合する（あなたの方針）
         recs = _load_latest_behavior_jsonl(days=days, include_live=include_live)
@@ -212,6 +214,8 @@ class Command(BaseCommand):
                     "pls": [],
                 },
             )
+
+            # win/lose/flat 以外は “学習対象外”
             if r.eval_label in ("win", "lose", "flat"):
                 b["n"] += 1
                 if r.eval_label == "win":
@@ -223,12 +227,18 @@ class Command(BaseCommand):
                 if r.eval_pl is not None:
                     b["pls"].append(float(r.eval_pl))
 
+        # n>0 の銘柄だけを本体にする（n=0 はDBに作らない）
+        bucket = {code: st for code, st in bucket.items() if int(st.get("n") or 0) > 0}
         unique_codes = len(bucket)
 
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("===== rebuild_behavior_stats preview (ALL combined) ====="))
-        self.stdout.write(f"  days={days}  include_live={include_live}  dry_run={dry_run}")
-        self.stdout.write(f"  unique_codes={unique_codes}")
+        self.stdout.write(f"  days={days}  include_live={include_live}  dry_run={dry_run}  cleanup_zero={cleanup_zero}")
+        self.stdout.write(f"  unique_codes(n>0)={unique_codes}")
+
+        if unique_codes == 0:
+            self.stdout.write(self.style.WARNING("[rebuild_behavior_stats] n>0 の銘柄がありません（pending/unknown ばかりの可能性）。"))
+            return
 
         # 表示用（n降順）
         def _avg(xs: List[float]) -> Optional[float]:
@@ -268,12 +278,17 @@ class Command(BaseCommand):
         upserted = 0
 
         with transaction.atomic():
+            if cleanup_zero:
+                # all/all の n=0 を掃除（これまでの “未来評価→空” の残骸を消す）
+                deleted, _ = BehaviorStats.objects.filter(mode_period="all", mode_aggr="all", n=0).delete()
+                self.stdout.write(self.style.WARNING(f"[rebuild_behavior_stats] cleanup_zero: deleted={deleted}"))
+
             for code, n, wr, avg_pl, std_pl, stars in preview_rows:
                 win = int(bucket[code]["win"])
                 lose = int(bucket[code]["lose"])
                 flat = int(bucket[code]["flat"])
 
-                obj, _created = BehaviorStats.objects.update_or_create(
+                BehaviorStats.objects.update_or_create(
                     code=str(code),
                     mode_period="all",
                     mode_aggr="all",
@@ -293,4 +308,4 @@ class Command(BaseCommand):
                 upserted += 1
 
         self.stdout.write("")
-        self.stdout.write(self.style.SUCCESS(f"[rebuild_behavior_stats] DB更新完了: {upserted} 件 upsert"))
+        self.stdout.write(self.style.SUCCESS(f"[rebuild_behavior_stats] DB更新完了: {upserted} 件 upsert（n>0のみ）"))
