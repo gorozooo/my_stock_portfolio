@@ -323,30 +323,6 @@ def _to_iso(dt: Optional[datetime]) -> Optional[str]:
     return dt_jst.isoformat()
 
 
-def _set_pending(out: Dict[str, Any], horizon_days: int, reason: str) -> Dict[str, Any]:
-    """
-    未来日など「評価できない」ケースを明示的に pending にする。
-    - 教師データには入らない
-    - UIでは “pending” として扱える
-    """
-    out["eval_horizon_days"] = horizon_days
-    out["eval_exit_reason"] = reason
-
-    out["eval_label_rakuten"] = "pending"
-    out["eval_pl_rakuten"] = 0.0
-    out["eval_label_matsui"] = "pending"
-    out["eval_pl_matsui"] = 0.0
-
-    out["eval_close_px"] = None
-    out["eval_close_date"] = None
-    out["eval_entry_px"] = None
-    out["eval_entry_ts"] = None
-    out["eval_exit_ts"] = None
-
-    out["_combined_label"] = "pending"
-    return out
-
-
 # =========================================================
 # メイン：1レコード評価
 # =========================================================
@@ -359,10 +335,6 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
       - 実際の約定価格・時間は eval_entry_px / eval_entry_ts
       - TP/SL にかからなければ horizon_days 営業日目の日足終値でクローズ
       - ts が場中なら、その時刻以降の 5分足だけを見てエントリーを判定
-
-    追加仕様（本番運用向け）:
-      - trade_date が未来の場合は yfinance を叩かず "pending_future" 扱いで返す
-        （翌営業日以降に cron で再評価されれば自然に埋まる）
     """
     out = dict(rec)
 
@@ -379,28 +351,17 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
 
     # トレード開始日と、エントリー判定開始時刻
     trade_d = _decide_trade_date(rec)
-
-    # ★未来日の評価はしない（今はデータが存在しない）
-    today = timezone.localdate()
-    if trade_d > today:
-        return _set_pending(out, horizon_days, reason="pending_future")
-
     start_ts_for_entry = _decide_entry_start_ts(trade_d, rec)
 
     # 5分足取得
     try:
         df_5m = load_5m_bars(code, trade_d, horizon_days)
     except Exception:
-        # 未来ではないのに取れない → データ欠損（銘柄/供給/通信）
         out["eval_horizon_days"] = horizon_days
-        out["eval_exit_reason"] = "no_5m_data"
-        out["_combined_label"] = "unknown"
         return out
 
     if df_5m.empty:
         out["eval_horizon_days"] = horizon_days
-        out["eval_exit_reason"] = "no_5m_data"
-        out["_combined_label"] = "unknown"
         return out
 
     # ============================================
@@ -525,16 +486,22 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
             out["eval_horizon_days"] = eff_days
 
     # ============================================
-    # 3) PL / ラベル計算
+    # 3) PL / ラベル計算（楽天・SBI・松井）
     # ============================================
     qty_r = float(out.get("qty_rakuten") or 0)
+    qty_s = float(out.get("qty_sbi") or 0)
     qty_m = float(out.get("qty_matsui") or 0)
 
     label_r, pl_r = _label_and_pl(qty_r, side, entry_px, exit_px)
+    label_s, pl_s = _label_and_pl(qty_s, side, entry_px, exit_px)
     label_m, pl_m = _label_and_pl(qty_m, side, entry_px, exit_px)
 
     out["eval_label_rakuten"] = label_r
     out["eval_pl_rakuten"] = pl_r
+
+    out["eval_label_sbi"] = label_s
+    out["eval_pl_sbi"] = pl_s
+
     out["eval_label_matsui"] = label_m
     out["eval_pl_matsui"] = pl_m
 
@@ -545,9 +512,9 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
     out["eval_entry_ts"] = _to_iso(entry_ts)
     out["eval_exit_ts"] = _to_iso(exit_ts)
 
-    # UI 用まとめラベル
+    # UI 用まとめラベル（楽天・SBI・松井の全員で判定）
     combined = "unknown"
-    labels = {label_r, label_m}
+    labels = {label_r, label_s, label_m}
     if labels <= {"no_position"}:
         combined = "skip"
     elif "win" in labels and "lose" in labels:
