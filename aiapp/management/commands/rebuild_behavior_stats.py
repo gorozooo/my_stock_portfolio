@@ -19,6 +19,9 @@ from aiapp.models.behavior_stats import BehaviorStats
 
 JST = dt_timezone(timedelta(hours=9))
 
+# 常にこの3社で統合（あなたの方針）
+BROKERS = ("rakuten", "sbi", "matsui")
+
 
 def _safe_float(x: Any) -> Optional[float]:
     if x in (None, "", "null"):
@@ -53,6 +56,81 @@ def _to_date(s: Optional[str]) -> Optional[datetime]:
         return None
 
 
+def _sum_eval_pl_all_brokers(d: Dict[str, Any]) -> Optional[float]:
+    """
+    楽天・SBI・松井の eval_pl_* を合算した PL を返す。
+    - eval_pl_* が無い / 変換できない → 0 として扱う
+    - 3社すべて 0 かつ None しかない → 0.0 を返す（label 側で弾く運用）
+    """
+    total = 0.0
+    any_found = False
+    for b in BROKERS:
+        v = _safe_float(d.get(f"eval_pl_{b}"))
+        if v is None:
+            v = 0.0
+        else:
+            any_found = True
+        total += float(v)
+    if any_found:
+        return float(total)
+    # eval_pl_* が本当に何も無い古いデータの場合は None を返す
+    return None
+
+
+def _fallback_label_from_brokers(d: Dict[str, Any]) -> Optional[str]:
+    """
+    _combined_label が無い古いデータ向けフォールバック。
+    3社の eval_label_* を見て、最も情報量があるものを返す。
+
+    優先:
+      - win/lose/flat が一つでもあれば、それを合成して
+        (win と lose が混在 → mixed)
+      - 全部 no_position なら skip
+      - それ以外 → unknown
+    """
+    labels: List[str] = []
+    for b in BROKERS:
+        v = d.get(f"eval_label_{b}")
+        if v is None:
+            continue
+        s = str(v).strip().lower()
+        if not s:
+            continue
+        labels.append(s)
+
+    if not labels:
+        return None
+
+    sset = set(labels)
+
+    if sset <= {"no_position"}:
+        return "skip"
+
+    has_win = "win" in sset
+    has_lose = "lose" in sset
+    has_flat = "flat" in sset
+
+    if has_win and has_lose:
+        return "mixed"
+    if has_win:
+        return "win"
+    if has_lose:
+        return "lose"
+    if has_flat and (sset <= {"flat"}):
+        return "flat"
+
+    # ここまで来たら pending/unknown/skip 等が混ざっている
+    if "win" in sset:
+        return "win"
+    if "lose" in sset:
+        return "lose"
+    if "flat" in sset:
+        return "flat"
+    if "skip" in sset:
+        return "skip"
+    return "unknown"
+
+
 @dataclass
 class Rec:
     code: str
@@ -73,6 +151,10 @@ def _load_latest_behavior_jsonl(
     media/aiapp/behavior/latest_behavior.jsonl から、直近days日を読む。
     ここでは “all/all” で統合する（モード/証券会社無関係の育成用）。
     ※ mode_period/mode_aggr はJSONに無いので固定 all/all。
+
+    ★重要：証券会社は常に 楽天・SBI・松井 を統合した世界で扱う。
+      - label: _combined_label を最優先
+      - pl   : eval_pl_rakuten + eval_pl_sbi + eval_pl_matsui
     """
     behavior_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "behavior"
     latest_path = behavior_dir / "latest_behavior.jsonl"
@@ -116,18 +198,18 @@ def _load_latest_behavior_jsonl(
         if code.endswith(".T"):
             code = code[:-2]
 
-        # broker無関係に統合したいので、label/pl は combined を優先しつつ、
-        # 無ければ rakuten を採用（最後の砦）
+        # ===== label =====
         label = d.get("_combined_label")
         if label is None:
-            label = d.get("eval_label_rakuten")
+            label = _fallback_label_from_brokers(d)
         if label is not None:
-            label = str(label).lower()
+            label = str(label).strip().lower()
 
-        # pending/unknown/skip は学習対象外（nに数えない）
-        # → ここでは保持してもOKだが、集計時に弾く
-        pl = d.get("eval_pl_rakuten")
-        plv = _safe_float(pl)
+        # ===== pl（3社統合）=====
+        plv = _sum_eval_pl_all_brokers(d)
+        if plv is None:
+            # どうしても無い古いデータ → 最後の砦（楽天だけ）
+            plv = _safe_float(d.get("eval_pl_rakuten"))
 
         out.append(
             Rec(
@@ -176,7 +258,7 @@ def _stars_rule(win_rate_pct: float, n: int, avg_pl: Optional[float]) -> int:
 
 
 class Command(BaseCommand):
-    help = "BehaviorStats を再集計してDBへ upsert（紙シミュ育成: all/all）"
+    help = "BehaviorStats を再集計してDBへ upsert（紙シミュ育成: all/all・楽天/SBI/松井統合）"
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--days", type=int, default=90)
@@ -234,10 +316,11 @@ class Command(BaseCommand):
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("===== rebuild_behavior_stats preview (ALL combined) ====="))
         self.stdout.write(f"  days={days}  include_live={include_live}  dry_run={dry_run}  cleanup_zero={cleanup_zero}")
+        self.stdout.write(f"  brokers=rakuten+sbi+matsui (always)")
         self.stdout.write(f"  unique_codes(n>0)={unique_codes}")
 
         if unique_codes == 0:
-            self.stdout.write(self.style.WARNING("[rebuild_behavior_stats] n>0 の銘柄がありません（pending/unknown ばかりの可能性）。"))
+            self.stdout.write(self.style.WARNING("[rebuild_behavior_stats] n>0 の銘柄がありません（pending/unknown/skip ばかりの可能性）。"))
             return
 
         # 表示用（n降順）
