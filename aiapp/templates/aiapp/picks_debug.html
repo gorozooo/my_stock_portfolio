@@ -86,18 +86,12 @@
           <div class="meta">ソース: <code style="font-size:11px">{{ source_file }}</code></div>
         {% endif %}
       </div>
-      <div class="badge">DEBUG / INTERNAL</div>
-    </div>
-
-    <div class="meta">
-      ※ picks_build が出力した JSON（PickItem 相当）をそのまま一覧表示します。<br>
-      ※ 並び順は score_100 降順 → 株価降順です。
     </div>
 
     <!-- ===== ここが追加：本日 + 評価パイプライン状況 ===== -->
     <div class="banner-row">
       <div class="banner-date">
-        本日 {{ behavior_banner.today_str|default:"-" }}
+        シミュレーション反映結果
       </div>
       <div class="banner-badges">
         <span class="banner-badge">合計 {{ behavior_banner.total|default:0 }}</span>
@@ -115,7 +109,6 @@
       class="filter-input"
       type="search"
       placeholder="コード・銘柄名・業種でフィルタ（例: 7203 / トヨタ / 保険）">
-    <div class="pill">score 0〜100 ／ 詳細はタップでモーダル表示</div>
   </div>
 
   <div class="table-wrap">
