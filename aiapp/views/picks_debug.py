@@ -12,6 +12,8 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 
+from aiapp.services.behavior_banner_service import build_behavior_banner_summary
+
 JST = timezone(timedelta(hours=9))
 PICKS_DIR = Path("media/aiapp/picks")
 
@@ -221,7 +223,6 @@ def _load_json(
             chart_dates = _normalize_str_list(row.get("chart_dates"))
 
             # ----- MA / VWAP / RSI -----
-            # picks_build.PickItem: chart_ma_short / chart_ma_mid / chart_ma_75 / chart_ma_100 / chart_ma_200
             chart_ma_5 = _to_float_list(
                 row.get("chart_ma_5") or
                 row.get("chart_ma_short") or
@@ -248,7 +249,6 @@ def _load_json(
             chart_rsi = _to_float_list(row.get("chart_rsi") or row.get("rsi") or row.get("rsi14"))
 
             # ----- 52週 / 上場来 高安値 -----
-            # JSON 側は high_52w / low_52w / high_all / low_all
             hi_52w = _to_float(row.get("hi_52w") or row.get("high_52w"))
             lo_52w = _to_float(row.get("lo_52w") or row.get("low_52w"))
             hi_all_time = _to_float(row.get("hi_all_time") or row.get("high_all"))
@@ -388,6 +388,9 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
         label = LABELS.get(code, f"その他（{code}）")
         filter_stats_jp[label] = filter_stats_jp.get(label, 0) + cnt
 
+    # ===== ここが追加：行動データ（評価パイプライン）状況バナー =====
+    behavior_banner = build_behavior_banner_summary(days=30)
+
     ctx: Dict[str, Any] = {
         "meta": meta,
         "items": items,
@@ -395,5 +398,6 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
         "source_file": source_file,
         "filter_stats": filter_stats_jp,
         "master_total": master_total,
+        "behavior_banner": behavior_banner,
     }
     return render(request, "aiapp/picks_debug.html", ctx)
