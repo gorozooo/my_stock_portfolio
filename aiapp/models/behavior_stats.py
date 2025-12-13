@@ -19,9 +19,10 @@ class BehaviorStats(models.Model):
       - stars だけでなく、n(試行数) や win_rate 等を正式に保持することで、
         データが少ない銘柄の過信を防ぎ、育つほど重みが上がる。
 
-    追加（効かせるための2指標）:
-      - stability: 特徴量/トレンド形状の安定度（1..5）
-      - design_q : Entry/TP/SL設計の質（RR/ATR倍率の妥当性）（1..5）
+    追加（育つAIの核）:
+      - stability: 特徴量の安定性（0..1）をDBに蓄積
+      - design_q : Entry/TP/SL設計品質（0..1）をDBに蓄積
+        → 次回以降、同銘柄の⭐️に「育ち」を反映できる
     """
 
     MODE_PERIOD_CHOICES = [
@@ -55,9 +56,9 @@ class BehaviorStats(models.Model):
     avg_pl = models.FloatField(null=True, blank=True)  # 直近N日平均損益（円）
     std_pl = models.FloatField(null=True, blank=True)  # 損益の標準偏差（円）
 
-    # --- NEW: process quality ---
-    stability = models.PositiveSmallIntegerField(default=3)  # 1..5
-    design_q = models.PositiveSmallIntegerField(default=3)   # 1..5
+    # --- growable signals (0..1) ---
+    stability = models.FloatField(null=True, blank=True)  # 0..1（特徴量の安定性）
+    design_q = models.FloatField(null=True, blank=True)   # 0..1（設計品質）
 
     # 評価ウィンドウ（再現性/監査用）
     window_days = models.PositiveIntegerField(default=90)
@@ -74,7 +75,4 @@ class BehaviorStats(models.Model):
         ]
 
     def __str__(self) -> str:
-        return (
-            f"{self.code} {self.mode_period}/{self.mode_aggr} "
-            f"stars={self.stars} n={self.n} stability={self.stability} design_q={self.design_q}"
-        )
+        return f"{self.code} {self.mode_period}/{self.mode_aggr} stars={self.stars} n={self.n}"
