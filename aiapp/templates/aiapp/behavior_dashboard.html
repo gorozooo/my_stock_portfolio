@@ -42,6 +42,55 @@ body{background:var(--bg);color:var(--fg);}
   line-height:1.5;
 }
 
+/* ====== 追加：本日ピル（picks_debug の白枠っぽい塊） ====== */
+.today-box{
+  margin-top:12px;
+  padding:12px;
+  border-radius:18px;
+  border:1px solid rgba(148,163,184,0.55);
+  background:rgba(15,23,42,0.92);
+}
+.today-title{
+  font-size:18px;
+  font-weight:800;
+  letter-spacing:0.2px;
+  margin-bottom:10px;
+}
+.pill-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.pill{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:7px 12px;
+  border-radius:999px;
+  border:1px solid rgba(148,163,184,0.45);
+  background:rgba(2,6,23,0.35);
+  font-size:13px;
+  font-weight:650;
+  color:#e5e7eb;
+  font-variant-numeric:tabular-nums;
+}
+.pill .pill-num{
+  opacity:0.95;
+}
+.pill-ok{
+  border-color: rgba(34,197,94,0.55);
+  box-shadow: 0 0 0 1px rgba(34,197,94,0.08) inset;
+}
+.pill-warn{
+  border-color: rgba(249,115,115,0.55);
+  box-shadow: 0 0 0 1px rgba(249,115,115,0.08) inset;
+}
+.pill-mute{
+  border-color: rgba(148,163,184,0.35);
+  opacity:0.9;
+}
+/* ====== /追加 ====== */
+
 /* メインKPI */
 .kpi-grid{
   display:grid;
@@ -238,6 +287,18 @@ body{background:var(--bg);color:var(--fg);}
         あなたのトレード傾向を分析しています。
       </div>
 
+      <!-- ★追加：picks_debug の白枠っぽい “本日” ピル -->
+      <div class="today-box">
+        <div class="today-title">本日 {{ today_label }}</div>
+        <div class="pill-row">
+          <div class="pill pill-mute">合計 <span class="pill-num">{{ today_counts.total|default:0 }}</span></div>
+          <div class="pill pill-ok">✅ 評価済 <span class="pill-num">{{ today_counts.evaluated|default:0 }}</span></div>
+          <div class="pill pill-mute">⏳ 未来 <span class="pill-num">{{ today_counts.future|default:0 }}</span></div>
+          <div class="pill pill-mute">💤 skip <span class="pill-num">{{ today_counts.skip|default:0 }}</span></div>
+          <div class="pill pill-warn">❓ unknown <span class="pill-num">{{ today_counts.unknown|default:0 }}</span></div>
+        </div>
+      </div>
+
       <!-- メインKPI 4つ -->
       <div class="kpi-grid">
         <div class="kpi-card">
@@ -249,7 +310,7 @@ body{background:var(--bg);color:var(--fg);}
               -
             {% endif %}
           </div>
-          <div class="kpi-sub">楽天＋松井 合算</div>
+          <div class="kpi-sub">楽天＋SBI＋松井 合算</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">平均R</div>
@@ -271,7 +332,7 @@ body{background:var(--bg);color:var(--fg);}
               -
             {% endif %}
           </div>
-          <div class="kpi-sub">楽・松 合算の平均</div>
+          <div class="kpi-sub">3社合算の平均</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">平均損失（負け）</div>
@@ -421,7 +482,7 @@ body{background:var(--bg);color:var(--fg);}
       {% endif %}
     </div>
 
-    <!-- 勝敗サマリ（楽天 / 松井） -->
+    <!-- 勝敗サマリ（楽天 / SBI / 松井） -->
     <div class="section">
       <div class="head-title">勝敗サマリ</div>
       <div class="kv-grid">
@@ -432,6 +493,15 @@ body{background:var(--bg);color:var(--fg);}
           <div class="kv-row"><div class="kv-key">引き分け</div><div class="kv-val">{{ pl_counts_r.flat|default:0 }}</div></div>
           <div class="kv-row"><div class="kv-key">ポジションなし</div><div class="kv-val">{{ pl_counts_r.no_position|default:0 }}</div></div>
         </div>
+
+        <div>
+          <div class="badge">SBI</div>
+          <div class="kv-row"><div class="kv-key">勝ち</div><div class="kv-val">{{ pl_counts_s.win|default:0 }}</div></div>
+          <div class="kv-row"><div class="kv-key">負け</div><div class="kv-val">{{ pl_counts_s.lose|default:0 }}</div></div>
+          <div class="kv-row"><div class="kv-key">引き分け</div><div class="kv-val">{{ pl_counts_s.flat|default:0 }}</div></div>
+          <div class="kv-row"><div class="kv-key">ポジションなし</div><div class="kv-val">{{ pl_counts_s.no_position|default:0 }}</div></div>
+        </div>
+
         <div>
           <div class="badge">松井</div>
           <div class="kv-row"><div class="kv-key">勝ち</div><div class="kv-val">{{ pl_counts_m.win|default:0 }}</div></div>
@@ -511,7 +581,7 @@ body{background:var(--bg);color:var(--fg);}
 
     <!-- TOP 勝ち -->
     <div class="section">
-      <div class="head-title">TOP 勝ちトレード（楽天＋松井）</div>
+      <div class="head-title">TOP 勝ちトレード（楽天＋SBI＋松井）</div>
       {% if top_win %}
         {% for r in top_win %}
           <div class="list-item">
@@ -537,7 +607,7 @@ body{background:var(--bg);color:var(--fg);}
 
     <!-- TOP 負け -->
     <div class="section">
-      <div class="head-title">TOP 負けトレード（楽天＋松井）</div>
+      <div class="head-title">TOP 負けトレード（楽天＋SBI＋松井）</div>
       {% if top_lose %}
         {% for r in top_lose %}
           <div class="list-item">
