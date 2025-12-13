@@ -19,10 +19,9 @@ class BehaviorStats(models.Model):
       - stars だけでなく、n(試行数) や win_rate 等を正式に保持することで、
         データが少ない銘柄の過信を防ぎ、育つほど重みが上がる。
 
-    追加（育つAIの核）:
-      - stability: 特徴量の安定性（0..1）をDBに蓄積
-      - design_q : Entry/TP/SL設計品質（0..1）をDBに蓄積
-        → 次回以降、同銘柄の⭐️に「育ち」を反映できる
+      - ★追加: stability / design_q をDBに保存することで、
+        「結果（勝率）だけで⭐️が暴れない」＝育つAIの土台を固定する。
+        （rebuild_behavior_stats.py が算出して保存）
     """
 
     MODE_PERIOD_CHOICES = [
@@ -56,9 +55,10 @@ class BehaviorStats(models.Model):
     avg_pl = models.FloatField(null=True, blank=True)  # 直近N日平均損益（円）
     std_pl = models.FloatField(null=True, blank=True)  # 損益の標準偏差（円）
 
-    # --- growable signals (0..1) ---
-    stability = models.FloatField(null=True, blank=True)  # 0..1（特徴量の安定性）
-    design_q = models.FloatField(null=True, blank=True)   # 0..1（設計品質）
+    # --- state vars for "growing AI" (new) ---
+    # 0..1 を想定（rebuild_behavior_stats.py が算出）
+    stability = models.FloatField(default=0.50)         # 再現性（ブレ耐性）
+    design_q = models.FloatField(default=0.50)          # 設計品質（Entry/TP/SLの良さ）
 
     # 評価ウィンドウ（再現性/監査用）
     window_days = models.PositiveIntegerField(default=90)
@@ -70,9 +70,12 @@ class BehaviorStats(models.Model):
         indexes = [
             models.Index(fields=["mode_period", "mode_aggr", "stars"]),
             models.Index(fields=["mode_period", "mode_aggr", "n"]),
-            models.Index(fields=["mode_period", "mode_aggr", "stability"]),
-            models.Index(fields=["mode_period", "mode_aggr", "design_q"]),
+            # よく見る条件（運用で効く）
+            models.Index(fields=["mode_period", "mode_aggr", "updated_at"]),
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} {self.mode_period}/{self.mode_aggr} stars={self.stars} n={self.n}"
+        return (
+            f"{self.code} {self.mode_period}/{self.mode_aggr} "
+            f"stars={self.stars} n={self.n} st={self.stability:.2f} dq={self.design_q:.2f}"
+        )
