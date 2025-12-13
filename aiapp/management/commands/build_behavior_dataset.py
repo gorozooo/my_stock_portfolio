@@ -22,7 +22,7 @@ class SideRow:
     user_id: int
     ts: str
     mode: str           # "live" / "demo" / "other"
-    broker: str         # "rakuten" / "matsui"
+    broker: str         # "rakuten" / "sbi" / "matsui"
     code: str
     name: str
     sector: Optional[str]
@@ -42,8 +42,7 @@ class SideRow:
 
     eval_horizon_days: Optional[int]
     atr_14: Optional[float]
-    slope_25: Optional[float]
-    ret_20: Optional[float]
+    slope_20: Optional[float]
     trend_daily: Optional[str]
 
     def to_dict(self) -> Dict[str, Any]:
@@ -67,8 +66,7 @@ class SideRow:
             "eval_label": self.eval_label,
             "eval_horizon_days": self.eval_horizon_days,
             "atr_14": self.atr_14,
-            "slope_25": self.slope_25,
-            "ret_20": self.ret_20,
+            "slope_20": self.slope_20,
             "trend_daily": self.trend_daily,
         }
 
@@ -88,7 +86,7 @@ def _dedup_records(raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
     キー：
       (user_id, mode, code, price_date, entry[小数3桁丸め],
-       qty_rakuten, qty_matsui)
+       qty_rakuten, qty_sbi, qty_matsui)
 
     → 同じキーのものは 1件にまとめる。
     """
@@ -104,6 +102,7 @@ def _dedup_records(raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             r.get("price_date"),
             round(entry, 3),
             _safe_float(r.get("qty_rakuten")) or 0.0,
+            _safe_float(r.get("qty_sbi")) or 0.0,
             _safe_float(r.get("qty_matsui")) or 0.0,
         )
         if key in seen:
@@ -112,16 +111,6 @@ def _dedup_records(raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         deduped.append(r)
 
     return deduped
-
-
-def _pick_any(r: Dict[str, Any], *keys: str) -> Any:
-    """
-    複数キー候補から、最初に見つかった値を返す。
-    """
-    for k in keys:
-        if k in r:
-            return r.get(k)
-    return None
 
 
 class Command(BaseCommand):
@@ -153,6 +142,10 @@ class Command(BaseCommand):
             default=None,
             help="対象ユーザーID（指定なしなら全ユーザー）",
         )
+
+    # =========================================================
+    # メイン処理
+    # =========================================================
 
     def handle(self, *args, **options) -> None:
         horizon_days: int = options["days"]
@@ -190,6 +183,7 @@ class Command(BaseCommand):
                 try:
                     rec = json.loads(line)
                 except Exception:
+                    # 壊れた行はスキップ
                     continue
 
                 if target_user is not None and rec.get("user_id") != target_user:
@@ -210,7 +204,9 @@ class Command(BaseCommand):
         )
 
         # ---------- 行動データセット（そのままの構造） ----------
-        dataset_lines: List[str] = [json.dumps(r, ensure_ascii=False) for r in rows]
+        dataset_lines: List[str] = [
+            json.dumps(r, ensure_ascii=False) for r in rows
+        ]
 
         today_str = timezone.localdate().strftime("%Y%m%d")
         dataset_path = behavior_dir / f"{today_str}_behavior_dataset.jsonl"
@@ -243,12 +239,6 @@ class Command(BaseCommand):
             if mode not in ("live", "demo"):
                 mode = "other"
 
-            # ★ 新キー優先（無ければ旧互換）
-            atr_14 = _safe_float(_pick_any(r, "atr_14", "ATR14"))
-            slope_25 = _safe_float(_pick_any(r, "slope_25", "SLOPE_25", "slope_20", "SLOPE_20"))
-            ret_20 = _safe_float(_pick_any(r, "ret_20", "RET_20"))
-            trend_daily = _pick_any(r, "trend_daily", "TREND_DAILY")
-
             base_kwargs = dict(
                 user_id=user_id,
                 ts=ts,
@@ -261,23 +251,29 @@ class Command(BaseCommand):
                 tp=_safe_float(r.get("tp")),
                 sl=_safe_float(r.get("sl")),
                 eval_horizon_days=r.get("eval_horizon_days"),
-                atr_14=atr_14,
-                slope_25=slope_25,
-                ret_20=ret_20,
-                trend_daily=str(trend_daily) if trend_daily is not None else None,
+                atr_14=_safe_float(r.get("atr_14")),
+                slope_20=_safe_float(r.get("slope_20")),
+                trend_daily=(r.get("trend_daily") or None),
             )
 
-            # --- 楽天側 ---
+            # --- 楽天 ---
             side = self._build_side_row(r, broker="rakuten", base_kwargs=base_kwargs)
             if side is not None:
                 side_rows.append(side)
 
-            # --- 松井側 ---
+            # --- SBI ---
+            side = self._build_side_row(r, broker="sbi", base_kwargs=base_kwargs)
+            if side is not None:
+                side_rows.append(side)
+
+            # --- 松井 ---
             side = self._build_side_row(r, broker="matsui", base_kwargs=base_kwargs)
             if side is not None:
                 side_rows.append(side)
 
-        side_lines = [json.dumps(sr.to_dict(), ensure_ascii=False) for sr in side_rows]
+        side_lines = [
+            json.dumps(sr.to_dict(), ensure_ascii=False) for sr in side_rows
+        ]
 
         side_path = behavior_dir / f"{today_str}_behavior_side.jsonl"
         latest_side_path = behavior_dir / "latest_behavior_side.jsonl"
@@ -299,7 +295,9 @@ class Command(BaseCommand):
             )
         )
 
-        self.stdout.write(self.style.SUCCESS("[build_behavior_dataset] 完了"))
+        self.stdout.write(
+            self.style.SUCCESS("[build_behavior_dataset] 完了")
+        )
 
     # =========================================================
     # サイド行の構築
@@ -317,6 +315,8 @@ class Command(BaseCommand):
         - qty == 0 → 学習に使わない（ポジションなし）
         - eval_label が win/lose/flat 以外 → 学習に使わない
         """
+        broker = (broker or "").lower()
+
         if broker == "rakuten":
             qty_key = "qty_rakuten"
             est_pl_key = "est_pl_rakuten"
@@ -325,6 +325,16 @@ class Command(BaseCommand):
             eval_r_key = "eval_r_rakuten"
             eval_label_key = "eval_label_rakuten"
             broker_name = "rakuten"
+
+        elif broker == "sbi":
+            qty_key = "qty_sbi"
+            est_pl_key = "est_pl_sbi"
+            est_loss_key = "est_loss_sbi"
+            eval_pl_key = "eval_pl_sbi"
+            eval_r_key = "eval_r_sbi"
+            eval_label_key = "eval_label_sbi"
+            broker_name = "sbi"
+
         else:
             qty_key = "qty_matsui"
             est_pl_key = "est_pl_matsui"
@@ -340,10 +350,12 @@ class Command(BaseCommand):
 
         eval_label = (r.get(eval_label_key) or "").lower()
         if eval_label not in ("win", "lose", "flat"):
+            # 勝敗が付いていないものは教師データにしない
             return None
 
         eval_pl = _safe_float(r.get(eval_pl_key))
         if eval_pl is None:
+            # ラベルだけあって PL が無いのは異常なので除外
             return None
 
         eval_r = _safe_float(r.get(eval_r_key))
