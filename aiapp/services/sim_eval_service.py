@@ -5,22 +5,9 @@ from dataclasses import dataclass
 from datetime import date, datetime, time as _time, timedelta
 from typing import Any, Dict, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 import yfinance as yf
 from django.utils import timezone
-
-# ★ 追加：日足OHLCV取得・特徴量
-try:
-    from aiapp.services.fetch_price import get_prices
-except Exception:  # pragma: no cover
-    get_prices = None  # type: ignore
-
-try:
-    from aiapp.models.features import make_features, FeatureConfig
-except Exception:  # pragma: no cover
-    make_features = None  # type: ignore
-    FeatureConfig = None  # type: ignore
 
 
 # =========================================================
@@ -117,6 +104,7 @@ def _decide_entry_start_ts(trade_d: date, rec: Dict[str, Any]) -> datetime:
 
     # 日付が違う場合
     if ts_local.date() != trade_d:
+        # 基本的に trade_d の 09:00 からで良い
         return open_ts
 
     # 同じ日
@@ -136,6 +124,7 @@ def _decide_entry_start_ts(trade_d: date, rec: Dict[str, Any]) -> datetime:
         start_naive = datetime.combine(trade_d, _time(hour, minute_block))
         return timezone.make_aware(start_naive, tz)
 
+    # ちょうど 5分足の境目ならそのまま
     return ts_local
 
 
@@ -185,7 +174,7 @@ def load_5m_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame
         start=start_dt,
         end=end_dt,
         progress=False,
-        auto_adjust=False,
+        auto_adjust=False,  # ★ 生の価格を使う
     )
     if df is None or df.empty:
         raise ValueError(f"no 5m data for {code}")
@@ -238,8 +227,13 @@ def load_1d_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame
 
     close_s = _pick_price_col(df, "close")
 
-    out = pd.DataFrame({"close": close_s.astype(float)})
+    out = pd.DataFrame(
+        {
+            "close": close_s.astype(float),
+        }
+    )
     out.index = close_s.index
+
     return out
 
 
@@ -265,8 +259,10 @@ def _pick_horizon_close_daily(
             d = idx.date()
         else:
             continue
+
         if d < trade_date:
             continue
+
         dates.append(d)
         closes.append(float(row["close"]))
 
@@ -287,6 +283,7 @@ def _pick_horizon_close_daily(
         datetime.combine(d_target, datetime.min.time()) + timedelta(hours=15, minutes=20),
         tz,
     )
+
     return exit_ts, close_px, effective_days
 
 
@@ -326,176 +323,28 @@ def _to_iso(dt: Optional[datetime]) -> Optional[str]:
     return dt_jst.isoformat()
 
 
-def _safe_float(x: Any) -> Optional[float]:
-    if x in (None, "", "null"):
-        return None
-    try:
-        v = float(x)
-        if not np.isfinite(v):
-            return None
-        return v
-    except Exception:
-        return None
-
-
-def _safe_int(x: Any) -> Optional[int]:
-    if x in (None, "", "null"):
-        return None
-    try:
-        return int(x)
-    except Exception:
-        return None
-
-
-def _trend_from_slope_ret(slope: Optional[float], ret: Optional[float]) -> str:
+def _set_pending(out: Dict[str, Any], horizon_days: int, reason: str) -> Dict[str, Any]:
     """
-    超軽量のトレンドラベル（dataset用）
+    未来日など「評価できない」ケースを明示的に pending にする。
+    - 教師データには入らない
+    - UIでは “pending” として扱える
     """
-    s = _safe_float(slope)
-    r = _safe_float(ret)
-    if s is None or r is None:
-        return "unknown"
-    if s >= 0 and r >= 0:
-        return "up"
-    if s <= 0 and r <= 0:
-        return "down"
-    return "side"
+    out["eval_horizon_days"] = horizon_days
+    out["eval_exit_reason"] = reason
 
+    out["eval_label_rakuten"] = "pending"
+    out["eval_pl_rakuten"] = 0.0
+    out["eval_label_matsui"] = "pending"
+    out["eval_pl_matsui"] = 0.0
 
-def _compute_design_metrics(
-    side: str,
-    entry_px: Optional[float],
-    tp: Optional[float],
-    sl: Optional[float],
-    atr14: Optional[float],
-) -> Dict[str, Any]:
-    """
-    Entry/TP/SL の“設計”を数値化して simulate に保存。
-    BUY:
-      reward = tp - entry
-      risk   = entry - sl
-    SELL:
-      reward = entry - tp
-      risk   = sl - entry
-    """
-    out: Dict[str, Any] = {
-        "design_reward": None,
-        "design_risk": None,
-        "design_rr": None,
-        "risk_atr": None,
-        "reward_atr": None,
-    }
+    out["eval_close_px"] = None
+    out["eval_close_date"] = None
+    out["eval_entry_px"] = None
+    out["eval_entry_ts"] = None
+    out["eval_exit_ts"] = None
 
-    e = _safe_float(entry_px)
-    t = _safe_float(tp)
-    s = _safe_float(sl)
-    a = _safe_float(atr14)
-
-    if e is None or t is None or s is None:
-        return out
-
-    side_u = (side or "BUY").upper()
-    if side_u == "BUY":
-        reward = t - e
-        risk = e - s
-    else:
-        reward = e - t
-        risk = s - e
-
-    if not np.isfinite(reward) or not np.isfinite(risk):
-        return out
-
-    out["design_reward"] = float(reward)
-    out["design_risk"] = float(risk)
-
-    if risk <= 0:
-        out["design_rr"] = None
-    else:
-        out["design_rr"] = float(reward / risk)
-
-    if a is not None and a > 0:
-        out["risk_atr"] = float(risk / a)
-        out["reward_atr"] = float(reward / a)
-
+    out["_combined_label"] = "pending"
     return out
-
-
-def _attach_daily_feature_snapshot(
-    code: str,
-    trade_d: date,
-) -> Dict[str, Any]:
-    """
-    trade_d 時点の “日足特徴量スナップショット” を作って返す。
-    失敗しても空dictを返す（落とさない）。
-    """
-    if get_prices is None or make_features is None:
-        return {}
-
-    try:
-        # だいたい 2年分あれば 200MA まで余裕
-        raw = get_prices(code, nbars=None, period="3y")
-        if raw is None or raw.empty:
-            return {}
-        df = raw.copy()
-        # trade_d 以降が混じってもOKだが、評価基準としては trade_d までを使う
-        try:
-            df = df[df.index.date <= trade_d]
-        except Exception:
-            pass
-        if df.empty:
-            return {}
-
-        feat = make_features(df, cfg=None)
-        if feat is None or feat.empty:
-            return {}
-
-        last = feat.iloc[-1]
-
-        # 重要なキーだけ “トップレベルでも” 使いやすいように返す
-        def _g(k: str) -> Optional[float]:
-            if k not in feat.columns:
-                return None
-            v = pd.to_numeric(last.get(k), errors="coerce")
-            try:
-                fv = float(v)
-                if not np.isfinite(fv):
-                    return None
-                return fv
-            except Exception:
-                return None
-
-        atr14 = _g("ATR14")
-        slope25 = _g("SLOPE_25")
-        ret20 = _g("RET_20")
-        rsi14 = _g("RSI14")
-        bbz = _g("BB_Z")
-        vwap_gap = _g("VWAP_GAP_PCT")
-
-        trend_daily = _trend_from_slope_ret(slope25, ret20)
-
-        snap = {
-            "atr_14": atr14,
-            "slope_25": slope25,
-            "ret_20": ret20,
-            "rsi_14": rsi14,
-            "bb_z": bbz,
-            "vwap_gap_pct": vwap_gap,
-            "trend_daily": trend_daily,
-        }
-
-        # 将来の拡張用に “feature_snapshot” としても保存（軽量）
-        snap["feature_snapshot"] = {
-            "ATR14": atr14,
-            "SLOPE_25": slope25,
-            "RET_20": ret20,
-            "RSI14": rsi14,
-            "BB_Z": bbz,
-            "VWAP_GAP_PCT": vwap_gap,
-        }
-
-        return snap
-    except Exception:
-        return {}
 
 
 # =========================================================
@@ -510,7 +359,10 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
       - 実際の約定価格・時間は eval_entry_px / eval_entry_ts
       - TP/SL にかからなければ horizon_days 営業日目の日足終値でクローズ
       - ts が場中なら、その時刻以降の 5分足だけを見てエントリーを判定
-      - ★ 本番用: 日足特徴量スナップショット（atr/slope/ret等）と設計指標(rr等)を out に保存
+
+    追加仕様（本番運用向け）:
+      - trade_date が未来の場合は yfinance を叩かず "pending_future" 扱いで返す
+        （翌営業日以降に cron で再評価されれば自然に埋まる）
     """
     out = dict(rec)
 
@@ -527,32 +379,28 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
 
     # トレード開始日と、エントリー判定開始時刻
     trade_d = _decide_trade_date(rec)
+
+    # ★未来日の評価はしない（今はデータが存在しない）
+    today = timezone.localdate()
+    if trade_d > today:
+        return _set_pending(out, horizon_days, reason="pending_future")
+
     start_ts_for_entry = _decide_entry_start_ts(trade_d, rec)
-
-    # ★ 日足特徴量スナップショット（失敗してもOK）
-    snap = _attach_daily_feature_snapshot(code, trade_d)
-    if snap:
-        # トップレベルにも置く（datasetで拾いやすい）
-        out["atr_14"] = snap.get("atr_14")
-        out["slope_25"] = snap.get("slope_25")
-        out["ret_20"] = snap.get("ret_20")
-        out["trend_daily"] = snap.get("trend_daily")
-        out["feature_snapshot"] = snap.get("feature_snapshot")
-
-    # ★ 設計指標（RR, ATR倍率など）
-    atr14 = _safe_float(out.get("atr_14"))
-    dm = _compute_design_metrics(side, ai_entry_px, tp, sl, atr14)
-    out.update(dm)
 
     # 5分足取得
     try:
         df_5m = load_5m_bars(code, trade_d, horizon_days)
     except Exception:
+        # 未来ではないのに取れない → データ欠損（銘柄/供給/通信）
         out["eval_horizon_days"] = horizon_days
+        out["eval_exit_reason"] = "no_5m_data"
+        out["_combined_label"] = "unknown"
         return out
 
     if df_5m.empty:
         out["eval_horizon_days"] = horizon_days
+        out["eval_exit_reason"] = "no_5m_data"
+        out["_combined_label"] = "unknown"
         return out
 
     # ============================================
@@ -576,6 +424,7 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
             open_ts = first["ts"].to_pydatetime()
 
             if side == "BUY":
+                # 指値 >= 最初のバーの始値 → そのバーの始値で即約定
                 if ai_entry_px >= open_px:
                     entry_ts = open_ts
                     entry_px = open_px
@@ -620,6 +469,7 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
             return ts, px, horizon_days
 
     if entry_ts is None or entry_px is None:
+        # 指値未ヒット
         exit_ts, exit_px, eff_days = _horizon_close_with_daily()
         exit_reason = "no_fill"
         out["eval_horizon_days"] = eff_days
@@ -695,24 +545,6 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
     out["eval_entry_ts"] = _to_iso(entry_ts)
     out["eval_exit_ts"] = _to_iso(exit_ts)
 
-    # ============================================
-    # 4) eval_r（結果の質：PLを“想定損失”で割る）
-    # ============================================
-    # est_loss が無い/0 の時は None（落とさない）
-    est_loss_r = _safe_float(out.get("est_loss_rakuten"))
-    est_loss_m = _safe_float(out.get("est_loss_matsui"))
-
-    def _calc_r(pl: float, est_loss: Optional[float]) -> Optional[float]:
-        if est_loss is None:
-            return None
-        denom = abs(float(est_loss))
-        if denom <= 1e-9:
-            return None
-        return float(pl / denom)
-
-    out["eval_r_rakuten"] = _calc_r(pl_r, est_loss_r)
-    out["eval_r_matsui"] = _calc_r(pl_m, est_loss_m)
-
     # UI 用まとめラベル
     combined = "unknown"
     labels = {label_r, label_m}
@@ -726,6 +558,7 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
         combined = "lose"
     elif labels <= {"flat"}:
         combined = "flat"
+
     out["_combined_label"] = combined
 
     return out
