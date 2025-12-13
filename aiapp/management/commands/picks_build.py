@@ -382,10 +382,6 @@ def _extract_chart_ohlc(
     return opens, highs, lows, closes, (dates or None)
 
 
-# =========================================================
-# フォールバック実装（サービスが無い場合）
-# =========================================================
-
 def _fallback_score_sample(feat: pd.DataFrame) -> float:
     """
     0.0〜1.0 のスコアに正規化する簡易ロジック（テスト用）。
@@ -510,6 +506,14 @@ def _mode_aggr_from_style(style: str) -> str:
     return "aggr"
 
 
+def _model_has_field(model, field_name: str) -> bool:
+    try:
+        model._meta.get_field(field_name)
+        return True
+    except Exception:
+        return False
+
+
 # =========================================================
 # 出力アイテム
 # =========================================================
@@ -603,6 +607,10 @@ def _work_one(
     ★本番仕様（⭐️）:
       - BehaviorStats(code, mode_period, mode_aggr) の stars を優先
       - 取得できない場合のみ score→stars のフォールバック
+
+    ★今回対応:
+      - BehaviorStats が all/all にしか無い運用（モード無関係学習）の場合、
+        (code, mode_period, mode_aggr) が無ければ (code, "all", "all") を参照する。
     """
     try:
         raw = get_prices(code, nbars=nbars, period="3y")
@@ -709,13 +717,18 @@ def _work_one(
 
         # =========================================================
         # ⭐️（本番仕様）：BehaviorStats を参照（銘柄×mode_period×mode_aggr）
+        #   対応: 無ければ all/all を参照
         # =========================================================
         stars: int
         code_norm = _normalize_code(code)
 
         stars_from_behavior: Optional[int] = None
         if behavior_stars_map is not None:
+            # まず “指定モード”
             stars_from_behavior = behavior_stars_map.get((code_norm, mode_period, mode_aggr))
+            # 無ければ “モード無関係学習（all/all）”
+            if stars_from_behavior is None:
+                stars_from_behavior = behavior_stars_map.get((code_norm, "all", "all"))
 
         if isinstance(stars_from_behavior, int) and 1 <= stars_from_behavior <= 5:
             stars = int(stars_from_behavior)
@@ -965,7 +978,7 @@ class Command(BaseCommand):
         horizon = (opts.get("horizon") or "short").lower()
         topk = int(opts.get("topk") or 10)
 
-        # ★ 本番仕様（⭐️）キー
+        # ★ 本番仕様（⭐️）キー（ただし、all/all がある運用ではフォールバックする）
         mode_period = _mode_period_from_horizon(horizon)
         mode_aggr = _mode_aggr_from_style(style)
 
@@ -992,27 +1005,50 @@ class Command(BaseCommand):
                 if BUILD_LOG:
                     print(f"[picks_build] macro regime load error: {ex}")
 
-        # ★ BehaviorStats の⭐️をまとめて引く（銘柄×mode_period×mode_aggr）
+        # ★ BehaviorStats の⭐️をまとめて引く
+        #   対応:
+        #     - まず mode_period/mode_aggr の行があれば読む
+        #     - さらに all/all も読む（モード無関係学習の結果を使えるようにする）
         behavior_stars_map: Dict[Tuple[str, str, str], int] = {}
         if BehaviorStats is not None and codes:
             try:
                 codes_norm = [_normalize_code(c) for c in codes if c]
-                qs = (
-                    BehaviorStats.objects
-                    .filter(code__in=codes_norm, mode_period=mode_period, mode_aggr=mode_aggr)
-                    .values("code", "mode_period", "mode_aggr", "stars")
+
+                has_broker = _model_has_field(BehaviorStats, "broker")
+
+                # 1) 指定モード（従来）
+                qs1 = BehaviorStats.objects.filter(
+                    code__in=codes_norm,
+                    mode_period=mode_period,
+                    mode_aggr=mode_aggr,
                 )
-                for r in qs:
+                if has_broker:
+                    qs1 = qs1.filter(broker="all")
+                qs1 = qs1.values("code", "mode_period", "mode_aggr", "stars")
+
+                # 2) all/all（今回の運用）
+                qs2 = BehaviorStats.objects.filter(
+                    code__in=codes_norm,
+                    mode_period="all",
+                    mode_aggr="all",
+                )
+                if has_broker:
+                    qs2 = qs2.filter(broker="all")
+                qs2 = qs2.values("code", "mode_period", "mode_aggr", "stars")
+
+                # map へ投入（両方）
+                for r in list(qs1) + list(qs2):
                     c = _normalize_code(r.get("code"))
                     mp = (r.get("mode_period") or "").strip().lower()
                     ma = (r.get("mode_aggr") or "").strip().lower()
                     st = r.get("stars")
                     if c and mp and ma and isinstance(st, int):
                         behavior_stars_map[(c, mp, ma)] = int(st)
+
                 if BUILD_LOG:
                     print(
-                        f"[picks_build] BehaviorStats loaded: "
-                        f"{len(behavior_stars_map)} rows (period={mode_period} aggr={mode_aggr})"
+                        f"[picks_build] BehaviorStats loaded: {len(behavior_stars_map)} rows "
+                        f"(want={mode_period}/{mode_aggr}, plus=all/all)"
                     )
             except Exception as ex:
                 if BUILD_LOG:
@@ -1046,6 +1082,7 @@ class Command(BaseCommand):
                     "stars_mode_period": mode_period,
                     "stars_mode_aggr": mode_aggr,
                     "behaviorstats_rows": len(behavior_stars_map),
+                    "behaviorstats_has_all_all": True,
                 },
             )
             return
@@ -1127,6 +1164,7 @@ class Command(BaseCommand):
         meta_extra["stars_mode_period"] = mode_period
         meta_extra["stars_mode_aggr"] = mode_aggr
         meta_extra["behaviorstats_rows"] = len(behavior_stars_map)
+        meta_extra["behaviorstats_has_all_all"] = True
 
         self._emit(
             items,
