@@ -181,7 +181,7 @@
 
               data-concern="{{ it.reason_concern|default:'' }}"
           >
-            <td  style="text-align:center;"="score
+            <td  class="score
               {% if it.score_100 and it.score_100|floatformat:0 >= 80 %}score-high
               {% elif it.score_100 and it.score_100|floatformat:0 >= 60 %}score-mid
               {% else %}score-low{% endif %}">
