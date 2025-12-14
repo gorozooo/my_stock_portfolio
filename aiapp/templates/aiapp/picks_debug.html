@@ -61,7 +61,7 @@
         <div class="meta">
           <span>モード: {{ meta.style|default:"aggressive" }}/{{ meta.horizon|default:"short" }}</span>
           <span>ユニバース: {{ meta.universe|default:"(不明)" }}</span>
-          <span>TopK: {{ meta.topk|default:0 }}</span>
+          <!--<span>TopK: {{ meta.topk|default:0 }}</span>-->
         </div>
 
         <!-- 件数まわり（総件数 / 対象件数） -->
@@ -108,7 +108,7 @@
       id="filterInput"
       class="filter-input"
       type="search"
-      placeholder="コード・銘柄名・業種でフィルタ（例: 7203 / トヨタ / 保険）">
+      placeholder="コード・銘柄名・業種でフィルタ">
   </div>
 
   <div class="table-wrap">
@@ -205,13 +205,6 @@
       </table>
     </div>
   </div>
-
-  <div class="foot-note">
-    ・行をタップすると、数量・想定PL・理由などの詳細がモーダルで表示されます。<br>
-    ・score / ⭐ / 数量 / 想定PL が想定とズレていないか確認できます。<br>
-    ・楽天 / 松井 / SBI の3社分と、「なぜ0株なのか」の判定理由も確認できます。
-  </div>
-
 </div>
 
 <!-- ===== 詳細モーダル ===== -->
