@@ -181,11 +181,6 @@
 
               data-concern="{{ it.reason_concern|default:'' }}"
           >
-            <td class="code">{{ it.code }}</td>
-            <td class="td-name">
-              <div class="td-name-main">{{ it.name|default:"(銘柄名なし)" }}</div>
-              <div class="sector">{{ it.sector_display|default:"業種不明" }}</div>
-            </td>
             <td class="score
               {% if it.score_100 and it.score_100|floatformat:0 >= 80 %}score-high
               {% elif it.score_100 and it.score_100|floatformat:0 >= 60 %}score-mid
@@ -194,6 +189,12 @@
                 {{ it.score_100|floatformat:0 }}
               {% else %}–{% endif %}
             </td>
+            <td class="code">{{ it.code }}</td>
+            <td class="td-name">
+              <div class="td-name-main">{{ it.name|default:"(銘柄名なし)" }}</div>
+              <div class="sector">{{ it.sector_display|default:"業種不明" }}</div>
+            </td>
+            
           </tr>
         {% empty %}
           <tr>
