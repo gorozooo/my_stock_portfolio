@@ -116,7 +116,7 @@
       <table id="picksTable">
         <thead>
           <tr>
-            <th style="text-align:center;">Score</th>
+            <th>Score</th>
             <th>コード</th>
             <th>銘柄名 / 業種</th>
             
@@ -181,7 +181,7 @@
 
               data-concern="{{ it.reason_concern|default:'' }}"
           >
-            <td class="score
+            <td  style="text-align:center;"="score
               {% if it.score_100 and it.score_100|floatformat:0 >= 80 %}score-high
               {% elif it.score_100 and it.score_100|floatformat:0 >= 60 %}score-mid
               {% else %}score-low{% endif %}">
