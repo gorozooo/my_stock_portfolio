@@ -9,62 +9,14 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
   1. 価格取得（OHLCV）
   2. 特徴量生成（テクニカル指標など）
   3. フィルタリング層（仕手株・流動性・異常値などで土台から除外）
-  4. スコアリング / ⭐️算出
-     ★本番仕様：⭐️は confidence_service（司令塔）で確定
-        - 過去30〜90日の仮想エントリー成績（BehaviorStats: 同モード → 無ければ all/all）
-        - 特徴量の安定性
-        - Entry/TP/SL距離適正
-        - scoring_service は補助輪
+  4. スコアリング
   5. ML推論（C: 主役）
-  6. Entry / TP / SL の計算（MLを使って自動調整。無ければATRフォールバック）
-  7. Sizing（数量・必要資金・想定PL/損失・見送り理由）※ MLで risk% 自動調整も可能
-  8. 理由テキスト生成（選定理由×最大5行 + 懸念1行）
-  9. バイアス層（セクター波 / 大型・小型バランスの微調整）
- 10. ランキング（C: MLランク降順 → score_100降順 → 株価降順）→ JSON 出力
-
-========================================
-▼ 利用サービス / モジュール
-========================================
-  ・価格取得:
-      aiapp.services.fetch_price.get_prices
-
-  ・特徴量生成:
-      aiapp.models.features.make_features
-
-  ・スコア:
-      aiapp.services.scoring_service.score_sample
-
-  ・⭐️（本番）:
-      aiapp.services.confidence_service.compute_confidence_star
-        ※ BehaviorStats + 安定性 + 距離 + scoring_service を合成して⭐️確定
-
-  ・ML推論（C: 主役）:
-      aiapp.services.ml_infer_service.infer_from_features
-        ※ p_win / EV / hold_days_pred / tp_first / probs / ml_rank を返す
-
-  ・Entry / TP / SL:
-      aiapp.services.entry_service.compute_entry_tp_sl
-        ※ ML値が渡されれば ML自動調整、無い場合は ATR ベースフォールバック。
-
-  ・数量 / 必要資金 / 想定PL / 想定損失 / 見送り理由:
-      aiapp.services.sizing_service.compute_position_sizing
-        ※ ml_ev/ml_p_win/ml_tp_first_probs が渡されれば risk% を自動調整可能。
-
-  ・理由5つ + 懸念（日本語テキスト）:
-      aiapp.services.reasons.make_reasons
-
-  ・銘柄フィルタ層:
-      aiapp.services.picks_filters.FilterContext
-      aiapp.services.picks_filters.check_all
-
-  ・セクター波 / 大型・小型バランス調整:
-      aiapp.services.picks_bias.apply_all
-
-========================================
-▼ 出力ファイル
-========================================
-  - media/aiapp/picks/latest_full_all.json
-  - media/aiapp/picks/latest_full.json
+  6. Entry / TP / SL の計算（★ML確率でRRターゲット制御）
+  7. ⭐️算出（confidence_service）
+  8. Sizing（数量・必要資金・想定PL/損失・見送り理由）
+  9. 理由テキスト生成（選定理由×最大5行 + 懸念1行）
+ 10. バイアス層（セクター波 / 大型・小型バランスの微調整）
+ 11. ランキング（C: MLランク降順 → score_100降順 → 株価降順）→ JSON 出力
 """
 
 from __future__ import annotations
@@ -178,9 +130,6 @@ CONF_DETAIL = _env_bool("AIAPP_CONF_DETAIL", False)  # 1なら confidence_detail
 # =========================================================
 
 def _safe_series(x) -> pd.Series:
-    """
-    どんな形で来ても 1D pd.Series[float] に正規化する。
-    """
     if x is None:
         return pd.Series(dtype="float64")
     if isinstance(x, pd.Series):
@@ -199,11 +148,6 @@ def _safe_series(x) -> pd.Series:
 
 
 def _series_tail_to_list(s, max_points: int = 60) -> Optional[List[Optional[float]]]:
-    """
-    pd.Series などから末尾 max_points 本だけ取り出して
-    JSON 化しやすい Python の list[float | None] に変換する。
-    NaN / inf は None にする。
-    """
     ser = _safe_series(s)
     if ser.empty:
         return None
@@ -222,10 +166,6 @@ def _series_tail_to_list(s, max_points: int = 60) -> Optional[List[Optional[floa
 
 
 def _safe_float(x) -> float:
-    """
-    スカラ/Series/DataFrame/Index などから float を1つ取り出す。
-    失敗時は NaN。
-    """
     try:
         if x is None:
             return float("nan")
@@ -244,16 +184,12 @@ def _safe_float(x) -> float:
 
 
 def _nan_to_none(x):
-    if isinstance(x, (float, int)) and x != x:  # NaN
+    if isinstance(x, (float, int)) and x != x:
         return None
     return x
 
 
 def _build_reasons_features(feat: pd.DataFrame, last: float, atr: float) -> Dict[str, Any]:
-    """
-    reasons.make_reasons 用に、features DataFrame から必要な指標だけ抜き出して
-    名前を合わせた dict を組み立てる。
-    """
     if feat is None or len(feat) == 0:
         return {}
 
@@ -332,10 +268,6 @@ def _extract_chart_ohlc(
     Optional[List[float]],
     Optional[List[str]],
 ]:
-    """
-    チャート用の OHLC 配列＋日付配列を生成（ローソク足＋終値ライン＋X軸の日付表示用）。
-    get_prices が返す DataFrame の末尾から max_points 本だけ抜き出す。
-    """
     if raw is None:
         return None, None, None, None, None
     try:
@@ -392,9 +324,6 @@ def _extract_chart_ohlc(
 # =========================================================
 
 def _fallback_score_sample(feat: pd.DataFrame) -> float:
-    """
-    0.0〜1.0 のスコアに正規化する簡易ロジック（テスト用）。
-    """
     if feat is None or len(feat) == 0:
         return 0.0
 
@@ -451,9 +380,6 @@ def _fallback_stars(score01: float) -> int:
 
 
 def _fallback_entry_tp_sl(last: float, atr: float) -> Tuple[Optional[float], Optional[float], Optional[float]]:
-    """
-    暫定・短期×攻め用の Entry / TP / SL。
-    """
     if not np.isfinite(last) or not np.isfinite(atr) or atr <= 0:
         return None, None, None
     entry = last + 0.05 * atr
@@ -469,11 +395,6 @@ def _score_to_0_100(s01: float) -> int:
 
 
 def _normalize_code(code: str) -> str:
-    """
-    DB/JSON でぶれないように銘柄コードを正規化。
-    - "7203.T" → "7203"
-    - "7203"   → "7203"
-    """
     s = str(code or "").strip()
     if not s:
         return s
@@ -542,7 +463,6 @@ class PickItem:
     score_100: Optional[int] = None
     stars: Optional[int] = None
 
-    # ===== ML outputs（C: 主役）=====
     ml_p_win: Optional[float] = None
     ml_ev: Optional[float] = None
     ml_rank: Optional[float] = None
@@ -590,9 +510,6 @@ def _work_one(
     filter_stats: Optional[Dict[str, int]] = None,
     regime: Optional[object] = None,
 ) -> Optional[Tuple[PickItem, Dict[str, Any]]]:
-    """
-    単一銘柄について、価格→特徴量→スコア→ML→Entry/TP/SL→⭐️→Sizing→理由 まで全部まとめて計算。
-    """
     try:
         raw = get_prices(code, nbars=nbars, period="3y")
         if raw is None or len(raw) == 0:
@@ -666,7 +583,6 @@ def _work_one(
                     if filter_stats is not None:
                         reason = getattr(decision, "reason_code", None) or "SKIP"
                         filter_stats[reason] = filter_stats.get(reason, 0) + 1
-
                     if BUILD_LOG:
                         rc = getattr(decision, "reason_code", None)
                         rt = getattr(decision, "reason_text", None)
@@ -689,18 +605,18 @@ def _work_one(
 
         score100 = _score_to_0_100(s01)
 
+        # =========================================================
+        # ★ ML推論（先にやる）
+        # =========================================================
         code_norm = _normalize_code(code)
 
-        # =========================================================
-        # ML推論（C: 主役） ※ Entry/TP/SLより前に実行する
-        # =========================================================
-        ml_meta: Dict[str, Any] = {}
         ml_p_win = None
         ml_ev = None
         ml_rank = None
         ml_hold = None
         ml_tp = None
         ml_tp_probs = None
+        ml_meta: Dict[str, Any] = {}
 
         if ml_infer_from_features is not None:
             try:
@@ -723,32 +639,28 @@ def _work_one(
                     print(f"[picks_build] ml_infer error for {code_norm}: {ex}")
 
         # =========================================================
-        # Entry / TP / SL（ML自動調整を優先）
+        # ★ Entry/TP/SL（ML確率でRRターゲット制御）
         # =========================================================
+        p_tp_first = None
+        try:
+            if isinstance(ml_tp_probs, dict):
+                p_tp_first = ml_tp_probs.get("tp_first")
+        except Exception:
+            p_tp_first = None
+
         if ext_entry_tp_sl:
-            try:
-                e, t, s = ext_entry_tp_sl(
-                    last,
-                    atr,
-                    mode="aggressive",
-                    horizon="short",
-                    feat_df=feat,
-                    ml_ev=ml_ev,
-                    ml_p_win=ml_p_win,
-                    ml_hold_days_pred=ml_hold,
-                    ml_tp_first_probs=ml_tp_probs,
-                    side="BUY",
-                )
-            except TypeError:
-                # 旧シグネチャ/未対応時は互換フォールバック
-                e, t, s = ext_entry_tp_sl(last, atr, mode="aggressive", horizon="short")
-            except Exception:
-                e, t, s = _fallback_entry_tp_sl(last, atr)
+            e, t, s = ext_entry_tp_sl(
+                last,
+                atr,
+                mode="aggressive",
+                horizon="short",
+                p_tp_first=p_tp_first,
+            )
         else:
             e, t, s = _fallback_entry_tp_sl(last, atr)
 
         # =========================================================
-        # ⭐️（本番仕様）：confidence_service（司令塔）で確定
+        # ⭐️（confidence_service）
         # =========================================================
         fallback_star = None
         if ext_stars_from_score:
@@ -906,9 +818,7 @@ def _work_one(
             low_all=low_all,
         )
 
-        # =========================================================
-        # Sizing（MLを渡して risk% 自動調整もON）
-        # =========================================================
+        # --- Sizing ---
         sizing = compute_position_sizing(
             user=user,
             code=str(code_norm),
@@ -917,9 +827,6 @@ def _work_one(
             entry=e,
             tp=t,
             sl=s,
-            ml_ev=ml_ev,
-            ml_p_win=ml_p_win,
-            ml_tp_first_probs=ml_tp_probs,
         )
 
         item.qty_rakuten = sizing.get("qty_rakuten")
@@ -948,7 +855,6 @@ def _work_one(
             "risk_pct": sizing.get("risk_pct"),
             "lot_size": sizing.get("lot_size"),
         }
-
         if conf_meta:
             sizing_meta["confidence_detail"] = conf_meta
 
@@ -1147,7 +1053,6 @@ class Command(BaseCommand):
         meta_extra: Dict[str, Any] = {}
 
         filter_stats: Dict[str, int] = {}
-
         first_conf_detail: Optional[Dict[str, Any]] = None
 
         behavior_cache: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
