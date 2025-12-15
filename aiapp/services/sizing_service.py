@@ -446,7 +446,7 @@ def compute_position_sizing(
 
                     reason_msg = _build_reason_for_zero(
                         broker_label,
-                        qty=qtyqty:=qty,
+                        qty=qty,
                         gross_profit=gross_profit_test,
                         net_profit=net_profit_test,
                         rr=rr_test,
