@@ -19,7 +19,7 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
   6. Sizing（数量・必要資金・想定PL/損失・見送り理由）
   7. 理由テキスト生成（選定理由×最大5行 + 懸念1行）
   8. バイアス層（セクター波 / 大型・小型バランスの微調整）
-  9. ランキング（score_100 降順 → 株価降順）→ JSON 出力
+  9. ランキング（ML優先: ml_rank 降順 → score_100 降順 → 株価降順）→ JSON 出力
 
 ========================================
 ▼ 利用サービス / モジュール
@@ -36,10 +36,6 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
   ・⭐️（本番）:
       aiapp.services.confidence_service.compute_confidence_star
         ※ BehaviorStats + 安定性 + 距離 + scoring_service を合成して⭐️確定
-
-  ・ML推論（本番）:
-      aiapp.services.ml_predictor.predict_one
-        ※ 学習済みLightGBMを読み込み、p_win / ev / hold_days_pred / tp_first を item に付与
 
   ・Entry / TP / SL:
       aiapp.services.entry_service.compute_entry_tp_sl
@@ -139,11 +135,12 @@ try:
 except Exception:  # pragma: no cover
     BehaviorStats = None  # type: ignore
 
-# ★追加: ML推論（学習済みLightGBMをJSONに反映）
+# ★追加: ML推論（存在すれば使う / 無ければスキップ）
+# いまの環境で既に ML を入れている前提に寄せて「あるなら拾う」作りにする
 try:
-    from aiapp.services.ml_predictor import predict_one as ml_predict_one
+    from aiapp.services.ml_infer import predict_for_features as ml_predict_for_features
 except Exception:  # pragma: no cover
-    ml_predict_one = None  # type: ignore
+    ml_predict_for_features = None  # type: ignore
 
 
 # =========================================================
@@ -169,7 +166,6 @@ def _env_bool(key: str, default: bool = False) -> bool:
 
 BUILD_LOG = _env_bool("AIAPP_BUILD_LOG", False)
 CONF_DETAIL = _env_bool("AIAPP_CONF_DETAIL", False)  # 1なら confidence_detail を meta に入れる（重いので通常OFF）
-ML_ENABLE = _env_bool("AIAPP_ML_ENABLE", True)       # 0 で ML を無効化できる（障害/切り戻し用）
 
 
 # =========================================================
@@ -528,6 +524,47 @@ def _mode_aggr_from_style(style: str) -> str:
     return "aggr"
 
 
+def _compute_ml_rank_C(
+    *,
+    ml_ev: Optional[float],
+    ml_p_win: Optional[float],
+    ml_tp_first: Optional[str],
+    ml_hold_days: Optional[float],
+) -> Optional[float]:
+    """
+    ★C（EV主導＋勝率補助）のランキング値を作る。
+      rank = 0.7*EV + 0.3*p_win
+    軽い安全弁:
+      - tp_first が sl_first 優勢なら僅かに減点
+      - hold_days が極端なら僅かに減点
+    """
+    try:
+        if ml_ev is None or ml_p_win is None:
+            return None
+        ev = float(ml_ev)
+        pw = float(ml_p_win)
+        if not np.isfinite(ev) or not np.isfinite(pw):
+            return None
+
+        rank = 0.7 * ev + 0.3 * pw
+
+        # tp_first が "sl_first" の場合、軽く減点（C運用の“それっぽさ”）
+        tpf = (ml_tp_first or "").strip().lower()
+        if tpf == "sl_first":
+            rank *= 0.95
+
+        # hold_days の極端値を軽く嫌う（強すぎる縛りはしない）
+        if ml_hold_days is not None:
+            hd = float(ml_hold_days)
+            if np.isfinite(hd):
+                if hd < 2.0 or hd > 15.0:
+                    rank *= 0.97
+
+        return float(rank)
+    except Exception:
+        return None
+
+
 # =========================================================
 # 出力アイテム
 # =========================================================
@@ -571,12 +608,13 @@ class PickItem:
     score_100: Optional[int] = None        # 0..100
     stars: Optional[int] = None            # 1..5（confidence_serviceで確定）
 
-    # --- ML predictions (optional) ---
-    ml_p_win: Optional[float] = None
-    ml_ev: Optional[float] = None
-    ml_hold_days_pred: Optional[float] = None
-    ml_tp_first: Optional[str] = None
+    # ---- ML（あれば）----
+    ml_p_win: Optional[float] = None       # 0..1
+    ml_ev: Optional[float] = None          # 期待値（スケールはml側定義）
+    ml_hold_days: Optional[float] = None   # 任意（あると強い）
+    ml_tp_first: Optional[str] = None      # "tp_first"/"sl_first"/"none"
     ml_tp_first_probs: Optional[Dict[str, float]] = None
+    ml_rank: Optional[float] = None        # ★Cのランキング値（Top10をこれで並べる）
 
     qty_rakuten: Optional[int] = None
     required_cash_rakuten: Optional[float] = None
@@ -624,17 +662,6 @@ def _work_one(
     """
     単一銘柄について、価格→特徴量→スコア→Entry/TP/SL→⭐️（司令塔）→Sizing→理由 まで全部まとめて計算。
     sizing_meta には risk_pct / lot_size を入れて返す。
-
-    ★本番仕様（⭐️）:
-      - confidence_service.compute_confidence_star が最終決定
-        （BehaviorStats実績 + 安定性 + 距離適正 + scoring補助）
-      - BehaviorStats は picks_build 側で一括ロードし、behavior_cache 経由で渡す（DB連打防止）
-      - 万一confidence_serviceが利用不可なら、score→stars のフォールバック
-
-    ★本番仕様（ML）:
-      - ml_predictor.predict_one で学習済みモデルから
-        p_win / ev / hold_days_pred / tp_first を推論して item に載せる
-      - MLが利用不可でも落とさない（Noneで継続）
     """
     try:
         raw = get_prices(code, nbars=nbars, period="3y")
@@ -741,42 +768,9 @@ def _work_one(
 
         # --- Entry / TP / SL ---
         if ext_entry_tp_sl:
-            # 既存仕様に寄せる（mode/horizonは現状固定）
             e, t, s = ext_entry_tp_sl(last, atr, mode="aggressive", horizon="short")
         else:
             e, t, s = _fallback_entry_tp_sl(last, atr)
-
-        # =========================================================
-        # ML（学習済みモデル）推論 → itemに載せる
-        # =========================================================
-        ml_p_win = None
-        ml_ev = None
-        ml_hold = None
-        ml_tp_first = None
-        ml_tp_probs = None
-
-        if ML_ENABLE and ml_predict_one is not None:
-            try:
-                regime_label = None
-                try:
-                    regime_label = getattr(regime, "regime_label", None) if regime is not None else None
-                except Exception:
-                    regime_label = None
-
-                ml_out = ml_predict_one(
-                    feat_df=feat,
-                    style=str(mode_aggr),
-                    horizon=str(mode_period),
-                    regime_label=str(regime_label) if regime_label is not None else None,
-                )
-                ml_p_win = ml_out.p_win
-                ml_ev = ml_out.ev
-                ml_hold = ml_out.hold_days_pred
-                ml_tp_first = ml_out.tp_first
-                ml_tp_probs = ml_out.tp_first_probs
-            except Exception as ex:
-                if BUILD_LOG:
-                    print(f"[picks_build] ml_predict error for {code}: {ex}")
 
         # =========================================================
         # ⭐️（本番仕様）：confidence_service（司令塔）で確定
@@ -798,7 +792,6 @@ def _work_one(
         conf_meta: Dict[str, Any] = {}
         if compute_confidence_star is not None:
             try:
-                # behavior_cache 対応版/非対応版どちらでも動くようにする
                 try:
                     stars = int(
                         compute_confidence_star(
@@ -829,7 +822,6 @@ def _work_one(
 
                 if CONF_DETAIL and compute_confidence_detail is not None:
                     try:
-                        # behavior_cache 対応版/非対応版どちらでも動くようにする
                         try:
                             d = compute_confidence_detail(
                                 code=str(code_norm),
@@ -854,7 +846,6 @@ def _work_one(
                                 regime=regime,
                             )
 
-                        # JSONに入れられる形へ（typo修正：perf_avg_pl）
                         conf_meta = {
                             "stars_final": int(d.stars_final),
                             "stars_perf": d.stars_perf,
@@ -874,10 +865,64 @@ def _work_one(
                     except Exception:
                         conf_meta = {}
             except Exception as ex:
-                # 司令塔が失敗しても落とさない
                 if BUILD_LOG:
                     print(f"[picks_build] confidence_service error for {code_norm}: {ex}")
                 stars = int(fallback_star)
+
+        # =========================================================
+        # ML 推論（あれば）
+        # =========================================================
+        ml_p_win = None
+        ml_ev = None
+        ml_hold_days = None
+        ml_tp_first = None
+        ml_tp_first_probs = None
+
+        if ml_predict_for_features is not None:
+            try:
+                pred = ml_predict_for_features(
+                    code=str(code_norm),
+                    feat_df=feat,
+                    entry=e,
+                    tp=t,
+                    sl=s,
+                    mode_period=mode_period,
+                    mode_aggr=mode_aggr,
+                    regime=regime,
+                ) or {}
+
+                # 期待してるキー名に寄せる（無ければNone）
+                if "p_win" in pred:
+                    try:
+                        ml_p_win = float(pred.get("p_win"))
+                    except Exception:
+                        ml_p_win = None
+                if "ev" in pred:
+                    try:
+                        ml_ev = float(pred.get("ev"))
+                    except Exception:
+                        ml_ev = None
+                if "hold_days" in pred:
+                    try:
+                        ml_hold_days = float(pred.get("hold_days"))
+                    except Exception:
+                        ml_hold_days = None
+                if "tp_first" in pred:
+                    v = pred.get("tp_first")
+                    ml_tp_first = str(v) if v is not None else None
+                if "tp_first_probs" in pred and isinstance(pred.get("tp_first_probs"), dict):
+                    ml_tp_first_probs = {str(k): float(v) for k, v in pred["tp_first_probs"].items()}
+            except Exception as ex:
+                if BUILD_LOG:
+                    print(f"[picks_build] ml_infer error for {code_norm}: {ex}")
+
+        # ★C：ml_rank（Top10の主キー）
+        ml_rank = _compute_ml_rank_C(
+            ml_ev=ml_ev,
+            ml_p_win=ml_p_win,
+            ml_tp_first=ml_tp_first,
+            ml_hold_days=ml_hold_days,
+        )
 
         # --- 理由5つ＋懸念（特徴量ベース） ---
         reason_lines: Optional[List[str]] = None
@@ -900,8 +945,8 @@ def _work_one(
                 f"score01={s01:.3f} score100={score100} stars={stars} "
                 f"(period={mode_period} aggr={mode_aggr})"
             )
-            if ml_p_win is not None or ml_ev is not None:
-                msg += f" ml(p_win={ml_p_win} ev={ml_ev} hold={ml_hold} tp_first={ml_tp_first})"
+            if ml_rank is not None:
+                msg += f" ml(p_win={ml_p_win} ev={ml_ev} hold={ml_hold_days} tp_first={ml_tp_first})"
             if conf_meta:
                 msg += f" conf={conf_meta}"
             print(msg)
@@ -935,11 +980,12 @@ def _work_one(
             high_all=high_all,
             low_all=low_all,
             # ML
-            ml_p_win=ml_p_win,
-            ml_ev=ml_ev,
-            ml_hold_days_pred=ml_hold,
+            ml_p_win=_nan_to_none(ml_p_win),
+            ml_ev=_nan_to_none(ml_ev),
+            ml_hold_days=_nan_to_none(ml_hold_days),
             ml_tp_first=ml_tp_first,
-            ml_tp_first_probs=ml_tp_probs,
+            ml_tp_first_probs=ml_tp_first_probs,
+            ml_rank=_nan_to_none(ml_rank),
         )
 
         # --- Sizing（数量・必要資金・想定PL/損失 + 見送り理由） ---
@@ -988,15 +1034,6 @@ def _work_one(
         # デバッグ用：conf_detail を meta に入れたい時だけ返す
         if conf_meta:
             sizing_meta["confidence_detail"] = conf_meta
-
-        # MLの軽い診断（必要なら）
-        if ml_p_win is not None or ml_ev is not None:
-            sizing_meta["ml"] = {
-                "p_win": ml_p_win,
-                "ev": ml_ev,
-                "hold_days_pred": ml_hold,
-                "tp_first": ml_tp_first,
-            }
 
         return item, sizing_meta
 
@@ -1189,8 +1226,9 @@ class Command(BaseCommand):
                     "stars_mode_period": mode_period,
                     "stars_mode_aggr": mode_aggr,
                     "behaviorstats_cache_rows": 0,
-                    # ★ MLメタ
-                    "ml_enabled": bool(ML_ENABLE and ml_predict_one is not None),
+                    # ★ ML ranking
+                    "ranking_engine": "ml_rank_C",
+                    "ranking_formula": "0.7*ml_ev + 0.3*ml_p_win (penalty: sl_first*0.95, extreme hold_days*0.97)",
                 },
             )
             return
@@ -1212,8 +1250,6 @@ class Command(BaseCommand):
 
         # =========================================================
         # ★ BehaviorStats を一括ロードしてキャッシュ化（DB連打防止）
-        #    - (code, mode_period, mode_aggr)
-        #    - 同モードが無ければ confidence_service 側が all/all を拾う前提
         # =========================================================
         behavior_cache: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
         if BehaviorStats is not None and codes:
@@ -1272,6 +1308,7 @@ class Command(BaseCommand):
         _enrich_meta(items)
 
         # ---- セクターバイアス・サイズバイアス適用（あれば） ----
+        # ※ユーザー方針: stars は絶対に触らない前提（picks_bias 側の実装依存）
         if apply_bias_all is not None and items:
             try:
                 apply_bias_all(items)
@@ -1279,14 +1316,23 @@ class Command(BaseCommand):
                 if BUILD_LOG:
                     print(f"[picks_build] bias error: {ex}")
 
-        # 並び: score_100 desc → last_close desc
-        items.sort(
-            key=lambda x: (
-                x.score_100 if x.score_100 is not None else -1,
-                x.last_close if x.last_close is not None else -1,
-            ),
-            reverse=True,
-        )
+        # =========================================================
+        # ★ランキング（C）：ml_rank 降順 → score_100 降順 → last_close 降順
+        #   - ml_rank が無い銘柄は score_100 で並ぶ（ML未対応でも壊れない）
+        # =========================================================
+        def _sort_key(x: PickItem):
+            mr = getattr(x, "ml_rank", None)
+            try:
+                mr = float(mr) if mr is not None else None
+            except Exception:
+                mr = None
+            if mr is None or not np.isfinite(mr):
+                mr = -1e18  # ML無しは後ろへ（ただしscore_100で順序は付く）
+            s100 = x.score_100 if x.score_100 is not None else -1
+            lc = x.last_close if x.last_close is not None else -1
+            return (mr, s100, lc)
+
+        items.sort(key=_sort_key, reverse=True)
 
         top_items = items[: max(0, topk)]
 
@@ -1315,8 +1361,9 @@ class Command(BaseCommand):
         if first_conf_detail is not None:
             meta_extra["confidence_detail_sample"] = first_conf_detail
 
-        # ★ MLメタ
-        meta_extra["ml_enabled"] = bool(ML_ENABLE and ml_predict_one is not None)
+        # ★ ML ranking meta（C）
+        meta_extra["ranking_engine"] = "ml_rank_C"
+        meta_extra["ranking_formula"] = "0.7*ml_ev + 0.3*ml_p_win (penalty: sl_first*0.95, extreme hold_days*0.97)"
 
         self._emit(
             items,
