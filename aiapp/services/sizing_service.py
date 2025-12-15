@@ -3,22 +3,14 @@
 """
 AI Picks 用 ポジションサイズ計算サービス（短期×攻め・本気版）
 
-- 楽天 / 松井 / SBI の 3段出力
-- UserSetting.risk_pct と 各社倍率/ヘアカットを利用
-- broker_summary.compute_broker_summaries() の結果に合わせて
-    - 資産ベース: 現金残高 + 現物（特定）評価額
-    - 予算ベース: 信用余力（概算）× credit_usage_pct（％）
-- ATR / Entry / TP / SL を使って 1トレード許容損失からロットを計算
-- 手数料・スリッページを見積もって
-    - コスト負け
-    - 利益がショボい
-    - R が低すぎる
-  などの理由で「見送り」を返す
+追加（今回の主目的）：
+- risk_pct を ML で “自動調整” できるようにする
+  → 期待値（ml_ev）/ 勝率（ml_p_win）/ SL先確率（ml_tp_first_probs）で上下
+  → Entry/TP/SL の自動調整と “同じ判断軸” でサイズも動かす
 
-ポリシーファイル（aiapp/policies/short_aggressive.yml）から読み込むもの：
-- filters.min_net_profit_yen
-- filters.min_reward_risk
-- fees.commission_rate, fees.min_commission, fees.slippage_rate
+重要：
+- 呼び出し互換を壊さない（既存の picks_build 呼び出しはそのまま動く）
+- MLが無い/欠損なら従来の risk_pct をそのまま使う（運用を止めない）
 """
 
 from __future__ import annotations
@@ -76,7 +68,6 @@ except Exception:
     # 読み込みに失敗してもデフォルトで動くようにする
     pass
 
-# 実際に使う値（読み取り後）
 MIN_NET_PROFIT_YEN = _min_net_profit_yen
 MIN_REWARD_RISK = _min_reward_risk
 COMMISSION_RATE = _commission_rate
@@ -112,7 +103,6 @@ def _load_user_setting(user) -> Tuple[float, float, float, float, float, float, 
         defaults={
             "account_equity": 1_000_000,
             "risk_pct": 1.0,
-            # credit_usage_pct フィールドの default と合わせておく
             "credit_usage_pct": 70.0,
         },
     )
@@ -120,7 +110,6 @@ def _load_user_setting(user) -> Tuple[float, float, float, float, float, float, 
     risk_pct = float(us.risk_pct or 1.0)
     credit_usage_pct = float(getattr(us, "credit_usage_pct", 70.0) or 70.0)
 
-    # モデルのフィールド名は portfolio.models.UserSetting に合わせる
     rakuten_leverage = getattr(us, "leverage_rakuten", 2.90)
     rakuten_haircut = getattr(us, "haircut_rakuten", 0.30)
     matsui_leverage = getattr(us, "leverage_matsui", 2.80)
@@ -193,11 +182,6 @@ def _lot_size_for(code: str) -> int:
 def _estimate_trading_cost(entry: float, qty: int) -> float:
     """
     信用取引のざっくりコスト見積もり（片道）。
-
-    ポリシーの fees セクションから：
-      - COMMISSION_RATE: 売買手数料レート
-      - MIN_COMMISSION: 最低手数料
-      - SLIPPAGE_RATE: スリッページ率
     """
     if entry <= 0 or qty <= 0:
         return 0.0
@@ -205,6 +189,85 @@ def _estimate_trading_cost(entry: float, qty: int) -> float:
     fee = max(MIN_COMMISSION, notionals * COMMISSION_RATE)
     slippage = notionals * SLIPPAGE_RATE
     return fee + slippage  # 片道（往復で×2想定）
+
+
+def _clamp(x: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, x))
+
+
+def _safe_float(x: Any) -> float:
+    try:
+        v = float(x)
+        if v != v:  # NaN
+            return 0.0
+        if v == float("inf") or v == float("-inf"):
+            return 0.0
+        return v
+    except Exception:
+        return 0.0
+
+
+def _normalize_probs(d: Any) -> Dict[str, float]:
+    out = {"tp_first": 0.0, "sl_first": 0.0, "none": 0.0}
+    if not isinstance(d, dict):
+        return out
+    for k in ("tp_first", "sl_first", "none"):
+        out[k] = _clamp(_safe_float(d.get(k)), 0.0, 1.0)
+    s = out["tp_first"] + out["sl_first"] + out["none"]
+    if s <= 0:
+        return out
+    return {k: float(v / s) for k, v in out.items()}
+
+
+def _risk_pct_auto_adjust(
+    *,
+    risk_pct_base: float,
+    ml_ev: Any = None,
+    ml_p_win: Any = None,
+    ml_tp_first_probs: Any = None,
+) -> Tuple[float, Dict[str, Any]]:
+    """
+    MLから risk_pct を自動調整する。
+
+    直感：
+    - ev / p_win が高いほど “少しだけ” 上げてよい
+    - ただし SL先確率が高いならガッツリ下げる（逆行しやすい）
+    - いきなり暴れないように係数を強くクランプする
+    """
+    base = float(risk_pct_base or 1.0)
+
+    ev = _safe_float(ml_ev)
+    pwin = _safe_float(ml_p_win)
+    probs = _normalize_probs(ml_tp_first_probs)
+    p_sl = float(probs.get("sl_first", 0.0))
+
+    # MLが無いなら調整しない
+    has_ml = (ev > 0) or (pwin > 0) or (isinstance(ml_tp_first_probs, dict))
+    if not has_ml:
+        return base, {"k_risk": 1.0, "p_sl_first": p_sl, "has_ml": False}
+
+    # 基本係数（控えめ・暴れない）
+    # 例：
+    #   ev: 0.8を基準、上なら増、下なら減
+    #   pwin: 0.5を基準、上なら少し増
+    #   p_sl: 0.0〜1.0 で強く減点（先に逆行しやすい）
+    k = 0.6 + 0.8 * (ev - 0.8) + 0.3 * (pwin - 0.5) - 0.7 * p_sl
+    k = _clamp(k, 0.35, 1.60)
+
+    eff = base * k
+
+    # 極端に上がりすぎないように、絶対値でもクランプ
+    # (ユーザー設定が1%なら最大でも2.5%程度、0.5%なら最大でも1.25%程度)
+    eff = _clamp(eff, base * 0.35, base * 2.50)
+
+    meta = {
+        "has_ml": True,
+        "k_risk": float(k),
+        "p_sl_first": float(p_sl),
+        "ml_ev": float(ev),
+        "ml_p_win": float(pwin),
+    }
+    return float(eff), meta
 
 
 def _build_reason_for_zero(
@@ -220,7 +283,6 @@ def _build_reason_for_zero(
 ) -> str:
     """
     qty=0 になったときの「なぜゼロなのか」を細かく判定して日本語メッセージを返す。
-    label: "楽天" / "松井" / "SBI"
     """
     if budget <= 0:
         return "信用余力が 0 円のため。"
@@ -240,7 +302,6 @@ def _build_reason_for_zero(
     if rr < MIN_REWARD_RISK:
         return f"利確幅に対して損切幅が大きく、R={rr:.2f} と基準未満のため。"
 
-    # ここまで来て qty=0 はほぼ無いはずだが、念のため
     return "リスク％から計算した必要株数が最小単元に満たないため。"
 
 
@@ -257,6 +318,10 @@ def compute_position_sizing(
     entry: float,
     tp: float,
     sl: float,
+    # ★ 追加：MLでrisk%を動かす（互換のため引数追加は末尾、既存呼び出しは壊れない）
+    ml_ev: Any = None,
+    ml_p_win: Any = None,
+    ml_tp_first_probs: Any = None,
 ) -> Dict[str, Any]:
     """
     AI Picks 1銘柄分の数量と評価・理由を計算して返す。
@@ -265,7 +330,7 @@ def compute_position_sizing(
         user = _get_or_default_user()
 
     (
-        risk_pct,
+        risk_pct_base,
         credit_usage_pct,
         rakuten_leverage,
         rakuten_haircut,
@@ -306,7 +371,9 @@ def compute_position_sizing(
             est_loss_sbi=0,
             reason_sbi_code="invalid_data",
             reason_sbi_msg=msg,
-            risk_pct=risk_pct,
+            # base/eff を返す（UIやログで確認できる）
+            risk_pct=float(risk_pct_base),
+            risk_pct_effective=float(risk_pct_base),
             lot_size=lot,
             reasons_text=[
                 f"・楽天: {msg}",
@@ -315,9 +382,17 @@ def compute_position_sizing(
             ],
         )
 
+    # ★ MLで risk_pct を自動調整
+    risk_pct_eff, risk_meta = _risk_pct_auto_adjust(
+        risk_pct_base=float(risk_pct_base),
+        ml_ev=ml_ev,
+        ml_p_win=ml_p_win,
+        ml_tp_first_probs=ml_tp_first_probs,
+    )
+
     envs = _build_broker_envs(
         user,
-        risk_pct=risk_pct,
+        risk_pct=float(risk_pct_base),
         rakuten_leverage=rakuten_leverage,
         rakuten_haircut=rakuten_haircut,
         matsui_leverage=matsui_leverage,
@@ -327,11 +402,14 @@ def compute_position_sizing(
     )
 
     # 1株あたりの損失幅 / 利益幅
-    loss_per_share = max(entry - sl, atr * 0.6)  # 損切り距離
-    reward_per_share = max(tp - entry, 0.0)      # 利確距離（マイナスにはしない）
+    # SLが浅すぎるとサイズが暴れるので最低幅は atr*0.6 を残す（元の思想を維持）
+    loss_per_share = max(entry - sl, atr * 0.6)
+    reward_per_share = max(tp - entry, 0.0)
 
     result: Dict[str, Any] = {
-        "risk_pct": risk_pct,
+        "risk_pct": float(risk_pct_base),
+        "risk_pct_effective": float(risk_pct_eff),
+        "risk_pct_meta": risk_meta,
         "lot_size": lot,
     }
 
@@ -347,7 +425,6 @@ def compute_position_sizing(
             reason_code = "no_account"
         else:
             risk_assets = max(env.cash_yen + env.stock_value, 0.0)
-            # 信用余力に credit_usage_pct（％）を掛けて、使ってよい上限を決める
             total_budget = max(env.credit_yoryoku, 0.0)
             budget = total_budget * (credit_usage_pct / 100.0)
 
@@ -359,8 +436,8 @@ def compute_position_sizing(
                 reason_msg = "信用余力が 0 円のため。"
                 reason_code = "no_budget"
             else:
-                # 1トレードあたり許容損失
-                risk_value = risk_assets * (risk_pct / 100.0)
+                # ★ 自動調整後の risk_pct を使う
+                risk_value = risk_assets * (float(risk_pct_eff) / 100.0)
 
                 if loss_per_share <= 0:
                     max_by_risk = 0
@@ -375,7 +452,6 @@ def compute_position_sizing(
                     qty = 0
 
                 if qty <= 0:
-                    # 「仮に最小ロットで入った場合」で理由を判定
                     test_qty = lot
                     gross_profit_test = reward_per_share * test_qty
                     loss_value_test = loss_per_share * test_qty
@@ -398,7 +474,6 @@ def compute_position_sizing(
                     est_pl = 0.0
                     est_loss = 0.0
                 else:
-                    # ここで一旦「プラス候補」として扱い、あとでフィルタ
                     gross_profit = reward_per_share * qty
                     loss_value = loss_per_share * qty
                     cost_round = _estimate_trading_cost(entry, qty) * 2
@@ -427,14 +502,12 @@ def compute_position_sizing(
                         reason_code = "rr_too_low"
                         reason_msg = f"利確幅に対して損切幅が大きく、R={rr:.2f} と基準未満のため。"
                     else:
-                        # 最終的に採用
                         required_cash = entry * qty
                         est_pl = net_profit
                         est_loss = loss_value
                         reason_code = ""
                         reason_msg = ""
 
-        # 結果を flat に格納
         result[f"qty_{short_key}"] = int(qty)
         result[f"required_cash_{short_key}"] = round(float(required_cash or 0.0), 0)
         result[f"est_pl_{short_key}"] = round(float(est_pl or 0.0), 0)
@@ -442,7 +515,6 @@ def compute_position_sizing(
         result[f"reason_{short_key}_code"] = reason_code
         result[f"reason_{short_key}_msg"] = reason_msg
 
-    # ★ どちらか一方でも 0株なら、その証券会社分の理由を bullets としてまとめる
     reasons_lines: List[str] = []
     for broker_label, short_key in (("楽天", "rakuten"), ("松井", "matsui"), ("SBI", "sbi")):
         msg = result.get(f"reason_{short_key}_msg") or ""
