@@ -20,11 +20,11 @@ AI Picks 用 ポジションサイズ計算サービス（短期×攻め・本�
 - filters.min_reward_risk
 - fees.commission_rate, fees.min_commission, fees.slippage_rate
 
-★今回の対応点
-- picks_build 側から渡される p_tp_first（TP先到達確率）を受け取り、
-  ev_net_<broker> を「R換算の期待値」として計算して返す
-  EV(R) = p * RR_net - (1-p) * 1
-- 文字化け（PUA/ゼロ幅/制御文字）混入を reason 系に対して自動クレンジング
+★追加（今回）:
+- MLの確率（p_tp_first / p_sl_first）を受け取り、手数料込みRRから
+  EV_final（R換算）を計算して返す
+    EV_final = p_tp_first * RR_net - p_sl_first * 1.0
+  ※ none は今回は無視（将来: 時間切れ/横ばいEVに拡張用）
 """
 
 from __future__ import annotations
@@ -32,8 +32,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple, Optional
 from pathlib import Path
-import re
-import unicodedata
 
 try:
     import yaml  # ポリシーファイル読み込み用
@@ -45,27 +43,6 @@ from django.contrib.auth import get_user_model
 
 from portfolio.models import UserSetting
 from aiapp.services.broker_summary import compute_broker_summaries
-
-
-# =========================================================
-# 文字クレンジング（白枠/文字化け対策）
-# =========================================================
-
-_PUA_RE = re.compile(r"[\uE000-\uF8FF]")                 # Private Use Area
-_ZW_RE = re.compile(r"[\u200B-\u200D\uFEFF]")            # zero-width / BOM
-_CTL_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]")  # control chars
-
-
-def clean_text(s: Any) -> str:
-    if s is None:
-        return ""
-    s = unicodedata.normalize("NFKC", str(s))
-    s = _PUA_RE.sub("", s)
-    s = _ZW_RE.sub("", s)
-    s = _CTL_RE.sub("", s)
-    s = s.replace("\u00A0", " ")  # NBSP
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
 
 
 # ------------------------------
@@ -160,12 +137,12 @@ def _load_user_setting(user) -> Tuple[float, float, float, float, float, float, 
     return (
         risk_pct,
         credit_usage_pct,
-        float(rakuten_leverage),
-        float(rakuten_haircut),
-        float(matsui_leverage),
-        float(matsui_haircut),
-        float(sbi_leverage),
-        float(sbi_haircut),
+        rakuten_leverage,
+        rakuten_haircut,
+        matsui_leverage,
+        matsui_haircut,
+        sbi_leverage,
+        sbi_haircut,
     )
 
 
@@ -214,8 +191,7 @@ def _lot_size_for(code: str) -> int:
     ETF/ETN (13xx / 15xx) → 1株
     それ以外 → 100株
     """
-    s = str(code or "").strip()
-    if s.startswith("13") or s.startswith("15"):
+    if code.startswith("13") or code.startswith("15"):
         return 1
     return 100
 
@@ -231,10 +207,10 @@ def _estimate_trading_cost(entry: float, qty: int) -> float:
     """
     if entry <= 0 or qty <= 0:
         return 0.0
-    notionals = float(entry) * int(qty)
-    fee = max(float(MIN_COMMISSION), notionals * float(COMMISSION_RATE))
-    slippage = notionals * float(SLIPPAGE_RATE)
-    return float(fee + slippage)  # 片道（往復で×2想定）
+    notionals = entry * qty
+    fee = max(MIN_COMMISSION, notionals * COMMISSION_RATE)
+    slippage = notionals * SLIPPAGE_RATE
+    return fee + slippage  # 片道（往復で×2想定）
 
 
 def _safe_div(a: float, b: float) -> float:
@@ -243,44 +219,41 @@ def _safe_div(a: float, b: float) -> float:
     return float(a) / float(b)
 
 
-def _calc_ev_r(rr_net: float, p_tp_first: Optional[float]) -> Optional[float]:
-    """
-    EV(R) = p * RR_net - (1-p) * 1
-    - p は TP先到達確率（tp_first_probs['tp_first']）
-    - 1 は SL先到達時の損失を -1R とみなす簡略モデル
-    """
-    if p_tp_first is None:
+def _clamp01(x: Optional[float]) -> Optional[float]:
+    if x is None:
         return None
     try:
-        p = float(p_tp_first)
+        v = float(x)
     except Exception:
         return None
-    if p < 0.0 or p > 1.0:
+    if v != v:  # NaN
         return None
-    return float(p * float(rr_net) - (1.0 - p) * 1.0)
+    if v < 0.0:
+        return 0.0
+    if v > 1.0:
+        return 1.0
+    return v
 
 
 def _build_reason_for_zero(
     label: str,
     *,
+    qty: int,
     gross_profit: float,
     net_profit: float,
     rr: float,
     budget: float,
     min_lot: int,
-    entry_price: float,
+    loss_value: float,
 ) -> str:
     """
     qty=0 になったときの「なぜゼロなのか」を細かく判定して日本語メッセージを返す。
     label: "楽天" / "松井" / "SBI"
     """
-    _ = label
-
     if budget <= 0:
         return "信用余力が 0 円のため。"
 
-    need = float(entry_price) * int(min_lot)
-    if budget < need:
+    if budget < min_lot * loss_value:
         return "信用余力が最小単元に対しても不足しているため。"
 
     if gross_profit <= 0:
@@ -295,6 +268,7 @@ def _build_reason_for_zero(
     if rr < MIN_REWARD_RISK:
         return f"利確幅に対して損切幅が大きく、R={rr:.2f} と基準未満のため。"
 
+    # ここまで来て qty=0 はほぼ無いはずだが、念のため
     return "リスク％から計算した必要株数が最小単元に満たないため。"
 
 
@@ -311,17 +285,24 @@ def compute_position_sizing(
     entry: float,
     tp: float,
     sl: float,
-    p_tp_first: Optional[float] = None,  # ★追加：TP先到達確率
+    *,
+    p_tp_first: Optional[float] = None,
+    p_sl_first: Optional[float] = None,
 ) -> Dict[str, Any]:
     """
     AI Picks 1銘柄分の数量と評価・理由を計算して返す。
 
-    ★返却（今回の仕様に合わせる）
-      - ev_net_<broker>: EVをR換算（確率あり）で返す
-      - rr_net_<broker>: 手数料・スリッページ込みのRR（= net_profit / loss_value）
+    ★今回のEV:
+      - rr_net_<broker>: 手数料・スリッページ込みRR（= net_profit / loss_value）
+      - ev_net_<broker>: EV_final（R換算）
+            EV_final = p_tp_first * rr_net - p_sl_first * 1.0
+        ※ pが無い場合は ev_net = rr_net として返す（旧挙動と互換）
     """
     if user is None:
         user = _get_or_default_user()
+
+    p_tp_first = _clamp01(p_tp_first)
+    p_sl_first = _clamp01(p_sl_first)
 
     (
         risk_pct,
@@ -334,7 +315,7 @@ def compute_position_sizing(
         sbi_haircut,
     ) = _load_user_setting(user)
 
-    lot = _lot_size_for(str(code))
+    lot = _lot_size_for(code)
 
     # ATR や価格が無効なら全て 0 で理由も「データ不足」
     if (
@@ -345,7 +326,7 @@ def compute_position_sizing(
         or tp is None
         or sl is None
     ):
-        msg = clean_text("価格またはボラティリティ指標が不足しているため。")
+        msg = "価格またはボラティリティ指標が不足しているため。"
         return dict(
             qty_rakuten=0,
             required_cash_rakuten=0,
@@ -377,9 +358,9 @@ def compute_position_sizing(
             risk_pct=risk_pct,
             lot_size=lot,
             reasons_text=[
-                clean_text(f"・楽天: {msg}"),
-                clean_text(f"・松井: {msg}"),
-                clean_text(f"・SBI: {msg}"),
+                f"・楽天: {msg}",
+                f"・松井: {msg}",
+                f"・SBI: {msg}",
             ],
         )
 
@@ -395,60 +376,49 @@ def compute_position_sizing(
     )
 
     # 1株あたりの損失幅 / 利益幅
-    entry_f = float(entry)
-    tp_f = float(tp)
-    sl_f = float(sl)
-    atr_f = float(atr)
-    last_f = float(last_price)
-
-    loss_per_share = max(entry_f - sl_f, atr_f * 0.6)  # 損切り距離（最低保障）
-    reward_per_share = max(tp_f - entry_f, 0.0)        # 利確距離（マイナスにはしない）
+    loss_per_share = max(entry - sl, atr * 0.6)  # 損切り距離（最低保障）
+    reward_per_share = max(tp - entry, 0.0)      # 利確距離（マイナスにはしない）
 
     result: Dict[str, Any] = {
-        "risk_pct": float(risk_pct),
-        "lot_size": int(lot),
+        "risk_pct": risk_pct,
+        "lot_size": lot,
     }
 
     # 各証券会社ごとの計算
     for broker_label, short_key in (("楽天", "rakuten"), ("松井", "matsui"), ("SBI", "sbi")):
         env = envs.get(broker_label)
-
         qty = 0
         required_cash = 0.0
         est_pl = 0.0
         est_loss = 0.0
         reason_msg = ""
         reason_code = ""
-        ev_net: Optional[float] = None
-        rr_net: Optional[float] = None
+        ev_net = None
+        rr_net = None
 
         if env is None:
             reason_msg = "該当する証券口座の情報が見つからないため。"
             reason_code = "no_account"
         else:
-            # 資産ベース（=現金 + 現物(特定)評価額）
-            risk_assets = max(float(env.cash_yen) + float(env.stock_value), 0.0)
-
-            # 予算ベース（=信用余力 × 使用上限%）
-            total_budget = max(float(env.credit_yoryoku), 0.0)
-            budget = total_budget * (float(credit_usage_pct) / 100.0)
+            risk_assets = max(env.cash_yen + env.stock_value, 0.0)
+            total_budget = max(env.credit_yoryoku, 0.0)
+            budget = total_budget * (credit_usage_pct / 100.0)
 
             if risk_assets <= 0 or budget <= 0:
                 reason_msg = "信用余力が 0 円のため。"
                 reason_code = "no_budget"
             else:
                 # 1トレードあたり許容損失（円）
-                risk_value = risk_assets * (float(risk_pct) / 100.0)
+                risk_value = risk_assets * (risk_pct / 100.0)
 
                 # リスク上限での最大株数
                 if loss_per_share <= 0:
                     max_by_risk = 0
                 else:
-                    max_by_risk = int((risk_value / loss_per_share) // lot * lot)
+                    max_by_risk = int(risk_value / loss_per_share // lot * lot)
 
-                # 予算上限での最大株数（entry優先）
-                price_for_budget = max(entry_f, last_f)
-                max_by_budget = int((budget / price_for_budget) // lot * lot)
+                # 予算上限での最大株数
+                max_by_budget = int(budget / max(entry, last_price) // lot * lot)
 
                 qty = min(max_by_risk, max_by_budget)
                 if qty < lot:
@@ -456,37 +426,41 @@ def compute_position_sizing(
 
                 if qty <= 0:
                     # 「仮に最小ロットで入った場合」で理由を判定
-                    test_qty = int(lot)
+                    test_qty = lot
                     gross_profit_test = reward_per_share * test_qty
                     loss_value_test = loss_per_share * test_qty
-                    cost_round = _estimate_trading_cost(entry_f, test_qty) * 2.0
+                    cost_round = _estimate_trading_cost(entry, test_qty) * 2
                     net_profit_test = gross_profit_test - cost_round
                     rr_test = _safe_div(gross_profit_test, loss_value_test)
 
                     reason_msg = _build_reason_for_zero(
                         broker_label,
+                        qty=qty,
                         gross_profit=gross_profit_test,
                         net_profit=net_profit_test,
                         rr=rr_test,
                         budget=budget,
                         min_lot=lot,
-                        entry_price=entry_f,
+                        loss_value=loss_per_share,
                     )
                     reason_code = "filtered"
                 else:
                     # 採用候補としてPL計算（手数料込み）
                     gross_profit = reward_per_share * qty
                     loss_value = loss_per_share * qty
-                    cost_round = _estimate_trading_cost(entry_f, qty) * 2.0
+                    cost_round = _estimate_trading_cost(entry, qty) * 2
                     net_profit = gross_profit - cost_round
                     rr = _safe_div(gross_profit, loss_value)
-
-                    # 手数料込みRR（net_profit / loss_value）
                     rr_net_val = _safe_div(net_profit, loss_value)
 
-                    # ★今回追加：EV（R換算・確率あり）
-                    ev_net_val = _calc_ev_r(rr_net_val, p_tp_first)
+                    # ★ RR_net は常に保持（pが無くても診断できる）
+                    # ★ EV_net は「確率があるなら EV_final、無いなら互換として rr_net」
+                    if p_tp_first is not None and p_sl_first is not None:
+                        ev_net_val = (p_tp_first * rr_net_val) - (p_sl_first * 1.0)
+                    else:
+                        ev_net_val = rr_net_val
 
+                    # フィルタ
                     if net_profit <= 0:
                         qty = 0
                         reason_code = "net_profit_negative"
@@ -499,17 +473,17 @@ def compute_position_sizing(
                         qty = 0
                         reason_code = "rr_too_low"
                         reason_msg = f"利確幅に対して損切幅が大きく、R={rr:.2f} と基準未満のため。"
+                    elif (p_tp_first is not None and p_sl_first is not None) and (ev_net_val <= 0.0):
+                        qty = 0
+                        reason_code = "ev_negative"
+                        reason_msg = "確率（pTP/pSL）を加味した期待値EVがプラスにならないため。"
                     else:
                         # 最終採用
-                        required_cash = entry_f * qty
+                        required_cash = entry * qty
                         est_pl = net_profit
                         est_loss = loss_value
-                        rr_net = rr_net_val
                         ev_net = ev_net_val
-
-        # 文字クレンジング
-        reason_msg = clean_text(reason_msg)
-        reason_code = clean_text(reason_code)
+                        rr_net = rr_net_val
 
         # 結果を flat に格納
         result[f"qty_{short_key}"] = int(qty)
@@ -527,9 +501,9 @@ def compute_position_sizing(
     reasons_lines: List[str] = []
     for broker_label, short_key in (("楽天", "rakuten"), ("松井", "matsui"), ("SBI", "sbi")):
         msg = result.get(f"reason_{short_key}_msg") or ""
-        qty = int(result.get(f"qty_{short_key}", 0) or 0)
-        if qty == 0 and msg:
-            reasons_lines.append(clean_text(f"・{broker_label}: {msg}"))
+        qty_val = result.get(f"qty_{short_key}", 0)
+        if qty_val == 0 and msg:
+            reasons_lines.append(f"・{broker_label}: {msg}")
 
     result["reasons_text"] = reasons_lines or None
     return result
