@@ -577,15 +577,15 @@ class PickItem:
     ml_hold_days_pred: Optional[float] = None
     ml_tp_first: Optional[str] = None
     ml_tp_first_probs: Optional[Dict[str, float]] = None
-    
-        # ===== EV (sizing: 手数料込み) =====
+
+    # ===== EV (sizing: 手数料込み, R換算) =====
     ev_net_rakuten: Optional[float] = None
     rr_net_rakuten: Optional[float] = None
     ev_net_matsui: Optional[float] = None
     rr_net_matsui: Optional[float] = None
     ev_net_sbi: Optional[float] = None
     rr_net_sbi: Optional[float] = None
-    
+
     qty_rakuten: Optional[int] = None
     required_cash_rakuten: Optional[float] = None
     est_pl_rakuten: Optional[float] = None
@@ -961,16 +961,28 @@ def _work_one(
             p_tp_first = None
 
         # --- Sizing（数量・必要資金・想定PL/損失 + 見送り理由） ---
-        sizing = compute_position_sizing(
-            user=user,
-            code=str(code_norm),
-            last_price=last,
-            atr=atr,
-            entry=e,
-            tp=t,
-            sl=s,
-            p_tp_first=p_tp_first,  # ★追加
-        )
+        # compute_position_sizing が p_tp_first を受け取れない旧版でも落ちないようにする
+        try:
+            sizing = compute_position_sizing(
+                user=user,
+                code=str(code_norm),
+                last_price=last,
+                atr=atr,
+                entry=e,
+                tp=t,
+                sl=s,
+                p_tp_first=p_tp_first,  # ★追加
+            )
+        except TypeError:
+            sizing = compute_position_sizing(
+                user=user,
+                code=str(code_norm),
+                last_price=last,
+                atr=atr,
+                entry=e,
+                tp=t,
+                sl=s,
+            )
 
         # 楽天
         item.qty_rakuten = sizing.get("qty_rakuten")
@@ -989,15 +1001,15 @@ def _work_one(
         item.required_cash_sbi = sizing.get("required_cash_sbi")
         item.est_pl_sbi = sizing.get("est_pl_sbi")
         item.est_loss_sbi = sizing.get("est_loss_sbi")
-        
-                # ★ EV (手数料込み, R換算)
+
+        # ★ EV (手数料込み, R換算)
         item.ev_net_rakuten = sizing.get("ev_net_rakuten")
         item.rr_net_rakuten = sizing.get("rr_net_rakuten")
         item.ev_net_matsui = sizing.get("ev_net_matsui")
         item.rr_net_matsui = sizing.get("rr_net_matsui")
         item.ev_net_sbi = sizing.get("ev_net_sbi")
         item.rr_net_sbi = sizing.get("rr_net_sbi")
-        
+
         # 共通メッセージ
         reasons_text = sizing.get("reasons_text")
         item.reasons_text = reasons_text if reasons_text else None
