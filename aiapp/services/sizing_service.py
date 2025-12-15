@@ -15,22 +15,16 @@ AI Picks 用 ポジションサイズ計算サービス（短期×攻め・本�
     - R が低すぎる
   などの理由で「見送り」を返す
 
-★追加（B案）：
-- MLの p(tp_first)（= TPが先に刺さる確率）を受け取り、
-  「期待値（EV円）」で見送り判定できるようにする。
-
 ポリシーファイル（aiapp/policies/short_aggressive.yml）から読み込むもの：
 - filters.min_net_profit_yen
 - filters.min_reward_risk
-- filters.min_ev_yen                 ★追加
 - fees.commission_rate, fees.min_commission, fees.slippage_rate
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple, Optional
-
+from typing import Any, Dict, List, Tuple
 from pathlib import Path
 
 try:
@@ -44,6 +38,7 @@ from django.contrib.auth import get_user_model
 from portfolio.models import UserSetting
 from aiapp.services.broker_summary import compute_broker_summaries
 
+
 # ------------------------------
 # ポリシーデフォルト値
 # ------------------------------
@@ -51,17 +46,12 @@ from aiapp.services.broker_summary import compute_broker_summaries
 DEFAULT_MIN_NET_PROFIT_YEN = 1000.0
 DEFAULT_MIN_REWARD_RISK = 1.0
 
-# ★追加：最低期待値（純EV）
-DEFAULT_MIN_EV_YEN = 500.0
-
 DEFAULT_COMMISSION_RATE = 0.0005  # 0.05%
 DEFAULT_MIN_COMMISSION = 100.0    # 最低手数料
 DEFAULT_SLIPPAGE_RATE = 0.001     # 0.10%
 
 _min_net_profit_yen = DEFAULT_MIN_NET_PROFIT_YEN
 _min_reward_risk = DEFAULT_MIN_REWARD_RISK
-_min_ev_yen = DEFAULT_MIN_EV_YEN
-
 _commission_rate = DEFAULT_COMMISSION_RATE
 _min_commission = DEFAULT_MIN_COMMISSION
 _slippage_rate = DEFAULT_SLIPPAGE_RATE
@@ -78,7 +68,6 @@ try:
 
             _min_net_profit_yen = float(filters.get("min_net_profit_yen", _min_net_profit_yen))
             _min_reward_risk = float(filters.get("min_reward_risk", _min_reward_risk))
-            _min_ev_yen = float(filters.get("min_ev_yen", _min_ev_yen))  # ★追加
 
             _commission_rate = float(fees.get("commission_rate", _commission_rate))
             _min_commission = float(fees.get("min_commission", _min_commission))
@@ -90,8 +79,6 @@ except Exception:
 # 実際に使う値（読み取り後）
 MIN_NET_PROFIT_YEN = _min_net_profit_yen
 MIN_REWARD_RISK = _min_reward_risk
-MIN_EV_YEN = _min_ev_yen  # ★追加
-
 COMMISSION_RATE = _commission_rate
 MIN_COMMISSION = _min_commission
 SLIPPAGE_RATE = _slippage_rate
@@ -220,6 +207,12 @@ def _estimate_trading_cost(entry: float, qty: int) -> float:
     return fee + slippage  # 片道（往復で×2想定）
 
 
+def _safe_div(a: float, b: float) -> float:
+    if b is None or b == 0:
+        return 0.0
+    return float(a) / float(b)
+
+
 def _build_reason_for_zero(
     label: str,
     *,
@@ -230,8 +223,6 @@ def _build_reason_for_zero(
     budget: float,
     min_lot: int,
     loss_value: float,
-    ev_net: Optional[float] = None,     # ★追加
-    p_tp_first: Optional[float] = None, # ★追加
 ) -> str:
     """
     qty=0 になったときの「なぜゼロなのか」を細かく判定して日本語メッセージを返す。
@@ -249,11 +240,6 @@ def _build_reason_for_zero(
     if net_profit <= 0:
         return "手数料・スリッページを考慮すると純利益がマイナスになるため。"
 
-    # ★追加：EVが使えるなら最優先で説明（“期待値で弾いた”を明示）
-    if ev_net is not None and p_tp_first is not None:
-        if ev_net < MIN_EV_YEN:
-            return f"期待値（EV）が {int(MIN_EV_YEN):,} 円未満のため（pTP={p_tp_first:.3f}, EV={int(ev_net):,}円）。"
-
     if net_profit < MIN_NET_PROFIT_YEN:
         return f"純利益が {int(MIN_NET_PROFIT_YEN):,} 円未満と小さすぎるため。"
 
@@ -262,35 +248,6 @@ def _build_reason_for_zero(
 
     # ここまで来て qty=0 はほぼ無いはずだが、念のため
     return "リスク％から計算した必要株数が最小単元に満たないため。"
-
-
-def _safe_prob(p: Any) -> Optional[float]:
-    try:
-        if p is None:
-            return None
-        v = float(p)
-        if v != v:  # NaN
-            return None
-        if v < 0.0 or v > 1.0:
-            return None
-        return v
-    except Exception:
-        return None
-
-
-def _ev_net_yen(
-    p_tp_first: Optional[float],
-    gross_profit: float,
-    loss_value: float,
-    cost_round: float,
-) -> Optional[float]:
-    """
-    EV（円） = p*利益 - (1-p)*損失 - コスト
-    """
-    p = _safe_prob(p_tp_first)
-    if p is None:
-        return None
-    return float(p) * float(gross_profit) - (1.0 - float(p)) * float(loss_value) - float(cost_round)
 
 
 # ------------------------------
@@ -306,10 +263,14 @@ def compute_position_sizing(
     entry: float,
     tp: float,
     sl: float,
-    p_tp_first: Optional[float] = None,  # ★追加
 ) -> Dict[str, Any]:
     """
     AI Picks 1銘柄分の数量と評価・理由を計算して返す。
+
+    ★追加（今回）:
+      - ev_net_<broker>: 手数料・スリッページ込みのEVを「R換算」で返す（= net_profit / loss_value）
+      - rr_net_<broker>: 手数料込みのRR（= net_profit / loss_value）
+        ※ どちらも同じ定義に見えるが、将来「EV=確率×期待値」へ拡張すると分離できるので両方残す
     """
     if user is None:
         user = _get_or_default_user()
@@ -342,23 +303,31 @@ def compute_position_sizing(
             required_cash_rakuten=0,
             est_pl_rakuten=0,
             est_loss_rakuten=0,
+            ev_net_rakuten=None,
+            rr_net_rakuten=None,
             reason_rakuten_code="invalid_data",
             reason_rakuten_msg=msg,
+
             qty_matsui=0,
             required_cash_matsui=0,
             est_pl_matsui=0,
             est_loss_matsui=0,
+            ev_net_matsui=None,
+            rr_net_matsui=None,
             reason_matsui_code="invalid_data",
             reason_matsui_msg=msg,
+
             qty_sbi=0,
             required_cash_sbi=0,
             est_pl_sbi=0,
             est_loss_sbi=0,
+            ev_net_sbi=None,
+            rr_net_sbi=None,
             reason_sbi_code="invalid_data",
             reason_sbi_msg=msg,
+
             risk_pct=risk_pct,
             lot_size=lot,
-            p_tp_first=None,
             reasons_text=[
                 f"・楽天: {msg}",
                 f"・松井: {msg}",
@@ -378,53 +347,51 @@ def compute_position_sizing(
     )
 
     # 1株あたりの損失幅 / 利益幅
-    loss_per_share = max(entry - sl, atr * 0.6)  # 損切り距離
+    loss_per_share = max(entry - sl, atr * 0.6)  # 損切り距離（最低保障）
     reward_per_share = max(tp - entry, 0.0)      # 利確距離（マイナスにはしない）
 
     result: Dict[str, Any] = {
         "risk_pct": risk_pct,
         "lot_size": lot,
-        "p_tp_first": _safe_prob(p_tp_first),
     }
 
     # 各証券会社ごとの計算
     for broker_label, short_key in (("楽天", "rakuten"), ("松井", "matsui"), ("SBI", "sbi")):
         env = envs.get(broker_label)
+        qty = 0
+        required_cash = 0.0
+        est_pl = 0.0
+        est_loss = 0.0
+        reason_msg = ""
+        reason_code = ""
         ev_net = None
+        rr_net = None
 
         if env is None:
-            qty = 0
-            required_cash = 0.0
-            est_pl = 0.0
-            est_loss = 0.0
             reason_msg = "該当する証券口座の情報が見つからないため。"
             reason_code = "no_account"
         else:
             risk_assets = max(env.cash_yen + env.stock_value, 0.0)
-            # 信用余力に credit_usage_pct（％）を掛けて、使ってよい上限を決める
             total_budget = max(env.credit_yoryoku, 0.0)
             budget = total_budget * (credit_usage_pct / 100.0)
 
             if risk_assets <= 0 or budget <= 0:
-                qty = 0
-                required_cash = 0.0
-                est_pl = 0.0
-                est_loss = 0.0
                 reason_msg = "信用余力が 0 円のため。"
                 reason_code = "no_budget"
             else:
-                # 1トレードあたり許容損失
+                # 1トレードあたり許容損失（円）
                 risk_value = risk_assets * (risk_pct / 100.0)
 
+                # リスク上限での最大株数
                 if loss_per_share <= 0:
                     max_by_risk = 0
                 else:
                     max_by_risk = int(risk_value / loss_per_share // lot * lot)
 
+                # 予算上限での最大株数
                 max_by_budget = int(budget / max(entry, last_price) // lot * lot)
 
                 qty = min(max_by_risk, max_by_budget)
-
                 if qty < lot:
                     qty = 0
 
@@ -435,14 +402,7 @@ def compute_position_sizing(
                     loss_value_test = loss_per_share * test_qty
                     cost_round = _estimate_trading_cost(entry, test_qty) * 2
                     net_profit_test = gross_profit_test - cost_round
-                    rr_test = (gross_profit_test / loss_value_test) if loss_value_test > 0 else 0.0
-
-                    ev_net_test = _ev_net_yen(
-                        result.get("p_tp_first"),
-                        gross_profit_test,
-                        loss_value_test,
-                        cost_round,
-                    )
+                    rr_test = _safe_div(gross_profit_test, loss_value_test)
 
                     reason_msg = _build_reason_for_zero(
                         broker_label,
@@ -453,76 +413,51 @@ def compute_position_sizing(
                         budget=budget,
                         min_lot=lot,
                         loss_value=loss_per_share,
-                        ev_net=ev_net_test,
-                        p_tp_first=result.get("p_tp_first"),
                     )
                     reason_code = "filtered"
-                    required_cash = 0.0
-                    est_pl = 0.0
-                    est_loss = 0.0
                 else:
-                    # ここで一旦「プラス候補」として扱い、あとでフィルタ
+                    # 採用候補としてPL計算（手数料込み）
                     gross_profit = reward_per_share * qty
                     loss_value = loss_per_share * qty
                     cost_round = _estimate_trading_cost(entry, qty) * 2
                     net_profit = gross_profit - cost_round
-                    rr = (gross_profit / loss_value) if loss_value > 0 else 0.0
+                    rr = _safe_div(gross_profit, loss_value)
+                    rr_net_val = _safe_div(net_profit, loss_value)
 
-                    # ★追加：EV（円）
-                    ev_net = _ev_net_yen(
-                        result.get("p_tp_first"),
-                        gross_profit,
-                        loss_value,
-                        cost_round,
-                    )
+                    # ★今回追加：EV（R換算）
+                    ev_net_val = rr_net_val
 
                     if net_profit <= 0:
                         qty = 0
-                        required_cash = 0.0
-                        est_pl = 0.0
-                        est_loss = 0.0
                         reason_code = "net_profit_negative"
                         reason_msg = "手数料・スリッページを考慮すると純利益がマイナスになるため。"
                     elif net_profit < MIN_NET_PROFIT_YEN:
                         qty = 0
-                        required_cash = 0.0
-                        est_pl = 0.0
-                        est_loss = 0.0
                         reason_code = "profit_too_small"
                         reason_msg = f"純利益が {int(MIN_NET_PROFIT_YEN):,} 円未満と小さすぎるため。"
                     elif rr < MIN_REWARD_RISK:
                         qty = 0
-                        required_cash = 0.0
-                        est_pl = 0.0
-                        est_loss = 0.0
                         reason_code = "rr_too_low"
                         reason_msg = f"利確幅に対して損切幅が大きく、R={rr:.2f} と基準未満のため。"
-                    # ★追加：EVで見送り（B案）
-                    elif ev_net is not None and ev_net < MIN_EV_YEN:
-                        qty = 0
-                        required_cash = 0.0
-                        est_pl = 0.0
-                        est_loss = 0.0
-                        reason_code = "ev_too_low"
-                        reason_msg = f"期待値（EV）が {int(MIN_EV_YEN):,} 円未満のため（EV={int(ev_net):,}円）。"
                     else:
-                        # 最終的に採用
+                        # 最終採用
                         required_cash = entry * qty
                         est_pl = net_profit
                         est_loss = loss_value
-                        reason_code = ""
-                        reason_msg = ""
+                        ev_net = ev_net_val
+                        rr_net = rr_net_val
 
         # 結果を flat に格納
         result[f"qty_{short_key}"] = int(qty)
         result[f"required_cash_{short_key}"] = round(float(required_cash or 0.0), 0)
         result[f"est_pl_{short_key}"] = round(float(est_pl or 0.0), 0)
         result[f"est_loss_{short_key}"] = round(float(est_loss or 0.0), 0)
+
+        result[f"ev_net_{short_key}"] = (float(ev_net) if ev_net is not None else None)
+        result[f"rr_net_{short_key}"] = (float(rr_net) if rr_net is not None else None)
+
         result[f"reason_{short_key}_code"] = reason_code
         result[f"reason_{short_key}_msg"] = reason_msg
-
-        # ★追加：EVを出力（UIやデバッグ用）
-        result[f"ev_net_{short_key}"] = round(float(ev_net), 0) if ev_net is not None else None
 
     # ★ どちらか一方でも 0株なら、その証券会社分の理由を bullets としてまとめる
     reasons_lines: List[str] = []
