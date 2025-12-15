@@ -37,6 +37,10 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
       aiapp.services.confidence_service.compute_confidence_star
         ※ BehaviorStats + 安定性 + 距離 + scoring_service を合成して⭐️確定
 
+  ・ML推論（本番）:
+      aiapp.services.ml_predictor.predict_one
+        ※ 学習済みLightGBMを読み込み、p_win / ev / hold_days_pred / tp_first を item に付与
+
   ・Entry / TP / SL:
       aiapp.services.entry_service.compute_entry_tp_sl
     ※ 無い場合は ATR ベースのフォールバックを使用。
@@ -135,6 +139,12 @@ try:
 except Exception:  # pragma: no cover
     BehaviorStats = None  # type: ignore
 
+# ★追加: ML推論（学習済みLightGBMをJSONに反映）
+try:
+    from aiapp.services.ml_predictor import predict_one as ml_predict_one
+except Exception:  # pragma: no cover
+    ml_predict_one = None  # type: ignore
+
 
 # =========================================================
 # 共通設定
@@ -159,6 +169,7 @@ def _env_bool(key: str, default: bool = False) -> bool:
 
 BUILD_LOG = _env_bool("AIAPP_BUILD_LOG", False)
 CONF_DETAIL = _env_bool("AIAPP_CONF_DETAIL", False)  # 1なら confidence_detail を meta に入れる（重いので通常OFF）
+ML_ENABLE = _env_bool("AIAPP_ML_ENABLE", True)       # 0 で ML を無効化できる（障害/切り戻し用）
 
 
 # =========================================================
@@ -517,90 +528,6 @@ def _mode_aggr_from_style(style: str) -> str:
     return "aggr"
 
 
-def _get_perf_n_for_gate(
-    *,
-    code_norm: str,
-    mode_period: str,
-    mode_aggr: str,
-    behavior_cache: Optional[Dict[Tuple[str, str, str], Dict[str, Any]]] = None,
-) -> int:
-    """
-    ⭐️最終門番（nによる上限）用に、BehaviorStats の n を拾う。
-    優先: 同モード -> all/all -> 0
-    """
-    c = _normalize_code(code_norm)
-    mp = (mode_period or "").strip().lower()
-    ma = (mode_aggr or "").strip().lower()
-
-    if behavior_cache:
-        r = behavior_cache.get((c, mp, ma))
-        if r and r.get("n") is not None:
-            try:
-                return int(r.get("n") or 0)
-            except Exception:
-                pass
-        r = behavior_cache.get((c, "all", "all"))
-        if r and r.get("n") is not None:
-            try:
-                return int(r.get("n") or 0)
-            except Exception:
-                pass
-
-    # cache が無い/拾えない場合のみ DB fallback
-    if BehaviorStats is not None:
-        try:
-            rr = (
-                BehaviorStats.objects
-                .filter(code=c, mode_period=mp, mode_aggr=ma)
-                .values("n")
-                .first()
-            )
-            if rr and rr.get("n") is not None:
-                return int(rr.get("n") or 0)
-        except Exception:
-            pass
-        try:
-            rr = (
-                BehaviorStats.objects
-                .filter(code=c, mode_period="all", mode_aggr="all")
-                .values("n")
-                .first()
-            )
-            if rr and rr.get("n") is not None:
-                return int(rr.get("n") or 0)
-        except Exception:
-            pass
-
-    return 0
-
-
-def _apply_star_gate_by_n(stars: int, perf_n: int) -> int:
-    """
-    “育つAI”の一貫性を守る最終門番。
-
-    方針:
-      - n < 5  : ⭐️上限 3（データ不足で5は絶対に出さない）
-      - n < 10 : ⭐️上限 4（まだ過信しない）
-      - n >=10 : 制限なし
-    """
-    try:
-        s = int(stars)
-    except Exception:
-        s = 1
-    s = max(1, min(5, s))
-
-    try:
-        n = int(perf_n or 0)
-    except Exception:
-        n = 0
-
-    if n < 5:
-        return int(min(s, 3))
-    if n < 10:
-        return int(min(s, 4))
-    return int(s)
-
-
 # =========================================================
 # 出力アイテム
 # =========================================================
@@ -642,7 +569,14 @@ class PickItem:
 
     score: Optional[float] = None          # 0..1
     score_100: Optional[int] = None        # 0..100
-    stars: Optional[int] = None            # 1..5（confidence_serviceで確定 + 最終門番）
+    stars: Optional[int] = None            # 1..5（confidence_serviceで確定）
+
+    # --- ML predictions (optional) ---
+    ml_p_win: Optional[float] = None
+    ml_ev: Optional[float] = None
+    ml_hold_days_pred: Optional[float] = None
+    ml_tp_first: Optional[str] = None
+    ml_tp_first_probs: Optional[Dict[str, float]] = None
 
     qty_rakuten: Optional[int] = None
     required_cash_rakuten: Optional[float] = None
@@ -694,8 +628,13 @@ def _work_one(
     ★本番仕様（⭐️）:
       - confidence_service.compute_confidence_star が最終決定
         （BehaviorStats実績 + 安定性 + 距離適正 + scoring補助）
-      - ただし “育つAI” の一貫性を守るため、最後に n による ⭐️上限（最終門番）を適用する
-        n<5 → max⭐️3 / n<10 → max⭐️4
+      - BehaviorStats は picks_build 側で一括ロードし、behavior_cache 経由で渡す（DB連打防止）
+      - 万一confidence_serviceが利用不可なら、score→stars のフォールバック
+
+    ★本番仕様（ML）:
+      - ml_predictor.predict_one で学習済みモデルから
+        p_win / ev / hold_days_pred / tp_first を推論して item に載せる
+      - MLが利用不可でも落とさない（Noneで継続）
     """
     try:
         raw = get_prices(code, nbars=nbars, period="3y")
@@ -808,8 +747,39 @@ def _work_one(
             e, t, s = _fallback_entry_tp_sl(last, atr)
 
         # =========================================================
+        # ML（学習済みモデル）推論 → itemに載せる
+        # =========================================================
+        ml_p_win = None
+        ml_ev = None
+        ml_hold = None
+        ml_tp_first = None
+        ml_tp_probs = None
+
+        if ML_ENABLE and ml_predict_one is not None:
+            try:
+                regime_label = None
+                try:
+                    regime_label = getattr(regime, "regime_label", None) if regime is not None else None
+                except Exception:
+                    regime_label = None
+
+                ml_out = ml_predict_one(
+                    feat_df=feat,
+                    style=str(mode_aggr),
+                    horizon=str(mode_period),
+                    regime_label=str(regime_label) if regime_label is not None else None,
+                )
+                ml_p_win = ml_out.p_win
+                ml_ev = ml_out.ev
+                ml_hold = ml_out.hold_days_pred
+                ml_tp_first = ml_out.tp_first
+                ml_tp_probs = ml_out.tp_first_probs
+            except Exception as ex:
+                if BUILD_LOG:
+                    print(f"[picks_build] ml_predict error for {code}: {ex}")
+
+        # =========================================================
         # ⭐️（本番仕様）：confidence_service（司令塔）で確定
-        # + 最終門番（nによる上限）を必ず適用
         # =========================================================
         code_norm = _normalize_code(code)
 
@@ -884,7 +854,7 @@ def _work_one(
                                 regime=regime,
                             )
 
-                        # JSONに入れられる形へ
+                        # JSONに入れられる形へ（typo修正：perf_avg_pl）
                         conf_meta = {
                             "stars_final": int(d.stars_final),
                             "stars_perf": d.stars_perf,
@@ -909,23 +879,6 @@ def _work_one(
                     print(f"[picks_build] confidence_service error for {code_norm}: {ex}")
                 stars = int(fallback_star)
 
-        # ===== 最終門番：nによる⭐️上限（“育つAI”の一貫性）=====
-        perf_n_gate = _get_perf_n_for_gate(
-            code_norm=str(code_norm),
-            mode_period=str(mode_period),
-            mode_aggr=str(mode_aggr),
-            behavior_cache=behavior_cache,
-        )
-        stars_before_gate = int(stars)
-        stars = _apply_star_gate_by_n(int(stars), int(perf_n_gate))
-
-        if CONF_DETAIL:
-            # デバッグ時だけ gate 情報も meta に入れる（通常はOFF）
-            conf_meta = conf_meta or {}
-            conf_meta["gate_perf_n"] = int(perf_n_gate)
-            conf_meta["stars_before_gate"] = int(stars_before_gate)
-            conf_meta["stars_after_gate"] = int(stars)
-
         # --- 理由5つ＋懸念（特徴量ベース） ---
         reason_lines: Optional[List[str]] = None
         reason_concern: Optional[str] = None
@@ -945,8 +898,10 @@ def _work_one(
             msg = (
                 f"[picks_build] {code_norm} last={last} atr={atr} "
                 f"score01={s01:.3f} score100={score100} stars={stars} "
-                f"(period={mode_period} aggr={mode_aggr}) gate_n={perf_n_gate}"
+                f"(period={mode_period} aggr={mode_aggr})"
             )
+            if ml_p_win is not None or ml_ev is not None:
+                msg += f" ml(p_win={ml_p_win} ev={ml_ev} hold={ml_hold} tp_first={ml_tp_first})"
             if conf_meta:
                 msg += f" conf={conf_meta}"
             print(msg)
@@ -979,6 +934,12 @@ def _work_one(
             low_52w=low_52w,
             high_all=high_all,
             low_all=low_all,
+            # ML
+            ml_p_win=ml_p_win,
+            ml_ev=ml_ev,
+            ml_hold_days_pred=ml_hold,
+            ml_tp_first=ml_tp_first,
+            ml_tp_first_probs=ml_tp_probs,
         )
 
         # --- Sizing（数量・必要資金・想定PL/損失 + 見送り理由） ---
@@ -1027,6 +988,15 @@ def _work_one(
         # デバッグ用：conf_detail を meta に入れたい時だけ返す
         if conf_meta:
             sizing_meta["confidence_detail"] = conf_meta
+
+        # MLの軽い診断（必要なら）
+        if ml_p_win is not None or ml_ev is not None:
+            sizing_meta["ml"] = {
+                "p_win": ml_p_win,
+                "ev": ml_ev,
+                "hold_days_pred": ml_hold,
+                "tp_first": ml_tp_first,
+            }
 
         return item, sizing_meta
 
@@ -1215,11 +1185,12 @@ class Command(BaseCommand):
                     "regime_label": getattr(macro_regime, "regime_label", None) if macro_regime else None,
                     "regime_summary": getattr(macro_regime, "summary", None) if macro_regime else None,
                     # ★ ⭐️本番仕様メタ
-                    "stars_engine": "confidence_service+final_gate",
+                    "stars_engine": "confidence_service",
                     "stars_mode_period": mode_period,
                     "stars_mode_aggr": mode_aggr,
                     "behaviorstats_cache_rows": 0,
-                    "stars_gate": {"n_lt_5_cap": 3, "n_lt_10_cap": 4},
+                    # ★ MLメタ
+                    "ml_enabled": bool(ML_ENABLE and ml_predict_one is not None),
                 },
             )
             return
@@ -1243,7 +1214,6 @@ class Command(BaseCommand):
         # ★ BehaviorStats を一括ロードしてキャッシュ化（DB連打防止）
         #    - (code, mode_period, mode_aggr)
         #    - 同モードが無ければ confidence_service 側が all/all を拾う前提
-        #    - stability/design_q もあれば読み込む（将来/監査用）
         # =========================================================
         behavior_cache: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
         if BehaviorStats is not None and codes:
@@ -1252,11 +1222,7 @@ class Command(BaseCommand):
                 qs = (
                     BehaviorStats.objects
                     .filter(code__in=codes_norm)
-                    .values(
-                        "code", "mode_period", "mode_aggr",
-                        "stars", "n", "win_rate", "avg_pl",
-                        "stability", "design_q",
-                    )
+                    .values("code", "mode_period", "mode_aggr", "stars", "n", "win_rate", "avg_pl")
                 )
                 for r in qs:
                     c = _normalize_code(r.get("code"))
@@ -1269,8 +1235,6 @@ class Command(BaseCommand):
                         "n": r.get("n"),
                         "win_rate": r.get("win_rate"),
                         "avg_pl": r.get("avg_pl"),
-                        "stability": r.get("stability"),
-                        "design_q": r.get("design_q"),
                     }
                 if BUILD_LOG:
                     print(f"[picks_build] BehaviorStats cache rows: {len(behavior_cache)}")
@@ -1344,13 +1308,15 @@ class Command(BaseCommand):
             meta_extra["regime_summary"] = getattr(macro_regime, "summary", None)
 
         # ★ ⭐️本番仕様メタ
-        meta_extra["stars_engine"] = "confidence_service+final_gate"
+        meta_extra["stars_engine"] = "confidence_service"
         meta_extra["stars_mode_period"] = mode_period
         meta_extra["stars_mode_aggr"] = mode_aggr
         meta_extra["behaviorstats_cache_rows"] = len(behavior_cache)
-        meta_extra["stars_gate"] = {"n_lt_5_cap": 3, "n_lt_10_cap": 4}
         if first_conf_detail is not None:
             meta_extra["confidence_detail_sample"] = first_conf_detail
+
+        # ★ MLメタ
+        meta_extra["ml_enabled"] = bool(ML_ENABLE and ml_predict_one is not None)
 
         self._emit(
             items,
