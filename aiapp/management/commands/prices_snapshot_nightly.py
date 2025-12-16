@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import os
-import sys
 import csv
 import time
 import pathlib
@@ -11,12 +9,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 from django.core.management.base import BaseCommand, CommandError
-from django.conf import settings
 
 from aiapp.models import StockMaster
 from aiapp.services.fetch_price import get_prices, SNAP_DIR
 
+
 UNIVERSE_DIR = pathlib.Path("aiapp/data/universe")
+
 
 def _load_universe(name: str) -> list[str]:
     if name.lower() in ("all", "jp-all", "jpall"):
@@ -27,14 +26,32 @@ def _load_universe(name: str) -> list[str]:
     codes = [c.strip() for c in path.read_text().splitlines() if c.strip()]
     return codes
 
+
 def _ensure_dir(p: pathlib.Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
+
 def _save_csv(dirpath: pathlib.Path, code: str, df: pd.DataFrame) -> None:
+    """
+    get_prices() は columns=["Open","High","Low","Close","Volume"] を返す前提。
+    CSV保存は小文字 open/high/low/close/volume に揃える。
+    """
     out = dirpath / f"{code}.csv"
-    df = df.copy()
-    df.index.name = "Date"
-    df.reset_index()[["Date", "open", "high", "low", "close", "volume"]].to_csv(out, index=False, quoting=csv.QUOTE_MINIMAL)
+    dfx = df.copy()
+
+    # 念のため列の存在チェック（壊れたデータはスキップできるように）
+    required = ["Open", "High", "Low", "Close", "Volume"]
+    if not all(c in dfx.columns for c in required):
+        return
+
+    dfx = dfx[required].copy()
+    dfx.columns = ["open", "high", "low", "close", "volume"]
+
+    dfx.index.name = "Date"
+    dfx.reset_index()[["Date", "open", "high", "low", "close", "volume"]].to_csv(
+        out, index=False, quoting=csv.QUOTE_MINIMAL
+    )
+
 
 class Command(BaseCommand):
     help = "夜間に全銘柄のEODスナップショットをCSVで保存"
@@ -46,8 +63,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **opts):
         universe = opts["universe"]
-        jobs     = opts["jobs"]
-        nbars    = opts["nbars"]
+        jobs = int(opts["jobs"])
+        nbars = int(opts["nbars"])
 
         codes = _load_universe(universe)
         if not codes:
@@ -67,8 +84,8 @@ class Command(BaseCommand):
                 code = futs[fut]
                 try:
                     df = fut.result(timeout=60)
-                    if not df.empty:
-                        _save_csv(day_dir, code, df)
+                    if isinstance(df, pd.DataFrame) and (not df.empty):
+                        _save_csv(day_dir, str(code), df)
                         ok += 1
                 except Exception:
                     pass
