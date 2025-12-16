@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
@@ -15,7 +16,9 @@ from django.shortcuts import render
 from aiapp.services.behavior_banner_service import build_behavior_banner_summary
 
 JST = timezone(timedelta(hours=9))
-PICKS_DIR = Path("media/aiapp/picks")
+
+# 実行ディレクトリ依存を避けて BASE_DIR 基準に固定
+PICKS_DIR = Path(settings.BASE_DIR) / "media" / "aiapp" / "picks"
 
 
 # picks_debug.html 側で attribute アクセスしやすいように軽いラッパを用意
@@ -145,6 +148,53 @@ def _to_float_list(v: Any) -> Optional[List[float]]:
         except Exception:
             continue
     return out or None
+
+
+def _safe_int(v: Any, default: int = 0) -> int:
+    try:
+        if v is None:
+            return default
+        return int(v)
+    except Exception:
+        return default
+
+
+def _safe_behavior_banner(days: int = 30) -> Dict[str, Any]:
+    """
+    picks_debug.html が参照する形に必ず整形して返す。
+      behavior_banner.total
+      behavior_banner.counts.evaluated
+      behavior_banner.counts.pending_future
+      behavior_banner.counts.skip
+      behavior_banner.counts.unknown
+    """
+    raw: Any = None
+    try:
+        raw = build_behavior_banner_summary(days=days)
+    except Exception:
+        raw = None
+
+    banner: Dict[str, Any] = raw if isinstance(raw, dict) else {}
+    counts_raw: Any = banner.get("counts")
+    counts: Dict[str, Any] = counts_raw if isinstance(counts_raw, dict) else {}
+
+    evaluated = _safe_int(counts.get("evaluated"), 0)
+    pending_future = _safe_int(counts.get("pending_future"), 0)
+    skip = _safe_int(counts.get("skip"), 0)
+    unknown = _safe_int(counts.get("unknown"), 0)
+
+    total_raw = banner.get("total")
+    total = _safe_int(total_raw, evaluated + pending_future + skip + unknown)
+
+    return {
+        "total": total,
+        "counts": {
+            "evaluated": evaluated,
+            "pending_future": pending_future,
+            "skip": skip,
+            "unknown": unknown,
+        },
+    }
 
 
 # =========================================================
@@ -388,8 +438,8 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
         label = LABELS.get(code, f"その他（{code}）")
         filter_stats_jp[label] = filter_stats_jp.get(label, 0) + cnt
 
-    # ===== ここが追加：行動データ（評価パイプライン）状況バナー =====
-    behavior_banner = build_behavior_banner_summary(days=30)
+    # ===== 行動データ（評価パイプライン）状況バナー（テンプレ互換に整形） =====
+    behavior_banner = _safe_behavior_banner(days=30)
 
     ctx: Dict[str, Any] = {
         "meta": meta,
