@@ -28,6 +28,14 @@ class PickDebugItem:
     name: Optional[str] = None
     sector_display: Optional[str] = None
 
+    # 追加：ランキング
+    rank: Optional[int] = None
+
+    # 追加：EV_true（証券会社別）
+    ev_true_rakuten: Optional[float] = None
+    ev_true_matsui: Optional[float] = None
+    ev_true_sbi: Optional[float] = None
+
     # チャート用 OHLC
     chart_open: Optional[List[float]] = None
     chart_high: Optional[List[float]] = None
@@ -84,21 +92,18 @@ class PickDebugItem:
     loss_total: Optional[float] = None
 
     # 理由系
-    reasons_text: Optional[List[str]] = None          # sizing_service 側の共通メッセージ
-    reason_lines: Optional[List[str]] = None          # reasons サービスの「選定理由」最大5行
-    reason_concern: Optional[str] = None              # 懸念ポイント1行
-    reason_rakuten: Optional[str] = None              # 楽天だけ0株の理由など
-    reason_matsui: Optional[str] = None               # 松井だけ0株の理由など
-    reason_sbi: Optional[str] = None                  # SBIだけ0株の理由など
+    reasons_text: Optional[List[str]] = None
+    reason_lines: Optional[List[str]] = None
+    reason_concern: Optional[str] = None
+    reason_rakuten: Optional[str] = None
+    reason_matsui: Optional[str] = None
+    reason_sbi: Optional[str] = None
 
 
 # =========================================================
 # ヘルパ
 # =========================================================
 def _normalize_str_list(v: Any) -> Optional[List[str]]:
-    """
-    JSON 側から来る文字列 or 配列を「文字列リスト」に正規化。
-    """
     if v is None:
         return None
     if isinstance(v, str):
@@ -135,10 +140,6 @@ def _to_float(v: Any) -> Optional[float]:
 
 
 def _to_float_list(v: Any) -> Optional[List[float]]:
-    """
-    chart_open / chart_high / chart_low / chart_closes / MA / VWAP / RSI 用。
-    JSON から読み込んだ list を float list に正規化する。
-    """
     if not isinstance(v, (list, tuple)):
         return None
     out: List[float] = []
@@ -160,14 +161,6 @@ def _safe_int(v: Any, default: int = 0) -> int:
 
 
 def _safe_behavior_banner(days: int = 30) -> Dict[str, Any]:
-    """
-    picks_debug.html が参照する形に必ず整形して返す。
-      behavior_banner.total
-      behavior_banner.counts.evaluated
-      behavior_banner.counts.pending_future
-      behavior_banner.counts.skip
-      behavior_banner.counts.unknown
-    """
     raw: Any = None
     try:
         raw = build_behavior_banner_summary(days=days)
@@ -203,13 +196,6 @@ def _safe_behavior_banner(days: int = 30) -> Dict[str, Any]:
 def _load_json(
     kind: str = "all",
 ) -> Tuple[Dict[str, Any], List[PickDebugItem], Optional[str], Optional[str]]:
-    """
-    latest_full_all.json / latest_full.json を読み込んで
-    (meta, items, updated_at_label, source_file) を返す。
-    kind:
-      "all" → latest_full_all.json
-      "top" → latest_full.json
-    """
     if kind == "top":
         filename = "latest_full.json"
     else:
@@ -218,7 +204,6 @@ def _load_json(
 
     path = PICKS_DIR / filename
     if not path.exists():
-        # ファイルが無いときは空を返す
         return {}, [], None, str(path)
 
     try:
@@ -232,7 +217,6 @@ def _load_json(
     items: List[PickDebugItem] = []
 
     for row in raw_items:
-        # row は picks_build の asdict(PickItem) 相当の dict
         if not isinstance(row, dict):
             continue
 
@@ -265,6 +249,11 @@ def _load_json(
             est_loss_matsui = _to_float(row.get("est_loss_matsui"))
             est_loss_sbi = _to_float(row.get("est_loss_sbi"))
 
+            # ----- 追加：EV_true（証券会社別） -----
+            ev_true_r = _to_float(row.get("ev_true_rakuten"))
+            ev_true_m = _to_float(row.get("ev_true_matsui"))
+            ev_true_s = _to_float(row.get("ev_true_sbi"))
+
             # ----- チャート用 OHLC -----
             chart_open = _to_float_list(row.get("chart_open"))
             chart_high = _to_float_list(row.get("chart_high"))
@@ -283,18 +272,9 @@ def _load_json(
                 row.get("chart_ma_mid") or
                 row.get("ma_25")
             )
-            chart_ma_75 = _to_float_list(
-                row.get("chart_ma_75") or
-                row.get("ma_75")
-            )
-            chart_ma_100 = _to_float_list(
-                row.get("chart_ma_100") or
-                row.get("ma_100")
-            )
-            chart_ma_200 = _to_float_list(
-                row.get("chart_ma_200") or
-                row.get("ma_200")
-            )
+            chart_ma_75 = _to_float_list(row.get("chart_ma_75") or row.get("ma_75"))
+            chart_ma_100 = _to_float_list(row.get("chart_ma_100") or row.get("ma_100"))
+            chart_ma_200 = _to_float_list(row.get("chart_ma_200") or row.get("ma_200"))
             chart_vwap = _to_float_list(row.get("chart_vwap") or row.get("vwap"))
             chart_rsi = _to_float_list(row.get("chart_rsi") or row.get("rsi") or row.get("rsi14"))
 
@@ -308,6 +288,11 @@ def _load_json(
                 code=str(row.get("code") or ""),
                 name=row.get("name") or row.get("name_norm") or None,
                 sector_display=row.get("sector_display") or None,
+
+                ev_true_rakuten=ev_true_r,
+                ev_true_matsui=ev_true_m,
+                ev_true_sbi=ev_true_s,
+
                 chart_open=chart_open,
                 chart_high=chart_high,
                 chart_low=chart_low,
@@ -373,8 +358,11 @@ def _load_json(
 
             items.append(it)
         except Exception:
-            # 1行だけ壊れていても全体は落とさない
             continue
+
+    # 追加：rank を必ず振る（表示の “-” を消す）
+    for idx, it in enumerate(items, start=1):
+        it.rank = idx
 
     # 更新日時ラベル（ファイルの mtime ベース）
     try:
@@ -392,13 +380,6 @@ def _load_json(
 # =========================================================
 @login_required
 def picks_debug_view(request: HttpRequest) -> HttpResponse:
-    """
-    AI Picks 診断ビュー:
-    picks_build が出力した JSON（latest_full_all / latest_full）をそのまま一覧表示。
-    GET パラメータ:
-      ?kind=all  … latest_full_all.json（デフォルト）
-      ?kind=top  … latest_full.json
-    """
     kind = request.GET.get("kind", "all").lower()
     if kind not in ("all", "top"):
         kind = "all"
@@ -411,7 +392,7 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
     total = meta.get("total")
     master_total = stockmaster_total or universe_count or total or 0
 
-    # ===== フィルタ別削除件数（dict: reason_code -> count） =====
+    # ===== フィルタ別削除件数 =====
     raw_filter_stats = meta.get("filter_stats") or {}
     filter_stats_raw: Dict[str, int] = {}
     if isinstance(raw_filter_stats, dict):
@@ -421,7 +402,6 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
             except Exception:
                 continue
 
-    # 理由コード → 日本語ラベル
     LABELS: Dict[str, str] = {
         "LOW_TURNOVER": "出来高が少なく除外",
         "TOO_VOLATILE": "価格変動が激しすぎて除外",
@@ -438,7 +418,7 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
         label = LABELS.get(code, f"その他（{code}）")
         filter_stats_jp[label] = filter_stats_jp.get(label, 0) + cnt
 
-    # ===== 行動データ（評価パイプライン）状況バナー（テンプレ互換に整形） =====
+    # ===== 行動データ状況バナー =====
     behavior_banner = _safe_behavior_banner(days=30)
 
     ctx: Dict[str, Any] = {
