@@ -10,6 +10,7 @@ aiapp.services.fetch_price
 from __future__ import annotations
 import datetime as dt
 from typing import Optional
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -18,6 +19,14 @@ try:
     import yfinance as yf
 except Exception:
     yf = None  # オフライン環境対策
+
+
+# =========================================================
+# Snapshot 保存先（prices_snapshot_nightly が import する）
+# =========================================================
+SNAP_DIR = Path("media/aiapp/prices")
+SNAP_DIR.mkdir(parents=True, exist_ok=True)
+
 
 # ---------- 内部ヘルパ ----------
 
