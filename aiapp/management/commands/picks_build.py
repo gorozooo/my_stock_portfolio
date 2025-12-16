@@ -3,9 +3,69 @@
 """
 AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
 
-（中略：あなたが貼ってくれたヘッダは内容そのまま維持。処理は崩さず）
-- ★今回（本命）: EV_true（pTP混合）をJSONに載せ、並び替えもEV_true主役に変更
+========================================
+▼ 全体フロー（1銘柄あたり）
+========================================
+  1. 価格取得（OHLCV）
+  2. 特徴量生成（テクニカル指標など）
+  3. フィルタリング層（仕手株・流動性・異常値などで土台から除外）
+  4. スコアリング / ⭐️算出
+     ★本番仕様：⭐️は confidence_service（司令塔）で確定
+        - 過去30〜90日の仮想エントリー成績（BehaviorStats: 同モード → 無ければ all/all）
+        - 特徴量の安定性
+        - Entry/TP/SL距離適正
+        - scoring_service は補助輪
+  5. Entry / TP / SL の計算
+  6. Sizing（数量・必要資金・想定PL/損失・見送り理由）
+  7. 理由テキスト生成（選定理由×最大5行 + 懸念1行）
+  8. バイアス層（セクター波 / 大型・小型バランスの微調整）
+  9. ランキング（EV_R優先 → MLランク降順 → score_100降順 → 株価降順）→ JSON 出力
+
+========================================
+▼ 利用サービス / モジュール
+========================================
+  ・価格取得:
+      aiapp.services.fetch_price.get_prices
+
+  ・特徴量生成:
+      aiapp.models.features.make_features
+
+  ・スコア:
+      aiapp.services.scoring_service.score_sample
+
+  ・⭐️（本番）:
+      aiapp.services.confidence_service.compute_confidence_star
+        ※ BehaviorStats + 安定性 + 距離 + scoring_service を合成して⭐️確定
+
+  ・ML推論（C: 主役）:
+      aiapp.services.ml_infer_service.infer_from_features
+        ※ p_win / EV / hold_days_pred / tp_first / probs / ml_rank を返す
+
+  ・Entry / TP / SL:
+      aiapp.services.entry_service.compute_entry_tp_sl
+    ※ 無い場合は ATR ベースのフォールバックを使用。
+
+  ・数量 / 必要資金 / 想定PL / 想定損失 / 見送り理由:
+      aiapp.services.sizing_service.compute_position_sizing
+
+  ・理由5つ + 懸念（日本語テキスト）:
+      aiapp.services.reasons.make_reasons
+
+  ・銘柄フィルタ層:
+      aiapp.services.picks_filters.FilterContext
+      aiapp.services.picks_filters.check_all
+
+  ・セクター波 / 大型・小型バランス調整:
+      aiapp.services.picks_bias.apply_all
+
+========================================
+▼ 出力ファイル
+========================================
+  - media/aiapp/picks/latest_full_all.json
+  - media/aiapp/picks/latest_full.json
 """
+
+
 
 from __future__ import annotations
 
