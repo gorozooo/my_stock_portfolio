@@ -52,25 +52,6 @@ def _parse_dt_iso(ts: Any):
         return None
 
 
-def _pick_ev_true_pack(updated: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    UIが取りやすい形で replay に置く EV_true パック。
-    - 既に ev_true_rakuten 等がある前提
-    - ついでに “短縮キー” も作っておく（R/M/S）
-    """
-    ev_r = updated.get("ev_true_rakuten")
-    ev_m = updated.get("ev_true_matsui")
-    ev_s = updated.get("ev_true_sbi")
-    return {
-        "rakuten": ev_r,
-        "matsui": ev_m,
-        "sbi": ev_s,
-        "R": ev_r,
-        "M": ev_m,
-        "S": ev_s,
-    }
-
-
 class Command(BaseCommand):
     help = "AIシミュレログに結果（PL / ラベル / exit情報）を付与 + VirtualTrade同期"
 
@@ -149,7 +130,7 @@ class Command(BaseCommand):
                 new_lines.append(json.dumps(updated, ensure_ascii=False))
                 evaluated += 1
 
-                # ---- DB sync ----
+                # ---- DB sync (CLOSE) ----
                 try:
                     user_id = updated.get("user_id")
                     run_id = updated.get("run_id")
@@ -186,7 +167,6 @@ class Command(BaseCommand):
                     vt.eval_exit_ts = exit_ts
 
                     # “強制クローズ完了” の本体：closed_at を埋める
-                    # ※ SKIP の場合、vt側で既に closed_at が入っている可能性あり（それはそれでOK）
                     if exit_ts is not None and vt.closed_at is None:
                         vt.closed_at = exit_ts
 
@@ -194,28 +174,39 @@ class Command(BaseCommand):
                     rp = vt.replay or {}
                     rp["last_eval"] = updated
 
-                    # ★今回の肝：UIで直接見えるキーを replay のトップにも置く
-                    # - rank
-                    # - rank_group
-                    # - ev_true（R/M/S）
-                    # - ついでに eval_status/evaluated_at も置く（表示や原因追跡が楽）
-                    if "rank" in updated:
+                    # ★追加：rank / EV_true を “replay直下” にも確実に置く
+                    # 1) rank（evalが持っていれば更新、なければ既存を温存）
+                    if updated.get("rank") is not None:
                         rp["rank"] = updated.get("rank")
-                    if "rank_group" in updated:
+                    elif rp.get("rank") is None and (rp.get("sim_order") or {}).get("rank") is not None:
+                        rp["rank"] = (rp.get("sim_order") or {}).get("rank")
+
+                    if updated.get("rank_group") is not None:
                         rp["rank_group"] = updated.get("rank_group")
+                    elif rp.get("rank_group") is None and (rp.get("sim_order") or {}).get("rank_group") is not None:
+                        rp["rank_group"] = (rp.get("sim_order") or {}).get("rank_group")
 
-                    rp["ev_true"] = _pick_ev_true_pack(updated)
+                    # 2) EV_true（R/M/S）
+                    ev_r = updated.get("ev_true_rakuten")
+                    ev_m = updated.get("ev_true_matsui")
+                    ev_s = updated.get("ev_true_sbi")
 
-                    if "eval_status" in updated:
-                        rp["eval_status"] = updated.get("eval_status")
-                    if "evaluated_at" in updated:
-                        rp["evaluated_at"] = updated.get("evaluated_at")
+                    # eval側が持っていない場合は sim_order から拾う（今回の本命）
+                    if ev_r is None:
+                        ev_r = (rp.get("sim_order") or {}).get("ev_true_rakuten")
+                    if ev_m is None:
+                        ev_m = (rp.get("sim_order") or {}).get("ev_true_matsui")
+                    if ev_s is None:
+                        ev_s = (rp.get("sim_order") or {}).get("ev_true_sbi")
 
-                    # skip 情報も “トップ” に持ち上げ（探しやすさ）
-                    if "skip_reason" in updated:
-                        rp["skip_reason"] = updated.get("skip_reason")
-                    if "skip_msg" in updated:
-                        rp["skip_msg"] = updated.get("skip_msg")
+                    rp["ev_true"] = {
+                        "R": ev_r,
+                        "M": ev_m,
+                        "S": ev_s,
+                        "rakuten": ev_r,  # 表示側互換
+                        "matsui": ev_m,
+                        "sbi": ev_s,
+                    }
 
                     vt.replay = rp
 
