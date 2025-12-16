@@ -3,7 +3,7 @@
 """
 AI Picks 用 ポジションサイズ計算サービス（短期×攻め・本気版）
 
-- 楽天 / 松井 / SBI の 3段出力
+- 楽天 / 松井 / SBI の 3段出力（SBIも含める。勝手に除外しない）
 - UserSetting.risk_pct と 各社倍率/ヘアカットを利用
 - broker_summary.compute_broker_summaries() の結果に合わせて
     - 資産ベース: 現金残高 + 現物（特定）評価額
@@ -20,11 +20,10 @@ AI Picks 用 ポジションサイズ計算サービス（短期×攻め・本�
 - filters.min_reward_risk
 - fees.commission_rate, fees.min_commission, fees.slippage_rate
 
-★追加（今回）:
-- MLの確率（p_tp_first / p_sl_first）を受け取り、手数料込みRRから
-  EV_final（R換算）を計算して返す
-    EV_final = p_tp_first * RR_net - p_sl_first * 1.0
-  ※ none は今回は無視（将来: 時間切れ/横ばいEVに拡張用）
+★今回（本命）:
+- pTP / pSL を EV に混ぜる（R換算）
+    EV_TRUE_R = pTP * RR_net - pSL * 1.0
+  ※ none は無視（期待値0扱い）
 """
 
 from __future__ import annotations
@@ -219,22 +218,6 @@ def _safe_div(a: float, b: float) -> float:
     return float(a) / float(b)
 
 
-def _clamp01(x: Optional[float]) -> Optional[float]:
-    if x is None:
-        return None
-    try:
-        v = float(x)
-    except Exception:
-        return None
-    if v != v:  # NaN
-        return None
-    if v < 0.0:
-        return 0.0
-    if v > 1.0:
-        return 1.0
-    return v
-
-
 def _build_reason_for_zero(
     label: str,
     *,
@@ -272,6 +255,55 @@ def _build_reason_for_zero(
     return "リスク％から計算した必要株数が最小単元に満たないため。"
 
 
+def _normalize_prob(p: Optional[float]) -> Optional[float]:
+    if p is None:
+        return None
+    try:
+        v = float(p)
+    except Exception:
+        return None
+    if v != v:  # NaN
+        return None
+    # 0..1 に丸め
+    if v < 0.0:
+        v = 0.0
+    if v > 1.0:
+        v = 1.0
+    return v
+
+
+def _derive_psl(
+    p_tp_first: Optional[float],
+    p_sl_first: Optional[float],
+    p_none: Optional[float],
+) -> Optional[float]:
+    """
+    pSL が未指定のときの安全な推定。
+    - pSL が与えられていればそれを使う
+    - ない場合は 1 - pTP - pNone を採用（0..1に丸め）
+    """
+    p_tp = _normalize_prob(p_tp_first)
+    p_sl = _normalize_prob(p_sl_first)
+    p_n = _normalize_prob(p_none)
+
+    if p_sl is not None:
+        return p_sl
+
+    if p_tp is None:
+        return None
+
+    if p_n is None:
+        v = 1.0 - p_tp
+    else:
+        v = 1.0 - p_tp - p_n
+
+    if v < 0.0:
+        v = 0.0
+    if v > 1.0:
+        v = 1.0
+    return v
+
+
 # ------------------------------
 # メイン API
 # ------------------------------
@@ -288,21 +320,20 @@ def compute_position_sizing(
     *,
     p_tp_first: Optional[float] = None,
     p_sl_first: Optional[float] = None,
+    p_none: Optional[float] = None,
 ) -> Dict[str, Any]:
     """
     AI Picks 1銘柄分の数量と評価・理由を計算して返す。
 
-    ★今回のEV:
-      - rr_net_<broker>: 手数料・スリッページ込みRR（= net_profit / loss_value）
-      - ev_net_<broker>: EV_final（R換算）
-            EV_final = p_tp_first * rr_net - p_sl_first * 1.0
-        ※ pが無い場合は ev_net = rr_net として返す（旧挙動と互換）
+    返す値（抜粋）:
+      - ev_net_<broker>: 手数料・スリッページ込みの「RR_net（R換算）」 (= net_profit / loss_value)
+      - rr_net_<broker>: 同上（今は同義だが将来拡張のため残す）
+      - ev_true_<broker>: ★本命（pTP混合）
+          EV_TRUE_R = pTP * RR_net - pSL * 1.0
+        ※ none は無視（期待値0扱い）
     """
     if user is None:
         user = _get_or_default_user()
-
-    p_tp_first = _clamp01(p_tp_first)
-    p_sl_first = _clamp01(p_sl_first)
 
     (
         risk_pct,
@@ -334,6 +365,7 @@ def compute_position_sizing(
             est_loss_rakuten=0,
             ev_net_rakuten=None,
             rr_net_rakuten=None,
+            ev_true_rakuten=None,
             reason_rakuten_code="invalid_data",
             reason_rakuten_msg=msg,
 
@@ -343,6 +375,7 @@ def compute_position_sizing(
             est_loss_matsui=0,
             ev_net_matsui=None,
             rr_net_matsui=None,
+            ev_true_matsui=None,
             reason_matsui_code="invalid_data",
             reason_matsui_msg=msg,
 
@@ -352,6 +385,7 @@ def compute_position_sizing(
             est_loss_sbi=0,
             ev_net_sbi=None,
             rr_net_sbi=None,
+            ev_true_sbi=None,
             reason_sbi_code="invalid_data",
             reason_sbi_msg=msg,
 
@@ -379,6 +413,10 @@ def compute_position_sizing(
     loss_per_share = max(entry - sl, atr * 0.6)  # 損切り距離（最低保障）
     reward_per_share = max(tp - entry, 0.0)      # 利確距離（マイナスにはしない）
 
+    # pTP/pSL（本命EV用）
+    p_tp = _normalize_prob(p_tp_first)
+    p_sl = _derive_psl(p_tp_first, p_sl_first, p_none)
+
     result: Dict[str, Any] = {
         "risk_pct": risk_pct,
         "lot_size": lot,
@@ -395,6 +433,7 @@ def compute_position_sizing(
         reason_code = ""
         ev_net = None
         rr_net = None
+        ev_true = None
 
         if env is None:
             reason_msg = "該当する証券口座の情報が見つからないため。"
@@ -453,14 +492,16 @@ def compute_position_sizing(
                     rr = _safe_div(gross_profit, loss_value)
                     rr_net_val = _safe_div(net_profit, loss_value)
 
-                    # ★ RR_net は常に保持（pが無くても診断できる）
-                    # ★ EV_net は「確率があるなら EV_final、無いなら互換として rr_net」
-                    if p_tp_first is not None and p_sl_first is not None:
-                        ev_net_val = (p_tp_first * rr_net_val) - (p_sl_first * 1.0)
-                    else:
-                        ev_net_val = rr_net_val
+                    # EV_net（今は rr_net と同義）
+                    ev_net_val = rr_net_val
 
-                    # フィルタ
+                    # ★本命：pTP を混ぜた EV_true（R換算）
+                    # EV_TRUE_R = pTP * RR_net - pSL * 1.0
+                    if p_tp is not None and p_sl is not None:
+                        ev_true_val = (p_tp * rr_net_val) - (p_sl * 1.0)
+                    else:
+                        ev_true_val = None
+
                     if net_profit <= 0:
                         qty = 0
                         reason_code = "net_profit_negative"
@@ -473,10 +514,6 @@ def compute_position_sizing(
                         qty = 0
                         reason_code = "rr_too_low"
                         reason_msg = f"利確幅に対して損切幅が大きく、R={rr:.2f} と基準未満のため。"
-                    elif (p_tp_first is not None and p_sl_first is not None) and (ev_net_val <= 0.0):
-                        qty = 0
-                        reason_code = "ev_negative"
-                        reason_msg = "確率（pTP/pSL）を加味した期待値EVがプラスにならないため。"
                     else:
                         # 最終採用
                         required_cash = entry * qty
@@ -484,6 +521,7 @@ def compute_position_sizing(
                         est_loss = loss_value
                         ev_net = ev_net_val
                         rr_net = rr_net_val
+                        ev_true = ev_true_val
 
         # 結果を flat に格納
         result[f"qty_{short_key}"] = int(qty)
@@ -493,6 +531,7 @@ def compute_position_sizing(
 
         result[f"ev_net_{short_key}"] = (float(ev_net) if ev_net is not None else None)
         result[f"rr_net_{short_key}"] = (float(rr_net) if rr_net is not None else None)
+        result[f"ev_true_{short_key}"] = (float(ev_true) if ev_true is not None else None)
 
         result[f"reason_{short_key}_code"] = reason_code
         result[f"reason_{short_key}_msg"] = reason_msg
@@ -501,8 +540,8 @@ def compute_position_sizing(
     reasons_lines: List[str] = []
     for broker_label, short_key in (("楽天", "rakuten"), ("松井", "matsui"), ("SBI", "sbi")):
         msg = result.get(f"reason_{short_key}_msg") or ""
-        qty_val = result.get(f"qty_{short_key}", 0)
-        if qty_val == 0 and msg:
+        qtyv = result.get(f"qty_{short_key}", 0)
+        if qtyv == 0 and msg:
             reasons_lines.append(f"・{broker_label}: {msg}")
 
     result["reasons_text"] = reasons_lines or None
