@@ -5,7 +5,7 @@
 {% block title %}AI Picks 診断{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'aiapp/css/picks_debug.css' %}?v=20">
+<link rel="stylesheet" href="{% static 'aiapp/css/picks_debug.css' %}?v=21">
 
 <style>
   /* バナー最小CSS（picks_debug.cssに移してもOK） */
@@ -61,7 +61,6 @@
         <div class="meta">
           <span>モード: {{ meta.style|default:"aggressive" }}/{{ meta.horizon|default:"short" }}</span>
           <span>ユニバース: {{ meta.universe|default:"(不明)" }}</span>
-          <!--<span>TopK: {{ meta.topk|default:0 }}</span>-->
         </div>
 
         <!-- 件数まわり（総件数 / 対象件数） -->
@@ -88,7 +87,7 @@
       </div>
     </div>
 
-    <!-- ===== ここが追加：本日 + 評価パイプライン状況 ===== -->
+    <!-- ===== 本日 + 評価パイプライン状況 ===== -->
     <div class="banner-row">
       <div class="banner-date">
         シミュレーション反映結果
@@ -116,10 +115,11 @@
       <table id="picksTable">
         <thead>
           <tr>
+            <th class="th-rank">Rank</th>
             <th>Score</th>
             <th>コード</th>
             <th>銘柄名 / 業種</th>
-            
+            <th class="th-ev">EV_true（R/M/S）</th>
           </tr>
         </thead>
         <tbody>
@@ -154,6 +154,11 @@
               data-cash-sbi="{{ it.required_cash_sbi|default:'' }}"
               data-reason-sbi="{{ it.reason_sbi|default:'' }}"
 
+              {# ★ EV_true（楽天/松井/SBI） #}
+              data-evtrue-rakuten="{{ it.ev_true_rakuten|default:'' }}"
+              data-evtrue-matsui="{{ it.ev_true_matsui|default:'' }}"
+              data-evtrue-sbi="{{ it.ev_true_sbi|default:'' }}"
+
               data-reasons="{% if it.reason_lines %}{{ it.reason_lines|join:'||' }}{% endif %}"
               data-sizing-reasons="{% if it.reasons_text %}{{ it.reasons_text|join:'||' }}{% endif %}"
 
@@ -181,7 +186,11 @@
 
               data-concern="{{ it.reason_concern|default:'' }}"
           >
-            <td  class="score
+            <td class="rank-cell">
+              <span class="rank-pill" data-rank-pill>–</span>
+            </td>
+
+            <td class="score
               {% if it.score_100 and it.score_100|floatformat:0 >= 80 %}score-high
               {% elif it.score_100 and it.score_100|floatformat:0 >= 60 %}score-mid
               {% else %}score-low{% endif %}">
@@ -189,16 +198,23 @@
                 {{ it.score_100|floatformat:0 }}
               {% else %}–{% endif %}
             </td>
-            <td  class="code">{{ it.code }}</td>
-            <td  class="td-name">
+
+            <td class="code">{{ it.code }}</td>
+
+            <td class="td-name">
               <div class="td-name-main">{{ it.name|default:"(銘柄名なし)" }}</div>
               <div class="sector">{{ it.sector_display|default:"業種不明" }}</div>
             </td>
-            
+
+            <td class="td-ev">
+              <span class="ev-pill" data-ev-pill="rakuten">R <b data-ev-text="rakuten">–</b></span>
+              <span class="ev-pill" data-ev-pill="matsui">M <b data-ev-text="matsui">–</b></span>
+              <span class="ev-pill" data-ev-pill="sbi">S <b data-ev-text="sbi">–</b></span>
+            </td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="3" style="text-align:center;color:#9ca3af;padding:16px 8px;">
+            <td colspan="5" style="text-align:center;color:#9ca3af;padding:16px 8px;">
               items が空です。picks_build がまだ走っていないか、ファイル読み込みに失敗しています。
             </td>
           </tr>
@@ -220,10 +236,11 @@
       <div class="modal-top-badges">
         <span class="badge-pill" id="modalScoreBadge">Score: –</span>
         <span class="badge-pill" id="modalStarBadge">★ –</span>
+        <span class="badge-pill" id="modalRankBadge">Rank: –</span>
       </div>
     </div>
 
-    <!-- チャートカード（上: 価格, 下: RSI, 下部に凡例） -->
+    <!-- チャートカード -->
     <div class="detail-card chart-card">
       <div class="chart-inner" id="detailChartContainer">
         <div id="detailChartPriceContainer" class="chart-price-container"></div>
@@ -239,7 +256,7 @@
         </div>
       </div>
 
-      <!-- 凡例：終値 / 各MA / VWAP / 高安値 -->
+      <!-- 凡例 -->
       <div class="chart-legend">
         <div class="legend-pill legend-close">
           終値 <span class="legend-value" id="legendCloseValue">–</span>
@@ -277,7 +294,6 @@
       </div>
     </div>
 
-    <!-- 2カラムカード -->
     <div class="detail-grid">
 
       <!-- 現在値 ＋ ATR -->
@@ -285,6 +301,23 @@
         <div class="detail-card-title">現在値</div>
         <div class="detail-main-value" id="detailLast">–</div>
         <div class="detail-main-sub">ATR <span id="detailAtr">–</span></div>
+      </div>
+
+      <!-- ★ EV_true -->
+      <div class="detail-card">
+        <div class="detail-card-title">EV_true（R/M/S）</div>
+        <div class="detail-row">
+          <div class="detail-label">楽天</div>
+          <div class="detail-value ev-text" id="detailEvRakuten">–</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">松井</div>
+          <div class="detail-value ev-text" id="detailEvMatsui">–</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">SBI</div>
+          <div class="detail-value ev-text" id="detailEvSbi">–</div>
+        </div>
       </div>
 
       <!-- 数量 -->
@@ -405,5 +438,5 @@
 </div>
 
 <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js" defer></script>
-<script src="{% static 'aiapp/js/picks_debug.js' %}?v=47" defer></script>
+<script src="{% static 'aiapp/js/picks_debug.js' %}?v=48" defer></script>
 {% endblock %}
