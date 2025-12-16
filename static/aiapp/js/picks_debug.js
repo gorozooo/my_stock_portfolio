@@ -1,11 +1,10 @@
 // aiapp/static/aiapp/js/picks_debug.js
 // AI Picks 診断（picks_debug.html）用 JS
 // - フィルタ
+// - ランキング（EV_true: 楽天） + 強調
+// - EV_true（R/M/S）色分け表示
 // - モーダル開閉
-// - lightweight-charts で
-//    上段: ローソク足 + 5/25/75/100/200MA + VWAP + Entry/TP/SL + 52週/上場来ライン
-//    下段: RSI 専用パネル
-//    凡例: 終値 / 各MA / VWAP / 52週高安値 / 上場来高安値
+// - lightweight-charts でチャート描画（既存）
 
 (function () {
   const table = document.getElementById("picksTable");
@@ -107,6 +106,13 @@
       } else {
         txt = n.toLocaleString();
       }
+    } else if (fmt === "float3") {
+      const n = Number(value);
+      if (isNaN(n)) {
+        txt = "–";
+      } else {
+        txt = (Math.round(n * 1000) / 1000).toFixed(3);
+      }
     }
 
     el.textContent = txt;
@@ -167,6 +173,113 @@
   }
 
   // --------------------------------------
+  // EV_true UI（色分け + 表示）
+  // --------------------------------------
+  function classifyEv(val) {
+    // ルール
+    //  >= 0.20 : good
+    //  >= 0.00 : mid
+    //  >= -0.10: warn
+    //  < -0.10 : bad
+    if (val === null || val === undefined) return "na";
+    const n = Number(val);
+    if (!isFinite(n)) return "na";
+    if (n >= 0.20) return "good";
+    if (n >= 0.00) return "mid";
+    if (n >= -0.10) return "warn";
+    return "bad";
+  }
+
+  function applyEvPill(pillEl, val) {
+    if (!pillEl) return;
+    pillEl.classList.remove("ev-good", "ev-mid", "ev-warn", "ev-bad", "ev-na");
+    const k = classifyEv(val);
+    pillEl.classList.add("ev-" + k);
+  }
+
+  function applyEvTextClass(textEl, val) {
+    if (!textEl) return;
+    textEl.classList.remove("ev-good", "ev-mid", "ev-warn", "ev-bad", "ev-na");
+    const k = classifyEv(val);
+    textEl.classList.add("ev-" + k);
+  }
+
+  function fmtEv(val) {
+    const n = Number(val);
+    if (!isFinite(n)) return "–";
+    return (Math.round(n * 1000) / 1000).toFixed(3);
+  }
+
+  // --------------------------------------
+  // ランキング（楽天EV_trueで順位付け）
+  // --------------------------------------
+  function setupRankingAndEv() {
+    const rows = Array.from(table.querySelectorAll("tbody tr.pick-row"));
+    if (!rows.length) return;
+
+    const ranked = rows
+      .map((row) => {
+        const v = toNumberOrNull(getAttrMulti(row, ["data-evtrue-rakuten"]));
+        return { row, v };
+      })
+      .filter((x) => x.v !== null)
+      .sort((a, b) => (b.v - a.v));
+
+    // rank付与
+    ranked.forEach((x, idx) => {
+      const rank = idx + 1;
+      x.row.setAttribute("data-rank", String(rank));
+    });
+
+    // 画面の表示（pill & row強調）
+    rows.forEach((row) => {
+      // EV表示（R/M/S）
+      const evR = toNumberOrNull(getAttrMulti(row, ["data-evtrue-rakuten"]));
+      const evM = toNumberOrNull(getAttrMulti(row, ["data-evtrue-matsui"]));
+      const evS = toNumberOrNull(getAttrMulti(row, ["data-evtrue-sbi"]));
+
+      const cell = row.querySelector(".td-ev");
+      if (cell) {
+        const pillR = cell.querySelector('[data-ev-pill="rakuten"]');
+        const pillM = cell.querySelector('[data-ev-pill="matsui"]');
+        const pillS = cell.querySelector('[data-ev-pill="sbi"]');
+
+        const textR = cell.querySelector('[data-ev-text="rakuten"]');
+        const textM = cell.querySelector('[data-ev-text="matsui"]');
+        const textS = cell.querySelector('[data-ev-text="sbi"]');
+
+        if (textR) textR.textContent = fmtEv(evR);
+        if (textM) textM.textContent = fmtEv(evM);
+        if (textS) textS.textContent = fmtEv(evS);
+
+        applyEvPill(pillR, evR);
+        applyEvPill(pillM, evM);
+        applyEvPill(pillS, evS);
+      }
+
+      // Rank表示
+      const rank = row.getAttribute("data-rank");
+      const pill = row.querySelector("[data-rank-pill]");
+      if (pill) {
+        if (!rank) {
+          pill.textContent = "–";
+          pill.classList.remove("crown");
+        } else {
+          pill.textContent = rank;
+          if (Number(rank) === 1) pill.classList.add("crown");
+          else pill.classList.remove("crown");
+        }
+      }
+
+      // Row強調
+      row.classList.remove("rank-1", "rank-2", "rank-3");
+      if (rank === "1") row.classList.add("rank-1");
+      if (rank === "2") row.classList.add("rank-2");
+      if (rank === "3") row.classList.add("rank-3");
+    });
+  }
+
+  // --------------------------------------
   // フィルタ（コード・銘柄名・業種）
   // --------------------------------------
   (function setupFilter() {
@@ -204,7 +317,7 @@
   }
 
   // --------------------------------------
-  // チャート更新
+  // チャート更新（既存）
   // --------------------------------------
   function updateChart(
     candles,
@@ -339,7 +452,6 @@
       baseTimeList = data.map((d) => d.time);
     }
 
-    // オーバーレイ用ヘルパ
     function addOverlayLine(values, color) {
       if (!Array.isArray(values) || values.length === 0) return null;
       if (!Array.isArray(baseTimeList) || baseTimeList.length === 0) return null;
@@ -372,15 +484,13 @@
       return series;
     }
 
-    // MA / VWAP
-    addOverlayLine(ma5,   "#22d3ee"); // 5MA
-    addOverlayLine(ma25,  "#f97316"); // 25MA
-    addOverlayLine(ma75,  "#a855f7"); // 75MA
-    addOverlayLine(ma100, "#22c55e"); // 100MA
-    addOverlayLine(ma200, "#e5e7eb"); // 200MA
-    addOverlayLine(vwap,  "#facc15"); // VWAP
+    addOverlayLine(ma5,   "#22d3ee");
+    addOverlayLine(ma25,  "#f97316");
+    addOverlayLine(ma75,  "#a855f7");
+    addOverlayLine(ma100, "#22c55e");
+    addOverlayLine(ma200, "#e5e7eb");
+    addOverlayLine(vwap,  "#facc15");
 
-    // Entry / TP / SL（水平線と右ラベルあり）
     function addHLine(value, color) {
       if (value === null || value === undefined) return null;
       const num = Number(value);
@@ -393,19 +503,15 @@
         lastValueVisible: true,
         priceLineVisible: true,
       });
-      const data = baseTimeList.map((t) => ({
-        time: t,
-        value: num,
-      }));
+      const data = baseTimeList.map((t) => ({ time: t, value: num }));
       series.setData(data);
       return series;
     }
 
-    addHLine(entry, "#eab308"); // Entry
-    addHLine(tp,    "#22c55e"); // TP
-    addHLine(sl,    "#ef4444"); // SL
+    addHLine(entry, "#eab308");
+    addHLine(tp,    "#22c55e");
+    addHLine(sl,    "#ef4444");
 
-    // 52週 / 上場来 高安値（ラベルなしの補助ライン）
     function addRefLine(value, color) {
       if (value === null || value === undefined) return null;
       const num = Number(value);
@@ -430,7 +536,6 @@
 
     priceChart.timeScale().fitContent();
 
-    // 下段: RSI
     const hasRsi = Array.isArray(rsiValues) && rsiValues.length > 0;
     if (rsiContainer) {
       rsiContainer.style.display = hasRsi ? "block" : "none";
@@ -489,17 +594,12 @@
       const rsiSeries = rsiChart.addLineSeries({
         color: "#facc15",
         lineWidth: 2,
-        priceFormat: {
-          type: "price",
-          precision: 1,
-          minMove: 0.1,
-        },
+        priceFormat: { type: "price", precision: 1, minMove: 0.1 },
         lastValueVisible: true,
         priceLineVisible: false,
       });
       rsiSeries.setData(rsiData);
 
-      // 30 / 50 / 70 の水平ライン
       function addRsiRef(level, color) {
         const v = Number(level);
         if (!isFinite(v)) return;
@@ -508,11 +608,7 @@
           color: color,
           lineWidth: 1,
           lineStyle: LW.LineStyle.Dashed,
-          priceFormat: {
-            type: "price",
-            precision: 1,
-            minMove: 0.1,
-          },
+          priceFormat: { type: "price", precision: 1, minMove: 0.1 },
           lastValueVisible: false,
           priceLineVisible: false,
         });
@@ -524,7 +620,6 @@
 
       rsiChart.timeScale().fitContent();
 
-      // 上下 timeScale 連動
       const ts = priceChart.timeScale();
       const rsiTs = rsiChart.timeScale();
       ts.subscribeVisibleLogicalRangeChange((range) => {
@@ -533,7 +628,6 @@
       });
     }
 
-    // リサイズ対応
     resizeHandler = function () {
       const baseW =
         chartWrapper.clientWidth ||
@@ -542,16 +636,10 @@
         320;
 
       if (priceChart) {
-        priceChart.applyOptions({
-          width: baseW,
-          height: PRICE_HEIGHT,
-        });
+        priceChart.applyOptions({ width: baseW, height: PRICE_HEIGHT });
       }
       if (rsiChart) {
-        rsiChart.applyOptions({
-          width: baseW,
-          height: RSI_HEIGHT,
-        });
+        rsiChart.applyOptions({ width: baseW, height: RSI_HEIGHT });
       }
     };
     window.addEventListener("resize", resizeHandler, { passive: true });
@@ -590,9 +678,28 @@
     document.getElementById("modalStarBadge").textContent =
       "★ " + (ds.stars || "–");
 
+    // ★ Rank
+    const rank = row.getAttribute("data-rank") || "–";
+    const rankBadge = document.getElementById("modalRankBadge");
+    if (rankBadge) {
+      rankBadge.textContent = "Rank: " + rank;
+    }
+
     // 価格・指標
     setText("detailLast", ds.last, "int");
     setText("detailAtr", ds.atr, "int");
+
+    // ★ EV_true（R/M/S）
+    const evR = toNumberOrNull(getAttrMulti(row, ["data-evtrue-rakuten"]));
+    const evM = toNumberOrNull(getAttrMulti(row, ["data-evtrue-matsui"]));
+    const evS = toNumberOrNull(getAttrMulti(row, ["data-evtrue-sbi"]));
+    setText("detailEvRakuten", evR, "float3");
+    setText("detailEvMatsui", evM, "float3");
+    setText("detailEvSbi", evS, "float3");
+
+    applyEvTextClass(document.getElementById("detailEvRakuten"), evR);
+    applyEvTextClass(document.getElementById("detailEvMatsui"), evM);
+    applyEvTextClass(document.getElementById("detailEvSbi"), evS);
 
     // 数量
     setText("detailQtyRakuten", ds.qtyRakuten, "int");
@@ -679,7 +786,6 @@
     }
 
     // ------------- チャート用データ -------------
-    // ★ 数字付き data-* は dataset ではなく getAttribute 系で読む
     const openStr  = getAttrMulti(row, ["data-chart-open"]);
     const highStr  = getAttrMulti(row, ["data-chart-high"]);
     const lowStr   = getAttrMulti(row, ["data-chart-low"]);
@@ -690,7 +796,6 @@
     const ma25Str    = getAttrMulti(row, ["data-chart-ma-25", "data-chart-ma25"]);
     const ma75Str    = getAttrMulti(row, ["data-chart-ma-75", "data-chart-ma75"]);
     const ma100Str   = getAttrMulti(row, ["data-chart-ma-100", "data-chart-ma100"]);
-    // ★ 200MA だけテンプレ側で表記ゆれしていても拾えるよう候補を増やす
     const ma200Str   = getAttrMulti(row, [
       "data-chart-ma-200",
       "data-chart-ma200",
@@ -733,13 +838,11 @@
     const vwapArr = parseFloatArray(vwapStr);
     const rsiList = parseFloatArray(rsiStr);
 
-    // 52週 / 上場来（こちらも data-* を getAttribute で読む）
     const hi52w  = toNumberOrNull(getAttrMulti(row, ["data-hi-52w"]));
     const lo52w  = toNumberOrNull(getAttrMulti(row, ["data-lo-52w"]));
     const hiAll  = toNumberOrNull(getAttrMulti(row, ["data-hi-all"]));
     const loAll  = toNumberOrNull(getAttrMulti(row, ["data-lo-all"]));
 
-    // 凡例の数値更新
     const latestClose  = getLatestNumber(closes);
     const latestMa5    = getLatestNumber(ma5);
     const latestMa25   = getLatestNumber(ma25);
@@ -760,7 +863,6 @@
     if (legendHiAllVal)  legendHiAllVal.textContent  = formatPriceForLegend(hiAll);
     if (legendLoAllVal)  legendLoAllVal.textContent  = formatPriceForLegend(loAll);
 
-    // ローソク足データ生成
     let candles = [];
     const len = Math.min(opens.length, highs.length, lows.length, closes.length);
     for (let i = 0; i < len; i++) {
@@ -831,6 +933,11 @@
       resizeHandler = null;
     }
   }
+
+  // --------------------------------------
+  // 初期化（EV/Rankを先に反映）
+  // --------------------------------------
+  setupRankingAndEv();
 
   // 行クリックでモーダル表示
   table.querySelectorAll("tbody tr.pick-row").forEach(function (row) {
