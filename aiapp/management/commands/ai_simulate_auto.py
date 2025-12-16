@@ -8,12 +8,18 @@ ai_simulate_auto
 役割:
 - media/aiapp/picks/latest_full.json を読み込む
 - TopK の注文を JSONL に起票する（既存パイプライン互換）
-- 同時に VirtualTrade(DB) に同期する（UI/⭐️集計用）
+- 同時に VirtualTrade(DB) に "OPEN" として同期する（UI/⭐️集計用）
 
-★重要（今回の修正）:
-- 「limits で SKIP された銘柄」でも VirtualTrade を作る（= DB で rank/EV_true を出せる土台）
-  - SKIP レコードは closed_at を即時埋めて「OPEN扱い」にしない
-  - replay に skip_reason/skip_msg を残す
+★ 本体化（Step1）対応：
+- VirtualTrade.replay に「特徴量スナップショット（安定性用）」を保存
+- VirtualTrade.replay に「Entry→TP/SL 距離指標（距離妥当性用）」を保存
+  ※ yfinance等の取得失敗でも落とさず、保存できる範囲だけ保存する
+
+★ 追加（今回）：
+- JSONL/DB に rank と EV_true（R/M/S）を確実に載せる
+  - rec["rank"] / rec["rank_group"]
+  - rec["ev_true_rakuten"] / rec["ev_true_matsui"] / rec["ev_true_sbi"]
+  - VirtualTrade.replay["rank"] / ["ev_true"] も同時に保存（UI表示用）
 """
 
 from __future__ import annotations
@@ -129,6 +135,7 @@ def _build_feat_last_and_distance(
                 if feat_df is not None and len(feat_df) > 0:
                     row = feat_df.iloc[-1]
 
+                    # 安定性評価に使う「軽くてブレに強い」代表特徴だけ保存
                     keep_keys = [
                         f"RSI{getattr(cfg, 'rsi_period', 14)}",
                         "BB_Z",
@@ -147,6 +154,7 @@ def _build_feat_last_and_distance(
                     for k in keep_keys:
                         if k in row.index:
                             v = row.get(k)
+                            # JSONにしやすい型に寄せる
                             if v is None:
                                 tmp[k] = None
                             else:
@@ -155,6 +163,7 @@ def _build_feat_last_and_distance(
                                     if fv != fv:  # NaN
                                         tmp[k] = None
                                     else:
+                                        # フラグは int 寄せ
                                         if k in ("GCROSS", "DCROSS"):
                                             tmp[k] = int(fv)
                                         else:
@@ -165,6 +174,8 @@ def _build_feat_last_and_distance(
                                     except Exception:
                                         tmp[k] = str(v)
 
+                    # 参照しやすい別名（固定キー）も作る
+                    # （将来 cfg の期間を変えても downstream を壊しにくい）
                     def pick_float(key: str) -> Optional[float]:
                         return _safe_float(tmp.get(key))
 
@@ -183,6 +194,7 @@ def _build_feat_last_and_distance(
                         "ATR14": atr_from_feat,
                         "GCROSS": tmp.get("GCROSS"),
                         "DCROSS": tmp.get("DCROSS"),
+                        # 生の保持（デバッグ/将来拡張用）
                         "raw": tmp,
                     }
         except Exception:
@@ -193,6 +205,7 @@ def _build_feat_last_and_distance(
         out["feat_last"] = feat_last
 
     # 2) 距離妥当性（ATR正規化）
+    # ATR は「特徴量由来」を最優先、無ければ picks 側の atr を使う
     atr = atr_from_feat if atr_from_feat is not None else atr_pick
     atr = _safe_float(atr)
 
@@ -216,6 +229,7 @@ def _build_feat_last_and_distance(
         if dist_sl_atr is not None and dist_sl_atr > 0:
             rr = dist_tp_atr / dist_sl_atr
 
+        # 変な値は落としておく（極端な暴発防止）
         def clamp(x: Optional[float], lo: float, hi: float) -> Optional[float]:
             if x is None:
                 return None
@@ -340,9 +354,12 @@ class Command(BaseCommand):
                 score_100 = it.get("score_100")
                 stars = it.get("stars")
 
-                # （互換）picks_build 側が既に持っていたり、後段で付与される可能性があるキー
-                skip_reason = it.get("skip_reason")  # None or str
-                skip_msg = it.get("skip_msg")        # None or str
+                # ★追加：rank / EV_true（R/M/S）を picks から受け継ぐ
+                rank = _safe_int(it.get("rank"))
+                rank_group = it.get("rank_group")
+                ev_true_r = _safe_float(it.get("ev_true_rakuten"))
+                ev_true_m = _safe_float(it.get("ev_true_matsui"))
+                ev_true_s = _safe_float(it.get("ev_true_sbi"))
 
                 rec: Dict[str, Any] = {
                     "user_id": user_id,
@@ -380,13 +397,14 @@ class Command(BaseCommand):
                     "universe": universe,
                     "topk": topk,
                     "source": "ai_simulate_auto",
-                }
 
-                # SKIP 情報があれば JSONL にも残しておく（後段で上書きされてもOK）
-                if skip_reason:
-                    rec["skip_reason"] = skip_reason
-                if skip_msg:
-                    rec["skip_msg"] = skip_msg
+                    # ★ここが今回の本命：UIで必要なキー
+                    "rank": rank,
+                    "rank_group": rank_group,
+                    "ev_true_rakuten": ev_true_r,
+                    "ev_true_matsui": ev_true_m,
+                    "ev_true_sbi": ev_true_s,
+                }
 
                 fw.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 written += 1
@@ -401,12 +419,7 @@ class Command(BaseCommand):
                     atr_pick=_safe_float(atr_pick),
                 )
 
-                # ---- DB sync ----
-                # ★今回の肝：
-                #  - SKIP レコードでも VirtualTrade を作る
-                #  - ただし OPEN 扱いにしたくないので closed_at を即時埋める
-                is_skipped = bool(skip_reason)
-
+                # ---- DB sync (OPEN) ----
                 defaults = dict(
                     run_date=run_date,
                     trade_date=trade_date,
@@ -442,31 +455,35 @@ class Command(BaseCommand):
                     est_loss_sbi=est_loss_sbi if est_loss_sbi is None else float(est_loss_sbi),
                     est_loss_matsui=est_loss_matsui if est_loss_matsui is None else float(est_loss_matsui),
                     opened_at=opened_at_dt,
-                    # ★ SKIP は即クローズ（OPEN数にカウントさせない）
-                    closed_at=opened_at_dt if is_skipped else None,
+
+                    # ★replay に “UIで直参照する形” を確実に保存
                     replay={
                         "sim_order": rec,
-                        "skip_reason": skip_reason,
-                        "skip_msg": skip_msg,
-                        **payload_extra,   # feat_last / distance
+                        **payload_extra,  # feat_last / distance
+                        "rank": rank,
+                        "rank_group": rank_group,
+                        "ev_true": {
+                            "R": ev_true_r,
+                            "M": ev_true_m,
+                            "S": ev_true_s,
+                            "rakuten": ev_true_r,  # 表示側の互換
+                            "matsui": ev_true_m,
+                            "sbi": ev_true_s,
+                        },
                     },
                 )
 
-                try:
-                    VirtualTrade.objects.update_or_create(
-                        user=user,
-                        run_id=run_id,
-                        code=code,
-                        defaults=defaults,
-                    )
-                    upserted += 1
-                except Exception:
-                    # 1件壊れても全体を落とさない
-                    continue
+                obj, created = VirtualTrade.objects.update_or_create(
+                    user=user,
+                    run_id=run_id,
+                    code=code,
+                    defaults=defaults,
+                )
+                upserted += 1
 
         self.stdout.write(
             self.style.SUCCESS(
                 f"[ai_simulate_auto] run_id={run_id} run_date={run_date_str} user_id={user_id} "
-                f"jsonl_lines_written={written} db_upserted={upserted} -> {out_path}"
+                f"jsonl_written={written} db_upserted={upserted} -> {out_path}"
             )
         )
