@@ -17,9 +17,22 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
         - scoring_service は補助輪
   5. Entry / TP / SL の計算
   6. Sizing（数量・必要資金・想定PL/損失・見送り理由）
+     ★本番（今回）：pTP をEVに混ぜた ev_true_* を使う
   7. 理由テキスト生成（選定理由×最大5行 + 懸念1行）
   8. バイアス層（セクター波 / 大型・小型バランスの微調整）
-  9. ランキング（EV_R優先 → MLランク降順 → score_100降順 → 株価降順）→ JSON 出力
+  9. ランキング（本番）→ JSON 出力
+
+========================================
+▼ ランキング（本番仕様）
+========================================
+  C: EV_true（pTP混ぜた本命EV）降順 → 採用優先
+     - まず楽天の EV_true_rakuten を主キーにする（UI表示の基準）
+     - qty_rakuten > 0 を優先（0株は下へ）
+     - 次点として ml_rank / score_100 / last_close
+
+  TopK（UI用 latest_full.json）：
+     - 原則：EV_true_rakuten > 0 かつ qty_rakuten > 0 のみ採用
+     - 0件になった場合のみフォールバック（上位から topk 件）
 
 ========================================
 ▼ 利用サービス / モジュール
@@ -35,17 +48,15 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
 
   ・⭐️（本番）:
       aiapp.services.confidence_service.compute_confidence_star
-        ※ BehaviorStats + 安定性 + 距離 + scoring_service を合成して⭐️確定
 
-  ・ML推論（C: 主役）:
+  ・ML推論（主役の一部）:
       aiapp.services.ml_infer_service.infer_from_features
         ※ p_win / EV / hold_days_pred / tp_first / probs / ml_rank を返す
 
   ・Entry / TP / SL:
       aiapp.services.entry_service.compute_entry_tp_sl
-    ※ 無い場合は ATR ベースのフォールバックを使用。
 
-  ・数量 / 必要資金 / 想定PL / 想定損失 / 見送り理由:
+  ・数量 / 必要資金 / 想定PL / 想定損失 / 見送り理由 / EV_true:
       aiapp.services.sizing_service.compute_position_sizing
 
   ・理由5つ + 懸念（日本語テキスト）:
@@ -65,8 +76,6 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
   - media/aiapp/picks/latest_full.json
 """
 
-
-
 from __future__ import annotations
 
 import json
@@ -85,7 +94,7 @@ from aiapp.services.fetch_price import get_prices
 from aiapp.models.features import make_features, FeatureConfig
 from aiapp.services.sizing_service import compute_position_sizing
 
-# ML infer（C: 主役）
+# ML infer（C: 主役の一部）
 try:
     from aiapp.services.ml_infer_service import infer_from_features as ml_infer_from_features
 except Exception:  # pragma: no cover
@@ -297,6 +306,7 @@ def _build_reasons_features(feat: pd.DataFrame, last: float, atr: float) -> Dict
     ma_base = g("MA25") or g("MA20")
     vol_ma_ratio = None
     if vol is not None and ma_base is not None and ma_base > 0:
+        # 本来は出来高MAを使うのがベストだが、現状は価格MAを目安として使用
         vol_ma_ratio = vol / ma_base
 
     # ブレイクフラグ（ゴールデンクロス）
@@ -387,10 +397,11 @@ def _extract_chart_ohlc(
         if isinstance(df.index, pd.DatetimeIndex):
             dates = [d.strftime("%Y-%m-%d") for d in df.index]
         else:
+            # 念のため index を日時に解釈できるものだけ変換
             idx_dt = pd.to_datetime(df.index, errors="coerce")
             for d in idx_dt:
                 if pd.isna(d):
-                    dates.append("")
+                    dates.append("")  # 軽いフォールバック
                 else:
                     dates.append(d.strftime("%Y-%m-%d"))
     except Exception:
@@ -481,6 +492,11 @@ def _score_to_0_100(s01: float) -> int:
 
 
 def _normalize_code(code: str) -> str:
+    """
+    DB/JSON でぶれないように銘柄コードを正規化。
+    - "7203.T" → "7203"
+    - "7203"   → "7203"
+    """
     s = str(code or "").strip()
     if not s:
         return s
@@ -490,6 +506,11 @@ def _normalize_code(code: str) -> str:
 
 
 def _mode_period_from_horizon(horizon: str) -> str:
+    """
+    picks_build の horizon を BehaviorStats の mode_period に合わせる。
+      short/mid/long はそのまま
+      それ以外は short 扱いに寄せる（壊さない）
+    """
     h = (horizon or "").strip().lower()
     if h in ("short", "mid", "long"):
         return h
@@ -497,6 +518,13 @@ def _mode_period_from_horizon(horizon: str) -> str:
 
 
 def _mode_aggr_from_style(style: str) -> str:
+    """
+    picks_build の style を BehaviorStats の mode_aggr に合わせる。
+      aggressive -> aggr
+      normal     -> norm
+      defensive  -> def
+    既に aggr/norm/def が来た場合はそのまま
+    """
     s = (style or "").strip().lower()
     if s in ("aggr", "norm", "def"):
         return s
@@ -506,7 +534,20 @@ def _mode_aggr_from_style(style: str) -> str:
         return "norm"
     if s in ("defensive", "defence", "def"):
         return "def"
+    # 既存 default に寄せる（壊さない）
     return "aggr"
+
+
+def _as_float_or_none(x) -> Optional[float]:
+    try:
+        if x is None:
+            return None
+        f = float(x)
+        if not np.isfinite(f):
+            return None
+        return f
+    except Exception:
+        return None
 
 
 # =========================================================
@@ -523,17 +564,17 @@ class PickItem:
     chart_open: Optional[List[float]] = None
     chart_high: Optional[List[float]] = None
     chart_low: Optional[List[float]] = None
-    chart_closes: Optional[List[float]] = None
-    chart_dates: Optional[List[str]] = None
+    chart_closes: Optional[List[float]] = None  # 終値のみ（ライン用）
+    chart_dates: Optional[List[str]] = None     # X軸用日付（YYYY-MM-DD）
 
     # テクニカル系オーバーレイ
-    chart_ma_short: Optional[List[Optional[float]]] = None
-    chart_ma_mid: Optional[List[Optional[float]]] = None
-    chart_ma_75: Optional[List[Optional[float]]] = None
-    chart_ma_100: Optional[List[Optional[float]]] = None
-    chart_ma_200: Optional[List[Optional[float]]] = None
-    chart_vwap: Optional[List[Optional[float]]] = None
-    chart_rsi: Optional[List[Optional[float]]] = None
+    chart_ma_short: Optional[List[Optional[float]]] = None  # 例: MA5
+    chart_ma_mid: Optional[List[Optional[float]]] = None    # 例: MA25
+    chart_ma_75: Optional[List[Optional[float]]] = None     # MA75
+    chart_ma_100: Optional[List[Optional[float]]] = None    # MA100
+    chart_ma_200: Optional[List[Optional[float]]] = None    # MA200
+    chart_vwap: Optional[List[Optional[float]]] = None      # VWAP
+    chart_rsi: Optional[List[Optional[float]]] = None       # RSI14
 
     # 52週高安値 / 上場来高安値
     high_52w: Optional[float] = None
@@ -548,11 +589,11 @@ class PickItem:
     tp: Optional[float] = None
     sl: Optional[float] = None
 
-    score: Optional[float] = None
-    score_100: Optional[int] = None
-    stars: Optional[int] = None
+    score: Optional[float] = None          # 0..1
+    score_100: Optional[int] = None        # 0..100
+    stars: Optional[int] = None            # 1..5（confidence_serviceで確定）
 
-    # ===== ML outputs（C: 主役）=====
+    # ===== ML outputs =====
     ml_p_win: Optional[float] = None
     ml_ev: Optional[float] = None
     ml_rank: Optional[float] = None
@@ -560,17 +601,17 @@ class PickItem:
     ml_tp_first: Optional[str] = None
     ml_tp_first_probs: Optional[Dict[str, float]] = None
 
-    # ===== EV (sizing: 手数料込み) =====
+    # ===== EV / RR (手数料込み) =====
     ev_net_rakuten: Optional[float] = None
     rr_net_rakuten: Optional[float] = None
-    ev_true_rakuten: Optional[float] = None
-
     ev_net_matsui: Optional[float] = None
     rr_net_matsui: Optional[float] = None
-    ev_true_matsui: Optional[float] = None
-
     ev_net_sbi: Optional[float] = None
     rr_net_sbi: Optional[float] = None
+
+    # ===== 本命EV（pTP混ぜ） =====
+    ev_true_rakuten: Optional[float] = None
+    ev_true_matsui: Optional[float] = None
     ev_true_sbi: Optional[float] = None
 
     qty_rakuten: Optional[int] = None
@@ -588,11 +629,14 @@ class PickItem:
     est_pl_sbi: Optional[float] = None
     est_loss_sbi: Optional[float] = None
 
+    # sizing_service 側で組んだ共通メッセージ（両方0株など）
     reasons_text: Optional[List[str]] = None
 
+    # 理由5つ＋懸念（reasons サービス）
     reason_lines: Optional[List[str]] = None
     reason_concern: Optional[str] = None
 
+    # 証券会社別の見送り理由（qty=0 のときだけ使用）
     reason_rakuten: Optional[str] = None
     reason_matsui: Optional[str] = None
     reason_sbi: Optional[str] = None
@@ -613,6 +657,10 @@ def _work_one(
     filter_stats: Optional[Dict[str, int]] = None,
     regime: Optional[object] = None,
 ) -> Optional[Tuple[PickItem, Dict[str, Any]]]:
+    """
+    単一銘柄について、価格→特徴量→スコア→Entry/TP/SL→⭐️（司令塔）→Sizing→理由 まで全部まとめて計算。
+    sizing_meta には risk_pct / lot_size を入れて返す。
+    """
     try:
         raw = get_prices(code, nbars=nbars, period="3y")
         if raw is None or len(raw) == 0:
@@ -620,11 +668,13 @@ def _work_one(
                 print(f"[picks_build] {code}: empty price")
             return None
 
+        # チャート用 OHLC（ローソク足＋終値ライン＋日付）
         max_points = 260
         chart_open, chart_high, chart_low, chart_closes, chart_dates = _extract_chart_ohlc(
             raw, max_points=max_points
         )
 
+        # 特徴量（MA / RSI / VWAP 等）
         cfg = FeatureConfig()
         feat = make_features(raw, cfg=cfg)
         if feat is None or len(feat) == 0:
@@ -639,11 +689,11 @@ def _work_one(
         atr = _safe_float(atr_s.iloc[-1] if len(atr_s) else np.nan)
 
         # --- MA 系オーバーレイ ---
-        ma_short_col = f"MA{cfg.ma_short}"
-        ma_mid_col = f"MA{cfg.ma_mid}"
-        ma_75_col = f"MA{cfg.ma_long}"
-        ma_100_col = f"MA{cfg.ma_extra1}"
-        ma_200_col = f"MA{cfg.ma_extra2}"
+        ma_short_col = f"MA{cfg.ma_short}"    # 5
+        ma_mid_col = f"MA{cfg.ma_mid}"        # 25
+        ma_75_col = f"MA{cfg.ma_long}"        # 75
+        ma_100_col = f"MA{cfg.ma_extra1}"     # 100
+        ma_200_col = f"MA{cfg.ma_extra2}"     # 200
         rsi_col = f"RSI{cfg.rsi_period}"
 
         chart_ma_short = _series_tail_to_list(feat.get(ma_short_col), max_points=max_points)
@@ -655,10 +705,24 @@ def _work_one(
         chart_rsi = _series_tail_to_list(feat.get(rsi_col), max_points=max_points)
 
         # --- 52週高安値 / 上場来高安値（スカラー） ---
-        high_52w = _nan_to_none(_safe_float(_safe_series(feat["HIGH_52W"]).iloc[-1])) if "HIGH_52W" in feat.columns else None
-        low_52w = _nan_to_none(_safe_float(_safe_series(feat["LOW_52W"]).iloc[-1])) if "LOW_52W" in feat.columns else None
-        high_all = _nan_to_none(_safe_float(_safe_series(feat["HIGH_ALL"]).iloc[-1])) if "HIGH_ALL" in feat.columns else None
-        low_all = _nan_to_none(_safe_float(_safe_series(feat["LOW_ALL"]).iloc[-1])) if "LOW_ALL" in feat.columns else None
+        high_52w = None
+        low_52w = None
+        high_all = None
+        low_all = None
+
+        if "HIGH_52W" in feat.columns:
+            high_52w = _safe_float(_safe_series(feat["HIGH_52W"]).iloc[-1])
+        if "LOW_52W" in feat.columns:
+            low_52w = _safe_float(_safe_series(feat["LOW_52W"]).iloc[-1])
+        if "HIGH_ALL" in feat.columns:
+            high_all = _safe_float(_safe_series(feat["HIGH_ALL"]).iloc[-1])
+        if "LOW_ALL" in feat.columns:
+            low_all = _safe_float(_safe_series(feat["LOW_ALL"]).iloc[-1])
+
+        high_52w = _nan_to_none(high_52w)
+        low_52w = _nan_to_none(low_52w)
+        high_all = _nan_to_none(high_all)
+        low_all = _nan_to_none(low_all)
 
         # --- 仕手株・流動性などのフィルタリング層 ---
         if picks_check_all is not None and FilterContext is not None:
@@ -671,9 +735,11 @@ def _work_one(
                 )
                 decision = picks_check_all(ctx)
                 if decision and getattr(decision, "skip", False):
+                    # フィルタ理由ごとの件数カウント
                     if filter_stats is not None:
                         reason = getattr(decision, "reason_code", None) or "SKIP"
                         filter_stats[reason] = filter_stats.get(reason, 0) + 1
+
                     if BUILD_LOG:
                         rc = getattr(decision, "reason_code", None)
                         rt = getattr(decision, "reason_text", None)
@@ -688,8 +754,10 @@ def _work_one(
         # --- スコア（レジーム込み本格版） ---
         if ext_score_sample:
             try:
+                # 新シグネチャ: score_sample(feat, regime=None)
                 s01 = float(ext_score_sample(feat, regime=regime))
             except TypeError:
+                # 万一、古いシグネチャだった場合のフォールバック
                 s01 = float(ext_score_sample(feat))
         else:
             s01 = _fallback_score_sample(feat)
@@ -799,7 +867,7 @@ def _work_one(
                 stars = int(fallback_star)
 
         # =========================================================
-        # ML推論（C: 主役）→ PickItem に詰める
+        # ML推論（主役の一部）→ PickItem に詰める
         # =========================================================
         ml_meta: Dict[str, Any] = {}
         ml_p_win = None
@@ -895,39 +963,40 @@ def _work_one(
         )
 
         # =========================================================
-        # ★本命：p(tp_first) / p(sl_first) / p(none) を sizing に渡す
+        # p(tp_first) を sizing に渡す（本命EVの材料）
         # =========================================================
         p_tp_first = None
-        p_sl_first = None
-        p_none = None
         try:
             if isinstance(ml_tp_probs, dict):
-                v_tp = ml_tp_probs.get("tp_first")
-                v_sl = ml_tp_probs.get("sl_first")
-                v_n = ml_tp_probs.get("none")
-                if v_tp is not None:
-                    p_tp_first = float(v_tp)
-                if v_sl is not None:
-                    p_sl_first = float(v_sl)
-                if v_n is not None:
-                    p_none = float(v_n)
+                v = ml_tp_probs.get("tp_first")
+                if v is not None:
+                    p_tp_first = float(v)
         except Exception:
             p_tp_first = None
-            p_sl_first = None
-            p_none = None
 
-        sizing = compute_position_sizing(
-            user=user,
-            code=str(code_norm),
-            last_price=last,
-            atr=atr,
-            entry=e,
-            tp=t,
-            sl=s,
-            p_tp_first=p_tp_first,
-            p_sl_first=p_sl_first,
-            p_none=p_none,
-        )
+        # --- Sizing（数量・必要資金・想定PL/損失 + 見送り理由 + EV_true） ---
+        try:
+            sizing = compute_position_sizing(
+                user=user,
+                code=str(code_norm),
+                last_price=last,
+                atr=atr,
+                entry=e,
+                tp=t,
+                sl=s,
+                p_tp_first=p_tp_first,  # ★対応（sizing_service側が受け取る前提）
+            )
+        except TypeError:
+            # 旧シグネチャ互換
+            sizing = compute_position_sizing(
+                user=user,
+                code=str(code_norm),
+                last_price=last,
+                atr=atr,
+                entry=e,
+                tp=t,
+                sl=s,
+            )
 
         # 楽天
         item.qty_rakuten = sizing.get("qty_rakuten")
@@ -935,19 +1004,11 @@ def _work_one(
         item.est_pl_rakuten = sizing.get("est_pl_rakuten")
         item.est_loss_rakuten = sizing.get("est_loss_rakuten")
 
-        item.ev_net_rakuten = sizing.get("ev_net_rakuten")
-        item.rr_net_rakuten = sizing.get("rr_net_rakuten")
-        item.ev_true_rakuten = sizing.get("ev_true_rakuten")
-
         # 松井
         item.qty_matsui = sizing.get("qty_matsui")
         item.required_cash_matsui = sizing.get("required_cash_matsui")
         item.est_pl_matsui = sizing.get("est_pl_matsui")
         item.est_loss_matsui = sizing.get("est_loss_matsui")
-
-        item.ev_net_matsui = sizing.get("ev_net_matsui")
-        item.rr_net_matsui = sizing.get("rr_net_matsui")
-        item.ev_true_matsui = sizing.get("ev_true_matsui")
 
         # SBI
         item.qty_sbi = sizing.get("qty_sbi")
@@ -955,8 +1016,17 @@ def _work_one(
         item.est_pl_sbi = sizing.get("est_pl_sbi")
         item.est_loss_sbi = sizing.get("est_loss_sbi")
 
+        # EV / RR (手数料込み)
+        item.ev_net_rakuten = sizing.get("ev_net_rakuten")
+        item.rr_net_rakuten = sizing.get("rr_net_rakuten")
+        item.ev_net_matsui = sizing.get("ev_net_matsui")
+        item.rr_net_matsui = sizing.get("rr_net_matsui")
         item.ev_net_sbi = sizing.get("ev_net_sbi")
         item.rr_net_sbi = sizing.get("rr_net_sbi")
+
+        # 本命EV（pTP混ぜ）
+        item.ev_true_rakuten = sizing.get("ev_true_rakuten")
+        item.ev_true_matsui = sizing.get("ev_true_matsui")
         item.ev_true_sbi = sizing.get("ev_true_sbi")
 
         # 共通メッセージ
@@ -972,8 +1042,14 @@ def _work_one(
             "risk_pct": sizing.get("risk_pct"),
             "lot_size": sizing.get("lot_size"),
         }
+
         if conf_meta:
             sizing_meta["confidence_detail"] = conf_meta
+
+        if BUILD_LOG:
+            evr = _as_float_or_none(item.ev_true_rakuten)
+            qtyr = int(item.qty_rakuten or 0)
+            print(f"[picks_build] {code_norm} EV_true_rakuten={evr} qty_rakuten={qtyr} pTP={p_tp_first}")
 
         return item, sizing_meta
 
@@ -1007,6 +1083,9 @@ def _load_universe_from_txt(name: str) -> List[str]:
 
 
 def _load_universe_all_jpx() -> List[str]:
+    """
+    StockMaster から日本株全銘柄コードを取る ALL-JPX 用。
+    """
     if StockMaster is None:
         print("[picks_build] StockMaster not available; ALL-JPX empty")
         return []
@@ -1021,6 +1100,12 @@ def _load_universe_all_jpx() -> List[str]:
 
 
 def _load_universe(name: str) -> List[str]:
+    """
+    ユニバース名 → 銘柄コード一覧。
+      all_jpx / all / jpx_all         → StockMaster から全件
+      nk225 / nikkei225 / nikkei_225  → data/universe/nk225.txt
+      それ以外                          → data/universe/<name>.txt
+    """
     key = (name or "").strip().lower()
 
     if key in ("all_jpx", "all", "jpx_all"):
@@ -1068,7 +1153,7 @@ def _enrich_meta(items: List[PickItem]) -> None:
 # =========================================================
 
 class Command(BaseCommand):
-    help = "AIピック生成（FULL + TopK + Sizing + 理由テキスト）"
+    help = "AIピック生成（FULL + TopK + Sizing + 理由テキキスト）"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -1101,12 +1186,14 @@ class Command(BaseCommand):
         horizon = (opts.get("horizon") or "short").lower()
         topk = int(opts.get("topk") or 10)
 
+        # ★ 本番仕様（⭐️）キー（confidence_serviceに渡す）
         mode_period = _mode_period_from_horizon(horizon)
         mode_aggr = _mode_aggr_from_style(style)
 
         codes = _load_universe(universe)
         stockmaster_total = len(codes)
 
+        # ---- マクロレジームの読み込み（あれば）----
         macro_regime = None
         if MacroRegimeSnapshot is not None:
             try:
@@ -1126,6 +1213,7 @@ class Command(BaseCommand):
                 if BUILD_LOG:
                     print(f"[picks_build] macro regime load error: {ex}")
 
+        # 空ユニバースのとき
         if not codes:
             print("[picks_build] universe empty → 空JSON出力")
 
@@ -1149,13 +1237,17 @@ class Command(BaseCommand):
                     "regime_date": regime_date_str,
                     "regime_label": getattr(macro_regime, "regime_label", None) if macro_regime else None,
                     "regime_summary": getattr(macro_regime, "summary", None) if macro_regime else None,
+                    # ★ ⭐️本番仕様メタ
                     "stars_engine": "confidence_service",
                     "stars_mode_period": mode_period,
                     "stars_mode_aggr": mode_aggr,
                     "behaviorstats_cache_rows": 0,
+                    # ★ MLメタ
                     "ml_engine": "lightgbm",
                     "ml_models_dir": "media/aiapp/ml/models/latest",
-                    "rank_mode": "EV_TRUE_RAKUTEN",
+                    # ★ Rankメタ
+                    "rank_mode": "EV_true_rakuten",
+                    "topk_rule": "EV_true_rakuten>0 and qty_rakuten>0",
                 },
             )
             return
@@ -1169,7 +1261,10 @@ class Command(BaseCommand):
         items: List[PickItem] = []
         meta_extra: Dict[str, Any] = {}
 
+        # フィルタ理由ごとの削除件数カウンタ
         filter_stats: Dict[str, int] = {}
+
+        # confidence_detail を meta に1つだけ載せたい（確認用）
         first_conf_detail: Optional[Dict[str, Any]] = None
 
         # =========================================================
@@ -1219,6 +1314,7 @@ class Command(BaseCommand):
             item, sizing_meta = res
             items.append(item)
 
+            # meta（risk_pct / lot_size）は最初に取得できた値を採用
             if sizing_meta:
                 if sizing_meta.get("risk_pct") is not None and "risk_pct" not in meta_extra:
                     meta_extra["risk_pct"] = float(sizing_meta["risk_pct"])
@@ -1231,6 +1327,7 @@ class Command(BaseCommand):
         _enrich_meta(items)
 
         # ---- セクターバイアス・サイズバイアス適用（あれば） ----
+        # ※あなたの方針：picks_bias は stars を触らない前提
         if apply_bias_all is not None and items:
             try:
                 apply_bias_all(items)
@@ -1239,18 +1336,40 @@ class Command(BaseCommand):
                     print(f"[picks_build] bias error: {ex}")
 
         # =========================================================
-        # ★本命：並び替え（ev_true_rakuten desc → ml_rank desc → score_100 desc → last_close desc）
+        # 本番：並び替え（EV_true_rakuten desc → qty_rakuten>0 → ml_rank → score_100 → last_close）
         # =========================================================
         def _rank_key(x: PickItem):
-            ev = x.ev_true_rakuten if x.ev_true_rakuten is not None else -1e18
-            mr = x.ml_rank if x.ml_rank is not None else -1e18
-            sc = x.score_100 if x.score_100 is not None else -1e18
-            lc = x.last_close if x.last_close is not None else -1e18
-            return (ev, mr, sc, lc)
+            ev_true = _as_float_or_none(x.ev_true_rakuten)
+            ev_key = ev_true if ev_true is not None else -1e18
+
+            qty = int(x.qty_rakuten or 0)
+            qty_ok = 1 if qty > 0 else 0
+
+            mr = _as_float_or_none(x.ml_rank)
+            mr_key = mr if mr is not None else -1e18
+
+            sc = float(x.score_100) if x.score_100 is not None else -1e18
+            lc = float(x.last_close) if x.last_close is not None else -1e18
+
+            return (ev_key, qty_ok, mr_key, sc, lc)
 
         items.sort(key=_rank_key, reverse=True)
 
-        top_items = items[: max(0, topk)]
+        # =========================================================
+        # TopK（UI用）：原則「EV_true>0 かつ qty>0」だけ
+        # =========================================================
+        top_candidates: List[PickItem] = []
+        for it in items:
+            ev_true = _as_float_or_none(it.ev_true_rakuten)
+            qty = int(it.qty_rakuten or 0)
+            if ev_true is not None and ev_true > 0 and qty > 0:
+                top_candidates.append(it)
+
+        top_items = top_candidates[: max(0, topk)]
+
+        # フォールバック：0件なら「並び替え済み上位」から出す（UIが空になる事故回避）
+        if not top_items:
+            top_items = items[: max(0, topk)]
 
         if BUILD_LOG:
             print(
@@ -1258,6 +1377,7 @@ class Command(BaseCommand):
                 f"total={len(items)} topk={len(top_items)}"
             )
 
+        # 追加メタ
         meta_extra["stockmaster_total"] = stockmaster_total
         meta_extra["filter_stats"] = filter_stats
 
@@ -1268,6 +1388,7 @@ class Command(BaseCommand):
             meta_extra["regime_label"] = getattr(macro_regime, "regime_label", None)
             meta_extra["regime_summary"] = getattr(macro_regime, "summary", None)
 
+        # ★ ⭐️本番仕様メタ
         meta_extra["stars_engine"] = "confidence_service"
         meta_extra["stars_mode_period"] = mode_period
         meta_extra["stars_mode_aggr"] = mode_aggr
@@ -1275,9 +1396,13 @@ class Command(BaseCommand):
         if first_conf_detail is not None:
             meta_extra["confidence_detail_sample"] = first_conf_detail
 
+        # ★ MLメタ
         meta_extra["ml_engine"] = "lightgbm"
         meta_extra["ml_models_dir"] = "media/aiapp/ml/models/latest"
-        meta_extra["rank_mode"] = "EV_TRUE_RAKUTEN"
+
+        # ★ Rankメタ
+        meta_extra["rank_mode"] = "EV_true_rakuten"
+        meta_extra["topk_rule"] = "EV_true_rakuten>0 and qty_rakuten>0"
 
         self._emit(
             items,
@@ -1319,11 +1444,13 @@ class Command(BaseCommand):
 
         PICKS_DIR.mkdir(parents=True, exist_ok=True)
 
+        # 全件（検証用）
         out_all_latest = PICKS_DIR / "latest_full_all.json"
         out_all_stamp = PICKS_DIR / f"{dt_now_stamp()}_{horizon}_{style}_full_all.json"
         out_all_latest.write_text(json.dumps(data_all, ensure_ascii=False, separators=(",", ":")))
         out_all_stamp.write_text(json.dumps(data_all, ensure_ascii=False, separators=(",", ":")))
 
+        # TopK（UI用）
         out_top_latest = PICKS_DIR / "latest_full.json"
         out_top_stamp = PICKS_DIR / f"{dt_now_stamp()}_{horizon}_{style}_full.json"
         out_top_latest.write_text(json.dumps(data_top, ensure_ascii=False, separators=(",", ":")))
