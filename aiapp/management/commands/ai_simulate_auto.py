@@ -1,4 +1,3 @@
-# aiapp/management/commands/ai_simulate_auto.py
 # -*- coding: utf-8 -*-
 """
 ai_simulate_auto
@@ -14,13 +13,18 @@ ai_simulate_auto
 - VirtualTrade.replay に「特徴量スナップショット（安定性用）」を保存
 - VirtualTrade.replay に「Entry→TP/SL 距離指標（距離妥当性用）」を保存
   ※ yfinance等の取得失敗でも落とさず、保存できる範囲だけ保存する
+
+★ 追加（プロ仕様）：
+- EV_true の高い順に候補を処理
+- 同時ポジション制限（max_positions / max_total_risk_r）を適用
+- 既にOPEN扱いの銘柄は重複禁止
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -28,6 +32,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from aiapp.models.vtrade import VirtualTrade
+from aiapp.services.position_limits import LimitConfig, PositionLimitManager
 
 # ★追加：紙シミュ保存の本体化（特徴量 & 距離）
 try:
@@ -45,6 +50,10 @@ except Exception:  # pragma: no cover
 # ========= パス定義（MEDIA_ROOT ベース） =========
 PICKS_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "picks"
 SIM_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "simulate"
+
+# ========= policy =========
+POLICY_DIR = Path(getattr(settings, "BASE_DIR", Path("."))) / "aiapp" / "policies"
+DEFAULT_POLICY_FILE = "short_aggressive.yml"
 
 
 # ========= 時刻ユーティリティ（JST固定） =========
@@ -99,6 +108,132 @@ def _safe_int(x) -> Optional[int]:
         return None
 
 
+# ========= policy読み込み（limits） =========
+def _load_limits_from_policy() -> LimitConfig:
+    """
+    aiapp/policies/short_aggressive.yml から limits を読む。
+    PyYAML が無い環境でも落とさず、デフォルトで動く。
+    """
+    path = POLICY_DIR / DEFAULT_POLICY_FILE
+    cfg = LimitConfig()
+
+    if not path.exists():
+        return cfg
+
+    try:
+        import yaml  # type: ignore
+    except Exception:
+        return cfg
+
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return cfg
+
+    try:
+        limits = data.get("limits") or {}
+        if isinstance(limits, dict):
+            mp = limits.get("max_positions")
+            mr = limits.get("max_total_risk_r")
+            if mp is not None:
+                cfg.max_positions = int(mp)
+            if mr is not None:
+                cfg.max_total_risk_r = float(mr)
+    except Exception:
+        pass
+
+    return cfg
+
+
+# ========= “既にOPEN”の銘柄コード一覧を可能な範囲で取る =========
+def _get_open_codes_from_db(user) -> List[str]:
+    """
+    VirtualTrade のスキーマ差を吸収して「OPEN扱い」を推測する。
+    1) closed_at があれば closed_at__isnull=True
+    2) status/state があれば OPEN 系
+    3) それも無ければ 直近 run_date の重複防止に留める（=空で返す）
+    """
+    try:
+        field_names = {f.name for f in VirtualTrade._meta.get_fields()}  # type: ignore
+    except Exception:
+        field_names = set()
+
+    qs = VirtualTrade.objects.filter(user=user)
+
+    try:
+        if "closed_at" in field_names:
+            qs = qs.filter(closed_at__isnull=True)
+        elif "closed_dt" in field_names:
+            qs = qs.filter(closed_dt__isnull=True)
+        elif "status" in field_names:
+            qs = qs.filter(status__in=["OPEN", "open", "Open"])
+        elif "state" in field_names:
+            qs = qs.filter(state__in=["OPEN", "open", "Open"])
+        else:
+            return []
+    except Exception:
+        return []
+
+    try:
+        return [str(x) for x in qs.values_list("code", flat=True)]
+    except Exception:
+        return []
+
+
+# ========= EV_true をソート用のスカラーにする =========
+def _ev_scalar(it: Dict[str, Any]) -> float:
+    """
+    it["ev_true"] が
+    - 数値 → そのまま
+    - dict (r/m/s) → 平均（存在するものだけ）
+    - 無い → -999
+    """
+    v = it.get("ev_true")
+    if isinstance(v, (int, float)):
+        return float(v)
+
+    if isinstance(v, dict):
+        vals: List[float] = []
+        for k in ("r", "m", "s", "R", "M", "S"):
+            x = v.get(k)
+            fx = _safe_float(x)
+            if fx is not None:
+                vals.append(fx)
+        if vals:
+            return sum(vals) / float(len(vals))
+
+    # 個別キーが来るパターンも拾う
+    for key in ("ev_true_r", "ev_true_m", "ev_true_s"):
+        fx = _safe_float(it.get(key))
+        if fx is not None:
+            return fx
+
+    return -999.0
+
+
+def _ev_parts(it: Dict[str, Any]) -> Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
+    """
+    (ev_true_scalar, r, m, s)
+    """
+    scalar = _ev_scalar(it)
+    v = it.get("ev_true")
+    r = m = s = None
+    if isinstance(v, dict):
+        r = _safe_float(v.get("r") if "r" in v else v.get("R"))
+        m = _safe_float(v.get("m") if "m" in v else v.get("M"))
+        s = _safe_float(v.get("s") if "s" in v else v.get("S"))
+    else:
+        r = _safe_float(it.get("ev_true_r"))
+        m = _safe_float(it.get("ev_true_m"))
+        s = _safe_float(it.get("ev_true_s"))
+
+    if scalar <= -998:
+        scalar_out: Optional[float] = None
+    else:
+        scalar_out = scalar
+    return scalar_out, r, m, s
+
+
 # ========= 本体化：特徴量・距離の保存 =========
 def _build_feat_last_and_distance(
     code: str,
@@ -129,7 +264,6 @@ def _build_feat_last_and_distance(
                 if feat_df is not None and len(feat_df) > 0:
                     row = feat_df.iloc[-1]
 
-                    # 安定性評価に使う「軽くてブレに強い」代表特徴だけ保存
                     keep_keys = [
                         f"RSI{getattr(cfg, 'rsi_period', 14)}",
                         "BB_Z",
@@ -148,16 +282,14 @@ def _build_feat_last_and_distance(
                     for k in keep_keys:
                         if k in row.index:
                             v = row.get(k)
-                            # JSONにしやすい型に寄せる
                             if v is None:
                                 tmp[k] = None
                             else:
                                 try:
                                     fv = float(v)
-                                    if fv != fv:  # NaN
+                                    if fv != fv:
                                         tmp[k] = None
                                     else:
-                                        # フラグは int 寄せ
                                         if k in ("GCROSS", "DCROSS"):
                                             tmp[k] = int(fv)
                                         else:
@@ -168,8 +300,6 @@ def _build_feat_last_and_distance(
                                     except Exception:
                                         tmp[k] = str(v)
 
-                    # 参照しやすい別名（固定キー）も作る
-                    # （将来 cfg の期間を変えても downstream を壊しにくい）
                     def pick_float(key: str) -> Optional[float]:
                         return _safe_float(tmp.get(key))
 
@@ -188,7 +318,6 @@ def _build_feat_last_and_distance(
                         "ATR14": atr_from_feat,
                         "GCROSS": tmp.get("GCROSS"),
                         "DCROSS": tmp.get("DCROSS"),
-                        # 生の保持（デバッグ/将来拡張用）
                         "raw": tmp,
                     }
         except Exception:
@@ -199,7 +328,6 @@ def _build_feat_last_and_distance(
         out["feat_last"] = feat_last
 
     # 2) 距離妥当性（ATR正規化）
-    # ATR は「特徴量由来」を最優先、無ければ picks 側の atr を使う
     atr = atr_from_feat if atr_from_feat is not None else atr_pick
     atr = _safe_float(atr)
 
@@ -223,7 +351,6 @@ def _build_feat_last_and_distance(
         if dist_sl_atr is not None and dist_sl_atr > 0:
             rr = dist_tp_atr / dist_sl_atr
 
-        # 変な値は落としておく（極端な暴発防止）
         def clamp(x: Optional[float], lo: float, hi: float) -> Optional[float]:
             if x is None:
                 return None
@@ -248,7 +375,7 @@ def _build_feat_last_and_distance(
 
 
 class Command(BaseCommand):
-    help = "AIフル自動シミュレ用：DEMO紙トレ注文を JSONL に起票 + VirtualTrade同期"
+    help = "AIフル自動シミュレ用：DEMO紙トレ注文を JSONL に起票 + VirtualTrade同期（制限付き）"
 
     def add_arguments(self, parser):
         parser.add_argument("--date", type=str, default=None, help="YYYY-MM-DD（指定がなければJSTの今日）")
@@ -282,6 +409,9 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("[ai_simulate_auto] items=0"))
             return
 
+        # ★EV_true 高い順に並べる（無いものは後ろ）
+        items.sort(key=_ev_scalar, reverse=True)
+
         User = get_user_model()
         user = User.objects.order_by("id").first()
         if not user:
@@ -307,8 +437,23 @@ class Command(BaseCommand):
         run_date = _parse_date(run_date_str)
         trade_date = _parse_date(trade_date_str)
 
+        # ===== 制限エンジン準備 =====
+        limits_cfg = _load_limits_from_policy()
+        pm = PositionLimitManager(limits_cfg)
+
+        # 既存OPEN（可能なら）をロード
+        open_codes = _get_open_codes_from_db(user)
+        pm.load_open_positions({c: {"risk_r": 1.0} for c in open_codes}, total_risk_r=float(len(open_codes)))
+
+        self.stdout.write(
+            f"[ai_simulate_auto] limits: max_positions={limits_cfg.max_positions} "
+            f"max_total_risk_r={limits_cfg.max_total_risk_r} "
+            f"open_already={len(open_codes)}"
+        )
+
         written = 0
         upserted = 0
+        skipped_limit = 0
 
         with out_path.open(file_mode, encoding="utf-8") as fw:
             for it in items:
@@ -326,7 +471,7 @@ class Command(BaseCommand):
                 tp = it.get("tp")
                 sl = it.get("sl")
                 last_close = it.get("last_close")
-                atr_pick = it.get("atr")  # picks_build が入れている想定（無ければ None）
+                atr_pick = it.get("atr")
 
                 qty_rakuten = it.get("qty_rakuten")
                 qty_sbi = it.get("qty_sbi")
@@ -347,6 +492,53 @@ class Command(BaseCommand):
                 score = it.get("score")
                 score_100 = it.get("score_100")
                 stars = it.get("stars")
+
+                ev_scalar, ev_r, ev_m, ev_s = _ev_parts(it)
+
+                # ===== 制限チェック（重複/最大数/合計R）=====
+                ok, skip = pm.can_open(code, risk_r=1.0)
+                if not ok:
+                    skipped_limit += 1
+                    # JSONLにも「スキップ理由」を残す（追跡用）
+                    rec_skip: Dict[str, Any] = {
+                        "user_id": user_id,
+                        "mode": rec_mode,
+                        "ts": ts_iso,
+                        "run_date": run_date_str,
+                        "trade_date": trade_date_str,
+                        "run_id": run_id,
+                        "code": code,
+                        "name": name,
+                        "sector": sector,
+                        "side": side,
+                        "entry": entry,
+                        "tp": tp,
+                        "sl": sl,
+                        "last_close": last_close,
+                        "atr": atr_pick,
+                        "score": score,
+                        "score_100": score_100,
+                        "stars": stars,
+                        "style": style,
+                        "horizon": horizon,
+                        "universe": universe,
+                        "topk": topk,
+                        "ev_true": ev_scalar,
+                        "ev_true_r": ev_r,
+                        "ev_true_m": ev_m,
+                        "ev_true_s": ev_s,
+                        "skip_reason": skip.reason_code if skip else "limit",
+                        "skip_msg": skip.reason_msg if skip else "limit",
+                        "open_count": skip.open_count if skip else pm.count_open(),
+                        "total_risk_r": skip.total_risk_r if skip else pm.total_risk_r,
+                        "source": "ai_simulate_auto",
+                    }
+                    fw.write(json.dumps(rec_skip, ensure_ascii=False) + "\n")
+                    written += 1
+                    continue
+
+                # ===== 通過したら “枠を確保” してから書く（順序バグ防止）=====
+                pm.open(code, risk_r=1.0, ev_true=ev_scalar)
 
                 rec: Dict[str, Any] = {
                     "user_id": user_id,
@@ -383,6 +575,11 @@ class Command(BaseCommand):
                     "horizon": horizon,
                     "universe": universe,
                     "topk": topk,
+                    "ev_true": ev_scalar,
+                    "ev_true_r": ev_r,
+                    "ev_true_m": ev_m,
+                    "ev_true_s": ev_s,
+                    "skip_reason": None,
                     "source": "ai_simulate_auto",
                 }
 
@@ -399,7 +596,6 @@ class Command(BaseCommand):
                     atr_pick=_safe_float(atr_pick),
                 )
 
-                # ---- DB sync (OPEN) ----
                 defaults = dict(
                     run_date=run_date,
                     trade_date=trade_date,
@@ -437,11 +633,19 @@ class Command(BaseCommand):
                     opened_at=opened_at_dt,
                     replay={
                         "sim_order": rec,
-                        **payload_extra,   # feat_last / distance
+                        "ev_true": ev_scalar,
+                        "ev_true_r": ev_r,
+                        "ev_true_m": ev_m,
+                        "ev_true_s": ev_s,
+                        "limits": {
+                            "max_positions": limits_cfg.max_positions,
+                            "max_total_risk_r": limits_cfg.max_total_risk_r,
+                        },
+                        **payload_extra,
                     },
                 )
 
-                obj, created = VirtualTrade.objects.update_or_create(
+                VirtualTrade.objects.update_or_create(
                     user=user,
                     run_id=run_id,
                     code=code,
@@ -452,6 +656,6 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"[ai_simulate_auto] run_id={run_id} run_date={run_date_str} user_id={user_id} "
-                f"jsonl_written={written} db_upserted={upserted} -> {out_path}"
+                f"jsonl_lines_written={written} db_upserted={upserted} skipped_by_limits={skipped_limit} -> {out_path}"
             )
         )
