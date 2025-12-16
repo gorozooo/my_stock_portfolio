@@ -119,7 +119,6 @@
             <th>Score</th>
             <th>コード</th>
             <th>銘柄名 / 業種</th>
-            <th class="th-ev">EV_true</th>
           </tr>
         </thead>
         <tbody>
@@ -206,11 +205,6 @@
               <div class="sector">{{ it.sector_display|default:"業種不明" }}</div>
             </td>
 
-            <td class="td-ev">
-              <span class="ev-pill" data-ev-pill="rakuten">R <b data-ev-text="rakuten">–</b></span>
-              <span class="ev-pill" data-ev-pill="matsui">M <b data-ev-text="matsui">–</b></span>
-              <span class="ev-pill" data-ev-pill="sbi">S <b data-ev-text="sbi">–</b></span>
-            </td>
           </tr>
         {% empty %}
           <tr>
