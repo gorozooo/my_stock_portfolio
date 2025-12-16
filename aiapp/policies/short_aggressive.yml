@@ -36,6 +36,10 @@ fees:
   # スリッページ（約定代金に対する割合）
   slippage_rate: 0.001      # 0.10%
 
+limits:
+  max_positions: 5
+  max_total_risk_r: 3.0
+
 entry_tp_sl:
   # SL距離を決めるときの ATR 下限係数
   # loss_per_share = max(entry - sl, atr * atr_sl_ratio)
