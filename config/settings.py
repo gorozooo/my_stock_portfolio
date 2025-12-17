@@ -186,3 +186,4 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 AIAPP_UNIVERSE_LIMIT = 200         # 一度に走査する最大銘柄数
 AIAPP_EQUITY = 3_000_000.0         # 口座資産の既定（円）
 AIAPP_LOT = 100
+AIAPP_PRO_EQUITY_YEN = 5_000_000   #検証レンジ
