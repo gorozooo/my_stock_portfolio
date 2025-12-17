@@ -10,14 +10,10 @@ ai_simulate_auto
 - TopK の注文を JSONL に起票する（既存パイプライン互換）
 - 同時に VirtualTrade(DB) に "OPEN" として同期する（UI/⭐️集計用）
 
-★ 本体化（Step1）対応：
-- VirtualTrade.replay に「特徴量スナップショット（安定性用）」を保存
-- VirtualTrade.replay に「Entry→TP/SL 距離指標（距離妥当性用）」を保存
-  ※ yfinance等の取得失敗でも落とさず、保存できる範囲だけ保存する
-
-★ 追加（今回）：
-- 引け後などで手動実行した場合、trade_date を “翌営業日” に自動補正
-  （--date を明示した場合は補正しない＝指定日を尊重）
+重要:
+- run_date は「起票した日」
+- trade_date は「評価の基準日（通常は同日）」
+  ※ trade_date を翌日にすると、当日まだ存在しない 5分足を参照して no_bars になりやすい
 """
 
 from __future__ import annotations
@@ -54,18 +50,14 @@ SIM_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "simulate"
 # ========= 時刻ユーティリティ（JST固定） =========
 def _now_jst():
     from datetime import datetime, timezone as _tz, timedelta
-
     JST = _tz(timedelta(hours=9))
     return datetime.now(JST)
-
 
 def dt_now_jst_iso() -> str:
     return _now_jst().isoformat()
 
-
 def today_jst_str() -> str:
     return _now_jst().date().isoformat()
-
 
 def dt_now_run_id(prefix: str = "auto") -> str:
     n = _now_jst()
@@ -74,9 +66,7 @@ def dt_now_run_id(prefix: str = "auto") -> str:
 
 def _parse_date(s: str):
     from datetime import date as _date
-
     return _date.fromisoformat(s)
-
 
 def _parse_dt_iso(ts: str) -> Optional[timezone.datetime]:
     try:
@@ -86,41 +76,6 @@ def _parse_dt_iso(ts: str) -> Optional[timezone.datetime]:
         return timezone.localtime(dt)
     except Exception:
         return None
-
-
-# ========= 営業日（簡易：土日除外） =========
-def _next_business_day(d):
-    """
-    JPX の厳密な休場日は見ない（まずは土日だけ除外）。
-    """
-    from datetime import timedelta
-
-    x = d
-    while True:
-        x = x + timedelta(days=1)
-        if x.weekday() < 5:
-            return x
-
-
-def _auto_trade_date_str_if_needed(run_date_str: str, *, date_given: bool) -> str:
-    """
-    --date を指定していない場合のみ、
-    実行時刻が引け後なら trade_date を翌営業日に寄せる。
-    """
-    if date_given:
-        return run_date_str
-
-    now = _now_jst()
-    run_d = _parse_date(run_date_str)
-
-    # 15:00以降（引け後）なら翌営業日へ
-    # ※ ざっくり運用に寄せる（朝cron運用なら常に当日）
-    if (now.hour, now.minute) >= (15, 0):
-        td = _next_business_day(run_d)
-        return td.isoformat()
-
-    # 寄り前/場中は当日
-    return run_date_str
 
 
 # ========= 数値ヘルパ =========
@@ -134,7 +89,6 @@ def _safe_float(x) -> Optional[float]:
         return f
     except Exception:
         return None
-
 
 def _safe_int(x) -> Optional[int]:
     try:
@@ -198,7 +152,7 @@ def _build_feat_last_and_distance(
                             else:
                                 try:
                                     fv = float(v)
-                                    if fv != fv:  # NaN
+                                    if fv != fv:
                                         tmp[k] = None
                                     else:
                                         if k in ("GCROSS", "DCROSS"):
@@ -263,9 +217,7 @@ def _build_feat_last_and_distance(
             rr = dist_tp_atr / dist_sl_atr
 
         def clamp(x: Optional[float], lo: float, hi: float) -> Optional[float]:
-            if x is None:
-                return None
-            if x != x:
+            if x is None or x != x:
                 return None
             if x < lo:
                 return lo
@@ -289,19 +241,24 @@ class Command(BaseCommand):
     help = "AIフル自動シミュレ用：DEMO紙トレ注文を JSONL に起票 + VirtualTrade同期"
 
     def add_arguments(self, parser):
-        parser.add_argument("--date", type=str, default=None, help="YYYY-MM-DD（指定がなければJSTの今日）")
+        parser.add_argument("--date", type=str, default=None, help="run_date: YYYY-MM-DD（指定がなければJSTの今日）")
+        parser.add_argument(
+            "--trade-date",
+            type=str,
+            default=None,
+            help="trade_date: YYYY-MM-DD（省略時は run_date と同日）",
+        )
         parser.add_argument("--overwrite", action="store_true", help="同じ日付の jsonl を上書き")
         parser.add_argument("--mode-period", type=str, default="short", help="short/mid/long（将来拡張）")
         parser.add_argument("--mode-aggr", type=str, default="aggr", help="aggr/norm/def（将来拡張）")
 
     def handle(self, *args, **options):
-        date_given = bool(options.get("date"))
-
         run_date_str: str = options.get("date") or today_jst_str()
-        overwrite: bool = bool(options.get("overwrite"))
 
-        # ★追加：trade_date 自動補正（引け後なら翌営業日）
-        trade_date_str: str = _auto_trade_date_str_if_needed(run_date_str, date_given=date_given)
+        # ★重要：デフォルトは run_date と同日（未来日にしない）
+        trade_date_str: str = options.get("trade_date") or run_date_str
+
+        overwrite: bool = bool(options.get("overwrite"))
 
         mode_period: str = (options.get("mode_period") or "short").strip().lower()
         mode_aggr: str = (options.get("mode_aggr") or "aggr").strip().lower()
@@ -367,7 +324,7 @@ class Command(BaseCommand):
                 tp = it.get("tp")
                 sl = it.get("sl")
                 last_close = it.get("last_close")
-                atr_pick = it.get("atr")  # picks_build が入れている想定（無ければ None）
+                atr_pick = it.get("atr")
 
                 qty_rakuten = it.get("qty_rakuten")
                 qty_sbi = it.get("qty_sbi")
@@ -394,7 +351,7 @@ class Command(BaseCommand):
                     "mode": rec_mode,
                     "ts": ts_iso,
                     "run_date": run_date_str,
-                    "trade_date": trade_date_str,  # ★補正後
+                    "trade_date": trade_date_str,
                     "run_id": run_id,
                     "code": code,
                     "name": name,
@@ -430,7 +387,6 @@ class Command(BaseCommand):
                 fw.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 written += 1
 
-                # ★ 本体化：安定性/距離妥当性の材料を作って replay に保存
                 payload_extra = _build_feat_last_and_distance(
                     code=code,
                     entry=_safe_float(entry),
@@ -442,7 +398,7 @@ class Command(BaseCommand):
 
                 defaults = dict(
                     run_date=run_date,
-                    trade_date=trade_date,  # ★補正後
+                    trade_date=trade_date,
                     source="ai_simulate_auto",
                     mode=rec_mode,
                     code=code,
@@ -477,7 +433,7 @@ class Command(BaseCommand):
                     opened_at=opened_at_dt,
                     replay={
                         "sim_order": rec,
-                        **payload_extra,  # feat_last / distance
+                        **payload_extra,
                     },
                 )
 
