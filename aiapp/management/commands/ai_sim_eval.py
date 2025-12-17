@@ -1,83 +1,37 @@
 # aiapp/management/commands/ai_sim_eval.py
 # -*- coding: utf-8 -*-
 """
-ai_sim_eval
+AI紙シミュ評価（5分足）→ VirtualTrade に eval_* / R / (必要なら) EV_true / Rank を反映
 
-目的:
-- VirtualTrade(OPEN) を 5分足で評価して、eval_* と result_r_* を埋める
-- EV_true（-1〜+1にクリップした“真の期待値っぽい指標”）を replay に保存
-- trade_date 単位で EV_true のランキング(rank)を replay に保存
+★今回の修正（3点）：
+1) --days 0 が効かずに 5 になる問題を修正（0 を正しく扱う）
+2) no_bars_after_active を “no_position でクローズ” に統一（未クローズ溜まり防止）
+3) 追加ログを少しだけ増やして、原因追跡しやすく
 
-ポイント:
-- EV_true は「R = PL / |想定損失|」を -1〜+1 にクリップしたもの
-- 想定損失(est_loss_*) はあなたのデータだと負で入っている想定（absで分母化）
-- Rank は “同じ trade_date の evaluated のみ” で付ける
+注意：
+- このコマンドは「5分足で entry→TP/SL/引け」を判定して閉じるのが主目的。
+- PROの ev_true_pro / rank_pro は backfill_pro_all 側で固める方針でもOK。
+  （ここでは eval_* と PL/R を安定させる）
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date as _date, datetime as _dt, time as _time, timedelta
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
-
-from django.core.management.base import BaseCommand, CommandParser
-from django.db import transaction
+from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from aiapp.models.vtrade import VirtualTrade
-
-# 5分足ローダ（既存の仕組みを再利用）
-try:
-    from aiapp.services.bars_5m import load_5m_bars
-except Exception:  # pragma: no cover
-    load_5m_bars = None  # type: ignore
+from aiapp.services.bars_5m import load_5m_bars
 
 
-# =========================================================
-# 小ユーティリティ
-# =========================================================
-def _safe_float(x: Any) -> Optional[float]:
-    try:
-        if x is None:
-            return None
-        f = float(x)
-        if f != f:  # NaN
-            return None
-        return f
-    except Exception:
-        return None
-
-
-def _safe_int(x: Any) -> Optional[int]:
-    try:
-        if x is None:
-            return None
-        return int(x)
-    except Exception:
-        return None
-
-
-def _clip(x: Optional[float], lo: float, hi: float) -> Optional[float]:
-    if x is None:
-        return None
-    try:
-        v = float(x)
-        if v != v:
-            return None
-        if v < lo:
-            return lo
-        if v > hi:
-            return hi
-        return v
-    except Exception:
-        return None
-
-
+# ========= セッション（JST想定） =========
 def _jst_session_range(d: _date) -> Tuple[_dt, _dt]:
     """
-    その営業日のザラ場時間（簡易）: 9:00〜15:00 JST
+    その営業日のザラ場時間（仮）：9:00〜15:00 JST
     """
     tz = timezone.get_default_timezone()
     start = timezone.make_aware(_dt.combine(d, _time(9, 0)), tz)
@@ -85,27 +39,11 @@ def _jst_session_range(d: _date) -> Tuple[_dt, _dt]:
     return start, end
 
 
-def _label_for_side_pl(qty: float, pl_per_share: float) -> str:
-    """
-    ラベル:
-      - qty<=0 → no_position
-      - pl>0   → win
-      - pl<0   → lose
-      - else   → flat
-    """
-    if qty is None or qty <= 0:
-        return "no_position"
-    if pl_per_share > 0:
-        return "win"
-    if pl_per_share < 0:
-        return "lose"
-    return "flat"
-
-
 def _coerce_ts_scalar(val: Any, fallback: _dt) -> _dt:
     """
-    row["ts"] から安全に Timestamp を取り出す。
-    Series でも datetime でも潰して 1個にする。NaT は fallback。
+    row["ts"] から安全に Timestamp を取り出すための小ヘルパー。
+    Series だったり Python datetime だったりしても必ず1つの Timestamp に潰す。
+    NaT の場合は fallback を返す。
     """
     if isinstance(val, pd.Series):
         if not val.empty:
@@ -120,15 +58,15 @@ def _coerce_ts_scalar(val: Any, fallback: _dt) -> _dt:
 
     if pd.isna(ts):
         return fallback
-    # pandas Timestamp -> python datetime
-    return ts.to_pydatetime()
+    return ts.to_pydatetime() if isinstance(ts, pd.Timestamp) else ts
 
 
 def _find_ohlc_columns(df: pd.DataFrame) -> Tuple[Optional[Any], Optional[Any], Optional[Any]]:
     """
     df.columns が str でも MultiIndex でも、
-    'Low' / 'High' / 'Close'(or 'Adj Close') を拾う。
-    戻り値は (low_col, high_col, close_col) で df[...] にそのまま使える実カラム。
+    'Low' / 'High' / 'Close' (or 'Adj Close') をうまく拾う。
+    戻り値は (low_col, high_col, close_col) で、
+    それぞれ df[...] のキーとしてそのまま使える実カラム値。
     """
     low_col = high_col = close_col = None
 
@@ -148,407 +86,331 @@ def _find_ohlc_columns(df: pd.DataFrame) -> Tuple[Optional[Any], Optional[Any], 
     return low_col, high_col, close_col
 
 
-# =========================================================
-# 評価コア
-# =========================================================
+def _label_for_pl(qty: int | float | None, pl_per_share: float) -> str:
+    """
+    - qty <=0 → no_position
+    - pl_per_share >0 → win
+    - pl_per_share <0 → lose
+    - else → flat
+    """
+    try:
+        q = float(qty or 0)
+    except Exception:
+        q = 0.0
+
+    if q <= 0:
+        return "no_position"
+    if pl_per_share > 0:
+        return "win"
+    if pl_per_share < 0:
+        return "lose"
+    return "flat"
+
+
+def _safe_float(x) -> Optional[float]:
+    try:
+        if x is None:
+            return None
+        f = float(x)
+        if f != f:
+            return None
+        return f
+    except Exception:
+        return None
+
+
 @dataclass
 class EvalResult:
-    status: str  # evaluated / no_bars / no_entry / error
     eval_entry_px: Optional[float]
     eval_entry_ts: Optional[_dt]
     eval_exit_px: Optional[float]
     eval_exit_ts: Optional[_dt]
-    eval_exit_reason: str  # hit_tp / hit_sl / horizon_close / no_entry / no_bars / error
-    pl_per_share: Optional[float]
+    eval_exit_reason: str
+    pl_per_share: float
 
 
-def _evaluate_one_trade(vt: VirtualTrade) -> EvalResult:
+def _evaluate_one(v: VirtualTrade) -> EvalResult:
     """
-    5分足で以下の簡易ルール評価:
-    - 指値 entry_px が Low<=entry<=High で初回タッチしたら約定
-    - TP/SL が先にタッチした方で exit、無ければ終値クローズ
+    5分足で entry→TP/SL/引け を判定。
+    例外は原則ここで握りつぶさず、呼び出し側で reason を付ける。
     """
-    try:
-        if load_5m_bars is None:
-            return EvalResult(
-                status="error",
-                eval_entry_px=None,
-                eval_entry_ts=None,
-                eval_exit_px=None,
-                eval_exit_ts=None,
-                eval_exit_reason="error_no_loader",
-                pl_per_share=None,
-            )
+    trade_date = v.trade_date
+    session_start, session_end = _jst_session_range(trade_date)
 
-        trade_date = vt.trade_date
-        entry = _safe_float(vt.entry_px)
-        tp = _safe_float(vt.tp_px)
-        sl = _safe_float(vt.sl_px)
+    # opened_at はUTCで入ってることが多いので、JST(localtime)に寄せる
+    opened_local = timezone.localtime(v.opened_at)
 
-        if entry is None:
-            return EvalResult(
-                status="error",
-                eval_entry_px=None,
-                eval_entry_ts=None,
-                eval_exit_px=None,
-                eval_exit_ts=None,
-                eval_exit_reason="error_no_entry",
-                pl_per_share=None,
-            )
+    active_start = opened_local if opened_local > session_start else session_start
 
-        bars = load_5m_bars(vt.code, trade_date)
-        if bars is None or len(bars) == 0:
-            return EvalResult(
-                status="no_bars",
-                eval_entry_px=None,
-                eval_entry_ts=None,
-                eval_exit_px=None,
-                eval_exit_ts=None,
-                eval_exit_reason="no_bars",
-                pl_per_share=None,
-            )
+    # ★ ここが今回のキモ：
+    # active_start がセッション終了を超えていたら「バーが存在しない」のは正しいので
+    # 呼び出し側で no_position close にする
+    bars = load_5m_bars(v.code, trade_date)
+    if bars is None or len(bars) == 0:
+        raise RuntimeError("no_bars")
 
-        df = bars.copy()
+    df = bars.copy()
 
-        # ts カラムが無ければ index から復元
-        if "ts" not in df.columns:
-            if isinstance(df.index, pd.DatetimeIndex):
-                df = df.reset_index().rename(columns={df.index.name or "index": "ts"})
-            else:
-                return EvalResult(
-                    status="error",
-                    eval_entry_px=None,
-                    eval_entry_ts=None,
-                    eval_exit_px=None,
-                    eval_exit_ts=None,
-                    eval_exit_reason="error_no_ts",
-                    pl_per_share=None,
-                )
-
-        df["ts"] = pd.to_datetime(df["ts"])
-
-        low_col, high_col, close_col = _find_ohlc_columns(df)
-        if low_col is None or high_col is None or close_col is None:
-            return EvalResult(
-                status="error",
-                eval_entry_px=None,
-                eval_entry_ts=None,
-                eval_exit_px=None,
-                eval_exit_ts=None,
-                eval_exit_reason="error_no_ohlc",
-                pl_per_share=None,
-            )
-
-        session_start, session_end = _jst_session_range(trade_date)
-
-        # 有効開始: opened_at がザラ場より後なら opened_at、そうでなければ 9:00
-        opened_at = vt.opened_at
-        if timezone.is_naive(opened_at):
-            opened_at = timezone.make_aware(opened_at, timezone.get_default_timezone())
-        opened_at = timezone.localtime(opened_at)
-
-        active_start = opened_at if opened_at > session_start else session_start
-
-        # 有効バー
-        df = df[(df["ts"] >= active_start) & (df["ts"] <= session_end)]
-        if df.empty:
-            return EvalResult(
-                status="no_bars",
-                eval_entry_px=None,
-                eval_entry_ts=None,
-                eval_exit_px=None,
-                eval_exit_ts=None,
-                eval_exit_reason="no_bars_after_active",
-                pl_per_share=None,
-            )
-
-        # エントリー判定
-        hit_mask = (df[low_col] <= entry) & (df[high_col] >= entry)
-        if not hit_mask.to_numpy().any():
-            return EvalResult(
-                status="no_entry",
-                eval_entry_px=None,
-                eval_entry_ts=None,
-                eval_exit_px=None,
-                eval_exit_ts=None,
-                eval_exit_reason="no_entry",
-                pl_per_share=0.0,
-            )
-
-        hit_df = df[hit_mask]
-        if hit_df.empty:
-            return EvalResult(
-                status="no_entry",
-                eval_entry_px=None,
-                eval_entry_ts=None,
-                eval_exit_px=None,
-                eval_exit_ts=None,
-                eval_exit_reason="no_entry",
-                pl_per_share=0.0,
-            )
-
-        first_hit = hit_df.iloc[0]
-        entry_ts = _coerce_ts_scalar(first_hit["ts"], fallback=active_start)
-        exec_entry_px = float(entry)
-
-        # exit 判定（entry_ts以降）
-        eval_df = df[df["ts"] >= entry_ts].copy()
-        if eval_df.empty:
-            exit_ts = entry_ts
-            exit_px = exec_entry_px
-            exit_reason = "horizon_close"
+    if "ts" not in df.columns:
+        if isinstance(df.index, pd.DatetimeIndex):
+            df = df.reset_index().rename(columns={df.index.name or "index": "ts"})
         else:
-            hit_tp_idx = None
-            hit_sl_idx = None
+            raise RuntimeError("no_ts_column")
 
-            if tp is not None:
-                tp_mask = eval_df[high_col] >= tp
-                if tp_mask.to_numpy().any():
-                    hit_tp_idx = eval_df[tp_mask].index[0]
+    df["ts"] = pd.to_datetime(df["ts"])
 
-            if sl is not None:
-                sl_mask = eval_df[low_col] <= sl
-                if sl_mask.to_numpy().any():
-                    hit_sl_idx = eval_df[sl_mask].index[0]
+    low_col, high_col, close_col = _find_ohlc_columns(df)
+    if low_col is None or high_col is None or close_col is None:
+        raise RuntimeError("no_ohlc_columns")
 
-            if hit_tp_idx is not None or hit_sl_idx is not None:
-                if hit_tp_idx is not None and hit_sl_idx is not None:
-                    if hit_tp_idx <= hit_sl_idx:
-                        row = eval_df.loc[hit_tp_idx]
-                        exit_ts = _coerce_ts_scalar(row["ts"], fallback=entry_ts)
-                        exit_px = float(tp)
-                        exit_reason = "hit_tp"
-                    else:
-                        row = eval_df.loc[hit_sl_idx]
-                        exit_ts = _coerce_ts_scalar(row["ts"], fallback=entry_ts)
-                        exit_px = float(sl)
-                        exit_reason = "hit_sl"
-                elif hit_tp_idx is not None:
-                    row = eval_df.loc[hit_tp_idx]
-                    exit_ts = _coerce_ts_scalar(row["ts"], fallback=entry_ts)
-                    exit_px = float(tp)
-                    exit_reason = "hit_tp"
-                else:
-                    row = eval_df.loc[hit_sl_idx]
-                    exit_ts = _coerce_ts_scalar(row["ts"], fallback=entry_ts)
-                    exit_px = float(sl)
-                    exit_reason = "hit_sl"
-            else:
-                last_row = eval_df.iloc[-1]
-                exit_ts = _coerce_ts_scalar(last_row["ts"], fallback=entry_ts)
-                exit_px = float(last_row[close_col])
-                exit_reason = "horizon_close"
+    # 有効時間だけ
+    df = df[(df["ts"] >= active_start) & (df["ts"] <= session_end)]
+    if len(df) == 0:
+        raise RuntimeError("no_bars_after_active")
 
-        pl_per_share = float(exit_px) - float(exec_entry_px)
+    entry = _safe_float(v.entry_px)
+    tp = _safe_float(v.tp_px)
+    sl = _safe_float(v.sl_px)
 
+    if entry is None:
+        raise RuntimeError("no_entry")
+
+    # --- entry ヒット（指値） ---
+    hit_mask = (df[low_col] <= entry) & (df[high_col] >= entry)
+    if not hit_mask.to_numpy().any():
+        # entry 不成立＝no_position
         return EvalResult(
-            status="evaluated",
-            eval_entry_px=exec_entry_px,
-            eval_entry_ts=entry_ts,
-            eval_exit_px=float(exit_px),
-            eval_exit_ts=exit_ts,
-            eval_exit_reason=exit_reason,
-            pl_per_share=pl_per_share,
-        )
-
-    except Exception:
-        return EvalResult(
-            status="error",
             eval_entry_px=None,
             eval_entry_ts=None,
             eval_exit_px=None,
             eval_exit_ts=None,
-            eval_exit_reason="error_exception",
-            pl_per_share=None,
+            eval_exit_reason="no_touch_entry",
+            pl_per_share=0.0,
         )
 
+    hit_df = df[hit_mask]
+    first_hit = hit_df.iloc[0]
+    entry_ts = _coerce_ts_scalar(first_hit["ts"], fallback=active_start)
+    exec_entry_px = float(entry)
 
-def _compute_ev_true_from_r(r: Optional[float]) -> Optional[float]:
-    # -1〜+1 にクリップ（あなたが理解したやつ）
-    return _clip(r, -1.0, 1.0)
+    # --- exit 判定 ---
+    eval_df = df[df["ts"] >= entry_ts].copy()
+    if len(eval_df) == 0:
+        # entry後バー無し→ entryで終わった扱い
+        return EvalResult(
+            eval_entry_px=exec_entry_px,
+            eval_entry_ts=entry_ts,
+            eval_exit_px=exec_entry_px,
+            eval_exit_ts=entry_ts,
+            eval_exit_reason="horizon_close",
+            pl_per_share=0.0,
+        )
 
+    hit_tp_idx = None
+    hit_sl_idx = None
 
-# =========================================================
-# ランキング付け（trade_date 単位）
-# =========================================================
-def _assign_ranks_for_trade_date(trade_date: _date) -> int:
-    """
-    trade_date の evaluated のみ対象に、
-    EV_true（R/M/S）をそれぞれ降順に並べて順位を replay に保存する。
+    if tp is not None:
+        tp_mask = eval_df[high_col] >= tp
+        if tp_mask.to_numpy().any():
+            hit_tp_idx = eval_df[tp_mask].index[0]
 
-    保存先:
-      replay["ev_true"] = {"rakuten": x, "matsui": y, "sbi": z}
-      replay["rank"]    = {"rakuten": 1, "matsui": 3, "sbi": 2}
-    """
-    qs = VirtualTrade.objects.filter(trade_date=trade_date)
+    if sl is not None:
+        sl_mask = eval_df[low_col] <= sl
+        if sl_mask.to_numpy().any():
+            hit_sl_idx = eval_df[sl_mask].index[0]
 
-    rows: List[VirtualTrade] = list(qs)
-    if not rows:
-        return 0
+    if hit_tp_idx is not None or hit_sl_idx is not None:
+        if hit_tp_idx is not None and hit_sl_idx is not None:
+            if hit_tp_idx <= hit_sl_idx:
+                row = eval_df.loc[hit_tp_idx]
+                exit_ts = _coerce_ts_scalar(row["ts"], fallback=entry_ts)
+                exit_px = float(tp)
+                reason = "hit_tp"
+            else:
+                row = eval_df.loc[hit_sl_idx]
+                exit_ts = _coerce_ts_scalar(row["ts"], fallback=entry_ts)
+                exit_px = float(sl)
+                reason = "hit_sl"
+        elif hit_tp_idx is not None:
+            row = eval_df.loc[hit_tp_idx]
+            exit_ts = _coerce_ts_scalar(row["ts"], fallback=entry_ts)
+            exit_px = float(tp)
+            reason = "hit_tp"
+        else:
+            row = eval_df.loc[hit_sl_idx]
+            exit_ts = _coerce_ts_scalar(row["ts"], fallback=entry_ts)
+            exit_px = float(sl)
+            reason = "hit_sl"
+    else:
+        last_row = eval_df.iloc[-1]
+        exit_ts = _coerce_ts_scalar(last_row["ts"], fallback=entry_ts)
+        exit_px = float(last_row[close_col])
+        reason = "horizon_close"
 
-    # EV_true を取り出す（無いものは除外）
-    def get_ev(vt: VirtualTrade, key: str) -> Optional[float]:
-        try:
-            ev = (vt.replay or {}).get("ev_true", {}).get(key)
-            return _safe_float(ev)
-        except Exception:
-            return None
+    pl_per_share = float(exit_px) - float(exec_entry_px)
 
-    # evaluated 判定は replay["eval_status"] == "evaluated" を優先、無ければ eval_exit_reason で判定
-    def is_evaluated(vt: VirtualTrade) -> bool:
-        try:
-            st = (vt.replay or {}).get("eval_status")
-            if st:
-                return str(st) == "evaluated"
-        except Exception:
-            pass
-        return bool(vt.eval_exit_reason) and (vt.eval_exit_reason not in ("", "no_bars", "error"))
-
-    evaluated = [vt for vt in rows if is_evaluated(vt)]
-    if not evaluated:
-        return 0
-
-    def apply_rank(key: str) -> None:
-        scored = []
-        for vt in evaluated:
-            ev = get_ev(vt, key)
-            if ev is None:
-                continue
-            scored.append((vt, ev))
-
-        # 降順（同値は同順位でも良いが、ここは単純に順番で振る）
-        scored.sort(key=lambda x: x[1], reverse=True)
-
-        for i, (vt, _ev) in enumerate(scored, start=1):
-            rp = vt.replay or {}
-            rp_rank = rp.get("rank") or {}
-            if not isinstance(rp_rank, dict):
-                rp_rank = {}
-            rp_rank[key] = i
-            rp["rank"] = rp_rank
-            vt.replay = rp
-
-    apply_rank("rakuten")
-    apply_rank("matsui")
-    apply_rank("sbi")
-
-    # bulk更新
-    VirtualTrade.objects.bulk_update(evaluated, ["replay"])
-    return len(evaluated)
+    return EvalResult(
+        eval_entry_px=exec_entry_px,
+        eval_entry_ts=entry_ts,
+        eval_exit_px=float(exit_px),
+        eval_exit_ts=exit_ts,
+        eval_exit_reason=reason,
+        pl_per_share=float(pl_per_share),
+    )
 
 
-# =========================================================
-# コマンド
-# =========================================================
 class Command(BaseCommand):
     help = "AI紙シミュ評価（5分足）→ VirtualTrade に eval_* / R / EV_true / Rank を反映"
 
-    def add_arguments(self, parser: CommandParser) -> None:
-        parser.add_argument("--days", type=int, default=5, help="何日前まで評価対象に含めるか（trade_date基準）")
-        parser.add_argument("--limit", type=int, default=0, help="0なら全件。>0なら最大件数（新しいopened_at優先）")
-        parser.add_argument("--force", action="store_true", help="すでに評価済みでも再評価する")
-        parser.add_argument("--dry-run", action="store_true", help="DB更新せずログだけ")
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--days",
+            type=int,
+            default=5,
+            help="何日前まで評価対象に含めるか（trade_date基準）。0なら当日だけ。",
+        )
+        parser.add_argument(
+            "--limit",
+            type=int,
+            default=0,
+            help="0なら全件。>0なら最大件数（新しい opened_at 優先）",
+        )
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="すでに評価済みでも再評価する",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="DB更新せずログだけ",
+        )
 
-    def handle(self, *args, **opts) -> None:
-        days = int(opts.get("days") or 5)
-        limit = int(opts.get("limit") or 0)
-        force = bool(opts.get("force"))
-        dry = bool(opts.get("dry_run"))
+    def handle(self, *args, **options):
+        # ★ days=0 を正しく扱う（0 を “偽” として潰さない）
+        days_opt = options.get("days", 5)
+        try:
+            days = int(days_opt) if days_opt is not None else 5
+        except Exception:
+            days = 5
+
+        limit_opt = options.get("limit", 0)
+        try:
+            limit = int(limit_opt) if limit_opt is not None else 0
+        except Exception:
+            limit = 0
+
+        force = bool(options.get("force"))
+        dry_run = bool(options.get("dry_run"))
 
         today = timezone.localdate()
         date_min = today - timedelta(days=days)
 
-        qs = VirtualTrade.objects.filter(trade_date__gte=date_min).order_by("-opened_at")
+        qs = VirtualTrade.objects.filter(trade_date__gte=date_min)
 
-        if limit and limit > 0:
+        if not force:
+            # 未評価のみ（entry_ts/exit_tsが入っていないものを対象）
+            qs = qs.filter(eval_exit_ts__isnull=True)
+
+        qs = qs.order_by("-opened_at")
+        if limit > 0:
             qs = qs[:limit]
 
-        targets: List[VirtualTrade] = list(qs)
+        targets = list(qs)
 
         self.stdout.write(
-            f"[ai_sim_eval] start days={days} date_min={date_min} targets={len(targets)} force={force} dry_run={dry}"
+            f"[ai_sim_eval] start days={days} date_min={date_min} targets={len(targets)} "
+            f"force={force} dry_run={dry_run}"
         )
 
         updated = 0
         skipped = 0
+        touched_trade_dates = set()
+        ranked_rows = 0  # 互換用に残す（実質は backfill_pro_all でやる想定）
 
-        # trade_date ごとに rank を振りたいので、後でまとめる
-        touched_trade_dates: set[_date] = set()
+        for v in targets:
+            touched_trade_dates.add(v.trade_date)
 
-        for vt in targets:
             try:
-                # すでに評価済みを飛ばす（forceなら再評価）
-                already = bool(vt.eval_exit_reason) and (vt.eval_exit_reason not in ("", "no_bars", "error"))
-                if already and not force:
-                    skipped += 1
+                res = _evaluate_one(v)
+            except Exception as e:
+                reason = str(e) or "eval_error"
+
+                # ★2) no_bars_after_active は “no_position でクローズ” に統一
+                if reason in ("no_bars_after_active",):
+                    if not dry_run:
+                        v.eval_exit_reason = "no_bars_after_active"
+                        v.eval_horizon_days = v.eval_horizon_days or 1
+
+                        v.eval_entry_px = None
+                        v.eval_entry_ts = None
+                        v.eval_exit_px = None
+                        v.eval_exit_ts = None
+
+                        # no_position で統一して閉じる（未クローズ溜まり防止）
+                        v.eval_label_rakuten = "no_position"
+                        v.eval_label_matsui = "no_position"
+                        v.eval_label_sbi = "no_position"
+
+                        v.eval_pl_rakuten = 0.0
+                        v.eval_pl_matsui = 0.0
+                        v.eval_pl_sbi = 0.0
+
+                        v.closed_at = timezone.now()
+                        v.recompute_r()
+                        v.save(update_fields=[
+                            "eval_exit_reason",
+                            "eval_horizon_days",
+                            "eval_entry_px",
+                            "eval_entry_ts",
+                            "eval_exit_px",
+                            "eval_exit_ts",
+                            "eval_label_rakuten",
+                            "eval_label_matsui",
+                            "eval_label_sbi",
+                            "eval_pl_rakuten",
+                            "eval_pl_matsui",
+                            "eval_pl_sbi",
+                            "closed_at",
+                            "result_r_rakuten",
+                            "result_r_matsui",
+                            "result_r_sbi",
+                        ])
+                    updated += 1
                     continue
 
-                res = _evaluate_one_trade(vt)
+                # その他はスキップ扱い（ログだけ）
+                skipped += 1
+                if self.verbosity >= 2:
+                    self.stdout.write(
+                        f"  skip id={v.id} code={v.code} trade_date={v.trade_date} reason={reason}"
+                    )
+                continue
 
-                # qty
-                qr = float(vt.qty_rakuten or 0)
-                qm = float(vt.qty_matsui or 0)
-                qsbi = float(vt.qty_sbi or 0)
+            # evaluate succeeded
+            pl_per_share = res.pl_per_share
 
-                # qtyが全部0なら skip 扱い（＝評価しても意味なし）
-                qty_any = (qr > 0) or (qm > 0) or (qsbi > 0)
+            # entry 不成立の場合は “no_position close”
+            if res.eval_exit_reason == "no_touch_entry":
+                if not dry_run:
+                    v.eval_entry_px = None
+                    v.eval_entry_ts = None
+                    v.eval_exit_px = None
+                    v.eval_exit_ts = None
+                    v.eval_exit_reason = "no_touch_entry"
+                    v.eval_horizon_days = v.eval_horizon_days or 1
 
-                # PL（share→口座）
-                plps = _safe_float(res.pl_per_share)
-                pl_r = (plps * qr) if (plps is not None and qr > 0) else 0.0
-                pl_m = (plps * qm) if (plps is not None and qm > 0) else 0.0
-                pl_s = (plps * qsbi) if (plps is not None and qsbi > 0) else 0.0
+                    v.eval_label_rakuten = "no_position"
+                    v.eval_label_matsui = "no_position"
+                    v.eval_label_sbi = "no_position"
 
-                # ラベル（口座ごと）
-                label_r = _label_for_side_pl(qr, plps or 0.0)
-                label_m = _label_for_side_pl(qm, plps or 0.0)
-                label_s = _label_for_side_pl(qsbi, plps or 0.0)
+                    v.eval_pl_rakuten = 0.0
+                    v.eval_pl_matsui = 0.0
+                    v.eval_pl_sbi = 0.0
 
-                # eval_* をセット
-                vt.eval_entry_px = res.eval_entry_px
-                vt.eval_entry_ts = res.eval_entry_ts
-                vt.eval_exit_px = res.eval_exit_px
-                vt.eval_exit_ts = res.eval_exit_ts
-                vt.eval_exit_reason = res.eval_exit_reason
-                vt.eval_horizon_days = None  # 将来拡張用
-
-                vt.eval_label_rakuten = label_r
-                vt.eval_label_matsui = label_m
-                vt.eval_label_sbi = label_s
-
-                # 口座PL（現状は単純計算）
-                vt.eval_pl_rakuten = float(pl_r) if qty_any else 0.0
-                vt.eval_pl_matsui = float(pl_m) if qty_any else 0.0
-                vt.eval_pl_sbi = float(pl_s) if qty_any else 0.0
-
-                # R再計算（モデルメソッド）
-                vt.recompute_r()
-
-                # EV_true（replayへ）
-                ev_r = _compute_ev_true_from_r(_safe_float(vt.result_r_rakuten))
-                ev_m = _compute_ev_true_from_r(_safe_float(vt.result_r_matsui))
-                ev_s = _compute_ev_true_from_r(_safe_float(vt.result_r_sbi))
-
-                rp = vt.replay or {}
-                rp["eval_status"] = "evaluated" if (res.status == "evaluated" and qty_any) else (
-                    "skip" if (not qty_any) else res.status
-                )
-                rp["evaluated_at"] = timezone.now().isoformat()
-
-                rp_ev = rp.get("ev_true") or {}
-                if not isinstance(rp_ev, dict):
-                    rp_ev = {}
-                rp_ev["rakuten"] = ev_r
-                rp_ev["matsui"] = ev_m
-                rp_ev["sbi"] = ev_s
-                rp["ev_true"] = rp_ev
-
-                vt.replay = rp
-
-                touched_trade_dates.add(vt.trade_date)
-
-                if not dry:
-                    vt.save(update_fields=[
+                    v.closed_at = timezone.now()
+                    v.recompute_r()
+                    v.save(update_fields=[
                         "eval_entry_px",
                         "eval_entry_ts",
                         "eval_exit_px",
@@ -561,30 +423,66 @@ class Command(BaseCommand):
                         "eval_pl_rakuten",
                         "eval_pl_matsui",
                         "eval_pl_sbi",
+                        "closed_at",
                         "result_r_rakuten",
                         "result_r_matsui",
                         "result_r_sbi",
-                        "replay",
                     ])
-
                 updated += 1
-
-            except Exception:
-                skipped += 1
                 continue
 
-        # rank を trade_date ごとに付与
-        ranked = 0
-        if touched_trade_dates and not dry:
-            for td in sorted(touched_trade_dates):
-                try:
-                    ranked += _assign_ranks_for_trade_date(td)
-                except Exception:
-                    continue
+            # 通常 close
+            qty_r = int(v.qty_rakuten or 0)
+            qty_m = int(v.qty_matsui or 0)
+            qty_s = int(v.qty_sbi or 0)
+
+            pl_r = float(pl_per_share) * float(qty_r)
+            pl_m = float(pl_per_share) * float(qty_m)
+            pl_s = float(pl_per_share) * float(qty_s)
+
+            if not dry_run:
+                v.eval_entry_px = res.eval_entry_px
+                v.eval_entry_ts = res.eval_entry_ts
+                v.eval_exit_px = res.eval_exit_px
+                v.eval_exit_ts = res.eval_exit_ts
+                v.eval_exit_reason = res.eval_exit_reason
+                v.eval_horizon_days = v.eval_horizon_days or 1
+
+                v.eval_label_rakuten = _label_for_pl(qty_r, pl_per_share)
+                v.eval_label_matsui = _label_for_pl(qty_m, pl_per_share)
+                v.eval_label_sbi = _label_for_pl(qty_s, pl_per_share)
+
+                v.eval_pl_rakuten = pl_r
+                v.eval_pl_matsui = pl_m
+                v.eval_pl_sbi = pl_s
+
+                # close は exit_ts が取れていればそれを、無ければ now
+                v.closed_at = res.eval_exit_ts or timezone.now()
+
+                v.recompute_r()
+
+                v.save(update_fields=[
+                    "eval_entry_px",
+                    "eval_entry_ts",
+                    "eval_exit_px",
+                    "eval_exit_ts",
+                    "eval_exit_reason",
+                    "eval_horizon_days",
+                    "eval_label_rakuten",
+                    "eval_label_matsui",
+                    "eval_label_sbi",
+                    "eval_pl_rakuten",
+                    "eval_pl_matsui",
+                    "eval_pl_sbi",
+                    "closed_at",
+                    "result_r_rakuten",
+                    "result_r_matsui",
+                    "result_r_sbi",
+                ])
+
+            updated += 1
 
         self.stdout.write(
-            self.style.SUCCESS(
-                f"[ai_sim_eval] done updated={updated} skipped={skipped} "
-                f"touched_trade_dates={len(touched_trade_dates)} ranked_rows={ranked} dry_run={dry}"
-            )
+            f"[ai_sim_eval] done updated={updated} skipped={skipped} "
+            f"touched_trade_dates={len(touched_trade_dates)} ranked_rows={ranked_rows} dry_run={dry_run}"
         )
