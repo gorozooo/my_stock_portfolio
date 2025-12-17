@@ -1,24 +1,20 @@
 # aiapp/management/commands/ai_sim_eval.py
 # -*- coding: utf-8 -*-
 """
-AI紙シミュ評価（5分足）→ VirtualTrade に eval_* / R / (必要なら) EV_true / Rank を反映
+AI紙シミュ評価（5分足）→ VirtualTrade に eval_* / R を反映
 
-★今回の修正（3点）：
+今回の修正（即死修正）：
 1) --days 0 が効かずに 5 になる問題を修正（0 を正しく扱う）
 2) no_bars_after_active を “no_position でクローズ” に統一（未クローズ溜まり防止）
-3) 追加ログを少しだけ増やして、原因追跡しやすく
-
-注意：
-- このコマンドは「5分足で entry→TP/SL/引け」を判定して閉じるのが主目的。
-- PROの ev_true_pro / rank_pro は backfill_pro_all 側で固める方針でもOK。
-  （ここでは eval_* と PL/R を安定させる）
+3) no_bars / no_ts_column / no_ohlc_columns なども “落とさずスキップorクローズ” に寄せる
+4) self.verbosity を参照して落ちる問題を修正（options['verbosity'] を使う）
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date as _date, datetime as _dt, time as _time, timedelta
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import pandas as pd
 from django.core.management.base import BaseCommand
@@ -30,9 +26,6 @@ from aiapp.services.bars_5m import load_5m_bars
 
 # ========= セッション（JST想定） =========
 def _jst_session_range(d: _date) -> Tuple[_dt, _dt]:
-    """
-    その営業日のザラ場時間（仮）：9:00〜15:00 JST
-    """
     tz = timezone.get_default_timezone()
     start = timezone.make_aware(_dt.combine(d, _time(9, 0)), tz)
     end = timezone.make_aware(_dt.combine(d, _time(15, 0)), tz)
@@ -40,11 +33,6 @@ def _jst_session_range(d: _date) -> Tuple[_dt, _dt]:
 
 
 def _coerce_ts_scalar(val: Any, fallback: _dt) -> _dt:
-    """
-    row["ts"] から安全に Timestamp を取り出すための小ヘルパー。
-    Series だったり Python datetime だったりしても必ず1つの Timestamp に潰す。
-    NaT の場合は fallback を返す。
-    """
     if isinstance(val, pd.Series):
         if not val.empty:
             val = val.iloc[0]
@@ -62,12 +50,6 @@ def _coerce_ts_scalar(val: Any, fallback: _dt) -> _dt:
 
 
 def _find_ohlc_columns(df: pd.DataFrame) -> Tuple[Optional[Any], Optional[Any], Optional[Any]]:
-    """
-    df.columns が str でも MultiIndex でも、
-    'Low' / 'High' / 'Close' (or 'Adj Close') をうまく拾う。
-    戻り値は (low_col, high_col, close_col) で、
-    それぞれ df[...] のキーとしてそのまま使える実カラム値。
-    """
     low_col = high_col = close_col = None
 
     for col in df.columns:
@@ -87,12 +69,6 @@ def _find_ohlc_columns(df: pd.DataFrame) -> Tuple[Optional[Any], Optional[Any], 
 
 
 def _label_for_pl(qty: int | float | None, pl_per_share: float) -> str:
-    """
-    - qty <=0 → no_position
-    - pl_per_share >0 → win
-    - pl_per_share <0 → lose
-    - else → flat
-    """
     try:
         q = float(qty or 0)
     except Exception:
@@ -130,21 +106,12 @@ class EvalResult:
 
 
 def _evaluate_one(v: VirtualTrade) -> EvalResult:
-    """
-    5分足で entry→TP/SL/引け を判定。
-    例外は原則ここで握りつぶさず、呼び出し側で reason を付ける。
-    """
     trade_date = v.trade_date
     session_start, session_end = _jst_session_range(trade_date)
 
-    # opened_at はUTCで入ってることが多いので、JST(localtime)に寄せる
     opened_local = timezone.localtime(v.opened_at)
-
     active_start = opened_local if opened_local > session_start else session_start
 
-    # ★ ここが今回のキモ：
-    # active_start がセッション終了を超えていたら「バーが存在しない」のは正しいので
-    # 呼び出し側で no_position close にする
     bars = load_5m_bars(v.code, trade_date)
     if bars is None or len(bars) == 0:
         raise RuntimeError("no_bars")
@@ -163,7 +130,6 @@ def _evaluate_one(v: VirtualTrade) -> EvalResult:
     if low_col is None or high_col is None or close_col is None:
         raise RuntimeError("no_ohlc_columns")
 
-    # 有効時間だけ
     df = df[(df["ts"] >= active_start) & (df["ts"] <= session_end)]
     if len(df) == 0:
         raise RuntimeError("no_bars_after_active")
@@ -175,10 +141,8 @@ def _evaluate_one(v: VirtualTrade) -> EvalResult:
     if entry is None:
         raise RuntimeError("no_entry")
 
-    # --- entry ヒット（指値） ---
     hit_mask = (df[low_col] <= entry) & (df[high_col] >= entry)
     if not hit_mask.to_numpy().any():
-        # entry 不成立＝no_position
         return EvalResult(
             eval_entry_px=None,
             eval_entry_ts=None,
@@ -193,10 +157,8 @@ def _evaluate_one(v: VirtualTrade) -> EvalResult:
     entry_ts = _coerce_ts_scalar(first_hit["ts"], fallback=active_start)
     exec_entry_px = float(entry)
 
-    # --- exit 判定 ---
     eval_df = df[df["ts"] >= entry_ts].copy()
     if len(eval_df) == 0:
-        # entry後バー無し→ entryで終わった扱い
         return EvalResult(
             eval_entry_px=exec_entry_px,
             eval_entry_ts=entry_ts,
@@ -260,7 +222,7 @@ def _evaluate_one(v: VirtualTrade) -> EvalResult:
 
 
 class Command(BaseCommand):
-    help = "AI紙シミュ評価（5分足）→ VirtualTrade に eval_* / R / EV_true / Rank を反映"
+    help = "AI紙シミュ評価（5分足）→ VirtualTrade に eval_* / R を反映"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -275,19 +237,16 @@ class Command(BaseCommand):
             default=0,
             help="0なら全件。>0なら最大件数（新しい opened_at 優先）",
         )
-        parser.add_argument(
-            "--force",
-            action="store_true",
-            help="すでに評価済みでも再評価する",
-        )
-        parser.add_argument(
-            "--dry-run",
-            action="store_true",
-            help="DB更新せずログだけ",
-        )
+        parser.add_argument("--force", action="store_true", help="すでに評価済みでも再評価する")
+        parser.add_argument("--dry-run", action="store_true", help="DB更新せずログだけ")
 
     def handle(self, *args, **options):
-        # ★ days=0 を正しく扱う（0 を “偽” として潰さない）
+        # ★ verbosity は self.verbosity ではなく options から取る
+        try:
+            verbosity = int(options.get("verbosity", 1))
+        except Exception:
+            verbosity = 1
+
         days_opt = options.get("days", 5)
         try:
             days = int(days_opt) if days_opt is not None else 5
@@ -309,7 +268,6 @@ class Command(BaseCommand):
         qs = VirtualTrade.objects.filter(trade_date__gte=date_min)
 
         if not force:
-            # 未評価のみ（entry_ts/exit_tsが入っていないものを対象）
             qs = qs.filter(eval_exit_ts__isnull=True)
 
         qs = qs.order_by("-opened_at")
@@ -326,7 +284,6 @@ class Command(BaseCommand):
         updated = 0
         skipped = 0
         touched_trade_dates = set()
-        ranked_rows = 0  # 互換用に残す（実質は backfill_pro_all でやる想定）
 
         for v in targets:
             touched_trade_dates.add(v.trade_date)
@@ -336,7 +293,9 @@ class Command(BaseCommand):
             except Exception as e:
                 reason = str(e) or "eval_error"
 
-                # ★2) no_bars_after_active は “no_position でクローズ” に統一
+                # ここは「落とさない」が最優先
+                # - no_bars_after_active は no_position close
+                # - no_bars / no_ts_column / no_ohlc_columns は “スキップ” が安全（データ無いので評価不能）
                 if reason in ("no_bars_after_active",):
                     if not dry_run:
                         v.eval_exit_reason = "no_bars_after_active"
@@ -347,7 +306,6 @@ class Command(BaseCommand):
                         v.eval_exit_px = None
                         v.eval_exit_ts = None
 
-                        # no_position で統一して閉じる（未クローズ溜まり防止）
                         v.eval_label_rakuten = "no_position"
                         v.eval_label_matsui = "no_position"
                         v.eval_label_sbi = "no_position"
@@ -379,18 +337,15 @@ class Command(BaseCommand):
                     updated += 1
                     continue
 
-                # その他はスキップ扱い（ログだけ）
-                skipped += 1
-                if self.verbosity >= 2:
+                if verbosity >= 2:
                     self.stdout.write(
                         f"  skip id={v.id} code={v.code} trade_date={v.trade_date} reason={reason}"
                     )
+                skipped += 1
                 continue
 
-            # evaluate succeeded
             pl_per_share = res.pl_per_share
 
-            # entry 不成立の場合は “no_position close”
             if res.eval_exit_reason == "no_touch_entry":
                 if not dry_run:
                     v.eval_entry_px = None
@@ -431,7 +386,6 @@ class Command(BaseCommand):
                 updated += 1
                 continue
 
-            # 通常 close
             qty_r = int(v.qty_rakuten or 0)
             qty_m = int(v.qty_matsui or 0)
             qty_s = int(v.qty_sbi or 0)
@@ -456,7 +410,6 @@ class Command(BaseCommand):
                 v.eval_pl_matsui = pl_m
                 v.eval_pl_sbi = pl_s
 
-                # close は exit_ts が取れていればそれを、無ければ now
                 v.closed_at = res.eval_exit_ts or timezone.now()
 
                 v.recompute_r()
@@ -484,5 +437,5 @@ class Command(BaseCommand):
 
         self.stdout.write(
             f"[ai_sim_eval] done updated={updated} skipped={skipped} "
-            f"touched_trade_dates={len(touched_trade_dates)} ranked_rows={ranked_rows} dry_run={dry_run}"
+            f"touched_trade_dates={len(touched_trade_dates)} dry_run={dry_run}"
         )
