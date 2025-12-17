@@ -10,16 +10,14 @@ ai_simulate_auto
 - TopK の注文を JSONL に起票する（既存パイプライン互換）
 - 同時に VirtualTrade(DB) に "OPEN" として同期する（UI/⭐️集計用）
 
-★ 本体化（Step1）対応：
+★ PRO統一口座ルート対応（A案）：
+- 起票・保存の「学習・評価・ランキングの主役」を PRO に固定
+- qty/PL/Loss の参照先は PRO を主とする（R/M/SはUI用に残す）
+- フィルタ（min_net_profit_yen 等）も PRO 기준で判断
+
+★ 本体化（Step1）対応（既存のまま）：
 - VirtualTrade.replay に「特徴量スナップショット（安定性用）」を保存
 - VirtualTrade.replay に「Entry→TP/SL 距離指標（距離妥当性用）」を保存
-  ※ yfinance等の取得失敗でも落とさず、保存できる範囲だけ保存する
-
-★ 追加（今回）：
-- JSONL/DB に rank と EV_true（R/M/S）を確実に載せる
-  - rec["rank"] / rec["rank_group"]
-  - rec["ev_true_rakuten"] / rec["ev_true_matsui"] / rec["ev_true_sbi"]
-  - VirtualTrade.replay["rank"] / ["ev_true"] も同時に保存（UI表示用）
 """
 
 from __future__ import annotations
@@ -34,6 +32,9 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from aiapp.models.vtrade import VirtualTrade
+
+# ★追加：PRO統一口座
+from aiapp.services.pro_account import load_policy_yaml, compute_pro_sizing_and_filter
 
 # ★追加：紙シミュ保存の本体化（特徴量 & 距離）
 try:
@@ -135,7 +136,6 @@ def _build_feat_last_and_distance(
                 if feat_df is not None and len(feat_df) > 0:
                     row = feat_df.iloc[-1]
 
-                    # 安定性評価に使う「軽くてブレに強い」代表特徴だけ保存
                     keep_keys = [
                         f"RSI{getattr(cfg, 'rsi_period', 14)}",
                         "BB_Z",
@@ -154,16 +154,14 @@ def _build_feat_last_and_distance(
                     for k in keep_keys:
                         if k in row.index:
                             v = row.get(k)
-                            # JSONにしやすい型に寄せる
                             if v is None:
                                 tmp[k] = None
                             else:
                                 try:
                                     fv = float(v)
-                                    if fv != fv:  # NaN
+                                    if fv != fv:
                                         tmp[k] = None
                                     else:
-                                        # フラグは int 寄せ
                                         if k in ("GCROSS", "DCROSS"):
                                             tmp[k] = int(fv)
                                         else:
@@ -174,8 +172,6 @@ def _build_feat_last_and_distance(
                                     except Exception:
                                         tmp[k] = str(v)
 
-                    # 参照しやすい別名（固定キー）も作る
-                    # （将来 cfg の期間を変えても downstream を壊しにくい）
                     def pick_float(key: str) -> Optional[float]:
                         return _safe_float(tmp.get(key))
 
@@ -194,7 +190,6 @@ def _build_feat_last_and_distance(
                         "ATR14": atr_from_feat,
                         "GCROSS": tmp.get("GCROSS"),
                         "DCROSS": tmp.get("DCROSS"),
-                        # 生の保持（デバッグ/将来拡張用）
                         "raw": tmp,
                     }
         except Exception:
@@ -205,7 +200,6 @@ def _build_feat_last_and_distance(
         out["feat_last"] = feat_last
 
     # 2) 距離妥当性（ATR正規化）
-    # ATR は「特徴量由来」を最優先、無ければ picks 側の atr を使う
     atr = atr_from_feat if atr_from_feat is not None else atr_pick
     atr = _safe_float(atr)
 
@@ -229,7 +223,6 @@ def _build_feat_last_and_distance(
         if dist_sl_atr is not None and dist_sl_atr > 0:
             rr = dist_tp_atr / dist_sl_atr
 
-        # 変な値は落としておく（極端な暴発防止）
         def clamp(x: Optional[float], lo: float, hi: float) -> Optional[float]:
             if x is None:
                 return None
@@ -253,14 +246,43 @@ def _build_feat_last_and_distance(
     return out
 
 
+def _pick_ev_true_pro_from_item(it: Dict[str, Any]) -> Optional[float]:
+    """
+    既存のパイプライン互換：
+    すでに it に ev_true_* が入っている前提で、PRO代表を1つに決める。
+    優先順位:
+      1) ev_true_pro があればそれ
+      2) ev_true_rakuten
+      3) ev_true_matsui
+      4) ev_true_sbi
+      5) ev_true(dict) の rakuten/matsui/sbi/R/M/S などから拾う
+    """
+    for k in ("ev_true_pro", "ev_true_rakuten", "ev_true_matsui", "ev_true_sbi"):
+        v = _safe_float(it.get(k))
+        if v is not None:
+            return v
+
+    ev = it.get("ev_true")
+    if isinstance(ev, dict):
+        for kk in ("pro", "rakuten", "matsui", "sbi", "R", "M", "S"):
+            v = _safe_float(ev.get(kk))
+            if v is not None:
+                return v
+    return None
+
+
 class Command(BaseCommand):
-    help = "AIフル自動シミュレ用：DEMO紙トレ注文を JSONL に起票 + VirtualTrade同期"
+    help = "AIフル自動シミュレ用：DEMO紙トレ注文を JSONL に起票 + VirtualTrade同期（PRO統一口座ルート）"
 
     def add_arguments(self, parser):
         parser.add_argument("--date", type=str, default=None, help="YYYY-MM-DD（指定がなければJSTの今日）")
         parser.add_argument("--overwrite", action="store_true", help="同じ日付の jsonl を上書き")
         parser.add_argument("--mode-period", type=str, default="short", help="short/mid/long（将来拡張）")
         parser.add_argument("--mode-aggr", type=str, default="aggr", help="aggr/norm/def（将来拡張）")
+
+        # ★PRO統一口座
+        parser.add_argument("--policy", type=str, default="aiapp/policies/short_aggressive.yml", help="PROポリシー yml")
+        parser.add_argument("--pro-equity", type=float, default=None, help="PRO仮想総資産（円）を上書き")
 
     def handle(self, *args, **options):
         run_date_str: str = options.get("date") or today_jst_str()
@@ -269,7 +291,17 @@ class Command(BaseCommand):
         mode_period: str = (options.get("mode_period") or "short").strip().lower()
         mode_aggr: str = (options.get("mode_aggr") or "aggr").strip().lower()
 
+        policy_path: str = str(options.get("policy") or "aiapp/policies/short_aggressive.yml")
+        pro_equity_override: Optional[float] = options.get("pro_equity")
+
         trade_date_str = run_date_str
+
+        # policy load
+        try:
+            policy = load_policy_yaml(policy_path)
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f"[ai_simulate_auto] policy load error: {e}"))
+            return
 
         picks_path = PICKS_DIR / "latest_full.json"
         if not picks_path.exists():
@@ -313,11 +345,71 @@ class Command(BaseCommand):
         run_date = _parse_date(run_date_str)
         trade_date = _parse_date(trade_date_str)
 
+        # -------------------------------------------------------
+        # ★PRO 기준でフィルタ → 通過分だけ起票対象にする
+        # -------------------------------------------------------
+        filtered_items: List[Dict[str, Any]] = []
+        skipped: int = 0
+
+        for it in items:
+            code = (it.get("code") or "").strip()
+            if not code:
+                continue
+
+            side = "BUY"
+            entry = it.get("entry", it.get("last_close"))
+            tp = it.get("tp")
+            sl = it.get("sl")
+
+            res, reason = compute_pro_sizing_and_filter(
+                code=code,
+                side=side,
+                entry=_safe_float(entry),
+                tp=_safe_float(tp),
+                sl=_safe_float(sl),
+                policy=policy,
+                total_equity_yen=_safe_float(pro_equity_override),
+            )
+
+            if res is None:
+                skipped += 1
+                continue
+
+            # it に PRO を埋めておく（後段で JSONL/DB に書く）
+            it["_pro_qty"] = res.qty_pro
+            it["_pro_cash"] = res.required_cash_pro
+            it["_pro_pl"] = res.est_pl_pro
+            it["_pro_loss"] = res.est_loss_pro
+            it["_pro_rr"] = res.rr
+            it["_pro_policy"] = policy_path
+            filtered_items.append(it)
+
+        if not filtered_items:
+            self.stdout.write(self.style.WARNING(f"[ai_simulate_auto] all items skipped by PRO filter (skipped={skipped})"))
+            return
+
+        # -------------------------------------------------------
+        # ★ Rank_pro を作る（PRO代表EV_true → score_100 の順）
+        # -------------------------------------------------------
+        for it in filtered_items:
+            it["_ev_true_pro"] = _pick_ev_true_pro_from_item(it)
+
+        def _rank_key(x: Dict[str, Any]):
+            ev = x.get("_ev_true_pro")
+            ev_v = ev if isinstance(ev, (int, float)) else -1e18
+            sc = x.get("score_100")
+            sc_v = int(sc) if isinstance(sc, (int, float)) else -999999
+            return (ev_v, sc_v)
+
+        ranked = sorted(filtered_items, key=_rank_key, reverse=True)
+        for i, it in enumerate(ranked, start=1):
+            it["_rank_pro"] = i
+
         written = 0
         upserted = 0
 
         with out_path.open(file_mode, encoding="utf-8") as fw:
-            for it in items:
+            for it in ranked:
                 code = (it.get("code") or "").strip()
                 if not code:
                     continue
@@ -332,8 +424,9 @@ class Command(BaseCommand):
                 tp = it.get("tp")
                 sl = it.get("sl")
                 last_close = it.get("last_close")
-                atr_pick = it.get("atr")  # picks_build が入れている想定（無ければ None）
+                atr_pick = it.get("atr")
 
+                # ---- R/M/S（表示用） ----
                 qty_rakuten = it.get("qty_rakuten")
                 qty_sbi = it.get("qty_sbi")
                 qty_matsui = it.get("qty_matsui")
@@ -354,12 +447,15 @@ class Command(BaseCommand):
                 score_100 = it.get("score_100")
                 stars = it.get("stars")
 
-                # ★追加：rank / EV_true（R/M/S）を picks から受け継ぐ
-                rank = _safe_int(it.get("rank"))
-                rank_group = it.get("rank_group")
-                ev_true_r = _safe_float(it.get("ev_true_rakuten"))
-                ev_true_m = _safe_float(it.get("ev_true_matsui"))
-                ev_true_s = _safe_float(it.get("ev_true_sbi"))
+                # ---- PRO（主役） ----
+                qty_pro = it.get("_pro_qty")
+                cash_pro = it.get("_pro_cash")
+                pl_pro = it.get("_pro_pl")
+                loss_pro = it.get("_pro_loss")
+
+                ev_true_pro = it.get("_ev_true_pro")
+                rank_pro = it.get("_rank_pro")
+                rank_group_pro = it.get("rank_group") or it.get("rank_group_pro") or ""
 
                 rec: Dict[str, Any] = {
                     "user_id": user_id,
@@ -377,6 +473,18 @@ class Command(BaseCommand):
                     "sl": sl,
                     "last_close": last_close,
                     "atr": atr_pick,
+
+                    # ★ PRO（学習・評価・ランキングの主役）
+                    "qty_pro": qty_pro,
+                    "required_cash_pro": cash_pro,
+                    "est_pl_pro": pl_pro,
+                    "est_loss_pro": loss_pro,
+                    "ev_true_pro": ev_true_pro,
+                    "rank_pro": rank_pro,
+                    "rank_group_pro": rank_group_pro,
+                    "policy_pro": policy_path,
+
+                    # R/M/S（表示用に残す）
                     "qty_rakuten": qty_rakuten,
                     "qty_sbi": qty_sbi,
                     "qty_matsui": qty_matsui,
@@ -389,6 +497,7 @@ class Command(BaseCommand):
                     "required_cash_rakuten": required_cash_rakuten,
                     "required_cash_sbi": required_cash_sbi,
                     "required_cash_matsui": required_cash_matsui,
+
                     "score": score,
                     "score_100": score_100,
                     "stars": stars,
@@ -397,13 +506,6 @@ class Command(BaseCommand):
                     "universe": universe,
                     "topk": topk,
                     "source": "ai_simulate_auto",
-
-                    # ★ここが今回の本命：UIで必要なキー
-                    "rank": rank,
-                    "rank_group": rank_group,
-                    "ev_true_rakuten": ev_true_r,
-                    "ev_true_matsui": ev_true_m,
-                    "ev_true_sbi": ev_true_s,
                 }
 
                 fw.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -419,7 +521,6 @@ class Command(BaseCommand):
                     atr_pick=_safe_float(atr_pick),
                 )
 
-                # ---- DB sync (OPEN) ----
                 defaults = dict(
                     run_date=run_date,
                     trade_date=trade_date,
@@ -442,6 +543,17 @@ class Command(BaseCommand):
                     tp_px=tp if tp is None else float(tp),
                     sl_px=sl if sl is None else float(sl),
                     last_close=last_close if last_close is None else float(last_close),
+
+                    # ★ PRO（主役）
+                    qty_pro=qty_pro if qty_pro is None else int(qty_pro),
+                    required_cash_pro=cash_pro if cash_pro is None else float(cash_pro),
+                    est_pl_pro=pl_pro if pl_pro is None else float(pl_pro),
+                    est_loss_pro=loss_pro if loss_pro is None else float(loss_pro),
+                    ev_true_pro=ev_true_pro if ev_true_pro is None else float(ev_true_pro),
+                    rank_pro=rank_pro if rank_pro is None else int(rank_pro),
+                    rank_group_pro=str(rank_group_pro or ""),
+
+                    # R/M/S（表示用）
                     qty_rakuten=qty_rakuten if qty_rakuten is None else int(qty_rakuten),
                     qty_sbi=qty_sbi if qty_sbi is None else int(qty_sbi),
                     qty_matsui=qty_matsui if qty_matsui is None else int(qty_matsui),
@@ -454,26 +566,25 @@ class Command(BaseCommand):
                     est_loss_rakuten=est_loss_rakuten if est_loss_rakuten is None else float(est_loss_rakuten),
                     est_loss_sbi=est_loss_sbi if est_loss_sbi is None else float(est_loss_sbi),
                     est_loss_matsui=est_loss_matsui if est_loss_matsui is None else float(est_loss_matsui),
-                    opened_at=opened_at_dt,
 
-                    # ★replay に “UIで直参照する形” を確実に保存
+                    opened_at=opened_at_dt,
                     replay={
                         "sim_order": rec,
-                        **payload_extra,  # feat_last / distance
-                        "rank": rank,
-                        "rank_group": rank_group,
-                        "ev_true": {
-                            "R": ev_true_r,
-                            "M": ev_true_m,
-                            "S": ev_true_s,
-                            "rakuten": ev_true_r,  # 表示側の互換
-                            "matsui": ev_true_m,
-                            "sbi": ev_true_s,
+                        "pro": {
+                            "policy": policy_path,
+                            "qty_pro": qty_pro,
+                            "required_cash_pro": cash_pro,
+                            "est_pl_pro": pl_pro,
+                            "est_loss_pro": loss_pro,
+                            "ev_true_pro": ev_true_pro,
+                            "rank_pro": rank_pro,
+                            "rank_group_pro": rank_group_pro,
                         },
+                        **payload_extra,
                     },
                 )
 
-                obj, created = VirtualTrade.objects.update_or_create(
+                VirtualTrade.objects.update_or_create(
                     user=user,
                     run_id=run_id,
                     code=code,
@@ -483,7 +594,7 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"[ai_simulate_auto] run_id={run_id} run_date={run_date_str} user_id={user_id} "
-                f"jsonl_written={written} db_upserted={upserted} -> {out_path}"
+                f"[ai_simulate_auto] PRO policy={policy_path} run_id={run_id} run_date={run_date_str} user_id={user_id} "
+                f"jsonl_written={written} db_upserted={upserted} skipped_by_pro_filter={skipped} -> {out_path}"
             )
         )
