@@ -11,16 +11,20 @@ ai_simulate_auto
 - 同時に VirtualTrade(DB) に "OPEN" として同期する（UI/⭐️集計用）
 
 重要:
-- run_date は「起票した日」
+- run_date は「起票した日（JST）」
 - trade_date は「評価の基準日（通常は同日）」
-  ※ trade_date を翌日にすると、当日まだ存在しない 5分足を参照して no_bars になりやすい
+
+あなたの運用ルール（現実世界と同じ）:
+- opened_at（注文を作った時刻）= 現実世界だと注文を出した時間
+- ただし、場が終わった後（15:30以降）に作った注文は、現実では翌営業日に執行される
+  → --trade-date を省略した場合のみ、trade_date を自動で「次の営業日」に送る
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -76,6 +80,54 @@ def _parse_dt_iso(ts: str) -> Optional[timezone.datetime]:
         return timezone.localtime(dt)
     except Exception:
         return None
+
+
+def _next_weekday(d):
+    # JPX祝日はここでは扱わず「最低限：土日だけスキップ」
+    # （必要なら後で JPX カレンダー対応を足す）
+    from datetime import timedelta
+    x = d
+    while x.weekday() >= 5:  # 5=Sat, 6=Sun
+        x = x + timedelta(days=1)
+    return x
+
+def _add_days(d, n: int):
+    from datetime import timedelta
+    return d + timedelta(days=n)
+
+def _jst_session_bounds_for(d):
+    """
+    その営業日のザラ場端（JST）
+    - 9:00〜15:30（昼休みはここでは “評価開始固定しない” ので敢えて分割しない）
+    """
+    from datetime import datetime as _dt, time as _time
+    tz = timezone.get_default_timezone()
+    start = timezone.make_aware(_dt.combine(d, _time(9, 0)), tz)
+    end = timezone.make_aware(_dt.combine(d, _time(15, 30)), tz)
+    return start, end
+
+def _auto_trade_date_str(now_local_dt) -> Tuple[str, str]:
+    """
+    --trade-date 省略時の trade_date 自動決定
+    ルール:
+    - 15:30(JST)以降に起票した注文は、現実では翌営業日扱い → trade_date を翌営業日に
+    - それ以外は当日
+
+    戻り値: (trade_date_str, reason)
+    """
+    from datetime import date as _date
+    now_local_dt = timezone.localtime(now_local_dt)
+    today = now_local_dt.date()
+    session_start, session_end = _jst_session_bounds_for(today)
+
+    if now_local_dt > session_end:
+        # 場が終わった後に起票 → 翌営業日に送る（最低限: 土日回避）
+        cand = _add_days(today, 1)
+        cand = _next_weekday(cand)
+        return cand.isoformat(), "after_close->next_business_day"
+    else:
+        # それ以外は当日
+        return today.isoformat(), "same_day"
 
 
 # ========= 数値ヘルパ =========
@@ -246,7 +298,7 @@ class Command(BaseCommand):
             "--trade-date",
             type=str,
             default=None,
-            help="trade_date: YYYY-MM-DD（省略時は run_date と同日）",
+            help="trade_date: YYYY-MM-DD（省略時は自動決定。基本は同日、15:30以降は翌営業日）",
         )
         parser.add_argument("--overwrite", action="store_true", help="同じ日付の jsonl を上書き")
         parser.add_argument("--mode-period", type=str, default="short", help="short/mid/long（将来拡張）")
@@ -254,9 +306,6 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         run_date_str: str = options.get("date") or today_jst_str()
-
-        # ★重要：デフォルトは run_date と同日（未来日にしない）
-        trade_date_str: str = options.get("trade_date") or run_date_str
 
         overwrite: bool = bool(options.get("overwrite"))
 
@@ -300,9 +349,18 @@ class Command(BaseCommand):
         file_mode = "w" if overwrite else "a"
 
         ts_iso = dt_now_jst_iso()
-        opened_at_dt = _parse_dt_iso(ts_iso) or timezone.now()
+        opened_at_dt = _parse_dt_iso(ts_iso) or timezone.now()  # localtime済みの aware
 
+        # run_date / trade_date
         run_date = _parse_date(run_date_str)
+
+        trade_date_opt: Optional[str] = options.get("trade_date")
+        if trade_date_opt:
+            trade_date_str = trade_date_opt
+            trade_date_reason = "explicit"
+        else:
+            trade_date_str, trade_date_reason = _auto_trade_date_str(opened_at_dt)
+
         trade_date = _parse_date(trade_date_str)
 
         written = 0
@@ -433,6 +491,8 @@ class Command(BaseCommand):
                     opened_at=opened_at_dt,
                     replay={
                         "sim_order": rec,
+                        "trade_date_auto_reason": trade_date_reason,
+                        "opened_at_local": str(timezone.localtime(opened_at_dt)),
                         **payload_extra,
                     },
                 )
@@ -447,7 +507,7 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"[ai_simulate_auto] run_id={run_id} run_date={run_date_str} trade_date={trade_date_str} user_id={user_id} "
+                f"[ai_simulate_auto] run_id={run_id} run_date={run_date_str} trade_date={trade_date_str}({trade_date_reason}) user_id={user_id} "
                 f"jsonl_written={written} db_upserted={upserted} -> {out_path}"
             )
         )
