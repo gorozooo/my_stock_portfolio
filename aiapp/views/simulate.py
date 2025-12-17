@@ -1,15 +1,15 @@
 # aiapp/views/simulate.py
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from datetime import date as _date
 
 from django.contrib.auth.decorators import login_required
+from django.db.models import Q
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.utils import timezone
-from django.db.models import Q
 
 from aiapp.models.vtrade import VirtualTrade
 
@@ -75,15 +75,13 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
     - mode / date / q でフィルタ
     - KPIは全件ベース（フィルタ無関係）
     """
-
     user = request.user
 
-    # ---- フィルタ値（クエリパラメータ） ------------------------------
+    # ---- フィルタ値（クエリパラメータ） ----
     mode = (request.GET.get("mode") or "all").lower()
     if mode not in ("all", "live", "demo"):
         mode = "all"
 
-    # いまの運用は demo が中心。DB上の mode が demo/live 以外でも落ちないようにする
     date_param = (request.GET.get("date") or "").strip()
     q = (request.GET.get("q") or "").strip()
 
@@ -94,43 +92,115 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
         except Exception:
             selected_date = None
 
-    # ---- DB 読み込み --------------------------------------------------
+    now_local = timezone.localtime()
+    today_date = now_local.date()
+
+    # ---- KPI & 日付候補は「全件」から作る（フィルタ無関係） ----
+    base_qs = VirtualTrade.objects.filter(user=user).order_by("-opened_at", "-id")
+
+    # 日付候補（opened_at基準）
+    date_list: List[_date] = []
+    for v in base_qs.only("opened_at"):
+        if not v.opened_at:
+            continue
+        try:
+            d = timezone.localtime(v.opened_at).date()
+            date_list.append(d)
+        except Exception:
+            continue
+
+    # date_param が無い時は「最新日」を自動選択
+    if selected_date is None and date_list:
+        selected_date = max(date_list)
+
+    selected_date_str = selected_date.isoformat() if selected_date is not None else ""
+
+    # ---- KPI集計（全件） ----
+    def _accumulate(summary: Dict[str, Any], v: VirtualTrade) -> None:
+        # 合計損益
+        total_pl = float(summary.get("total_pl", 0.0))
+        for key in ("eval_pl_rakuten", "eval_pl_matsui"):
+            val = getattr(v, key, None)
+            try:
+                if val is not None:
+                    total_pl += float(val)
+            except (TypeError, ValueError):
+                pass
+        summary["total_pl"] = total_pl
+
+        # combined_label
+        qty_r = int(v.qty_rakuten or 0)
+        qty_m = int(v.qty_matsui or 0)
+        qty_total = float(qty_r + qty_m)
+
+        exit_reason = str(v.eval_exit_reason or "").strip()
+        combined = _combined_label_from_exit_reason(exit_reason, qty_total)
+
+        if combined == "win":
+            summary["win"] = summary.get("win", 0) + 1
+        elif combined == "lose":
+            summary["lose"] = summary.get("lose", 0) + 1
+        elif combined == "flat":
+            summary["flat"] = summary.get("flat", 0) + 1
+        else:
+            summary["skip"] = summary.get("skip", 0) + 1
+
+    summary_today: Dict[str, Any] = {
+        "win": 0, "lose": 0, "flat": 0, "skip": 0,
+        "total_pl": 0.0, "has_data": False,
+    }
+    summary_total: Dict[str, Any] = {
+        "win": 0, "lose": 0, "flat": 0, "skip": 0,
+        "total_pl": 0.0, "has_data": False,
+    }
+
+    for v in base_qs:
+        try:
+            opened_local = timezone.localtime(v.opened_at) if v.opened_at else None
+        except Exception:
+            opened_local = None
+
+        if opened_local is not None and opened_local.date() == today_date:
+            _accumulate(summary_today, v)
+
+        _accumulate(summary_total, v)
+
+    summary_today["has_data"] = (summary_today["win"] + summary_today["lose"] + summary_today["flat"] + summary_today["skip"]) > 0
+    summary_total["has_data"] = (summary_total["win"] + summary_total["lose"] + summary_total["flat"] + summary_total["skip"]) > 0
+
+    # ---- 一覧用QS（ここからフィルタ適用） ----
     qs = VirtualTrade.objects.filter(user=user).order_by("-opened_at", "-id")
 
-    # mode フィルタ（DBの mode が "demo"/"live" 以外でも壊れないように）
     if mode == "live":
         qs = qs.filter(mode__iexact="live")
     elif mode == "demo":
         qs = qs.filter(mode__iexact="demo")
 
-    # 検索（code / name 部分一致）
     if q:
         qs = qs.filter(Q(code__icontains=q) | Q(name__icontains=q))
 
-    # ---- entries_all: テンプレが期待してる形へ整形 --------------------
+    # ---- entries 作成（テンプレが期待する形へ） ----
     entries_all: List[Dict[str, Any]] = []
-    now_local = timezone.localtime()
-    today_date = now_local.date()
 
     for v in qs:
-        opened_local = timezone.localtime(v.opened_at) if v.opened_at else None
+        try:
+            opened_local = timezone.localtime(v.opened_at) if v.opened_at else None
+        except Exception:
+            opened_local = None
 
         # 日付フィルタ（opened_at基準）
         if selected_date is not None:
             if opened_local is None or opened_local.date() != selected_date:
                 continue
 
-        # quantities
         qty_r = int(v.qty_rakuten or 0)
         qty_m = int(v.qty_matsui or 0)
         qty_total = float(qty_r + qty_m)
 
         exit_reason = str(v.eval_exit_reason or "").strip()
         exit_reason_label = _label_exit_reason(exit_reason)
-
         combined_label = _combined_label_from_exit_reason(exit_reason, qty_total)
 
-        # 時刻ラベル
         ts_label = opened_local.strftime("%Y/%m/%d %H:%M") if opened_local else ""
 
         entry_label = ""
@@ -147,7 +217,6 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
             except Exception:
                 exit_label = ""
 
-        # price_date 表示用（コード横に出してたやつ）
         price_date = None
         try:
             if v.trade_date:
@@ -162,12 +231,11 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
             "mode": str(v.mode or "").lower(),
             "price_date": price_date,
 
-            # 表示の基準時刻
             "ts": opened_local.isoformat() if opened_local else "",
             "ts_label": ts_label,
             "_dt": opened_local,
 
-            # AIスナップ（注文）
+            # AIスナップ
             "entry": v.entry_px,
             "tp": v.tp_px,
             "sl": v.sl_px,
@@ -196,98 +264,13 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
             "eval_pl_rakuten": v.eval_pl_rakuten,
             "eval_pl_matsui": v.eval_pl_matsui,
 
-            # 使ってないなら空でOK（テンプレ側で if チェックしてる）
             "eval_horizon_days": None,
 
             "combined_label": combined_label,
         }
         entries_all.append(e)
 
-    # ---- 旧と同様：同じ日・同じ内容の重複をまとめる -------------------
-    deduped: List[Dict[str, Any]] = []
-    seen_keys = set()
-
-    for e in entries_all:
-        dt = e.get("_dt")
-        day = dt.date() if isinstance(dt, timezone.datetime) else None
-
-        key = (
-            day,
-            e.get("code"),
-            (e.get("mode") or "").lower() if e.get("mode") else None,
-            e.get("entry"),
-            e.get("tp"),
-            e.get("sl"),
-            e.get("qty_rakuten"),
-            e.get("qty_matsui"),
-            e.get("est_pl_rakuten"),
-            e.get("est_pl_matsui"),
-            e.get("est_loss_rakuten"),
-            e.get("est_loss_matsui"),
-        )
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
-        deduped.append(e)
-
-    entries_all = deduped
-
-    # ---- 日付ピッカー候補（opened_at基準） ---------------------------
-    date_list = [
-        e["_dt"].date()
-        for e in entries_all
-        if isinstance(e.get("_dt"), timezone.datetime)
-    ]
-
-    selected_date_str = selected_date.isoformat() if selected_date is not None else ""
-    if not selected_date_str and date_list:
-        # 初期表示は最新日
-        selected_date_str = max(date_list).isoformat()
-
-    # ---- KPI（今日 & 通算：フィルタ無関係） ---------------------------
-    def _accumulate(summary: Dict[str, Any], e: Dict[str, Any]) -> None:
-        total_pl = float(summary.get("total_pl", 0.0))
-
-        for key in ("eval_pl_rakuten", "eval_pl_matsui"):
-            val = e.get(key)
-            try:
-                if val is not None:
-                    total_pl += float(val)
-            except (TypeError, ValueError):
-                pass
-
-        summary["total_pl"] = total_pl
-
-        combined = e.get("combined_label")
-        if combined == "win":
-            summary["win"] = summary.get("win", 0) + 1
-        elif combined == "lose":
-            summary["lose"] = summary.get("lose", 0) + 1
-        elif combined == "flat":
-            summary["flat"] = summary.get("flat", 0) + 1
-        else:
-            summary["skip"] = summary.get("skip", 0) + 1
-
-    summary_today: Dict[str, Any] = {
-        "win": 0, "lose": 0, "flat": 0, "skip": 0,
-        "total_pl": 0.0, "has_data": False,
-    }
-    summary_total: Dict[str, Any] = {
-        "win": 0, "lose": 0, "flat": 0, "skip": 0,
-        "total_pl": 0.0, "has_data": False,
-    }
-
-    for e in entries_all:
-        dt = e.get("_dt")
-        if isinstance(dt, timezone.datetime) and dt.date() == today_date:
-            _accumulate(summary_today, e)
-        _accumulate(summary_total, e)
-
-    summary_today["has_data"] = (summary_today["win"] + summary_today["lose"] + summary_today["flat"] + summary_today["skip"]) > 0
-    summary_total["has_data"] = (summary_total["win"] + summary_total["lose"] + summary_total["flat"] + summary_total["skip"]) > 0
-
-    # ---- 一覧表示（最大100件） ---------------------------------------
-    # ここまでで qs の mode/date/q は反映済み
+    # 最大100件
     entries = entries_all[:100]
 
     ctx = {
