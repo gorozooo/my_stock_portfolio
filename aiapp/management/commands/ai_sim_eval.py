@@ -14,6 +14,10 @@ AI紙シミュ評価（5分足）→ VirtualTrade に eval_* / R / EV_true_pro /
 1) 対象抽出を trade_date 基準に統一（--days 0 なら trade_date=今日だけ）
 2) 評価開始 = opened_at を JST に localtime した上で 5分足 ts と比較
 3) 例外時ログの self.verbosity AttributeError を潰す（options['verbosity'] 参照）
+
+★追加で重要（今回の不具合の本丸）：
+- options.get("days") が 0 のとき `or 5` で 5 に化けるのを修正
+- df["ts"] の tz を必ず Asia/Tokyo に寄せて比較する（UTC/naive混在で no_bars を防ぐ）
 """
 
 from __future__ import annotations
@@ -133,6 +137,54 @@ def _coerce_ts(val: Any, fallback: _dt) -> _dt:
     return timezone.localtime(dt)
 
 
+def _ensure_ts_jst(df) -> Optional[Any]:
+    """
+    df["ts"] を必ず Asia/Tokyo の tz-aware datetime にそろえる。
+    load_5m_bars の実装やデータ形状で tz がブレても、ここで吸収する。
+    """
+    try:
+        import pandas as pd
+    except Exception:
+        return None
+
+    if "ts" not in df.columns:
+        return None
+
+    try:
+        s = pd.to_datetime(df["ts"], errors="coerce")
+    except Exception:
+        return None
+
+    # ここが肝：tz-naive / tz-aware を判別して JST へ寄せる
+    try:
+        # tz-aware の場合
+        if getattr(s.dt, "tz", None) is not None:
+            s = s.dt.tz_convert("Asia/Tokyo")
+        else:
+            # tz-naive の場合：JST として localize
+            s = s.dt.tz_localize("Asia/Tokyo")
+    except Exception:
+        # object dtype などで dt が使えない場合の最後の砦
+        try:
+            s2 = []
+            for x in s:
+                if pd.isna(x):
+                    s2.append(pd.NaT)
+                    continue
+                ts = pd.Timestamp(x)
+                if ts.tzinfo is None:
+                    ts = ts.tz_localize("Asia/Tokyo")
+                else:
+                    ts = ts.tz_convert("Asia/Tokyo")
+                s2.append(ts)
+            s = pd.Series(s2, index=df.index)
+        except Exception:
+            return None
+
+    df["ts"] = s
+    return df
+
+
 @dataclass
 class EvalResult:
     ok: bool
@@ -174,12 +226,11 @@ def _evaluate_one(v: VirtualTrade, *, verbose: int = 1) -> EvalResult:
         except Exception:
             return EvalResult(ok=False, reason="no_ts")
 
-    # tzを揃える（tsはJST想定だが、型がブレても localtime で吸収）
-    try:
-        import pandas as pd
-        df["ts"] = pd.to_datetime(df["ts"])
-    except Exception:
+    # tz を必ず JST に揃える（ここが no_bars 祭りの本丸）
+    df2 = _ensure_ts_jst(df)
+    if df2 is None:
         return EvalResult(ok=False, reason="bad_ts")
+    df = df2
 
     low_col, high_col, close_col = _find_ohlc_columns(df)
     if low_col is None or high_col is None or close_col is None:
@@ -203,7 +254,7 @@ def _evaluate_one(v: VirtualTrade, *, verbose: int = 1) -> EvalResult:
     else:
         active_start = opened_local
 
-    # active_start 以降に絞る
+    # active_start 以降に絞る（df["ts"] は JST tz-aware に統一済み）
     df_eff = df[(df["ts"] >= active_start) & (df["ts"] <= session_end)]
     if df_eff is None or len(df_eff) == 0:
         return EvalResult(ok=False, reason="no_bars_after_active")
@@ -220,7 +271,6 @@ def _evaluate_one(v: VirtualTrade, *, verbose: int = 1) -> EvalResult:
     hit_mask = (df_eff[low_col] <= entry) & (df_eff[high_col] >= entry)
     if not hit_mask.to_numpy().any():
         # 指値未到達 → ノーポジ
-        # “現実”でも約定してないので close 相当で良い
         return EvalResult(
             ok=True,
             reason="no_position",
@@ -248,7 +298,6 @@ def _evaluate_one(v: VirtualTrade, *, verbose: int = 1) -> EvalResult:
     # -------- エグジット判定（TP / SL / horizon_close） --------
     eval_df = df_eff[df_eff["ts"] >= entry_ts].copy()
     if eval_df is None or len(eval_df) == 0:
-        # entry直後以降バーが無い
         exit_ts = entry_ts
         exit_px = exec_entry_px
         exit_reason = "horizon_close"
@@ -326,7 +375,6 @@ def _ev_true_from_behavior(code: str) -> float:
     wr = _safe_float(row.get("win_rate"))
     if wr is None:
         return 0.0
-    # 0-100 を 0-1 へ
     v = max(0.0, min(1.0, wr / 100.0))
     return float(v)
 
@@ -370,8 +418,13 @@ class Command(BaseCommand):
         # verbosity は options から必ず拾う（self.verbosity が無いケース対策）
         verbose = int(options.get("verbosity", 1) or 1)
 
-        days = int(options.get("days") or 5)
-        limit = int(options.get("limit") or 0)
+        # ★ 0 を False 扱いして 5 に化ける事故を防ぐ
+        days_opt = options.get("days", None)
+        days = 5 if days_opt is None else int(days_opt)
+
+        limit_opt = options.get("limit", None)
+        limit = 0 if limit_opt is None else int(limit_opt)
+
         force = bool(options.get("force"))
         dry_run = bool(options.get("dry_run"))
 
@@ -381,14 +434,12 @@ class Command(BaseCommand):
         else:
             date_min = today - _timedelta(days=days)
 
-        date_max = today  # ★ future trade_date を拾わない（ここが今回の重要修正）
+        date_max = today  # ★ future trade_date を拾わない
 
         # 対象抽出は trade_date 基準に統一
         qs = VirtualTrade.objects.filter(trade_date__gte=date_min, trade_date__lte=date_max)
 
         if not force:
-            # 評価済み（eval_exit_reason が入っている等）を除外したい場合はここで調整
-            # ただしあなたの運用では force が基本なので軽めに
             qs = qs.filter(eval_exit_reason="")
 
         qs = qs.order_by("-opened_at")
@@ -415,8 +466,6 @@ class Command(BaseCommand):
                         self.stdout.write(
                             f"  skip id={v.id} code={v.code} trade_date={v.trade_date} reason={res.reason}"
                         )
-                    # 失敗でも eval_exit_reason だけ残すかどうかは好みだが、
-                    # ここでは force連打時に観測できるよう「理由だけ」軽く入れておく
                     if not dry_run:
                         VirtualTrade.objects.filter(id=v.id).update(
                             eval_exit_reason=res.reason,
@@ -442,7 +491,6 @@ class Command(BaseCommand):
                 lab_m = _label(qty_m, pl_per_share)
 
                 # closed_at は “評価でexitが決まった” ときのみ入れる
-                # no_position でも exit_reason を no_position にすることで同様にクローズ扱いにする
                 closed_at = res.eval_exit_ts if res.eval_exit_ts is not None else timezone.now()
 
                 # EV_true_pro（A案: all/all を代表）
