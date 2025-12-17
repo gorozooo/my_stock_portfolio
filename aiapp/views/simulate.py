@@ -1,163 +1,209 @@
 # aiapp/views/simulate.py
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from datetime import date as _date, datetime as _datetime
+from datetime import date as _date
 
-from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.utils import timezone
+from django.db.models import Q
+
+from aiapp.models.vtrade import VirtualTrade
 
 
-def _parse_ts(ts_str: Optional[str]) -> Optional[timezone.datetime]:
+def _label_exit_reason(exit_reason: str) -> str:
     """
-    JSONL の ts(ISO文字列) を timezone-aware datetime に変換する。
-    失敗した場合は None を返す。
+    eval_exit_reason の表示ラベル
     """
-    if not isinstance(ts_str, str) or not ts_str:
-        return None
-    try:
-        dt = _datetime.fromisoformat(ts_str)
-        if timezone.is_naive(dt):
-            dt = timezone.make_aware(dt, timezone.get_default_timezone())
-        return timezone.localtime(dt)
-    except Exception:
-        return None
+    if exit_reason == "hit_tp":
+        return "利確"
+    if exit_reason == "hit_sl":
+        return "損切"
+    if exit_reason == "horizon_close":
+        return "持ち越し"
+    if exit_reason == "no_position":
+        return "指値に刺さらなかった"
+    if exit_reason in ("no_bars_after_active",):
+        return "場後起票のため当日評価不可"
+    if exit_reason in ("no_bars",):
+        return "5分足データなし"
+    if exit_reason in ("bad_ts", "no_ts"):
+        return "時刻データ不正"
+    if exit_reason in ("no_ohlc",):
+        return "価格カラム不正"
+    if exit_reason in ("no_opened_at",):
+        return "opened_at不正"
+    if exit_reason in ("no_entry",):
+        return "entry不正"
+    if exit_reason in ("exception",):
+        return "評価エラー"
+    return ""
+
+
+def _combined_label_from_exit_reason(exit_reason: str, qty_total: float) -> str:
+    """
+    勝ち/負け/持ち越し/見送り の統一ラベル
+    """
+    if exit_reason == "hit_tp":
+        return "win"
+    if exit_reason == "hit_sl":
+        return "lose"
+    if exit_reason == "horizon_close":
+        return "carry"
+    if exit_reason in ("no_position", "no_touch", "no_fill"):
+        return "skip"
+
+    # no_bars_* / exception なども見送り枠に倒す
+    if exit_reason:
+        return "skip"
+
+    # exit_reason が空（まだ評価されてない想定）
+    if qty_total > 0:
+        return "carry"
+    return "skip"
 
 
 @login_required
 def simulate_list(request: HttpRequest) -> HttpResponse:
     """
-    AI Picks の「シミュレ」で登録した紙トレを一覧表示するビュー。
-
-    - /media/aiapp/simulate/*.jsonl を全部読む
-    - ログインユーザーの分だけ抽出
-    - ts 降順でソート
-    - モード / 年月日トグル or date パラメータ / 銘柄コード・名称でフィルタ
-    - 1日分だけ表示（最大100件）
-
-    ★ 重複除外仕様
-      「同じ銘柄・同じ内容のシミュレは、同じ日付内で重複させない」
-      → 同じ日・同じ code・同じ mode・同じエントリー/数量/想定PL・想定損失・TP・SL は
-         最初の1件だけ残し、以降は一覧から除外する。
-
-    ★ KPI
-      - summary_today: 今日の全ログベース（フィルタと無関係）
-      - summary_total: 全期間の全ログベース（通算成績）
+    シミュレ一覧（DB版）
+    - VirtualTrade を読む
+    - opened_at（JST）を基準に日付フィルタ & 表示時刻を作る
+    - mode / date / q でフィルタ
+    - KPIは全件ベース（フィルタ無関係）
     """
 
     user = request.user
-    sim_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "simulate"
 
     # ---- フィルタ値（クエリパラメータ） ------------------------------
-    # mode: all / live / demo （一覧表示用のフィルタ）
     mode = (request.GET.get("mode") or "all").lower()
     if mode not in ("all", "live", "demo"):
         mode = "all"
 
-    # 年月日トグル用パラメータ
-    y_param = (request.GET.get("y") or "").strip()
-    m_param = (request.GET.get("m") or "").strip()
-    d_param = (request.GET.get("d") or "").strip()
-
-    # 旧 date パラメータがあれば一応サポート（y/m/d に分解）
+    # いまの運用は demo が中心。DB上の mode が demo/live 以外でも落ちないようにする
     date_param = (request.GET.get("date") or "").strip()
-    if date_param and not (y_param and m_param and d_param):
-        try:
-            tmp = _date.fromisoformat(date_param)
-            y_param = y_param or str(tmp.year)
-            m_param = m_param or str(tmp.month)
-            d_param = d_param or str(tmp.day)
-        except Exception:
-            pass
-
-    # q: 銘柄コード or 名称の部分一致（一覧表示用）
     q = (request.GET.get("q") or "").strip()
 
-    # ---- JSONL 読み込み ------------------------------------------------
-    entries_all: List[Dict[str, Any]] = []
+    selected_date: Optional[_date] = None
+    if date_param:
+        try:
+            selected_date = _date.fromisoformat(date_param)
+        except Exception:
+            selected_date = None
 
-    if sim_dir.exists():
-        for path in sorted(sim_dir.glob("*.jsonl")):
-            try:
-                text = path.read_text(encoding="utf-8")
-            except Exception:
+    # ---- DB 読み込み --------------------------------------------------
+    qs = VirtualTrade.objects.filter(user=user).order_by("-opened_at", "-id")
+
+    # mode フィルタ（DBの mode が "demo"/"live" 以外でも壊れないように）
+    if mode == "live":
+        qs = qs.filter(mode__iexact="live")
+    elif mode == "demo":
+        qs = qs.filter(mode__iexact="demo")
+
+    # 検索（code / name 部分一致）
+    if q:
+        qs = qs.filter(Q(code__icontains=q) | Q(name__icontains=q))
+
+    # ---- entries_all: テンプレが期待してる形へ整形 --------------------
+    entries_all: List[Dict[str, Any]] = []
+    now_local = timezone.localtime()
+    today_date = now_local.date()
+
+    for v in qs:
+        opened_local = timezone.localtime(v.opened_at) if v.opened_at else None
+
+        # 日付フィルタ（opened_at基準）
+        if selected_date is not None:
+            if opened_local is None or opened_local.date() != selected_date:
                 continue
 
-            for line in text.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                except Exception:
-                    continue
+        # quantities
+        qty_r = int(v.qty_rakuten or 0)
+        qty_m = int(v.qty_matsui or 0)
+        qty_total = float(qty_r + qty_m)
 
-                # ユーザー別に絞る
-                if rec.get("user_id") != user.id:
-                    continue
+        exit_reason = str(v.eval_exit_reason or "").strip()
+        exit_reason_label = _label_exit_reason(exit_reason)
 
-                # ts を datetime + 表示ラベルに整形
-                ts_str = rec.get("ts")
-                dt = _parse_ts(ts_str)
-                if dt is not None:
-                    rec["_dt"] = dt
-                    rec["ts_label"] = dt.strftime("%Y/%m/%d %H:%M")
-                else:
-                    rec["_dt"] = None
-                    rec["ts_label"] = ts_str or ""
+        combined_label = _combined_label_from_exit_reason(exit_reason, qty_total)
 
-                # エントリー時刻 / エグジット時刻（sim_eval_service で付与）
-                entry_dt = _parse_ts(rec.get("eval_entry_ts"))
-                exit_dt = _parse_ts(rec.get("eval_exit_ts"))
+        # 時刻ラベル
+        ts_label = opened_local.strftime("%Y/%m/%d %H:%M") if opened_local else ""
 
-                if entry_dt is not None:
-                    rec["entry_dt"] = entry_dt
-                    rec["entry_label"] = entry_dt.strftime("%Y/%m/%d %H:%M")
-                else:
-                    rec["entry_dt"] = None
-                    rec["entry_label"] = ""
+        entry_label = ""
+        if v.eval_entry_ts:
+            try:
+                entry_label = timezone.localtime(v.eval_entry_ts).strftime("%Y/%m/%d %H:%M")
+            except Exception:
+                entry_label = ""
 
-                if exit_dt is not None:
-                    rec["exit_dt"] = exit_dt
-                    rec["exit_label"] = exit_dt.strftime("%Y/%m/%d %H:%M")
-                else:
-                    rec["exit_dt"] = None
-                    rec["exit_label"] = ""
+        exit_label = ""
+        if v.eval_exit_ts:
+            try:
+                exit_label = timezone.localtime(v.eval_exit_ts).strftime("%Y/%m/%d %H:%M")
+            except Exception:
+                exit_label = ""
 
-                # exit_reason のラベル（評価結果テキスト用）
-                exit_reason = rec.get("eval_exit_reason") or ""
-                exit_reason_label = ""
-                if exit_reason == "hit_tp":
-                    exit_reason_label = "利確"
-                elif exit_reason == "hit_sl":
-                    exit_reason_label = "損切"
-                elif exit_reason == "horizon_close":
-                    # タイムアップ → 持ち越し扱い
-                    exit_reason_label = "持ち越し"
-                elif exit_reason in ("no_touch", "no_fill"):
-                    exit_reason_label = "指値に刺さらなかった"
+        # price_date 表示用（コード横に出してたやつ）
+        price_date = None
+        try:
+            if v.trade_date:
+                price_date = v.trade_date.isoformat()
+        except Exception:
+            price_date = None
 
-                rec["exit_reason"] = exit_reason
-                rec["exit_reason_label"] = exit_reason_label
+        e: Dict[str, Any] = {
+            "id": v.id,
+            "code": str(v.code or ""),
+            "name": str(v.name or ""),
+            "mode": str(v.mode or "").lower(),
+            "price_date": price_date,
 
-                entries_all.append(rec)
+            # 表示の基準時刻
+            "ts": opened_local.isoformat() if opened_local else "",
+            "ts_label": ts_label,
+            "_dt": opened_local,
 
-    # ---- ts 降順でソート ----------------------------------------------
-    def _sort_key(r: Dict[str, Any]):
-        dt = r.get("_dt")
-        if isinstance(dt, timezone.datetime):
-            return dt
-        return str(r.get("ts") or "")
+            # AIスナップ（注文）
+            "entry": v.entry_px,
+            "tp": v.tp_px,
+            "sl": v.sl_px,
+            "qty_rakuten": qty_r,
+            "qty_matsui": qty_m,
+            "est_pl_rakuten": v.est_pl_rakuten,
+            "est_pl_matsui": v.est_pl_matsui,
+            "est_loss_rakuten": v.est_loss_rakuten,
+            "est_loss_matsui": v.est_loss_matsui,
 
-    entries_all.sort(key=_sort_key, reverse=True)
+            # 評価結果
+            "eval_entry_px": v.eval_entry_px,
+            "eval_entry_ts": v.eval_entry_ts,
+            "eval_exit_px": v.eval_exit_px,
+            "eval_exit_ts": v.eval_exit_ts,
+            "eval_exit_reason": exit_reason,
 
-    # ---- 同じ日・同じ内容の重複をまとめる ----------------------------
+            "entry_label": entry_label,
+            "exit_label": exit_label,
+
+            "exit_reason": exit_reason,
+            "exit_reason_label": exit_reason_label,
+
+            "eval_label_rakuten": str(v.eval_label_rakuten or ""),
+            "eval_label_matsui": str(v.eval_label_matsui or ""),
+            "eval_pl_rakuten": v.eval_pl_rakuten,
+            "eval_pl_matsui": v.eval_pl_matsui,
+
+            # 使ってないなら空でOK（テンプレ側で if チェックしてる）
+            "eval_horizon_days": None,
+
+            "combined_label": combined_label,
+        }
+        entries_all.append(e)
+
+    # ---- 旧と同様：同じ日・同じ内容の重複をまとめる -------------------
     deduped: List[Dict[str, Any]] = []
     seen_keys = set()
 
@@ -179,142 +225,29 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
             e.get("est_loss_rakuten"),
             e.get("est_loss_matsui"),
         )
-
         if key in seen_keys:
             continue
-
         seen_keys.add(key)
         deduped.append(e)
 
     entries_all = deduped
 
-    # ---- id の付与（削除用の安定したインデックス） ------------------
-    for idx, e in enumerate(entries_all):
-        eid = e.get("id")
-        if isinstance(eid, int):
-            continue
-        try:
-            if isinstance(eid, str) and eid.strip() != "":
-                e["id"] = int(eid)
-                continue
-        except Exception:
-            pass
-        e["id"] = idx
-
-    # ---- combined_label を付与（勝ち/負け/持ち越し/見送り） ----------
-    for e in entries_all:
-        qty_total = 0.0
-        for key in ("qty_rakuten", "qty_matsui"):
-            v = e.get(key)
-            try:
-                if v is not None:
-                    qty_total += float(v)
-            except (TypeError, ValueError):
-                pass
-
-        exit_reason = e.get("exit_reason") or ""
-
-        if exit_reason == "hit_tp":
-            combined = "win"
-        elif exit_reason == "hit_sl":
-            combined = "lose"
-        elif exit_reason in ("horizon_close", "carry"):
-            combined = "carry"  # 持ち越し
-        elif exit_reason in ("no_touch", "no_fill"):
-            combined = "skip"   # 見送り
-        else:
-            # exit_reason がまだ無い場合：
-            # 数量 > 0 → まだ期間中のポジション＝持ち越し
-            # 数量 = 0 → 見送り扱い
-            if qty_total > 0:
-                combined = "carry"
-            else:
-                combined = "skip"
-
-        e["combined_label"] = combined
-
-    now = timezone.localtime()
-    today_date = now.date()
-
-    # ---- 日付候補（年 / 月 / 日）を作成 ------------------------------
+    # ---- 日付ピッカー候補（opened_at基準） ---------------------------
     date_list = [
         e["_dt"].date()
         for e in entries_all
         if isinstance(e.get("_dt"), timezone.datetime)
     ]
 
-    year_options: List[Dict[str, Any]] = []
-    month_options: List[Dict[str, Any]] = []
-    day_options: List[Dict[str, Any]] = []
+    selected_date_str = selected_date.isoformat() if selected_date is not None else ""
+    if not selected_date_str and date_list:
+        # 初期表示は最新日
+        selected_date_str = max(date_list).isoformat()
 
-    selected_year: Optional[int] = None
-    selected_month: Optional[int] = None
-    selected_day: Optional[int] = None
-    selected_date: Optional[_date] = None
-
-    if date_list:
-        latest_date = max(date_list)
-
-        years = sorted({d.year for d in date_list}, reverse=True)
-        try:
-            y_val = int(y_param) if y_param else None
-        except ValueError:
-            y_val = None
-        if y_val and y_val in years:
-            selected_year = y_val
-        else:
-            selected_year = latest_date.year
-
-        months = sorted(
-            {d.month for d in date_list if d.year == selected_year},
-            reverse=True,
-        )
-        try:
-            m_val = int(m_param) if m_param else None
-        except ValueError:
-            m_val = None
-        if m_val and m_val in months:
-            selected_month = m_val
-        else:
-            selected_month = months[0] if months else None
-
-        days = sorted(
-            {
-                d.day
-                for d in date_list
-                if d.year == selected_year and d.month == selected_month
-            },
-            reverse=True,
-        )
-        try:
-            d_val = int(d_param) if d_param else None
-        except ValueError:
-            d_val = None
-        if d_val and d_val in days:
-            selected_day = d_val
-        else:
-            selected_day = days[0] if days else None
-
-        for y in years:
-            year_options.append({"value": y, "label": f"{y}年"})
-        for m in months:
-            month_options.append({"value": m, "label": f"{m:02d}月"})
-        for d in days:
-            day_options.append({"value": d, "label": f"{d:02d}日"})
-
-        if selected_year and selected_month and selected_day:
-            selected_date = _date(selected_year, selected_month, selected_day)
-
-    # ★ 日付ピッカー用の文字列（input type="date" の value に使う）
-    if selected_date is not None:
-        selected_date_str = selected_date.isoformat()
-    else:
-        # ログがまったく無い場合などは空文字にしておく
-        selected_date_str = ""
-
-    # ---- KPI集計：今日 & 通算（フィルタとは無関係） -------------------
+    # ---- KPI（今日 & 通算：フィルタ無関係） ---------------------------
     def _accumulate(summary: Dict[str, Any], e: Dict[str, Any]) -> None:
-        total_pl = summary.get("total_pl", 0.0)
+        total_pl = float(summary.get("total_pl", 0.0))
+
         for key in ("eval_pl_rakuten", "eval_pl_matsui"):
             val = e.get(key)
             try:
@@ -322,6 +255,7 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
                     total_pl += float(val)
             except (TypeError, ValueError):
                 pass
+
         summary["total_pl"] = total_pl
 
         combined = e.get("combined_label")
@@ -332,24 +266,15 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
         elif combined == "flat":
             summary["flat"] = summary.get("flat", 0) + 1
         else:
-            # carry / skip どちらも「見送り/持ち越し」枠
             summary["skip"] = summary.get("skip", 0) + 1
 
     summary_today: Dict[str, Any] = {
-        "win": 0,
-        "lose": 0,
-        "flat": 0,
-        "skip": 0,
-        "total_pl": 0.0,
-        "has_data": False,
+        "win": 0, "lose": 0, "flat": 0, "skip": 0,
+        "total_pl": 0.0, "has_data": False,
     }
     summary_total: Dict[str, Any] = {
-        "win": 0,
-        "lose": 0,
-        "flat": 0,
-        "skip": 0,
-        "total_pl": 0.0,
-        "has_data": False,
+        "win": 0, "lose": 0, "flat": 0, "skip": 0,
+        "total_pl": 0.0, "has_data": False,
     }
 
     for e in entries_all:
@@ -358,44 +283,12 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
             _accumulate(summary_today, e)
         _accumulate(summary_total, e)
 
-    summary_today["has_data"] = (summary_today["win"] +
-                                 summary_today["lose"] +
-                                 summary_today["flat"] +
-                                 summary_today["skip"]) > 0
-    summary_total["has_data"] = (summary_total["win"] +
-                                 summary_total["lose"] +
-                                 summary_total["flat"] +
-                                 summary_total["skip"]) > 0
+    summary_today["has_data"] = (summary_today["win"] + summary_today["lose"] + summary_today["flat"] + summary_today["skip"]) > 0
+    summary_total["has_data"] = (summary_total["win"] + summary_total["lose"] + summary_total["flat"] + summary_total["skip"]) > 0
 
-    # ---- 一覧表示用フィルタ（モード / 年月日 / 検索） -----------------
-    filtered: List[Dict[str, Any]] = []
-
-    for e in entries_all:
-        # mode
-        rec_mode = (e.get("mode") or "").lower()
-        if mode == "live" and rec_mode != "live":
-            continue
-        if mode == "demo" and rec_mode != "demo":
-            continue
-
-        # 年月日
-        dt = e.get("_dt")
-        if selected_date:
-            if not isinstance(dt, timezone.datetime):
-                continue
-            if dt.date() != selected_date:
-                continue
-
-        # 銘柄検索
-        if q:
-            code = str(e.get("code") or "")
-            name = str(e.get("name") or "")
-            if q not in code and q not in name:
-                continue
-
-        filtered.append(e)
-
-    entries = filtered[:100]
+    # ---- 一覧表示（最大100件） ---------------------------------------
+    # ここまでで qs の mode/date/q は反映済み
+    entries = entries_all[:100]
 
     ctx = {
         "entries": entries,
@@ -403,13 +296,6 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
         "q": q,
         "summary_today": summary_today,
         "summary_total": summary_total,
-        "year_options": year_options,
-        "month_options": month_options,
-        "day_options": day_options,
-        "selected_year": selected_year,
-        "selected_month": selected_month,
-        "selected_day": selected_day,
-        # 日付ピッカー用
         "selected_date": selected_date,
         "selected_date_str": selected_date_str,
     }
