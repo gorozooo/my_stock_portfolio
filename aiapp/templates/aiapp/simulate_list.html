@@ -392,9 +392,15 @@
     margin-top:6px;
     text-align:right;
   }
+
+  /* aタグ/ボタン両対応 */
   .delete-link{
     font-size:11px;
     color:#fca5a5;
+    background:transparent;
+    border:0;
+    padding:0;
+    cursor:pointer;
     text-decoration:none;
   }
 </style>
@@ -723,24 +729,6 @@
                     まだ評価が実行されていません（ai_sim_eval 未実行）
                   </div>
                 {% endif %}
-
-                {% if e.eval_exit_px %}
-                  <div class="real-row">
-                    <div class="real-label">価格</div>
-                    <div class="real-val">
-                      {{ e.eval_exit_px|floatformat:0|intcomma }} 円
-                    </div>
-                  </div>
-                {% endif %}
-
-                {% if e.exit_label %}
-                  <div class="real-row">
-                    <div class="real-label">時刻</div>
-                    <div class="real-val">
-                      {{ e.exit_label }}
-                    </div>
-                  </div>
-                {% endif %}
               </div>
 
               <div class="real-section">
@@ -770,18 +758,21 @@
                       </span>
                     </div>
                   </div>
+
                 </div>
               </div>
             </div>
           </div>
 
-          <div class="delete-row">
-            <a class="delete-link"
-               href="{% url 'aiapp:simulate_delete' e.id %}"
-               onclick="return confirm('このシミュレ記録を削除しますか？');">
-              このシミュレを削除
-            </a>
-          </div>
+          <!-- ★削除：POSTに統一（DBのpkを削除） -->
+          <form method="post"
+                action="{% url 'aiapp:simulate_delete' e.id %}"
+                class="delete-row"
+                onsubmit="return confirm('このシミュレ記録を削除しますか？');">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button type="submit" class="delete-link">このシミュレを削除</button>
+          </form>
 
         </div>
       {% endfor %}
