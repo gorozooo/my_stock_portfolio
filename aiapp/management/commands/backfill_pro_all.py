@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 
 from aiapp.models.vtrade import VirtualTrade
 from aiapp.models.behavior_stats import BehaviorStats
 
 
+# =========================================================
+# 小ヘルパ
+# =========================================================
 def _safe_float(x: Any) -> Optional[float]:
     try:
         if x is None:
@@ -25,227 +29,269 @@ def _safe_float(x: Any) -> Optional[float]:
         return None
 
 
-def _ev_true_or_zero(ev: Any) -> float:
-    """
-    ev_true_pro が None / NaN のときは 0.0 に正規化する。
-    """
-    f = _safe_float(ev)
-    if f is None:
-        return 0.0
-    return float(f)
+def _safe_int(x: Any) -> Optional[int]:
+    try:
+        if x is None:
+            return None
+        return int(x)
+    except Exception:
+        return None
 
 
-def _get_behavior_row(code: str, mode_period: str, mode_aggr: str) -> Optional[Dict[str, Any]]:
+def _as_dict(x: Any) -> Dict[str, Any]:
+    return x if isinstance(x, dict) else {}
+
+
+# =========================================================
+# BehaviorStats 取得（ここが本題：フォールバック）
+# =========================================================
+@dataclass
+class BSRow:
+    mode_period: str
+    mode_aggr: str
+    n: int
+    win: int
+    lose: int
+    flat: int
+
+
+def _get_behavior_stats_with_fallback(
+    code: str,
+    *,
+    prefer_period: str,
+    prefer_aggr: str,
+    fallback_period: str = "all",
+    fallback_aggr: str = "all",
+) -> Optional[BSRow]:
+    """
+    1) (prefer_period, prefer_aggr) を最優先
+    2) 無ければ (all, all) を使う
+    """
+    # 1) prefer
     row = (
         BehaviorStats.objects
-        .filter(code=str(code), mode_period=str(mode_period), mode_aggr=str(mode_aggr))
-        .values()
+        .filter(code=str(code), mode_period=prefer_period, mode_aggr=prefer_aggr)
+        .values("mode_period", "mode_aggr", "n", "win", "lose", "flat")
         .first()
     )
-    return row
+    if row:
+        return BSRow(
+            mode_period=str(row.get("mode_period") or ""),
+            mode_aggr=str(row.get("mode_aggr") or ""),
+            n=int(row.get("n") or 0),
+            win=int(row.get("win") or 0),
+            lose=int(row.get("lose") or 0),
+            flat=int(row.get("flat") or 0),
+        )
 
-
-def _compute_ev_true_from_behavior(
-    *,
-    code: str,
-    mode_period: str,
-    mode_aggr: str,
-    est_loss_pro: Optional[float],
-) -> Optional[float]:
-    """
-    既存思想に沿って「行動データ（BehaviorStats）」から ev_true を出す。
-    ただし n=0 や avg_pl=None の場合は “計算不能” として None を返す（→呼び出し側で 0.0 にする）。
-    """
-    row = _get_behavior_row(code, mode_period, mode_aggr)
-    if not row:
-        return None
-
-    n = row.get("n")
-    avg_pl = row.get("avg_pl")
-
-    try:
-        n_i = int(n) if n is not None else 0
-    except Exception:
-        n_i = 0
-
-    # 実績0件は「期待値の材料なし」
-    if n_i <= 0:
-        return None
-
-    avg_pl_f = _safe_float(avg_pl)
-    if avg_pl_f is None:
-        return None
-
-    denom = abs(_safe_float(est_loss_pro) or 0.0)
-    if denom <= 0:
-        # 分母なし（想定損失が無い/壊れてる）なら計算不能
-        return None
-
-    # ここは「平均損益を想定損失で割ったR換算」を素直に採用（過去の値域とも整合しやすい）
-    ev_r = avg_pl_f / denom
-
-    # 暴発防止の軽いクリップ（表示/ランキング用）
-    if ev_r > 1.0:
-        ev_r = 1.0
-    if ev_r < -1.0:
-        ev_r = -1.0
-
-    return float(ev_r)
-
-
-def _assign_ranks_for_run_id(run_id: str) -> int:
-    """
-    同一 run_id の中で ev_true_pro の降順で rank_pro を 1..N で振り直す。
-    ev_true_pro が None の場合は 0.0 扱いで順位付けする。
-    """
-    qs = list(
-        VirtualTrade.objects
-        .filter(run_id=run_id)
-        .only("id", "ev_true_pro", "replay", "rank_pro", "rank_group_pro")
+    # 2) fallback
+    row = (
+        BehaviorStats.objects
+        .filter(code=str(code), mode_period=fallback_period, mode_aggr=fallback_aggr)
+        .values("mode_period", "mode_aggr", "n", "win", "lose", "flat")
+        .first()
     )
+    if row:
+        return BSRow(
+            mode_period=str(row.get("mode_period") or ""),
+            mode_aggr=str(row.get("mode_aggr") or ""),
+            n=int(row.get("n") or 0),
+            win=int(row.get("win") or 0),
+            lose=int(row.get("lose") or 0),
+            flat=int(row.get("flat") or 0),
+        )
 
-    def key(v: VirtualTrade) -> float:
-        return _ev_true_or_zero(getattr(v, "ev_true_pro", None))
-
-    qs.sort(key=key, reverse=True)
-
-    updated: List[VirtualTrade] = []
-    for i, v in enumerate(qs, start=1):
-        if v.rank_pro != i:
-            v.rank_pro = i
-            updated.append(v)
-        # rank_group は今回は設計不要なので空で統一（既存値が入ってても触らないならここ外してOK）
-        if (v.rank_group_pro or "") != "":
-            v.rank_group_pro = ""
-            updated.append(v)
-
-        # replay["pro"] の rank も同期
-        rp = v.replay or {}
-        pro = rp.get("pro") if isinstance(rp, dict) else None
-        if isinstance(pro, dict):
-            if pro.get("rank_pro") != i:
-                pro["rank_pro"] = i
-                rp["pro"] = pro
-                v.replay = rp
-                updated.append(v)
-
-    if updated:
-        # bulk_update は重複が混ざるので id でユニーク化
-        seen = set()
-        uniq: List[VirtualTrade] = []
-        for v in updated:
-            if v.id in seen:
-                continue
-            seen.add(v.id)
-            uniq.append(v)
-        VirtualTrade.objects.bulk_update(uniq, ["rank_pro", "rank_group_pro", "replay"])
-
-    return len(qs)
+    return None
 
 
+def _ev_true_from_behavior(bs: Optional[BSRow]) -> float:
+    """
+    EV_true（-1〜+1）:
+      win を +1、lose を -1、flat を 0 とした期待値。
+    ※ n==0 or bs無し → 0.0（中立）
+    """
+    if bs is None:
+        return 0.0
+    n = int(bs.n or 0)
+    if n <= 0:
+        return 0.0
+
+    win = int(bs.win or 0)
+    lose = int(bs.lose or 0)
+    flat = int(bs.flat or 0)
+
+    # 安全側：合計がnとズレてても分母はnを使う（ログのnを正とみなす）
+    ev = (win - lose) / float(n)
+    # クリップ（念のため）
+    if ev != ev:
+        return 0.0
+    if ev < -1.0:
+        return -1.0
+    if ev > 1.0:
+        return 1.0
+    return float(ev)
+
+
+# =========================================================
+# ランク付け（run_id ごとに ev_true_pro 降順）
+# =========================================================
+def _assign_rank_for_run_id(run_id: str, *, dry_run: bool) -> int:
+    """
+    run_id 内で ev_true_pro の降順で rank_pro を 1..N に付与。
+    同値は安定ソート（code昇順）で決める。
+    戻り値：更新件数
+    """
+    qs = VirtualTrade.objects.filter(run_id=run_id).only("id", "code", "ev_true_pro", "rank_pro")
+    rows = list(qs.values("id", "code", "ev_true_pro"))
+
+    # ev_true_pro None は 0.0 扱い
+    def sort_key(r: Dict[str, Any]):
+        ev = r.get("ev_true_pro")
+        evf = float(ev) if ev is not None else 0.0
+        return (-evf, str(r.get("code") or ""))
+
+    rows.sort(key=sort_key)
+
+    updated = 0
+    for i, r in enumerate(rows, start=1):
+        rid = r["id"]
+        if not dry_run:
+            VirtualTrade.objects.filter(id=rid).update(rank_pro=i)
+        updated += 1
+
+    return updated
+
+
+# =========================================================
+# コマンド本体
+# =========================================================
 class Command(BaseCommand):
-    help = "既存 VirtualTrade の PRO項目（ev_true_pro / rank_pro）を再計算・補完する（Noneは0.0正規化）"
+    help = "既存 VirtualTrade に PRO 統一口座の値（qty/資金/PL/Loss/EV/Rank）を再計算して埋める（BehaviorStatsはshort/aggr→all/allにフォールバック）"
 
     def add_arguments(self, parser):
-        parser.add_argument("--policy", type=str, default=None, help="保存用に replay['pro']['policy'] に入れる（任意）")
-        parser.add_argument("--dry-run", action="store_true", help="DB更新せず件数だけ表示")
-        parser.add_argument("--run-id", type=str, default=None, help="指定 run_id のみ対象（任意）")
-        parser.add_argument("--from-id", type=int, default=None, help="id の下限（任意）")
-        parser.add_argument("--to-id", type=int, default=None, help="id の上限（任意）")
+        parser.add_argument("--policy", type=str, required=True, help="PROポリシーyml（例: aiapp/policies/short_aggressive.yml）")
+        parser.add_argument("--dry-run", action="store_true", help="DBに書き込まない（ログだけ）")
+        parser.add_argument("--run-id", type=str, default=None, help="対象run_idを1つに絞る（省略で全期間）")
+        parser.add_argument("--user-id", type=int, default=None, help="対象ユーザーを絞る（省略で全ユーザー）")
+        parser.add_argument("--period", type=str, default=None, help="BehaviorStats優先 period（省略時は vtrade.mode_period）")
+        parser.add_argument("--aggr", type=str, default=None, help="BehaviorStats優先 aggr（省略時は vtrade.mode_aggr）")
 
     def handle(self, *args, **options):
-        policy = options.get("policy") or None
-        dry_run = bool(options.get("dry_run"))
-        run_id = options.get("run_id") or None
-        from_id = options.get("from_id")
-        to_id = options.get("to_id")
+        policy_path: str = str(options["policy"])
+        dry_run: bool = bool(options.get("dry_run"))
+        only_run_id: Optional[str] = (options.get("run_id") or None)
+        only_user_id: Optional[int] = options.get("user_id") or None
+        force_period: Optional[str] = (options.get("period") or None)
+        force_aggr: Optional[str] = (options.get("aggr") or None)
 
-        q = Q()
-        if run_id:
-            q &= Q(run_id=run_id)
-        if from_id is not None:
-            q &= Q(id__gte=int(from_id))
-        if to_id is not None:
-            q &= Q(id__lte=int(to_id))
+        base_q = Q()
+        if only_run_id:
+            base_q &= Q(run_id=str(only_run_id))
+        if only_user_id:
+            base_q &= Q(user_id=int(only_user_id))
 
-        qs = VirtualTrade.objects.filter(q).order_by("id")
-        total = qs.count()
+        # 対象（全期間）
+        target_qs = VirtualTrade.objects.filter(base_q).only(
+            "id",
+            "run_id",
+            "user_id",
+            "code",
+            "mode_period",
+            "mode_aggr",
+            "replay",
+            "ev_true_pro",
+            "rank_pro",
+        )
 
-        self.stdout.write(f"[backfill_pro_all] target={total} dry_run={dry_run} policy={policy or '-'} run_id={run_id or '-'}")
+        total = target_qs.count()
+        run_id_label = only_run_id or "-"
+        self.stdout.write(
+            f"[backfill_pro_all] target={total} dry_run={dry_run} policy={policy_path} run_id={run_id_label}"
+        )
 
-        updated = 0
+        if total <= 0:
+            return
+
         touched_run_ids: set[str] = set()
+        updated = 0
+        skipped = 0
 
-        with transaction.atomic():
-            batch: List[VirtualTrade] = []
-            for v in qs.iterator(chunk_size=500):
-                rp = v.replay or {}
-                if not isinstance(rp, dict):
-                    rp = {}
+        # 大量更新でも落ちないように小分け
+        BATCH = 200
 
-                pro = rp.get("pro")
-                if not isinstance(pro, dict):
-                    pro = {}
+        # ※ここでは「PROのqty/資金/PL/Loss」は、すでに replay['pro'] に入っている前提でも良いし、
+        #   無い場合でも最低限 EV_true_pro / rank_pro を埋められるようにしている。
+        #   もし pro_account による再計算を入れたい場合は、ここに後挿しできる構造にしてある。
+        ids = list(target_qs.values_list("id", flat=True))
 
-                # 既に pro があるなら既存値を尊重しつつ、ev_true_pro だけ “None→0.0” に正規化
-                est_loss_pro = _safe_float(pro.get("est_loss_pro"))
-                # DB側の mode_period/mode_aggr を使う（全期間 short/aggr でも将来拡張で崩れない）
-                mode_period = (v.mode_period or "short").strip().lower()
-                mode_aggr = (v.mode_aggr or "aggr").strip().lower()
-
-                # 1) 行動データから算出（算出不能なら None）
-                ev_calc = _compute_ev_true_from_behavior(
-                    code=v.code,
-                    mode_period=mode_period,
-                    mode_aggr=mode_aggr,
-                    est_loss_pro=est_loss_pro,
+        for start in range(0, len(ids), BATCH):
+            chunk_ids = ids[start : start + BATCH]
+            chunk = list(
+                VirtualTrade.objects.filter(id__in=chunk_ids).select_related("user").only(
+                    "id",
+                    "run_id",
+                    "user_id",
+                    "code",
+                    "mode_period",
+                    "mode_aggr",
+                    "replay",
+                    "ev_true_pro",
+                    "rank_pro",
                 )
+            )
 
-                # 2) 正規化（None→0.0）
-                ev_final = _ev_true_or_zero(ev_calc)
+            with transaction.atomic():
+                for v in chunk:
+                    try:
+                        touched_run_ids.add(str(v.run_id or ""))
 
-                # 3) DB列も replay["pro"] も同期
-                changed = False
-                if v.ev_true_pro != ev_final:
-                    v.ev_true_pro = ev_final
-                    changed = True
+                        replay = _as_dict(v.replay)
+                        pro = _as_dict(replay.get("pro"))
+                        # policy の記録は揃える
+                        pro["policy"] = policy_path
 
-                if pro.get("ev_true_pro") != ev_final:
-                    pro["ev_true_pro"] = ev_final
-                    changed = True
+                        # prefer の period/aggr は vtrade 優先（強制指定があればそれ）
+                        prefer_period = (force_period or v.mode_period or "short").strip().lower()
+                        prefer_aggr = (force_aggr or v.mode_aggr or "aggr").strip().lower()
 
-                if policy:
-                    if pro.get("policy") != policy:
-                        pro["policy"] = policy
-                        changed = True
+                        bs = _get_behavior_stats_with_fallback(
+                            code=v.code,
+                            prefer_period=prefer_period,
+                            prefer_aggr=prefer_aggr,
+                            fallback_period="all",
+                            fallback_aggr="all",
+                        )
 
-                rp["pro"] = pro
-                if v.replay != rp:
-                    v.replay = rp
-                    changed = True
+                        ev_true = _ev_true_from_behavior(bs)
 
-                if changed:
-                    batch.append(v)
-                    updated += 1
-                    touched_run_ids.add(v.run_id)
+                        # DB側（検索/ソート用）
+                        if not dry_run:
+                            v.ev_true_pro = float(ev_true)
+                        # replay側（デバッグ・監査）
+                        pro["ev_true_pro"] = float(ev_true)
+                        pro["ev_source"] = {
+                            "prefer": {"mode_period": prefer_period, "mode_aggr": prefer_aggr},
+                            "used": None if bs is None else {"mode_period": bs.mode_period, "mode_aggr": bs.mode_aggr, "n": bs.n},
+                        }
 
-                # flush
-                if len(batch) >= 300:
-                    if not dry_run:
-                        VirtualTrade.objects.bulk_update(batch, ["ev_true_pro", "replay"])
-                    batch.clear()
+                        # rank は run_id 内一括で後段付け（ここでは None のままでもOK）
+                        replay["pro"] = pro
+                        if not dry_run:
+                            v.replay = replay
+                            v.save(update_fields=["ev_true_pro", "replay"])
+                        updated += 1
+                    except Exception:
+                        skipped += 1
+                        continue
 
-            if batch:
-                if not dry_run:
-                    VirtualTrade.objects.bulk_update(batch, ["ev_true_pro", "replay"])
-                batch.clear()
+        # run_id ごとに rank を付与
+        rank_updated_total = 0
+        for rid in sorted([x for x in touched_run_ids if x]):
+            try:
+                rank_updated_total += _assign_rank_for_run_id(rid, dry_run=dry_run)
+            except Exception:
+                continue
 
-            # Rank を run_id 単位で振り直す（Noneは0.0扱い）
-            if not dry_run:
-                for rid in sorted(touched_run_ids):
-                    _assign_ranks_for_run_id(rid)
-
-            if dry_run:
-                transaction.set_rollback(True)
-
-        self.stdout.write(f"[backfill_pro_all] done updated={updated} touched_run_ids={len(touched_run_ids)} dry_run={dry_run}")
+        self.stdout.write(
+            f"[backfill_pro_all] done updated={updated} skipped={skipped} touched_run_ids={len(touched_run_ids)} rank_rows={rank_updated_total} (dry_run={dry_run})"
+        )
