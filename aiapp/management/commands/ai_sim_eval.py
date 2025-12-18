@@ -18,13 +18,17 @@ AI紙シミュ評価（5分足）→ VirtualTrade に eval_* / R / EV_true_pro /
 ★追加で重要（今回の不具合の本丸）：
 - options.get("days") が 0 のとき `or 5` で 5 に化けるのを修正
 - df["ts"] の tz を必ず Asia/Tokyo に寄せて比較する（UTC/naive混在で no_bars を防ぐ）
+
+★今回の追加修正（9020の件の本丸）：
+- BUYの指値は「上限価格」なので、寄り/直後の open が entry 以下なら entry 到達を待たずに open で約定する（marketable limit）
+- SELLの指値は「下限価格」なので、寄り/直後の open が entry 以上なら open で約定する
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date as _date, datetime as _dt, time as _time, timedelta as _timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -85,19 +89,21 @@ def _label(qty: Optional[int], pl_per_share: float) -> str:
     return "flat"
 
 
-def _find_ohlc_columns(df) -> Tuple[Optional[Any], Optional[Any], Optional[Any]]:
+def _find_ohlc_columns(df) -> Tuple[Optional[Any], Optional[Any], Optional[Any], Optional[Any]]:
     """
     df.columns が str でも MultiIndex でも、
-    'Low' / 'High' / 'Close'(or 'Adj Close') を拾う。
+    'open' / 'low' / 'high' / 'close'(or 'adj close') を拾う。
     戻り値は df[...] のキーとして使える実カラム値。
     """
-    low_col = high_col = close_col = None
+    open_col = low_col = high_col = close_col = None
     for col in df.columns:
         if isinstance(col, tuple):
             parts = [str(p).lower() for p in col if p is not None]
         else:
             parts = [str(col).lower()]
 
+        if open_col is None and any(p == "open" for p in parts):
+            open_col = col
         if low_col is None and any(p == "low" for p in parts):
             low_col = col
         if high_col is None and any(p == "high" for p in parts):
@@ -105,7 +111,7 @@ def _find_ohlc_columns(df) -> Tuple[Optional[Any], Optional[Any], Optional[Any]]
         if close_col is None and any(p in ("close", "adj close") for p in parts):
             close_col = col
 
-    return low_col, high_col, close_col
+    return open_col, low_col, high_col, close_col
 
 
 def _coerce_ts(val: Any, fallback: _dt) -> _dt:
@@ -155,16 +161,12 @@ def _ensure_ts_jst(df) -> Optional[Any]:
     except Exception:
         return None
 
-    # ここが肝：tz-naive / tz-aware を判別して JST へ寄せる
     try:
-        # tz-aware の場合
         if getattr(s.dt, "tz", None) is not None:
             s = s.dt.tz_convert("Asia/Tokyo")
         else:
-            # tz-naive の場合：JST として localize
             s = s.dt.tz_localize("Asia/Tokyo")
     except Exception:
-        # object dtype などで dt が使えない場合の最後の砦
         try:
             s2 = []
             for x in s:
@@ -205,17 +207,20 @@ def _evaluate_one(v: VirtualTrade, *, verbose: int = 1) -> EvalResult:
     """
     v.trade_date の 5分足を使って、opened_at（注文作成時刻）以降で
     指値(entry)→TP/SL→終値クローズ を判定する。
+
+    ★BUY指値の寄りギャップ約定（marketable limit）を再現：
+      - その時点の open が entry 以下なら open で即約定（entry到達待ちにしない）
+    ★SELL指値も同様：
+      - open が entry 以上なら open で即約定
     """
     trade_date = v.trade_date
 
-    # 5分足ロード（キャッシュ）
     bars = load_5m_bars(v.code, trade_date)
     if bars is None or len(bars) == 0:
         return EvalResult(ok=False, reason="no_bars")
 
     df = bars.copy()
 
-    # ts カラムがなければ index から復元
     if "ts" not in df.columns:
         try:
             import pandas as pd
@@ -226,40 +231,32 @@ def _evaluate_one(v: VirtualTrade, *, verbose: int = 1) -> EvalResult:
         except Exception:
             return EvalResult(ok=False, reason="no_ts")
 
-    # tz を必ず JST に揃える（ここが no_bars 祭りの本丸）
     df2 = _ensure_ts_jst(df)
     if df2 is None:
         return EvalResult(ok=False, reason="bad_ts")
     df = df2
 
-    low_col, high_col, close_col = _find_ohlc_columns(df)
+    open_col, low_col, high_col, close_col = _find_ohlc_columns(df)
     if low_col is None or high_col is None or close_col is None:
         return EvalResult(ok=False, reason="no_ohlc")
 
-    # --- 評価開始時刻 = opened_at（JSTに揃える） ---
     opened_local = _to_local(v.opened_at)
     if opened_local is None:
         return EvalResult(ok=False, reason="no_opened_at")
 
-    # 評価範囲（場全体）
     session_start, session_end = _jst_session_range(trade_date)
 
-    # active_start = opened_at（ただし、場外なら「その日の場の範囲内に丸める」）
-    # ※ここは “固定” ではなく、現実世界の「約定可能制約」を入れてるだけ。
     if opened_local < session_start:
         active_start = session_start
     elif opened_local > session_end:
-        # その日の場が終わってから注文を作った → 当日バーでは評価不能
         return EvalResult(ok=False, reason="no_bars_after_active")
     else:
         active_start = opened_local
 
-    # active_start 以降に絞る（df["ts"] は JST tz-aware に統一済み）
     df_eff = df[(df["ts"] >= active_start) & (df["ts"] <= session_end)]
     if df_eff is None or len(df_eff) == 0:
         return EvalResult(ok=False, reason="no_bars_after_active")
 
-    # 必要パラメータ
     entry = _safe_float(v.entry_px) or _safe_float((v.replay or {}).get("sim_order", {}).get("entry"))
     tp = _safe_float(v.tp_px) or _safe_float((v.replay or {}).get("sim_order", {}).get("tp"))
     sl = _safe_float(v.sl_px) or _safe_float((v.replay or {}).get("sim_order", {}).get("sl"))
@@ -267,10 +264,53 @@ def _evaluate_one(v: VirtualTrade, *, verbose: int = 1) -> EvalResult:
     if entry is None:
         return EvalResult(ok=False, reason="no_entry")
 
-    # -------- エントリー判定（指値） --------
-    hit_mask = (df_eff[low_col] <= entry) & (df_eff[high_col] >= entry)
-    if not hit_mask.to_numpy().any():
-        # 指値未到達 → ノーポジ
+    side = str(v.side or "BUY").upper().strip()
+
+    # -------- エントリー判定（指値 + 寄りギャップ約定対応） --------
+    exec_entry_px: Optional[float] = None
+    entry_ts: Optional[_dt] = None
+
+    # 5分足を上から舐めて「最初に約定するバー」を決める
+    for _, row in df_eff.iterrows():
+        try:
+            lo = _safe_float(row[low_col])
+            hi = _safe_float(row[high_col])
+        except Exception:
+            lo = hi = None
+
+        o = None
+        if open_col is not None:
+            try:
+                o = _safe_float(row[open_col])
+            except Exception:
+                o = None
+
+        bar_ts = _coerce_ts(row["ts"], fallback=active_start)
+
+        if side == "SELL":
+            # SELL指値：open >= entry なら open で即約定（entryに触れてなくても“より有利”だから）
+            if o is not None and o >= entry:
+                exec_entry_px = float(o)
+                entry_ts = bar_ts
+                break
+            # 通常：バー内で entry 到達
+            if lo is not None and hi is not None and lo <= entry <= hi:
+                exec_entry_px = float(entry)
+                entry_ts = bar_ts
+                break
+        else:
+            # BUY指値：open <= entry なら open で即約定（entryに触れてなくても“より有利”だから）
+            if o is not None and o <= entry:
+                exec_entry_px = float(o)
+                entry_ts = bar_ts
+                break
+            # 通常：バー内で entry 到達
+            if lo is not None and hi is not None and lo <= entry <= hi:
+                exec_entry_px = float(entry)
+                entry_ts = bar_ts
+                break
+
+    if exec_entry_px is None or entry_ts is None:
         return EvalResult(
             ok=True,
             reason="no_position",
@@ -282,19 +322,6 @@ def _evaluate_one(v: VirtualTrade, *, verbose: int = 1) -> EvalResult:
             pl_per_share=0.0,
         )
 
-    hit_df = df_eff[hit_mask]
-    if hit_df is None or len(hit_df) == 0:
-        return EvalResult(
-            ok=True,
-            reason="no_position",
-            eval_exit_reason="no_position",
-            pl_per_share=0.0,
-        )
-
-    first_hit = hit_df.iloc[0]
-    entry_ts = _coerce_ts(first_hit["ts"], fallback=active_start)
-    exec_entry_px = float(entry)
-
     # -------- エグジット判定（TP / SL / horizon_close） --------
     eval_df = df_eff[df_eff["ts"] >= entry_ts].copy()
     if eval_df is None or len(eval_df) == 0:
@@ -304,6 +331,11 @@ def _evaluate_one(v: VirtualTrade, *, verbose: int = 1) -> EvalResult:
     else:
         hit_tp_idx = None
         hit_sl_idx = None
+
+        if side == "SELL":
+            # SELLの場合（将来拡張）：TP/SLが逆になる等のルールが必要ならここで分岐
+            # いまは BUY 前提の紙トレなので、そのまま BUY と同じ判定にしておく
+            pass
 
         if tp is not None:
             tp_mask = eval_df[high_col] >= float(tp)
@@ -318,23 +350,23 @@ def _evaluate_one(v: VirtualTrade, *, verbose: int = 1) -> EvalResult:
         if hit_tp_idx is not None or hit_sl_idx is not None:
             if hit_tp_idx is not None and hit_sl_idx is not None:
                 if hit_tp_idx <= hit_sl_idx:
-                    row = eval_df.loc[hit_tp_idx]
-                    exit_ts = _coerce_ts(row["ts"], fallback=entry_ts)
+                    row2 = eval_df.loc[hit_tp_idx]
+                    exit_ts = _coerce_ts(row2["ts"], fallback=entry_ts)
                     exit_px = float(tp)
                     exit_reason = "hit_tp"
                 else:
-                    row = eval_df.loc[hit_sl_idx]
-                    exit_ts = _coerce_ts(row["ts"], fallback=entry_ts)
+                    row2 = eval_df.loc[hit_sl_idx]
+                    exit_ts = _coerce_ts(row2["ts"], fallback=entry_ts)
                     exit_px = float(sl)
                     exit_reason = "hit_sl"
             elif hit_tp_idx is not None:
-                row = eval_df.loc[hit_tp_idx]
-                exit_ts = _coerce_ts(row["ts"], fallback=entry_ts)
+                row2 = eval_df.loc[hit_tp_idx]
+                exit_ts = _coerce_ts(row2["ts"], fallback=entry_ts)
                 exit_px = float(tp)
                 exit_reason = "hit_tp"
             else:
-                row = eval_df.loc[hit_sl_idx]
-                exit_ts = _coerce_ts(row["ts"], fallback=entry_ts)
+                row2 = eval_df.loc[hit_sl_idx]
+                exit_ts = _coerce_ts(row2["ts"], fallback=entry_ts)
                 exit_px = float(sl)
                 exit_reason = "hit_sl"
         else:
@@ -348,7 +380,7 @@ def _evaluate_one(v: VirtualTrade, *, verbose: int = 1) -> EvalResult:
     return EvalResult(
         ok=True,
         reason="ok",
-        eval_entry_px=exec_entry_px,
+        eval_entry_px=float(exec_entry_px),
         eval_entry_ts=entry_ts,
         eval_exit_px=float(exit_px),
         eval_exit_ts=exit_ts,
@@ -358,12 +390,6 @@ def _evaluate_one(v: VirtualTrade, *, verbose: int = 1) -> EvalResult:
 
 
 def _ev_true_from_behavior(code: str) -> float:
-    """
-    A案（全期間）：
-    - BehaviorStats の all/all を代表として EV_true_pro に使う
-    - まずは win_rate を 0〜1 に正規化して “期待値っぽい指標” として扱う
-      （閾値の色分け設計はやらない）
-    """
     row = (
         BehaviorStats.objects
         .filter(code=str(code), mode_period="all", mode_aggr="all")
@@ -380,9 +406,6 @@ def _ev_true_from_behavior(code: str) -> float:
 
 
 def _rank_within_run(run_id: str) -> int:
-    """
-    1 run_id 内で ev_true_pro 降順に rank_pro を振る
-    """
     qs = (
         VirtualTrade.objects
         .filter(run_id=run_id)
@@ -401,10 +424,6 @@ def _rank_within_run(run_id: str) -> int:
     return updated
 
 
-# ==============================
-# management command
-# ==============================
-
 class Command(BaseCommand):
     help = "AI紙シミュ評価（5分足）→ VirtualTrade に eval_* / R / EV_true_pro / Rank を反映"
 
@@ -415,10 +434,8 @@ class Command(BaseCommand):
         parser.add_argument("--dry-run", action="store_true", help="DB更新せずログだけ")
 
     def handle(self, *args, **options):
-        # verbosity は options から必ず拾う（self.verbosity が無いケース対策）
         verbose = int(options.get("verbosity", 1) or 1)
 
-        # ★ 0 を False 扱いして 5 に化ける事故を防ぐ
         days_opt = options.get("days", None)
         days = 5 if days_opt is None else int(days_opt)
 
@@ -434,9 +451,8 @@ class Command(BaseCommand):
         else:
             date_min = today - _timedelta(days=days)
 
-        date_max = today  # ★ future trade_date を拾わない
+        date_max = today  # future trade_date を拾わない
 
-        # 対象抽出は trade_date 基準に統一
         qs = VirtualTrade.objects.filter(trade_date__gte=date_min, trade_date__lte=date_max)
 
         if not force:
@@ -474,7 +490,6 @@ class Command(BaseCommand):
                         touched_run_ids.add(v.run_id)
                     continue
 
-                # no_position は “評価として成功” 扱い
                 pl_per_share = float(res.pl_per_share or 0.0)
 
                 qty_r = v.qty_rakuten or 0
@@ -485,18 +500,14 @@ class Command(BaseCommand):
                 eval_pl_s = pl_per_share * float(qty_s)
                 eval_pl_m = pl_per_share * float(qty_m)
 
-                # labels
                 lab_r = _label(qty_r, pl_per_share)
                 lab_s = _label(qty_s, pl_per_share)
                 lab_m = _label(qty_m, pl_per_share)
 
-                # closed_at は “評価でexitが決まった” ときのみ入れる
                 closed_at = res.eval_exit_ts if res.eval_exit_ts is not None else timezone.now()
 
-                # EV_true_pro（A案: all/all を代表）
                 ev_true_pro = _ev_true_from_behavior(v.code)
 
-                # replay の last_eval を更新
                 replay = v.replay if isinstance(v.replay, dict) else {}
                 replay["last_eval"] = {
                     "trade_date": str(v.trade_date),
@@ -510,7 +521,6 @@ class Command(BaseCommand):
                     "exit_reason": res.eval_exit_reason,
                     "pl_per_share": pl_per_share,
                 }
-                # pro snapshot があれば pro 内にも反映
                 pro = replay.get("pro")
                 if isinstance(pro, dict):
                     pro["ev_true_pro"] = ev_true_pro
@@ -535,7 +545,6 @@ class Command(BaseCommand):
                     v.ev_true_pro = ev_true_pro
                     v.replay = replay
 
-                    # R 再計算（est_loss を分母）
                     v.recompute_r()
 
                     v.save(update_fields=[
@@ -567,7 +576,6 @@ class Command(BaseCommand):
                     touched_run_ids.add(v.run_id)
                 continue
 
-        # run_id ごとに rank_pro
         ranked_rows = 0
         if not dry_run:
             for rid in sorted(touched_run_ids):
