@@ -92,6 +92,23 @@ def _safe_float(x) -> Optional[float]:
     try:
         if x is None:
             return None
+
+        # pandas Series（1要素）対策
+        try:
+            import pandas as pd  # type: ignore
+            if isinstance(x, pd.Series):
+                if x.empty:
+                    return None
+                x = x.iloc[0]
+        except Exception:
+            pass
+
+        # list/tuple（1要素）対策
+        if isinstance(x, (list, tuple)):
+            if len(x) == 0:
+                return None
+            x = x[0]
+
         f = float(x)
         if f != f:
             return None
