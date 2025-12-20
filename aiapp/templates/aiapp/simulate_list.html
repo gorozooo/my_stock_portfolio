@@ -23,26 +23,7 @@
   }
   .wrap{max-width:720px;margin:0 auto;padding:10px 12px 80px;}
 
-  .head{
-    padding:14px;
-    border-radius:16px;
-    border:1px solid rgba(148,163,184,0.3);
-    background:linear-gradient(135deg,rgba(15,23,42,0.95),rgba(30,64,175,0.8));
-    color:#e5e7eb;
-    margin:6px 0 12px 0;
-    backdrop-filter:blur(12px);
-  }
-  .head-title{
-    font-size:16px;
-    font-weight:700;
-    margin-bottom:4px;
-  }
-  .head-sub{
-    font-size:12px;
-    color:#cbd5f5;
-  }
-
-  /* ===== KPIカード（今日 / 通算） ===== */
+  /* ===== KPIカード（選択日 / 通算） ===== */
   .kpi-top{
     display:grid;
     grid-template-columns:repeat(2,minmax(0,1fr));
@@ -225,12 +206,6 @@
     max-width:22ch;
   }
 
-  .entry-info{
-    margin-top:4px;
-    font-size:11px;
-    color:var(--sub);
-  }
-
   .mode-badge{
     display:inline-block;
     font-size:11px;
@@ -303,12 +278,6 @@
     margin-bottom:4px;
     color:#e5e7eb;
   }
-  .ai-title-sub{
-    font-size:10px;
-    color:var(--sub);
-    margin-bottom:4px;
-  }
-
   .ai-row,
   .real-row{
     display:flex;
@@ -337,19 +306,6 @@
 
   .ai-val.pos{color:var(--ok);}
   .ai-val.neg{color:var(--bad);}
-
-  .real-head{
-    display:flex;
-    justify-content:space-between;
-    gap:4px;
-    align-items:flex-start;
-    margin-bottom:2px;
-  }
-  .real-meta{
-    font-size:10px;
-    color:var(--sub);
-    text-align:right;
-  }
 
   .real-section{
     margin-top:4px;
@@ -393,7 +349,6 @@
     text-align:right;
   }
 
-  /* aタグ/ボタン両対応 */
   .delete-link{
     font-size:11px;
     color:#fca5a5;
@@ -440,29 +395,29 @@
 
   <div class="kpi-top">
     <div class="kpi-card">
-      <div class="kpi-title">今日の成績</div>
-      {% if summary_today.has_data %}
+      <div class="kpi-title">選択日の成績（PRO公式）{% if selected_date_str %}：{{ selected_date_str }}{% endif %}</div>
+      {% if summary_selected.has_data %}
         <div class="kpi-counts">
-          <div class="kpi-count"><span class="label">勝ち</span>{{ summary_today.win }}件</div>
-          <div class="kpi-count"><span class="label">負け</span>{{ summary_today.lose }}件</div>
-          <div class="kpi-count"><span class="label">見送り/持ち越し</span>{{ summary_today.skip }}件</div>
-          {% if summary_today.flat %}
-            <div class="kpi-count"><span class="label">引き分け</span>{{ summary_today.flat }}件</div>
+          <div class="kpi-count"><span class="label">勝ち</span>{{ summary_selected.win }}件</div>
+          <div class="kpi-count"><span class="label">負け</span>{{ summary_selected.lose }}件</div>
+          <div class="kpi-count"><span class="label">見送り/持ち越し</span>{{ summary_selected.skip }}件</div>
+          {% if summary_selected.flat %}
+            <div class="kpi-count"><span class="label">引き分け</span>{{ summary_selected.flat }}件</div>
           {% endif %}
         </div>
         <div class="kpi-pl">
-          合計
-          <span class="kpi-pl-val {% if summary_today.total_pl >= 0 %}pos{% else %}neg{% endif %}">
-            {{ summary_today.total_pl|floatformat:0|intcomma }} 円
+          合計（※PRO実績PLは未実装のため現状0表示）
+          <span class="kpi-pl-val {% if summary_selected.total_pl >= 0 %}pos{% else %}neg{% endif %}">
+            {{ summary_selected.total_pl|floatformat:0|intcomma }} 円
           </span>
         </div>
       {% else %}
-        <div class="kpi-pl">今日のシミュレはまだありません。</div>
+        <div class="kpi-pl">この日のシミュレはまだありません。</div>
       {% endif %}
     </div>
 
     <div class="kpi-card">
-      <div class="kpi-title">通算成績（全期間）</div>
+      <div class="kpi-title">通算成績（全期間 / PRO公式）</div>
       {% if summary_total.has_data %}
         <div class="kpi-counts">
           <div class="kpi-count"><span class="label">勝ち</span>{{ summary_total.win }}件</div>
@@ -473,7 +428,7 @@
           {% endif %}
         </div>
         <div class="kpi-pl">
-          合計
+          合計（※PRO実績PLは未実装のため現状0表示）
           <span class="kpi-pl-val {% if summary_total.total_pl >= 0 %}pos{% else %}neg{% endif %}">
             {{ summary_total.total_pl|floatformat:0|intcomma }} 円
           </span>
@@ -531,7 +486,7 @@
              name="q"
              value="{{ q }}"
              class="search-input"
-             placeholder="銘柄コード or 名称で検索">
+             placeholder="銘柄コード or 名称で検索（PRO公式のみ）">
       <button type="submit" class="search-btn">検索</button>
     </form>
   </div>
@@ -594,9 +549,9 @@
           </div>
 
           <div class="body-cols">
-            <!-- ===== 左：AIスナップ（注文イメージ） ===== -->
+            <!-- ===== 左：AIスナップ（PRO指値） ===== -->
             <div class="ai-box">
-              <div class="ai-title">AIスナップ（指値注文）</div>
+              <div class="ai-title">AIスナップ（PRO指値）</div>
               <div class="ai-row">
                 <div class="ai-label">エントリー</div>
                 <div class="ai-val">
@@ -619,69 +574,48 @@
               </div>
 
               <div class="ai-section">
-                <div>数量</div>
+                <div>数量 / 必要資金</div>
                 <div class="ai-row">
-                  <div class="ai-label">楽天</div>
+                  <div class="ai-label">PRO数量</div>
                   <div class="ai-val">
-                    {% if e.qty_rakuten %}
-                      {{ e.qty_rakuten|floatformat:0|intcomma }} 株
-                    {% else %}0 株{% endif %}
+                    {{ e.qty_pro|floatformat:0|intcomma }} 株
                   </div>
                 </div>
                 <div class="ai-row">
-                  <div class="ai-label">松井</div>
+                  <div class="ai-label">必要資金</div>
                   <div class="ai-val">
-                    {% if e.qty_matsui %}
-                      {{ e.qty_matsui|floatformat:0|intcomma }} 株
-                    {% else %}0 株{% endif %}
+                    {% if e.required_cash_pro %}
+                      {{ e.required_cash_pro|floatformat:0|intcomma }} 円
+                    {% else %}0 円{% endif %}
                   </div>
                 </div>
               </div>
 
               <div class="ai-section">
-                <div>想定利益</div>
+                <div>想定PL（PRO）</div>
                 <div class="ai-row">
-                  <div class="ai-label">楽天</div>
+                  <div class="ai-label">想定利益</div>
                   <div class="ai-val pos">
-                    {% if e.est_pl_rakuten %}
-                      +{{ e.est_pl_rakuten|floatformat:0|intcomma }} 円
+                    {% if e.est_pl_pro %}
+                      +{{ e.est_pl_pro|floatformat:0|intcomma }} 円
                     {% else %}0 円{% endif %}
                   </div>
                 </div>
                 <div class="ai-row">
-                  <div class="ai-label">松井</div>
-                  <div class="ai-val pos">
-                    {% if e.est_pl_matsui %}
-                      +{{ e.est_pl_matsui|floatformat:0|intcomma }} 円
-                    {% else %}0 円{% endif %}
-                  </div>
-                </div>
-                <div>想定損失</div>
-                <div class="ai-row">
-                  <div class="ai-label">楽天</div>
+                  <div class="ai-label">想定損失</div>
                   <div class="ai-val neg">
-                    {% if e.est_loss_rakuten %}
-                      -{{ e.est_loss_rakuten|floatformat:0|intcomma }} 円
-                    {% else %}0 円{% endif %}
-                  </div>
-                </div>
-                <div class="ai-row">
-                  <div class="ai-label">松井</div>
-                  <div class="ai-val neg">
-                    {% if e.est_loss_matsui %}
-                      -{{ e.est_loss_matsui|floatformat:0|intcomma }} 円
+                    {% if e.est_loss_pro %}
+                      -{{ e.est_loss_pro|floatformat:0|intcomma }} 円
                     {% else %}0 円{% endif %}
                   </div>
                 </div>
               </div>
             </div>
 
-            <!-- ===== 右：シミュ結果（実際の約定＆PL） ===== -->
+            <!-- ===== 右：シミュ結果（約定＆評価） ===== -->
             <div class="real-box">
-              <div class="real-head">
-                <div class="real-title">
-                  シミュ結果{% if e.eval_horizon_days %}（{{ e.eval_horizon_days }}営業日後）{% endif %}
-                </div>
+              <div class="real-title">
+                シミュ結果{% if e.eval_horizon_days %}（{{ e.eval_horizon_days }}営業日後）{% endif %}
               </div>
 
               <div class="real-section">
@@ -733,38 +667,23 @@
 
               <div class="real-section">
                 <div class="real-pl-wrap">
-                  <div>損益</div>
-
+                  <div>損益（PRO）</div>
                   <div class="real-pl-row">
-                    <div class="real-label">楽天</div>
+                    <div class="real-label">実績PL</div>
                     <div>
-                      <span class="result-pl
-                        {% if e.eval_label_rakuten == 'win' %}pos{% elif e.eval_label_rakuten == 'lose' %}neg{% endif %}">
-                        {% if e.eval_pl_rakuten or e.eval_pl_rakuten == 0 %}
-                          {{ e.eval_pl_rakuten|floatformat:0|intcomma }} 円
-                        {% else %}0 円{% endif %}
+                      <span class="result-pl">
+                        {{ e.eval_pl_pro|floatformat:0|intcomma }} 円
                       </span>
                     </div>
                   </div>
-
-                  <div class="real-pl-row">
-                    <div class="real-label">松井</div>
-                    <div>
-                      <span class="result-pl
-                        {% if e.eval_label_matsui == 'win' %}pos{% elif e.eval_label_matsui == 'lose' %}neg{% endif %}">
-                        {% if e.eval_pl_matsui or e.eval_pl_matsui == 0 %}
-                          {{ e.eval_pl_matsui|floatformat:0|intcomma }} 円
-                        {% else %}0 円{% endif %}
-                      </span>
-                    </div>
+                  <div class="real-note">
+                    ※PRO実績PL（eval_pl_pro等）は未実装のため現状0表示。後でDBに追加したらここが本物になる。
                   </div>
-
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- ★削除：POSTに統一（DBのpkを削除） -->
           <form method="post"
                 action="{% url 'aiapp:simulate_delete' e.id %}"
                 class="delete-row"
