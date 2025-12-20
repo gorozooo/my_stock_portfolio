@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-
 from datetime import date as _date
 
 from django.contrib.auth.decorators import login_required
@@ -16,7 +15,7 @@ from aiapp.models.vtrade import VirtualTrade
 
 def _label_exit_reason(exit_reason: str) -> str:
     """
-    eval_exit_reason の表示ラベル
+    eval_exit_reason の表示ラベル（PRO公式）
     """
     if exit_reason == "hit_tp":
         return "利確"
@@ -43,10 +42,22 @@ def _label_exit_reason(exit_reason: str) -> str:
     return ""
 
 
-def _combined_label_from_exit_reason(exit_reason: str, qty_total: float) -> str:
+def _combined_label_pro(v: VirtualTrade) -> str:
     """
-    勝ち/負け/持ち越し/見送り の統一ラベル
+    PRO公式の「勝ち/負け/持ち越し/見送り」統一ラベル
+
+    方針:
+    - hit_tp -> win
+    - hit_sl -> lose
+    - horizon_close -> carry
+    - no_position/no_touch/no_fill -> skip
+    - no_bars_* / exception など exit_reason が何か入っているもの -> skip（評価不能＝見送り枠）
+    - exit_reason が空:
+        - entryが立っていて未クローズ(close_at=None) -> carry（評価待ちOPEN）
+        - それ以外 -> skip
     """
+    exit_reason = str(v.eval_exit_reason or "").strip()
+
     if exit_reason == "hit_tp":
         return "win"
     if exit_reason == "hit_sl":
@@ -56,24 +67,53 @@ def _combined_label_from_exit_reason(exit_reason: str, qty_total: float) -> str:
     if exit_reason in ("no_position", "no_touch", "no_fill"):
         return "skip"
 
-    # no_bars_* / exception なども見送り枠に倒す
+    # 例外・データ不足系は「見送り」に寄せる
     if exit_reason:
         return "skip"
 
-    # exit_reason が空（まだ評価されてない想定）
-    if qty_total > 0:
+    # exit_reasonが空 = 未評価想定
+    # entry_px or eval_entry_px がある & closeされてない = OPEN扱い（carry）
+    if v.closed_at is None and (v.eval_entry_px is not None):
         return "carry"
+
     return "skip"
+
+
+def _accumulate_pro(summary: Dict[str, Any], v: VirtualTrade) -> None:
+    """
+    KPI集計（PRO公式）
+
+    注意:
+    - 現時点のVirtualTradeには eval_pl_pro が無いので
+      実績損益は 0 として扱う（後でDBに追加したら差し替え）
+    """
+    # 合計損益（現状 0 固定）
+    total_pl = float(summary.get("total_pl", 0.0))
+    summary["total_pl"] = total_pl
+
+    combined = _combined_label_pro(v)
+
+    if combined == "win":
+        summary["win"] = summary.get("win", 0) + 1
+    elif combined == "lose":
+        summary["lose"] = summary.get("lose", 0) + 1
+    elif combined == "flat":
+        summary["flat"] = summary.get("flat", 0) + 1
+    else:
+        summary["skip"] = summary.get("skip", 0) + 1
 
 
 @login_required
 def simulate_list(request: HttpRequest) -> HttpResponse:
     """
-    シミュレ一覧（DB版）
-    - VirtualTrade を読む
+    シミュレ一覧（DB版 / PRO公式記録）
+
+    - 対象は PRO accepted のみ（replay.pro.status='accepted'）
     - opened_at（JST）を基準に日付フィルタ & 表示時刻を作る
     - mode / date / q でフィルタ
-    - KPIは全件ベース（フィルタ無関係）
+    - KPI:
+        * 選択日（selected_date）の成績（PROのみ）
+        * 通算（全期間）（PROのみ）
     """
     user = request.user
 
@@ -92,11 +132,12 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
         except Exception:
             selected_date = None
 
-    now_local = timezone.localtime()
-    today_date = now_local.date()
-
-    # ---- KPI & 日付候補は「全件」から作る（フィルタ無関係） ----
-    base_qs = VirtualTrade.objects.filter(user=user).order_by("-opened_at", "-id")
+    # ---- PRO公式ベースQS（KPI/日付候補/一覧の母体）----
+    base_qs = (
+        VirtualTrade.objects
+        .filter(user=user, replay__pro__status="accepted")
+        .order_by("-opened_at", "-id")
+    )
 
     # 日付候補（opened_at基準）
     date_list: List[_date] = []
@@ -109,43 +150,14 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
         except Exception:
             continue
 
-    # date_param が無い時は「最新日」を自動選択
+    # date_param が無い時は「最新日」を自動選択（PROのみ）
     if selected_date is None and date_list:
         selected_date = max(date_list)
 
     selected_date_str = selected_date.isoformat() if selected_date is not None else ""
 
-    # ---- KPI集計（全件） ----
-    def _accumulate(summary: Dict[str, Any], v: VirtualTrade) -> None:
-        # 合計損益
-        total_pl = float(summary.get("total_pl", 0.0))
-        for key in ("eval_pl_rakuten", "eval_pl_matsui"):
-            val = getattr(v, key, None)
-            try:
-                if val is not None:
-                    total_pl += float(val)
-            except (TypeError, ValueError):
-                pass
-        summary["total_pl"] = total_pl
-
-        # combined_label
-        qty_r = int(v.qty_rakuten or 0)
-        qty_m = int(v.qty_matsui or 0)
-        qty_total = float(qty_r + qty_m)
-
-        exit_reason = str(v.eval_exit_reason or "").strip()
-        combined = _combined_label_from_exit_reason(exit_reason, qty_total)
-
-        if combined == "win":
-            summary["win"] = summary.get("win", 0) + 1
-        elif combined == "lose":
-            summary["lose"] = summary.get("lose", 0) + 1
-        elif combined == "flat":
-            summary["flat"] = summary.get("flat", 0) + 1
-        else:
-            summary["skip"] = summary.get("skip", 0) + 1
-
-    summary_today: Dict[str, Any] = {
+    # ---- KPI集計（PROのみ）----
+    summary_selected: Dict[str, Any] = {
         "win": 0, "lose": 0, "flat": 0, "skip": 0,
         "total_pl": 0.0, "has_data": False,
     }
@@ -155,21 +167,27 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
     }
 
     for v in base_qs:
+        # 通算は常に加算
+        _accumulate_pro(summary_total, v)
+
+        # 選択日のKPI（selected_dateがある時だけ）
         try:
             opened_local = timezone.localtime(v.opened_at) if v.opened_at else None
         except Exception:
             opened_local = None
 
-        if opened_local is not None and opened_local.date() == today_date:
-            _accumulate(summary_today, v)
+        if selected_date is not None and opened_local is not None and opened_local.date() == selected_date:
+            _accumulate_pro(summary_selected, v)
 
-        _accumulate(summary_total, v)
-
-    summary_today["has_data"] = (summary_today["win"] + summary_today["lose"] + summary_today["flat"] + summary_today["skip"]) > 0
+    summary_selected["has_data"] = (summary_selected["win"] + summary_selected["lose"] + summary_selected["flat"] + summary_selected["skip"]) > 0
     summary_total["has_data"] = (summary_total["win"] + summary_total["lose"] + summary_total["flat"] + summary_total["skip"]) > 0
 
-    # ---- 一覧用QS（ここからフィルタ適用） ----
-    qs = VirtualTrade.objects.filter(user=user).order_by("-opened_at", "-id")
+    # ---- 一覧用QS（ここからフィルタ適用 / ただし母体はPRO acceptedのみ） ----
+    qs = (
+        VirtualTrade.objects
+        .filter(user=user, replay__pro__status="accepted")
+        .order_by("-opened_at", "-id")
+    )
 
     if mode == "live":
         qs = qs.filter(mode__iexact="live")
@@ -179,7 +197,7 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
     if q:
         qs = qs.filter(Q(code__icontains=q) | Q(name__icontains=q))
 
-    # ---- entries 作成（テンプレが期待する形へ） ----
+    # ---- entries 作成（テンプレが期待する形へ / PROのみ） ----
     entries_all: List[Dict[str, Any]] = []
 
     for v in qs:
@@ -193,13 +211,9 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
             if opened_local is None or opened_local.date() != selected_date:
                 continue
 
-        qty_r = int(v.qty_rakuten or 0)
-        qty_m = int(v.qty_matsui or 0)
-        qty_total = float(qty_r + qty_m)
-
         exit_reason = str(v.eval_exit_reason or "").strip()
         exit_reason_label = _label_exit_reason(exit_reason)
-        combined_label = _combined_label_from_exit_reason(exit_reason, qty_total)
+        combined_label = _combined_label_pro(v)
 
         ts_label = opened_local.strftime("%Y/%m/%d %H:%M") if opened_local else ""
 
@@ -224,6 +238,9 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
         except Exception:
             price_date = None
 
+        # PROの実績PLカラムが現時点で無いので 0 表示（後で eval_pl_pro 等を追加したら差し替え）
+        eval_pl_pro = 0
+
         e: Dict[str, Any] = {
             "id": v.id,
             "code": str(v.code or ""),
@@ -235,16 +252,14 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
             "ts_label": ts_label,
             "_dt": opened_local,
 
-            # AIスナップ
+            # AIスナップ（PRO）
             "entry": v.entry_px,
             "tp": v.tp_px,
             "sl": v.sl_px,
-            "qty_rakuten": qty_r,
-            "qty_matsui": qty_m,
-            "est_pl_rakuten": v.est_pl_rakuten,
-            "est_pl_matsui": v.est_pl_matsui,
-            "est_loss_rakuten": v.est_loss_rakuten,
-            "est_loss_matsui": v.est_loss_matsui,
+            "qty_pro": int(v.qty_pro or 0),
+            "required_cash_pro": v.required_cash_pro,
+            "est_pl_pro": v.est_pl_pro,
+            "est_loss_pro": v.est_loss_pro,
 
             # 評価結果
             "eval_entry_px": v.eval_entry_px,
@@ -256,15 +271,13 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
             "entry_label": entry_label,
             "exit_label": exit_label,
 
-            "exit_reason": exit_reason,
             "exit_reason_label": exit_reason_label,
 
-            "eval_label_rakuten": str(v.eval_label_rakuten or ""),
-            "eval_label_matsui": str(v.eval_label_matsui or ""),
-            "eval_pl_rakuten": v.eval_pl_rakuten,
-            "eval_pl_matsui": v.eval_pl_matsui,
+            # PRO実績（現状0）
+            "eval_pl_pro": eval_pl_pro,
+            "eval_label_pro": "",
 
-            "eval_horizon_days": None,
+            "eval_horizon_days": v.eval_horizon_days,
 
             "combined_label": combined_label,
         }
@@ -277,7 +290,7 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
         "entries": entries,
         "mode": mode,
         "q": q,
-        "summary_today": summary_today,
+        "summary_selected": summary_selected,
         "summary_total": summary_total,
         "selected_date": selected_date,
         "selected_date_str": selected_date_str,
