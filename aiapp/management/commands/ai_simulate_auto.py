@@ -24,6 +24,10 @@ ai_simulate_auto
 - ポリシー（aiapp/policies/short_aggressive.yml）でフィルタ（純利益/ RR など）
 - 同時ポジション制限（max_positions / max_total_risk_r）を適用
 - JSONL/DB には PRO を主として保存（broker別は “参考” として残す）
+
+★A案（詰まり解消）：
+- 同時ポジション制限で “OPEN扱い” に数えるのは、PROで accepted になったものだけ
+  → 過去の carry（PRO移行前の残骸）は枠を食わない
 """
 
 from __future__ import annotations
@@ -341,16 +345,23 @@ def _policy_path_default() -> Path:
 def _load_open_positions_for_limits(user) -> Tuple[Dict[str, Dict[str, Any]], float]:
     """
     同時ポジション制限に使う “現在オープン扱い” を作る。
+
+    ★A案（PRO移行後の詰まりを解消）:
     - closed_at is None
+    - replay.pro.status == "accepted" だけを OPEN扱いにする
+      → 過去の carry 残骸（PROでacceptedではないもの）は枠を食わない
+
+    さらに：
     - eval_exit_reason in ("carry", "") を主にオープン扱い
     - eval_entry_px が入っているものを優先（entry済み）
     """
     qs = (
         VirtualTrade.objects
         .filter(user=user, closed_at=None)
+        .filter(replay__pro__status="accepted")
         .filter(Q(eval_exit_reason="carry") | Q(eval_exit_reason=""))
         .exclude(eval_entry_px=None)
-        .only("code", "eval_exit_reason", "eval_entry_px", "trade_date", "opened_at")
+        .only("code", "eval_exit_reason", "eval_entry_px", "trade_date", "opened_at", "replay")
     )
 
     positions: Dict[str, Dict[str, Any]] = {}
