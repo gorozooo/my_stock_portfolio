@@ -10,18 +10,19 @@ AI紙シミュ評価（5分足）→ VirtualTrade に eval_* / R / EV_true_pro /
 - opened_at（注文を作った時刻＝現実世界で注文を出した時刻）から評価開始
 - ただし時刻比較は必ず tz を揃える（DBはUTC保持、5分足の ts はJST）
 
-今回の修正点（3点まとめ）：
-1) 対象抽出を trade_date 基準に統一（--days 0 なら trade_date=今日だけ）
+今回の修正点（要点）：
+1) 対象抽出を trade_date 基準に統一
 2) 評価開始 = opened_at を JST に localtime した上で 5分足 ts と比較
 3) 例外時ログの self.verbosity AttributeError を潰す（options['verbosity'] 参照）
+4) options.get("days") が 0 のとき `or 5` 等で化ける事故を防止
+5) df["ts"] の tz を必ず Asia/Tokyo に寄せて比較（UTC/naive混在で no_bars を防ぐ）
 
-★追加で重要（今回の不具合の本丸）：
-- options.get("days") が 0 のとき `or 5` で 5 に化けるのを修正
-- df["ts"] の tz を必ず Asia/Tokyo に寄せて比較する（UTC/naive混在で no_bars を防ぐ）
-
-★今回の追加修正（9020の件の本丸）：
+★プロ仕様（9020の件の本丸）：
 - BUYの指値は「上限価格」なので、寄り/直後の open が entry 以下なら entry 到達を待たずに open で約定する（marketable limit）
 - SELLの指値は「下限価格」なので、寄り/直後の open が entry 以上なら open で約定する
+
+★プロ仕様：寄り値(09:00)は別取得して寄り約定判定だけに使う
+- 評価開始が 09:00 のときのみ、日足Open（=寄り値）を取得して marketable 判定に使う
 
 ★プロ仕様：評価期間（休日除外の営業日ベース）
 - --horizon で「何営業日」評価するかを指定（デフォルト 3）
@@ -30,6 +31,7 @@ AI紙シミュ評価（5分足）→ VirtualTrade に eval_* / R / EV_true_pro /
   → 刺さらなければ即CLOSED(no_position)
 - TP/SL ヒットで即CLOSED
 - horizon営業日目の最後の足（15:30相当の最後のバー）で未達なら強制CLOSED（exit_reason="time_stop"）
+- ★未来で horizon 最終営業日データが無い＝ carry（未確定）
 
 ★A案（Rを本質にしたプロ仕様）：
 - 約定価格（exec_entry_px）基準で評価する
@@ -40,14 +42,11 @@ AI紙シミュ評価（5分足）→ VirtualTrade に eval_* / R / EV_true_pro /
   - SELLで exec > entry_plan のとき：SL=exec+R, TP=exec-R*tp_ratio
 - 不利ズレ（BUYで exec>entry_plan / SELLで exec<entry_plan）は、TP/SL を“据え置き”して構造を壊さない
 
-★--force の意味（再評価）
-- これまでは eval_exit_reason が空/ carry 以外は “already_closed” で触らなかった
-- --force 時はそのガードを無効化し、trade_date 範囲内の既存データも上書き再評価できる
+★carry の定義（合意）：
+- 「entry済み」かつ「最終日未到達」かつ「TP/SL未達」→ carry（翌日も評価対象）
 
-★今回のバグ修正（スクショの本丸）
-- horizon の営業日リストが「未来でまだバーが無い」せいで短くなると、
-  “horizon達成した扱い” になって当日で time_stop してしまう問題があった。
-  → 「horizon営業日が揃っていない＝未来が未到達」なら carry を返す（当日完結ルールは存在しない）
+★市場前の no_bars の扱い（合意）：
+- 「まだデータ来てないだけ」は eval_exit_reason を空のままでスキップ（DB更新しない）
 """
 
 from __future__ import annotations
@@ -72,9 +71,7 @@ from aiapp.services.bars_5m import load_5m_bars
 def _jst_session_range(d: _date) -> Tuple[_dt, _dt]:
     """
     その営業日のザラ場時間（簡易）
-    - 前場 09:00〜11:30
-    - 後場 12:30〜15:30
-    ※ここでは「評価開始を固定しない」ので、場全体の範囲だけ持つ。
+    - 09:00〜15:30
     """
     tz = timezone.get_default_timezone()  # Asia/Tokyo
     start = timezone.make_aware(_dt.combine(d, _time(9, 0)), tz)
@@ -163,7 +160,7 @@ def _coerce_ts(val: Any, fallback: _dt) -> _dt:
     row["ts"] を確実に datetime にする（SeriesやTimestampでもOK）。
     """
     try:
-        import pandas as pd
+        import pandas as pd  # type: ignore
     except Exception:
         return fallback
 
@@ -193,7 +190,7 @@ def _ensure_ts_jst(df) -> Optional[Any]:
     load_5m_bars の実装やデータ形状で tz がブレても、ここで吸収する。
     """
     try:
-        import pandas as pd
+        import pandas as pd  # type: ignore
     except Exception:
         return None
 
@@ -243,8 +240,8 @@ def _yf_daily_open(code: str, d: _date) -> Optional[float]:
     ※処理が増えるが、寄り値1個だけなら軽い。
     """
     try:
-        import yfinance as yf
-        import pandas as pd
+        import yfinance as yf  # type: ignore
+        import pandas as pd  # type: ignore
     except Exception:
         return None
 
@@ -378,19 +375,15 @@ def _collect_horizon_trade_dates(
     code: str,
     start_date: _date,
     horizon_bd: int,
-    *,
-    max_scan_days: int = 60,
-) -> Tuple[List[_date], bool, int]:
+    max_scan_days: int = 60
+) -> List[_date]:
     """
     start_date を含めて horizon_bd 営業日分の日付リストを作る。
     営業日判定は「5分足が取れる日」でカウントする（休日は自動スキップ）。
 
-    戻り値：
-      (dates, complete, scanned_days)
-
-    complete=False になるのは：
-    - 未来でまだバーが無い（horizon未到達）
-    - 長期連休/データ欠損で max_scan_days まで探索しても揃わない
+    ★重要：
+    - 未来日は当然 bars が無いので out が足りなくなることがある
+      → それはエラーではなく carry の材料（exit側で carry にする）
     """
     if horizon_bd <= 0:
         horizon_bd = 1
@@ -405,8 +398,7 @@ def _collect_horizon_trade_dates(
             out.append(d)
         d = d + _timedelta(days=1)
 
-    complete = (len(out) >= horizon_bd)
-    return out, complete, scanned
+    return out
 
 
 # ==============================
@@ -458,18 +450,15 @@ def _evaluate_entry_on_trade_date(
     if entry_plan is None:
         return False, "no_entry", None, None, None, None, None, {"entry_rule": "no_entry_plan"}
 
-    # 5分足ロード
     bars = load_5m_bars(v.code, trade_date)
     if bars is None or len(bars) == 0:
-        # 「まだデータが来てないだけ」は no_bars_yet として扱い、DBには理由を書かない運用にできる
-        return False, "no_bars_yet", None, None, None, None, None, {"entry_rule": "no_bars_yet"}
+        return False, "no_bars", None, None, None, None, None, {"entry_rule": "no_bars"}
 
     df = bars.copy()
 
-    # ts カラムがなければ index から復元
     if "ts" not in df.columns:
         try:
-            import pandas as pd
+            import pandas as pd  # type: ignore
             if isinstance(df.index, pd.DatetimeIndex):
                 df = df.reset_index().rename(columns={df.index.name or "index": "ts"})
             else:
@@ -477,7 +466,6 @@ def _evaluate_entry_on_trade_date(
         except Exception:
             return False, "no_ts", None, None, None, None, None, {"entry_rule": "no_ts_exc"}
 
-    # tz を必ず JST に揃える
     df2 = _ensure_ts_jst(df)
     if df2 is None:
         return False, "bad_ts", None, None, None, None, None, {"entry_rule": "bad_ts"}
@@ -493,39 +481,27 @@ def _evaluate_entry_on_trade_date(
 
     session_start, session_end = _jst_session_range(trade_date)
 
-    # opened_at の日付が trade_date とズレている（=データ整合性が壊れてる）場合、
-    # entry判定の開始を “trade_date の場開始” に寄せて致命傷(no_bars_after_active)を避ける。
-    # ※根本の直しは simulate_auto 側で trade_date/ opened_at を一致させること。
-    if opened_local.date() != trade_date:
+    if opened_local < session_start:
         active_start = session_start
-        active_start_rule = "session_start_due_to_date_mismatch"
+    elif opened_local > session_end:
+        return False, "no_bars_after_active", None, None, None, None, None, {"entry_rule": "after_session"}
     else:
-        if opened_local < session_start:
-            active_start = session_start
-            active_start_rule = "session_start"
-        elif opened_local > session_end:
-            return False, "no_bars_after_active", None, None, None, None, None, {"entry_rule": "after_session"}
-        else:
-            active_start = opened_local
-            active_start_rule = "opened_at_local"
+        active_start = opened_local
 
-    meta: Dict[str, Any] = {
-        "entry_rule": "limit",
-        "active_start": str(active_start),
-        "active_start_rule": active_start_rule,
-        "session_start": str(session_start),
-    }
-
-    # active_start 以降に絞る
     df_eff = df[(df["ts"] >= active_start) & (df["ts"] <= session_end)]
     if df_eff is None or len(df_eff) == 0:
         return False, "no_bars_after_active", None, None, None, None, None, {"entry_rule": "no_bars_after_active"}
 
-    # --- 寄り(09:00)の特別判定（プロ仕様） ---
-    # active_start が 09:00 のときだけ「寄り値」で marketable limit を先に判定する
+    meta: Dict[str, Any] = {
+        "entry_rule": "limit",
+        "active_start": str(active_start),
+        "session_start": str(session_start),
+    }
+
     exec_entry_px: Optional[float] = None
     entry_ts: Optional[_dt] = None
 
+    # --- 寄り(09:00)の特別判定（プロ仕様） ---
     if active_start == session_start:
         yori = _yf_daily_open(str(v.code), trade_date)
         meta["yori_open"] = yori
@@ -561,20 +537,17 @@ def _evaluate_entry_on_trade_date(
             bar_ts = _coerce_ts(row["ts"], fallback=active_start)
 
             if side == "SELL":
-                # marketable limit
                 if o is not None and float(o) >= float(entry_plan):
                     exec_entry_px = float(o)
                     entry_ts = bar_ts
                     meta["entry_fill"] = "bar_open_marketable"
                     break
-                # normal limit touch
                 if lo is not None and hi is not None and float(lo) <= float(entry_plan) <= float(hi):
                     exec_entry_px = float(entry_plan)
                     entry_ts = bar_ts
                     meta["entry_fill"] = "bar_touch_entry"
                     break
             else:
-                # BUY
                 if o is not None and float(o) <= float(entry_plan):
                     exec_entry_px = float(o)
                     entry_ts = bar_ts
@@ -600,7 +573,6 @@ def _evaluate_entry_on_trade_date(
     )
     meta.update({"A": a_meta})
 
-    # r_plan は a_meta から
     r_plan = _safe_float(a_meta.get("r_plan")) if isinstance(a_meta, dict) else None
 
     return True, "entry_ok", float(exec_entry_px), entry_ts, tp_use, sl_use, r_plan, meta
@@ -622,41 +594,32 @@ def _evaluate_exit_across_horizon(
     ルール：
     - TP/SL にヒットした時点で即CLOSED
     - horizon_bd 営業日目の最後の足で未達なら time_stop で強制CLOSED
-    - まだ horizon_bd 営業日目まで到達できない（未来でバーが無い）場合は carry
+    - ★未来で horizon 最終営業日のデータが無い → carry（未確定）
     """
     trade_date = v.trade_date
     side = _side(v)
 
-    # horizon の営業日リスト（trade_date を day1としてカウント）
-    horizon_dates, complete, scanned = _collect_horizon_trade_dates(
-        str(v.code),
-        trade_date,
-        horizon_bd,
-        max_scan_days=60,
-    )
+    horizon_dates = _collect_horizon_trade_dates(str(v.code), trade_date, horizon_bd, max_scan_days=60)
 
     meta: Dict[str, Any] = {
         "horizon_bd": int(horizon_bd),
         "horizon_dates": [str(d) for d in horizon_dates],
-        "horizon_complete": bool(complete),
-        "horizon_scanned_days": int(scanned),
     }
 
+    # entry済みでここに来る前提なので、horizon_dates が空は基本あり得ないが保険
     if not horizon_dates:
-        return EvalResult(ok=False, reason="no_bars", eval_exit_reason="no_bars", meta=meta)
+        # ここを「no_bars_horizon」等で確定エラーにしない（carry/未更新を優先したい）
+        return EvalResult(ok=True, reason="carry", eval_exit_reason="carry", meta={**meta, "carry_rule": "no_horizon_dates"})
 
-    # 【重要】horizon日数が揃っていないケースの扱い
-    # - 未来でまだバーが無い（=horizon未到達） → carry
-    # - 過去のはずなのに揃わない（=データ欠損が濃厚） → no_bars_horizon（評価不能）
-    today_local = timezone.localdate()
-    last_known = horizon_dates[-1]
+    # 未来で bars が無いせいで horizon_dates が horizon_bd に満たない場合は carry
+    if len(horizon_dates) < int(horizon_bd):
+        return EvalResult(
+            ok=True,
+            reason="carry",
+            eval_exit_reason="carry",
+            meta={**meta, "carry_rule": "horizon_incomplete_future", "got": len(horizon_dates)},
+        )
 
-    if not complete:
-        if last_known >= today_local:
-            return EvalResult(ok=True, reason="carry", eval_exit_reason="carry", pl_per_share=None, meta=meta)
-        return EvalResult(ok=False, reason="no_bars_horizon", eval_exit_reason="no_bars_horizon", meta=meta)
-
-    # 「どこまでデータがあるか」を確認しつつ、順にスキャン
     last_available_date: Optional[_date] = None
     last_close_px: Optional[float] = None
     last_close_ts: Optional[_dt] = None
@@ -670,7 +633,7 @@ def _evaluate_exit_across_horizon(
 
         if "ts" not in df.columns:
             try:
-                import pandas as pd
+                import pandas as pd  # type: ignore
                 if isinstance(df.index, pd.DatetimeIndex):
                     df = df.reset_index().rename(columns={df.index.name or "index": "ts"})
                 else:
@@ -689,7 +652,6 @@ def _evaluate_exit_across_horizon(
 
         session_start, session_end = _jst_session_range(d)
 
-        # 初日は entry_ts 以降、2日目以降は場の最初から
         if d == trade_date:
             start_ts = entry_ts
             if start_ts < session_start:
@@ -704,7 +666,6 @@ def _evaluate_exit_across_horizon(
 
         last_available_date = d
 
-        # 最後の足（time_stop用に保持）
         last_row = df_eff.iloc[-1]
         try:
             last_close_px = _safe_float(last_row[close_col])
@@ -713,19 +674,24 @@ def _evaluate_exit_across_horizon(
             last_close_px = None
             last_close_ts = session_end
 
-        # TP/SL 判定（ヒットしたら即終了）
         hit_tp_idx = None
         hit_sl_idx = None
 
         if tp_use is not None:
-            tp_mask = df_eff[high_col] >= float(tp_use)
-            if tp_mask.to_numpy().any():
-                hit_tp_idx = df_eff[tp_mask].index[0]
+            try:
+                tp_mask = df_eff[high_col] >= float(tp_use)
+                if tp_mask.to_numpy().any():
+                    hit_tp_idx = df_eff[tp_mask].index[0]
+            except Exception:
+                hit_tp_idx = None
 
         if sl_use is not None:
-            sl_mask = df_eff[low_col] <= float(sl_use)
-            if sl_mask.to_numpy().any():
-                hit_sl_idx = df_eff[sl_mask].index[0]
+            try:
+                sl_mask = df_eff[low_col] <= float(sl_use)
+                if sl_mask.to_numpy().any():
+                    hit_sl_idx = df_eff[sl_mask].index[0]
+            except Exception:
+                hit_sl_idx = None
 
         if hit_tp_idx is not None or hit_sl_idx is not None:
             if hit_tp_idx is not None and hit_sl_idx is not None:
@@ -755,16 +721,23 @@ def _evaluate_exit_across_horizon(
                 meta=meta,
             )
 
-    # ここまで来た＝TP/SL未到達
     last_horizon_date = horizon_dates[-1]
+    if last_available_date != last_horizon_date:
+        return EvalResult(
+            ok=True,
+            reason="carry",
+            eval_exit_reason="carry",
+            pl_per_share=None,
+            meta={**meta, "carry_rule": "last_horizon_not_available", "last_available_date": str(last_available_date) if last_available_date else None},
+        )
 
-    # 未来でまだ最後の日が来てない → carry
-    if last_horizon_date >= today_local:
-        return EvalResult(ok=True, reason="carry", eval_exit_reason="carry", pl_per_share=None, meta=meta)
-
-    # 最後の営業日までデータが揃っている（過去）→ time_stop（最後の足で強制クローズ）
     if last_close_px is None or last_close_ts is None:
-        return EvalResult(ok=False, reason="no_close_for_time_stop", eval_exit_reason="no_close_for_time_stop", meta=meta)
+        return EvalResult(
+            ok=False,
+            reason="no_close_for_time_stop",
+            eval_exit_reason="no_close_for_time_stop",
+            meta=meta,
+        )
 
     plps = _pl_per_share(side, float(exec_entry_px), float(last_close_px))
     return EvalResult(
@@ -794,8 +767,6 @@ def _evaluate_one(
     """
     current_reason = str(v.eval_exit_reason or "").strip()
 
-    # 既に closed 扱いのものは基本触らない（再現性保護）
-    # ただし --force のときはこのガードを無効化する
     if (not force) and (current_reason not in ("", "carry")):
         return EvalResult(
             ok=True,
@@ -804,10 +775,11 @@ def _evaluate_one(
             meta={"guard": "already_closed", "force": False},
         )
 
-    # entry評価（起票日当日のみ）
     ok, reason, exec_entry_px, entry_ts, tp_use, sl_use, r_plan, meta_entry = _evaluate_entry_on_trade_date(v, verbose=verbose)
 
     if not ok:
+        # 市場前の「まだデータ来てないだけ」は、ここでは reason=no_bars で返る
+        # → handle側で “DB更新しないスキップ” に落とす（合意）
         return EvalResult(ok=False, reason=reason, eval_exit_reason=reason, meta=meta_entry)
 
     if reason == "no_position":
@@ -826,7 +798,6 @@ def _evaluate_one(
     if exec_entry_px is None or entry_ts is None:
         return EvalResult(ok=False, reason="bad_entry_state", eval_exit_reason="bad_entry_state", meta=meta_entry)
 
-    # exit評価（horizon営業日）
     res_exit = _evaluate_exit_across_horizon(
         v,
         exec_entry_px=float(exec_entry_px),
@@ -917,10 +888,8 @@ class Command(BaseCommand):
         parser.add_argument("--dry-run", action="store_true", help="DB更新せずログだけ")
 
     def handle(self, *args, **options):
-        # verbosity は options から必ず拾う（self.verbosity が無いケース対策）
         verbose = int(options.get("verbosity", 1) or 1)
 
-        # ★ 0 を False 扱いして 5/10 に化ける事故を防ぐ
         days_opt = options.get("days", None)
         days = 10 if days_opt is None else int(days_opt)
 
@@ -938,8 +907,8 @@ class Command(BaseCommand):
         now_local = timezone.localtime()
         today = now_local.date()  # JST
 
-        # 朝（市場開始前）に回すと「今日の5分足が無い」ので no_bars 祭りになる
-        # → 15:40未満なら date_max を昨日に寄せる（プロ運用の無駄撃ち防止）
+        # 朝（市場開始前）に回すと「今日の5分足が無い」ので無駄撃ちになる
+        # → 15:40未満なら date_max を昨日に寄せる（運用最適化）
         if now_local.time() < _time(15, 40):
             date_max = today - _timedelta(days=1)
         else:
@@ -950,11 +919,8 @@ class Command(BaseCommand):
         else:
             date_min = date_max - _timedelta(days=days)
 
-        # 対象抽出は trade_date 基準に統一
         qs = VirtualTrade.objects.filter(trade_date__gte=date_min, trade_date__lte=date_max)
 
-        # --force なし：
-        # - 未評価("") と carry のみ拾う（carryは未確定なので毎日対象に残す）
         if not force:
             qs = qs.filter(eval_exit_reason__in=["", "carry"])
 
@@ -977,18 +943,26 @@ class Command(BaseCommand):
             try:
                 res = _evaluate_one(v, horizon_bd=horizon, force=force, verbose=verbose)
 
-                # 「まだデータ来てないだけ」は DB を汚さず、そのままスキップ（次回また拾える）
-                if res.reason == "no_bars_yet":
-                    skipped += 1
-                    if verbose >= 2:
-                        self.stdout.write(
-                            f"  skip id={v.id} code={v.code} trade_date={v.trade_date} reason=no_bars_yet"
-                        )
-                    continue
+                # ==========================
+                # 「まだデータ来てないだけ」系は DB を更新しない（合意）
+                # ==========================
+                # - no_bars は “その日の bars が 0” で起こる
+                # - 市場前や直後などで一時的に発生することがあるので、trade_date が今日以降なら未更新でスキップ
+                if res.reason == "no_bars":
+                    # date_max を昨日に寄せる設計だが、手動実行/テストで今日が混ざっても破壊しない
+                    if v.trade_date >= today:
+                        skipped += 1
+                        if verbose >= 2:
+                            self.stdout.write(
+                                f"  soft-skip(no_bars_not_ready) id={v.id} code={v.code} trade_date={v.trade_date}"
+                            )
+                        continue
 
-                # ハード失敗系は skip として eval_exit_reason に理由を刻む（後で追える）
+                # ==========================
+                # ハード失敗系（ここは DB に刻む）
+                # ==========================
                 hard_fail_reasons = {
-                    "no_bars",
+                    # "no_bars" は上の soft-skip で吸収したいので hard には入れない
                     "no_bars_after_active",
                     "no_ts",
                     "no_ohlc",
@@ -997,7 +971,6 @@ class Command(BaseCommand):
                     "no_entry",
                     "bad_entry_state",
                     "no_close_for_time_stop",
-                    "no_bars_horizon",
                 }
 
                 if (not res.ok) and (res.reason in hard_fail_reasons):
@@ -1014,13 +987,11 @@ class Command(BaseCommand):
                         touched_run_ids.add(v.run_id)
                     continue
 
-                # already_closed は “成功扱い” だが、--force なしではDB更新は不要
                 if res.reason == "already_closed" and (not force):
                     if verbose >= 2:
                         self.stdout.write(f"  keep id={v.id} code={v.code} trade_date={v.trade_date} already_closed")
                     continue
 
-                # no_position / carry / hit_tp / hit_sl / time_stop をDBへ反映
                 pl_per_share = _safe_float(res.pl_per_share) if res.pl_per_share is not None else None
                 pl_per_share = float(pl_per_share) if pl_per_share is not None else 0.0
 
@@ -1038,16 +1009,17 @@ class Command(BaseCommand):
 
                 exit_reason = str(res.eval_exit_reason or "").strip()
 
-                # closed_at は “CLOSEDになった” ときのみ入れる
+                # 旧バージョン由来の no_bars_horizon が来ても carry に寄せる（保険）
+                if exit_reason == "no_bars_horizon":
+                    exit_reason = "carry"
+
                 if exit_reason in ("hit_tp", "hit_sl", "time_stop", "no_position"):
                     closed_at = res.eval_exit_ts if res.eval_exit_ts is not None else timezone.now()
                 else:
                     closed_at = None
 
-                # EV_true_pro（A案: all/all を代表）
                 ev_true_pro = _ev_true_from_behavior(v.code)
 
-                # replay の last_eval を更新（監査ログ）
                 replay = v.replay if isinstance(v.replay, dict) else {}
                 replay["last_eval"] = {
                     "trade_date": str(v.trade_date),
@@ -1072,7 +1044,6 @@ class Command(BaseCommand):
                     replay["pro"] = pro
 
                 if not dry_run:
-                    # entry は no_position なら None
                     if exit_reason == "no_position":
                         v.eval_entry_px = None
                         v.eval_entry_ts = None
@@ -1080,7 +1051,6 @@ class Command(BaseCommand):
                         v.eval_entry_px = res.eval_entry_px
                         v.eval_entry_ts = res.eval_entry_ts
 
-                    # exit は carry のとき None（未確定）
                     if exit_reason == "carry":
                         v.eval_exit_px = None
                         v.eval_exit_ts = None
@@ -1105,7 +1075,6 @@ class Command(BaseCommand):
                     v.ev_true_pro = ev_true_pro
                     v.replay = replay
 
-                    # R 再計算（est_loss を分母）
                     v.recompute_r()
 
                     v.save(update_fields=[
@@ -1144,7 +1113,6 @@ class Command(BaseCommand):
                     touched_run_ids.add(v.run_id)
                 continue
 
-        # run_id ごとに rank_pro
         ranked_rows = 0
         if not dry_run:
             for rid in sorted(touched_run_ids):
