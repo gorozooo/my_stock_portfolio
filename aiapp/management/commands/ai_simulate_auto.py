@@ -24,11 +24,16 @@ ai_simulate_auto
 - ポリシー（aiapp/policies/short_aggressive.yml）でフィルタ（純利益/ RR など）
 - 同時ポジション制限（max_positions / max_total_risk_r）を適用
 - ★資金プール制約（本修正）：
-  - 口座資金 = AIAPP_PRO_EQUITY_YEN（例：500万）
+  - 口座枠（policy.pro.profiles[mode].limits.max_total_notional_yen）を上限として使う
+  - reserve_cash_yen（常に残す）を差し引く
   - 既存OPEN（PRO accepted）で使っている required_cash_pro を差し引いた残高 cash_left を計算
-  - 新規の accepted は required_cash_pro が cash_left 以下のものだけ
+  - 新規 accepted は required_cash_pro が cash_left 以下のものだけ
   - 足りないものは rejected_by_cash（DBには残すが JSONLには出さない）
-- JSONL/DB には PRO を主として保存（broker別は “参考” として残す）
+- ★C: “資金を割って建玉を増やす”：
+  - 残り枠（remaining_slots）で cash_left を割り、1銘柄あたりの目安（target_per_trade_yen）を作る
+  - 1銘柄上限（max_notional_per_trade_yen）と合わせて cap_yen を確定
+  - その cap_yen に収まるように qty_pro を丸め直す（lot単位）
+  - min_notional_per_trade_yen が 0 でなければ下限として判定
 
 ★A案（詰まり解消）：
 - 同時ポジション制限で “OPEN扱い” に数えるのは、PROで accepted になったものだけ
@@ -175,6 +180,82 @@ def _safe_int(x) -> Optional[int]:
         return int(x)
     except Exception:
         return None
+
+
+# ========= lot ルール（policy由来） =========
+def _lot_size_from_policy(code: str, policy: Dict[str, Any]) -> int:
+    """
+    policy.lot_rule を尊重して lot を返す。
+    - ETF/ETN prefix なら etf_lot
+    - それ以外は stock_lot
+    """
+    try:
+        lr = policy.get("lot_rule") if isinstance(policy.get("lot_rule"), dict) else {}
+        prefixes = lr.get("etf_codes_prefix") or ["13", "15"]
+        etf_lot = int(lr.get("etf_lot", 1) or 1)
+        stock_lot = int(lr.get("stock_lot", 100) or 100)
+
+        s = str(code)
+        for p in prefixes:
+            if s.startswith(str(p)):
+                return max(1, etf_lot)
+        return max(1, stock_lot)
+    except Exception:
+        return 100
+
+
+# ========= PRO profile 合成 =========
+def _get_pro_profile(policy: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+    """
+    policy.pro.learn_mode と profiles から、現在のプロファイルを返す。
+    戻り値: (learn_mode, profile_dict)
+    """
+    pro = policy.get("pro") if isinstance(policy.get("pro"), dict) else {}
+    learn_mode = str(pro.get("learn_mode") or "collect").strip().lower()
+    if learn_mode not in ("collect", "strict"):
+        learn_mode = "collect"
+    profiles = pro.get("profiles") if isinstance(pro.get("profiles"), dict) else {}
+    prof = profiles.get(learn_mode) if isinstance(profiles.get(learn_mode), dict) else {}
+    return learn_mode, prof
+
+
+def _merge_policy_for_mode(policy: Dict[str, Any], *, learn_mode: str, profile: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    learn_mode/profile に合わせて policy を合成する。
+    - limits は profile.limits を最優先で policy['limits'] に反映（下流統一）
+    - strict のとき tighten を filters に上乗せ（min_reward_risk / min_net_profit_yen）
+    """
+    merged: Dict[str, Any] = dict(policy or {})
+
+    # limits を profile 側から採用
+    plimits = profile.get("limits") if isinstance(profile.get("limits"), dict) else {}
+    base_limits = merged.get("limits") if isinstance(merged.get("limits"), dict) else {}
+    limits_new = dict(base_limits)
+    for k, v in (plimits or {}).items():
+        limits_new[k] = v
+    merged["limits"] = limits_new
+
+    # strict tighten を filters に反映
+    if str(learn_mode) == "strict":
+        tighten = profile.get("tighten") if isinstance(profile.get("tighten"), dict) else {}
+        filters = merged.get("filters") if isinstance(merged.get("filters"), dict) else {}
+        filters_new = dict(filters)
+
+        # tighten: min_reward_risk / min_net_profit_yen（強化）
+        if "min_reward_risk" in tighten and tighten.get("min_reward_risk") is not None:
+            try:
+                filters_new["min_reward_risk"] = float(tighten.get("min_reward_risk"))
+            except Exception:
+                pass
+        if "min_net_profit_yen" in tighten and tighten.get("min_net_profit_yen") is not None:
+            try:
+                filters_new["min_net_profit_yen"] = float(tighten.get("min_net_profit_yen"))
+            except Exception:
+                pass
+
+        merged["filters"] = filters_new
+
+    return merged
 
 
 # ========= 本体化：特徴量・距離の保存 =========
@@ -389,6 +470,96 @@ def _load_open_positions_for_limits(user) -> Tuple[Dict[str, Dict[str, Any]], fl
     return positions, total_risk, float(used_cash_yen)
 
 
+def _apply_per_trade_cap_to_pro_res(
+    *,
+    code: str,
+    policy: Dict[str, Any],
+    entry: Optional[float],
+    pro_res: Any,
+    cap_yen: float,
+    min_yen: float,
+) -> Tuple[Any, str]:
+    """
+    ★Cの中枢：
+    - cap_yen に収まるように qty_pro を lot 単位で丸め直す
+    - min_yen（0で無効）未満になるなら reject に倒せるよう reason を返す
+
+    戻り値: (pro_res(書き換え済), cap_reason)
+    cap_reason は "" なら変更なし
+    """
+    e = _safe_float(entry)
+    if e is None or e <= 0:
+        return pro_res, ""
+
+    try:
+        qty0 = int(getattr(pro_res, "qty_pro", 0) or 0)
+    except Exception:
+        qty0 = 0
+
+    if qty0 <= 0:
+        return pro_res, ""
+
+    lot = _lot_size_from_policy(str(code), policy)
+    lot = max(1, int(lot))
+
+    # cap が 0/負なら「資金制約でreject」
+    if cap_yen <= 0:
+        return pro_res, "cap_zero"
+
+    # cap から入れる最大株数（lot切り捨て）
+    max_qty_by_cap = int((cap_yen / e) // lot * lot)
+    if max_qty_by_cap <= 0:
+        return pro_res, "cap_too_small_for_lot"
+
+    qty1 = min(qty0, max_qty_by_cap)
+    qty1 = int(qty1 // lot * lot)
+    if qty1 <= 0:
+        return pro_res, "cap_round_to_zero"
+
+    # min_notional（0で無効）
+    if min_yen and min_yen > 0:
+        if (e * qty1) < float(min_yen):
+            return pro_res, "below_min_notional"
+
+    if qty1 == qty0:
+        return pro_res, ""
+
+    # ここで pro_res の各値を “qty1ベース” に合わせる（比例近似）
+    # required_cash_pro は厳密に entry*qty とする（安全側）
+    try:
+        req0 = float(getattr(pro_res, "required_cash_pro", 0.0) or 0.0)
+    except Exception:
+        req0 = 0.0
+
+    req1 = float(e * qty1)
+
+    # est_pl_pro / est_loss_pro は数量比例で近似（ズレても監査に残るのでOK）
+    try:
+        pl0 = float(getattr(pro_res, "est_pl_pro", 0.0) or 0.0)
+    except Exception:
+        pl0 = 0.0
+    try:
+        loss0 = float(getattr(pro_res, "est_loss_pro", 0.0) or 0.0)
+    except Exception:
+        loss0 = 0.0
+
+    ratio = (float(qty1) / float(qty0)) if qty0 > 0 else 1.0
+    pl1 = pl0 * ratio
+    loss1 = loss0 * ratio
+
+    # 上書き（dataclassでも普通のobjでも setattr で通る想定）
+    try:
+        setattr(pro_res, "qty_pro", int(qty1))
+        setattr(pro_res, "required_cash_pro", float(req1))
+        setattr(pro_res, "est_pl_pro", float(pl1))
+        setattr(pro_res, "est_loss_pro", float(loss1))
+    except Exception:
+        # setattr できないケースは諦めて変更なし
+        return pro_res, ""
+
+    return pro_res, f"cap_applied({qty0}->{qty1}, cap={cap_yen:.0f})"
+
+
 class Command(BaseCommand):
     help = "AIフル自動シミュレ用：DEMO紙トレ注文を JSONL に起票 + VirtualTrade同期（PRO仕様）"
 
@@ -423,10 +594,21 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR("[ai_simulate_auto] position_limits is not available (import failed)"))
             return
         try:
-            policy = load_policy_yaml(str(policy_path))
+            policy_raw = load_policy_yaml(str(policy_path))
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"[ai_simulate_auto] policy load error: {e} path={policy_path}"))
             return
+
+        # ---------- PRO profile (C) ----------
+        learn_mode, profile = _get_pro_profile(policy_raw)
+        policy = _merge_policy_for_mode(policy_raw, learn_mode=learn_mode, profile=profile)
+
+        # profile limits（Cの資金配分に使う）
+        prof_limits = profile.get("limits") if isinstance(profile.get("limits"), dict) else {}
+        max_notional_per_trade_yen = float(prof_limits.get("max_notional_per_trade_yen", 0) or 0)
+        min_notional_per_trade_yen = float(prof_limits.get("min_notional_per_trade_yen", 0) or 0)
+        max_total_notional_yen = float(prof_limits.get("max_total_notional_yen", 0) or 0)
+        reserve_cash_yen = float(prof_limits.get("reserve_cash_yen", 0) or 0)
 
         # ---------- picks load ----------
         picks_path = PICKS_DIR / "latest_full.json"
@@ -482,7 +664,7 @@ class Command(BaseCommand):
         # ---------- PRO equity ----------
         total_equity_yen = float(getattr(settings, "AIAPP_PRO_EQUITY_YEN", 3_000_000) or 3_000_000)
 
-        # ---------- position limits ----------
+        # ---------- position limits（policy['limits'] は profile 合成済み） ----------
         limits_cfg = policy.get("limits") if isinstance(policy.get("limits"), dict) else {}
         max_positions = int(limits_cfg.get("max_positions", 5) or 5)
         max_total_risk_r = float(limits_cfg.get("max_total_risk_r", 3.0) or 3.0)
@@ -491,10 +673,13 @@ class Command(BaseCommand):
         open_positions, total_risk_r, used_cash_yen = _load_open_positions_for_limits(user)
         mgr.load_open_positions(open_positions, total_risk_r=total_risk_r)
 
-        # ---------- cash pool (PRO equity) ----------
-        cash_start = float(total_equity_yen)
+        # ---------- cash pool (C: 口座枠 / 予備資金 / 既存占有) ----------
+        # 口座枠が 0 の場合は equity を使う（保険）
+        total_notional_cap = max_total_notional_yen if max_total_notional_yen > 0 else float(total_equity_yen)
+
+        cash_start = float(total_notional_cap)
         cash_used_before = float(used_cash_yen)
-        cash_left = cash_start - cash_used_before
+        cash_left = cash_start - float(reserve_cash_yen) - cash_used_before
         if cash_left < 0:
             cash_left = 0.0
 
@@ -522,7 +707,8 @@ class Command(BaseCommand):
         if dry_run:
             self.stdout.write(
                 f"[ai_simulate_auto] DRY-RUN run_id={run_id} run_date={run_date_str} trade_date={trade_date_str}({trade_date_reason}) "
-                f"policy={policy_path} equity={cash_start:.0f} used_before={cash_used_before:.0f} cash_left={cash_left:.0f} "
+                f"policy={policy_path} pro_mode={learn_mode} "
+                f"cap_total={cash_start:.0f} reserve={float(reserve_cash_yen):.0f} used_before={cash_used_before:.0f} cash_left={cash_left:.0f} "
                 f"limits=(pos={max_positions}, risk={max_total_risk_r:.2f}R) open_now={mgr.count_open()} total_risk={mgr.total_risk_r:.2f} "
                 f"items={len(cands)}"
             )
@@ -553,23 +739,6 @@ class Command(BaseCommand):
                 score_100 = it.get("score_100")
                 stars = it.get("stars")
 
-                # ---------- PRO sizing + filters ----------
-                pro_res = None
-                pro_reason = ""
-                try:
-                    pro_res, pro_reason = compute_pro_sizing_and_filter(
-                        code=str(code),
-                        side=str(side),
-                        entry=_safe_float(entry),
-                        tp=_safe_float(tp),
-                        sl=_safe_float(sl),
-                        policy=policy,
-                        total_equity_yen=cash_start,
-                    )
-                except Exception as e:
-                    pro_res = None
-                    pro_reason = f"pro_exception({type(e).__name__})"
-
                 # 共通で保存したい payload
                 payload_extra = _build_feat_last_and_distance(
                     code=code,
@@ -583,11 +752,31 @@ class Command(BaseCommand):
                 # ここで使う run 共通メタ（各レコードに入れて監査できるようにする）
                 run_common_pro_meta = {
                     "policy": str(policy_path),
-                    "equity_yen": float(cash_start),
+                    "pro_mode": str(learn_mode),
+                    "equity_yen": float(total_equity_yen),              # 資産側（参考）
+                    "notional_cap_yen": float(cash_start),              # 口座枠（Cの真）
+                    "reserve_cash_yen": float(reserve_cash_yen),
                     "used_before_yen": float(cash_used_before),
                     "trade_date_reason": str(trade_date_reason),
                     "run_id": str(run_id),
                 }
+
+                # ---------- PRO sizing + filters（合成済 policy を渡す） ----------
+                pro_res = None
+                pro_reason = ""
+                try:
+                    pro_res, pro_reason = compute_pro_sizing_and_filter(
+                        code=str(code),
+                        side=str(side),
+                        entry=_safe_float(entry),
+                        tp=_safe_float(tp),
+                        sl=_safe_float(sl),
+                        policy=policy,
+                        total_equity_yen=float(total_equity_yen),
+                    )
+                except Exception as e:
+                    pro_res = None
+                    pro_reason = f"pro_exception({type(e).__name__})"
 
                 if pro_res is None:
                     skipped_pro_filter += 1
@@ -662,12 +851,143 @@ class Command(BaseCommand):
                         upserted += 1
                     continue
 
-                # ---------- cash pool constraint (PRO equity) ----------
-                req_cash = float(pro_res.required_cash_pro or 0.0)
+                # ---------- C: 残り枠で資金を割って cap を作る ----------
+                open_now = mgr.count_open()
+                remaining_slots = max(1, int(max_positions) - int(open_now))
+                target_per_trade_yen = float(cash_left) / float(remaining_slots) if remaining_slots > 0 else float(cash_left)
+
+                cap_yen = float(target_per_trade_yen)
+                if max_notional_per_trade_yen and max_notional_per_trade_yen > 0:
+                    cap_yen = min(cap_yen, float(max_notional_per_trade_yen))
+
+                # 下限（0で無効）
+                min_yen = float(min_notional_per_trade_yen or 0.0)
+
+                # cap を qty に反映
+                pro_res, cap_reason = _apply_per_trade_cap_to_pro_res(
+                    code=str(code),
+                    policy=policy,
+                    entry=_safe_float(entry),
+                    pro_res=pro_res,
+                    cap_yen=cap_yen,
+                    min_yen=min_yen,
+                )
+
+                # cap により reject（min未満等）に倒す
+                if cap_reason in ("cap_zero", "cap_too_small_for_lot", "cap_round_to_zero", "below_min_notional"):
+                    rejected_by_cash += 1
+
+                    try:
+                        req_cash_bad = float(getattr(pro_res, "required_cash_pro", 0.0) or 0.0)
+                    except Exception:
+                        req_cash_bad = 0.0
+
+                    defaults = dict(
+                        run_date=run_date,
+                        trade_date=trade_date,
+                        source="ai_simulate_auto",
+                        mode=rec_mode,
+                        code=code,
+                        name=name or "",
+                        sector=sector or "",
+                        side=side,
+                        universe=str(universe or ""),
+                        style=str(style or ""),
+                        horizon=str(horizon or ""),
+                        topk=topk if isinstance(topk, int) else _safe_int(topk),
+                        score=score if score is None else float(score),
+                        score_100=score_100 if score_100 is None else int(score_100),
+                        stars=stars if stars is None else int(stars),
+                        mode_period=mode_period,
+                        mode_aggr=mode_aggr,
+                        entry_px=entry if entry is None else float(entry),
+                        tp_px=tp if tp is None else float(tp),
+                        sl_px=sl if sl is None else float(sl),
+                        last_close=last_close if last_close is None else float(last_close),
+                        opened_at=opened_at_dt,
+                        qty_pro=int(getattr(pro_res, "qty_pro", 0) or 0),
+                        required_cash_pro=float(req_cash_bad),
+                        est_pl_pro=float(getattr(pro_res, "est_pl_pro", 0.0) or 0.0),
+                        est_loss_pro=float(getattr(pro_res, "est_loss_pro", 0.0) or 0.0),
+                        ev_true_pro=_ev_true_from_behavior(code),
+                        replay={
+                            "sim_order": {
+                                "user_id": user_id,
+                                "mode": rec_mode,
+                                "ts": ts_iso,
+                                "run_date": run_date_str,
+                                "trade_date": trade_date_str,
+                                "run_id": run_id,
+                                "code": code,
+                                "name": name,
+                                "sector": sector,
+                                "side": side,
+                                "entry": entry,
+                                "tp": tp,
+                                "sl": sl,
+                                "last_close": last_close,
+                                "atr": atr_pick,
+                                "score": score,
+                                "score_100": score_100,
+                                "stars": stars,
+                                "style": style,
+                                "horizon": horizon,
+                                "universe": universe,
+                                "topk": topk,
+                                "source": "ai_simulate_auto",
+                            },
+                            "opened_at_local": str(timezone.localtime(opened_at_dt)),
+                            "pro": {
+                                **run_common_pro_meta,
+                                "status": "rejected_by_cash",
+                                "reason": f"cap_reject:{cap_reason}",
+                                "cap": {
+                                    "remaining_slots": int(remaining_slots),
+                                    "target_per_trade_yen": float(target_per_trade_yen),
+                                    "cap_yen": float(cap_yen),
+                                    "min_yen": float(min_yen),
+                                },
+                                "cash": {
+                                    "cash_before": float(cash_left),
+                                    "required_cash_pro": float(req_cash_bad),
+                                    "cash_after": float(cash_left),
+                                },
+                                "sizing": {
+                                    "qty_pro": int(getattr(pro_res, "qty_pro", 0) or 0),
+                                    "required_cash_pro": float(req_cash_bad),
+                                    "est_pl_pro": float(getattr(pro_res, "est_pl_pro", 0.0) or 0.0),
+                                    "est_loss_pro": float(getattr(pro_res, "est_loss_pro", 0.0) or 0.0),
+                                    "rr": float(getattr(pro_res, "rr", 0.0) or 0.0) if getattr(pro_res, "rr", None) is not None else None,
+                                    "net_profit_yen": float(getattr(pro_res, "net_profit_yen", 0.0) or 0.0) if getattr(pro_res, "net_profit_yen", None) is not None else None,
+                                },
+                            },
+                            **payload_extra,
+                        },
+                    )
+
+                    if dry_run:
+                        self.stdout.write(
+                            f"  reject_cap code={code} cap_reason={cap_reason} cap={cap_yen:.0f} cash_left={cash_left:.0f}"
+                        )
+                        continue
+
+                    VirtualTrade.objects.update_or_create(
+                        user=user,
+                        run_id=run_id,
+                        code=code,
+                        defaults=defaults,
+                    )
+                    upserted += 1
+                    continue
+
+                # ---------- cash pool constraint (口座枠ベース) ----------
+                try:
+                    req_cash = float(getattr(pro_res, "required_cash_pro", 0.0) or 0.0)
+                except Exception:
+                    req_cash = 0.0
                 cash_before = float(cash_left)
 
                 if req_cash <= 0:
-                    # required_cash_pro が0以下は異常値なので rejected 扱いに倒す（資金管理を壊さない）
                     rejected_by_cash += 1
 
                     defaults = dict(
@@ -693,10 +1013,10 @@ class Command(BaseCommand):
                         sl_px=sl if sl is None else float(sl),
                         last_close=last_close if last_close is None else float(last_close),
                         opened_at=opened_at_dt,
-                        qty_pro=int(pro_res.qty_pro),
+                        qty_pro=int(getattr(pro_res, "qty_pro", 0) or 0),
                         required_cash_pro=req_cash,
-                        est_pl_pro=float(pro_res.est_pl_pro),
-                        est_loss_pro=float(pro_res.est_loss_pro),
+                        est_pl_pro=float(getattr(pro_res, "est_pl_pro", 0.0) or 0.0),
+                        est_loss_pro=float(getattr(pro_res, "est_loss_pro", 0.0) or 0.0),
                         ev_true_pro=_ev_true_from_behavior(code),
                         replay={
                             "sim_order": {
@@ -729,18 +1049,25 @@ class Command(BaseCommand):
                                 **run_common_pro_meta,
                                 "status": "rejected_by_cash",
                                 "reason": "bad_required_cash_pro",
+                                "cap": {
+                                    "remaining_slots": int(max(1, max_positions - mgr.count_open())),
+                                    "target_per_trade_yen": float(target_per_trade_yen),
+                                    "cap_yen": float(cap_yen),
+                                    "min_yen": float(min_yen),
+                                    "cap_reason": str(cap_reason or ""),
+                                },
                                 "cash": {
                                     "cash_before": cash_before,
                                     "required_cash_pro": req_cash,
                                     "cash_after": cash_before,
                                 },
                                 "sizing": {
-                                    "qty_pro": int(pro_res.qty_pro),
+                                    "qty_pro": int(getattr(pro_res, "qty_pro", 0) or 0),
                                     "required_cash_pro": req_cash,
-                                    "est_pl_pro": float(pro_res.est_pl_pro),
-                                    "est_loss_pro": float(pro_res.est_loss_pro),
-                                    "rr": float(pro_res.rr) if pro_res.rr is not None else None,
-                                    "net_profit_yen": float(pro_res.net_profit_yen) if pro_res.net_profit_yen is not None else None,
+                                    "est_pl_pro": float(getattr(pro_res, "est_pl_pro", 0.0) or 0.0),
+                                    "est_loss_pro": float(getattr(pro_res, "est_loss_pro", 0.0) or 0.0),
+                                    "rr": float(getattr(pro_res, "rr", 0.0) or 0.0) if getattr(pro_res, "rr", None) is not None else None,
+                                    "net_profit_yen": float(getattr(pro_res, "net_profit_yen", 0.0) or 0.0) if getattr(pro_res, "net_profit_yen", None) is not None else None,
                                 },
                             },
                             **payload_extra,
@@ -788,10 +1115,10 @@ class Command(BaseCommand):
                         sl_px=sl if sl is None else float(sl),
                         last_close=last_close if last_close is None else float(last_close),
                         opened_at=opened_at_dt,
-                        qty_pro=int(pro_res.qty_pro),
+                        qty_pro=int(getattr(pro_res, "qty_pro", 0) or 0),
                         required_cash_pro=req_cash,
-                        est_pl_pro=float(pro_res.est_pl_pro),
-                        est_loss_pro=float(pro_res.est_loss_pro),
+                        est_pl_pro=float(getattr(pro_res, "est_pl_pro", 0.0) or 0.0),
+                        est_loss_pro=float(getattr(pro_res, "est_loss_pro", 0.0) or 0.0),
                         ev_true_pro=_ev_true_from_behavior(code),
                         replay={
                             "sim_order": {
@@ -824,18 +1151,25 @@ class Command(BaseCommand):
                                 **run_common_pro_meta,
                                 "status": "rejected_by_cash",
                                 "reason": "insufficient_cash",
+                                "cap": {
+                                    "remaining_slots": int(max(1, max_positions - mgr.count_open())),
+                                    "target_per_trade_yen": float(target_per_trade_yen),
+                                    "cap_yen": float(cap_yen),
+                                    "min_yen": float(min_yen),
+                                    "cap_reason": str(cap_reason or ""),
+                                },
                                 "cash": {
                                     "cash_before": cash_before,
                                     "required_cash_pro": req_cash,
                                     "cash_after": cash_before,
                                 },
                                 "sizing": {
-                                    "qty_pro": int(pro_res.qty_pro),
+                                    "qty_pro": int(getattr(pro_res, "qty_pro", 0) or 0),
                                     "required_cash_pro": req_cash,
-                                    "est_pl_pro": float(pro_res.est_pl_pro),
-                                    "est_loss_pro": float(pro_res.est_loss_pro),
-                                    "rr": float(pro_res.rr) if pro_res.rr is not None else None,
-                                    "net_profit_yen": float(pro_res.net_profit_yen) if pro_res.net_profit_yen is not None else None,
+                                    "est_pl_pro": float(getattr(pro_res, "est_pl_pro", 0.0) or 0.0),
+                                    "est_loss_pro": float(getattr(pro_res, "est_loss_pro", 0.0) or 0.0),
+                                    "rr": float(getattr(pro_res, "rr", 0.0) or 0.0) if getattr(pro_res, "rr", None) is not None else None,
+                                    "net_profit_yen": float(getattr(pro_res, "net_profit_yen", 0.0) or 0.0) if getattr(pro_res, "net_profit_yen", None) is not None else None,
                                 },
                             },
                             **payload_extra,
@@ -885,10 +1219,10 @@ class Command(BaseCommand):
                         sl_px=sl if sl is None else float(sl),
                         last_close=last_close if last_close is None else float(last_close),
                         opened_at=opened_at_dt,
-                        qty_pro=int(pro_res.qty_pro),
+                        qty_pro=int(getattr(pro_res, "qty_pro", 0) or 0),
                         required_cash_pro=req_cash,
-                        est_pl_pro=float(pro_res.est_pl_pro),
-                        est_loss_pro=float(pro_res.est_loss_pro),
+                        est_pl_pro=float(getattr(pro_res, "est_pl_pro", 0.0) or 0.0),
+                        est_loss_pro=float(getattr(pro_res, "est_loss_pro", 0.0) or 0.0),
                         ev_true_pro=_ev_true_from_behavior(code),
                         replay={
                             "sim_order": {
@@ -926,18 +1260,25 @@ class Command(BaseCommand):
                                     "open_count": getattr(skip_info, "open_count", None) if skip_info else None,
                                     "total_risk_r": getattr(skip_info, "total_risk_r", None) if skip_info else None,
                                 },
+                                "cap": {
+                                    "remaining_slots": int(max(1, max_positions - mgr.count_open())),
+                                    "target_per_trade_yen": float(target_per_trade_yen),
+                                    "cap_yen": float(cap_yen),
+                                    "min_yen": float(min_yen),
+                                    "cap_reason": str(cap_reason or ""),
+                                },
                                 "cash": {
                                     "cash_before": cash_before,
                                     "required_cash_pro": req_cash,
                                     "cash_after": cash_before,  # limitsなので資金は減らさない
                                 },
                                 "sizing": {
-                                    "qty_pro": int(pro_res.qty_pro),
+                                    "qty_pro": int(getattr(pro_res, "qty_pro", 0) or 0),
                                     "required_cash_pro": req_cash,
-                                    "est_pl_pro": float(pro_res.est_pl_pro),
-                                    "est_loss_pro": float(pro_res.est_loss_pro),
-                                    "rr": float(pro_res.rr) if pro_res.rr is not None else None,
-                                    "net_profit_yen": float(pro_res.net_profit_yen) if pro_res.net_profit_yen is not None else None,
+                                    "est_pl_pro": float(getattr(pro_res, "est_pl_pro", 0.0) or 0.0),
+                                    "est_loss_pro": float(getattr(pro_res, "est_loss_pro", 0.0) or 0.0),
+                                    "rr": float(getattr(pro_res, "rr", 0.0) or 0.0) if getattr(pro_res, "rr", None) is not None else None,
+                                    "net_profit_yen": float(getattr(pro_res, "net_profit_yen", 0.0) or 0.0) if getattr(pro_res, "net_profit_yen", None) is not None else None,
                                 },
                             },
                             **payload_extra,
@@ -999,16 +1340,23 @@ class Command(BaseCommand):
                     "source": "ai_simulate_auto",
 
                     # ★PRO（統一口座）
-                    "qty_pro": int(pro_res.qty_pro),
-                    "required_cash_pro": req_cash,
-                    "est_pl_pro": float(pro_res.est_pl_pro),
-                    "est_loss_pro": float(pro_res.est_loss_pro),
-                    "pro_equity_yen": float(cash_start),
+                    "qty_pro": int(getattr(pro_res, "qty_pro", 0) or 0),
+                    "required_cash_pro": float(req_cash),
+                    "est_pl_pro": float(getattr(pro_res, "est_pl_pro", 0.0) or 0.0),
+                    "est_loss_pro": float(getattr(pro_res, "est_loss_pro", 0.0) or 0.0),
+                    "pro_equity_yen": float(total_equity_yen),
+                    "pro_notional_cap_yen": float(cash_start),
+                    "pro_mode": str(learn_mode),
                     "policy_mode": str(policy.get("mode") or "short_aggressive"),
 
                     # ★資金監査（このrunの資金状態）
                     "pro_cash_before": cash_before,
                     "pro_cash_after": cash_after,
+
+                    # ★C: cap監査
+                    "pro_target_per_trade_yen": float(target_per_trade_yen),
+                    "pro_cap_yen": float(cap_yen),
+                    "pro_cap_reason": str(cap_reason or ""),
 
                     # ★互換（参考）…picks 側に既にあるなら載せる（無ければ None）
                     "qty_rakuten": it.get("qty_rakuten"),
@@ -1049,10 +1397,10 @@ class Command(BaseCommand):
                     last_close=last_close if last_close is None else float(last_close),
 
                     # ★PRO（統一口座）
-                    qty_pro=int(pro_res.qty_pro),
-                    required_cash_pro=req_cash,
-                    est_pl_pro=float(pro_res.est_pl_pro),
-                    est_loss_pro=float(pro_res.est_loss_pro),
+                    qty_pro=int(getattr(pro_res, "qty_pro", 0) or 0),
+                    required_cash_pro=float(req_cash),
+                    est_pl_pro=float(getattr(pro_res, "est_pl_pro", 0.0) or 0.0),
+                    est_loss_pro=float(getattr(pro_res, "est_loss_pro", 0.0) or 0.0),
 
                     # ★broker別（参考）…picks に入ってるなら保存（無ければ None）
                     qty_rakuten=it.get("qty_rakuten"),
@@ -1077,6 +1425,13 @@ class Command(BaseCommand):
                         "pro": {
                             **run_common_pro_meta,
                             "status": "accepted",
+                            "cap": {
+                                "remaining_slots": int(max(1, max_positions - (mgr.count_open() - 1))),
+                                "target_per_trade_yen": float(target_per_trade_yen),
+                                "cap_yen": float(cap_yen),
+                                "min_yen": float(min_yen),
+                                "cap_reason": str(cap_reason or ""),
+                            },
                             "cash": {
                                 "cash_before": cash_before,
                                 "required_cash_pro": req_cash,
@@ -1089,12 +1444,12 @@ class Command(BaseCommand):
                                 "total_risk_after": float(mgr.total_risk_r),
                             },
                             "sizing": {
-                                "qty_pro": int(pro_res.qty_pro),
-                                "required_cash_pro": req_cash,
-                                "est_pl_pro": float(pro_res.est_pl_pro),
-                                "est_loss_pro": float(pro_res.est_loss_pro),
-                                "rr": float(pro_res.rr) if pro_res.rr is not None else None,
-                                "net_profit_yen": float(pro_res.net_profit_yen) if pro_res.net_profit_yen is not None else None,
+                                "qty_pro": int(getattr(pro_res, "qty_pro", 0) or 0),
+                                "required_cash_pro": float(req_cash),
+                                "est_pl_pro": float(getattr(pro_res, "est_pl_pro", 0.0) or 0.0),
+                                "est_loss_pro": float(getattr(pro_res, "est_loss_pro", 0.0) or 0.0),
+                                "rr": float(getattr(pro_res, "rr", 0.0) or 0.0) if getattr(pro_res, "rr", None) is not None else None,
+                                "net_profit_yen": float(getattr(pro_res, "net_profit_yen", 0.0) or 0.0) if getattr(pro_res, "net_profit_yen", None) is not None else None,
                             },
                         },
                         **payload_extra,
@@ -1103,9 +1458,10 @@ class Command(BaseCommand):
 
                 if dry_run:
                     self.stdout.write(
-                        f"  accept code={code} ev={_ev_true_from_behavior(code):.3f} qty_pro={int(pro_res.qty_pro)} "
-                        f"req={req_cash:.0f} cash_before={cash_before:.0f} cash_after={cash_after:.0f} "
-                        f"open_now={mgr.count_open()} risk={mgr.total_risk_r:.2f}"
+                        f"  accept code={code} ev={_ev_true_from_behavior(code):.3f} "
+                        f"qty_pro={int(getattr(pro_res,'qty_pro',0) or 0)} req={req_cash:.0f} "
+                        f"cap={cap_yen:.0f} cash_before={cash_before:.0f} cash_after={cash_after:.0f} "
+                        f"open_now={mgr.count_open()} risk={mgr.total_risk_r:.2f} mode={learn_mode} cap_reason={cap_reason or '-'}"
                     )
                     continue
 
@@ -1131,7 +1487,7 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.SUCCESS(
                     f"[ai_simulate_auto] DRY-RUN done run_id={run_id} run_date={run_date_str} trade_date={trade_date_str}({trade_date_reason}) "
-                    f"accepted={accepted} rejected_by_cash={rejected_by_cash} skipped_filter={skipped_pro_filter} skipped_limits={skipped_limits} "
+                    f"pro_mode={learn_mode} accepted={accepted} rejected_by_cash={rejected_by_cash} skipped_filter={skipped_pro_filter} skipped_limits={skipped_limits} "
                     f"cash_left_end={cash_left:.0f} open_after={mgr.count_open()} total_risk_after={mgr.total_risk_r:.2f}"
                 )
             )
@@ -1140,7 +1496,7 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"[ai_simulate_auto] run_id={run_id} run_date={run_date_str} trade_date={trade_date_str}({trade_date_reason}) user_id={user_id} "
-                f"policy={policy_path} equity={cash_start:.0f} used_before={cash_used_before:.0f} cash_left_end={cash_left:.0f} "
+                f"policy={policy_path} pro_mode={learn_mode} cap_total={cash_start:.0f} reserve={float(reserve_cash_yen):.0f} used_before={cash_used_before:.0f} cash_left_end={cash_left:.0f} "
                 f"limits=(pos={max_positions}, risk={max_total_risk_r:.2f}R) "
                 f"accepted={accepted} rejected_by_cash={rejected_by_cash} skipped_filter={skipped_pro_filter} skipped_limits={skipped_limits} "
                 f"jsonl_written={written} db_upserted={upserted} -> {out_path}"
