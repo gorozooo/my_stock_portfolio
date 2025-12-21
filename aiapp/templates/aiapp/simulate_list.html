@@ -23,57 +23,72 @@
   }
   .wrap{max-width:720px;margin:0 auto;padding:10px 12px 80px;}
 
-  /* ===== 上部：PRO口座サマリー ===== */
-  .acct-card{
+  /* ===== 上部：PRO残高パネル ===== */
+  .pro-top{
+    margin-bottom:10px;
     padding:10px 12px;
     border-radius:14px;
     border:1px solid rgba(148,163,184,0.35);
-    background:linear-gradient(135deg,rgba(15,23,42,0.96),rgba(30,64,175,0.35));
+    background:radial-gradient(circle at top left,rgba(56,189,248,0.16),rgba(15,23,42,0.94));
     backdrop-filter:blur(10px);
-    margin-bottom:10px;
   }
-  .acct-title{
+  .pro-title{
     font-size:12px;
     font-weight:700;
-    margin-bottom:6px;
     display:flex;
+    align-items:center;
     justify-content:space-between;
     gap:8px;
-    align-items:baseline;
+    margin-bottom:6px;
   }
-  .acct-title small{
-    font-size:10px;
-    color:var(--sub);
-    font-weight:600;
-  }
-  .acct-row{
-    display:flex;
-    justify-content:space-between;
-    gap:10px;
-    align-items:baseline;
+  .pro-sub{
     font-size:11px;
-  }
-  .acct-row + .acct-row{ margin-top:4px; }
-  .acct-label{ color:var(--sub); }
-  .acct-val{
+    color:var(--sub);
     font-variant-numeric:tabular-nums;
-    font-weight:800;
-    text-align:right;
     white-space:nowrap;
   }
-  .acct-small{
-    margin-top:6px;
-    font-size:10px;
+  .pro-grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px;
+  }
+  @media (max-width:480px){
+    .pro-grid{ grid-template-columns:1fr; }
+  }
+  .pro-kv{
+    border:1px solid rgba(148,163,184,0.25);
+    border-radius:12px;
+    padding:8px 10px;
+    background:rgba(15,23,42,0.88);
+  }
+  .pro-kv .k{
+    font-size:11px;
     color:var(--sub);
-    line-height:1.25;
+    margin-bottom:2px;
+  }
+  .pro-kv .v{
+    font-size:14px;
+    font-weight:700;
+    font-variant-numeric:tabular-nums;
+  }
+  .pro-kv .v.pos{ color:var(--ok); }
+  .pro-kv .v.neg{ color:var(--bad); }
+  .pro-kv .mini{
+    margin-top:3px;
+    font-size:10px;
+    color:var(--muted);
+    font-variant-numeric:tabular-nums;
   }
 
   /* ===== KPIカード（選択日 / 通算） ===== */
   .kpi-top{
     display:grid;
-    grid-template-columns:repeat(2,minmax(0,1fr)); /* ★常に左右2カラム */
+    grid-template-columns:repeat(2,minmax(0,1fr));
     gap:8px;
     margin-bottom:10px;
+  }
+  @media (max-width:480px){
+    .kpi-top{ grid-template-columns:1fr; }
   }
   .kpi-card{
     padding:10px 12px;
@@ -84,8 +99,8 @@
     backdrop-filter:blur(10px);
   }
   .kpi-title{
-    font-size:11px;
-    font-weight:700;
+    font-size:12px;
+    font-weight:600;
     margin-bottom:4px;
   }
   .kpi-counts{
@@ -93,13 +108,12 @@
     flex-wrap:wrap;
     gap:6px;
     margin-bottom:4px;
-    font-size:11px;
   }
   .kpi-count span.label{ color:var(--sub); margin-right:2px; }
-  .kpi-pl{ font-size:11px; }
+  .kpi-pl{ font-size:12px; }
   .kpi-pl-val{
     font-variant-numeric:tabular-nums;
-    font-weight:800;
+    font-weight:600;
     margin-left:4px;
   }
   .kpi-pl-val.pos{color:var(--ok);}
@@ -147,7 +161,7 @@
     background:rgba(56,189,248,0.18);
     border-color:rgba(56,189,248,0.9);
     color:#e0f2fe;
-    font-weight:700;
+    font-weight:600;
   }
 
   .date-form{
@@ -228,7 +242,7 @@
 
   .name{
     font-size:15px;
-    font-weight:700;
+    font-weight:600;
     white-space:nowrap;
     overflow:hidden;
     text-overflow:clip;
@@ -301,7 +315,7 @@
   .ai-title,
   .real-title{
     font-size:11px;
-    font-weight:700;
+    font-weight:600;
     margin-bottom:4px;
     color:#e5e7eb;
   }
@@ -418,44 +432,56 @@
 {% block content %}
 <div class="wrap">
 
-  <!-- ★上部：現在残高（最新）＋建ててる件数 -->
-  <div class="acct-card">
-    <div class="acct-title">
-      <span>PRO口座サマリー</span>
-      {% if latest_cash_ts_label %}
-        <small>更新: {{ latest_cash_ts_label }}</small>
-      {% endif %}
-    </div>
-
-    <div class="acct-row">
-      <div class="acct-label">建ててる件数（PRO OPEN）</div>
-      <div class="acct-val">{{ open_positions_count|default:0 }} 件</div>
-    </div>
-
-    <div class="acct-row">
-      <div class="acct-label">現在残高（最新）</div>
-      <div class="acct-val">
-        {% if current_cash is None %}
-          —
-        {% else %}
-          {{ current_cash|floatformat:0|intcomma }} 円
-        {% endif %}
+  <!-- ===== PRO残高パネル（最上部に単独表示） ===== -->
+  <div class="pro-top">
+    <div class="pro-title">
+      <div>PRO口座（統一）残高</div>
+      <div class="pro-sub">
+        建玉 {{ pro_account.open_count|default:0 }} / {{ pro_account.max_positions|default:5 }}
+        ・上限 {{ pro_account.max_total_risk_r|default:3.0 }}R
       </div>
     </div>
 
-    <div class="acct-small">
-      {% if latest_cash_before is not None or latest_cash_after is not None %}
-        最新の資金推移: 
-        {% if latest_cash_before is None %}—{% else %}{{ latest_cash_before|floatformat:0|intcomma }}{% endif %}
-        →
-        {% if latest_cash_after is None %}—{% else %}{{ latest_cash_after|floatformat:0|intcomma }}{% endif %}
-        円
-      {% else %}
-        ※残高は replay から取得（まだ保存されてない古いデータは “—” になります）
-      {% endif %}
+    <div class="pro-grid">
+      <div class="pro-kv">
+        <div class="k">口座資金</div>
+        <div class="v">
+          {{ pro_account.equity_yen|default:0|floatformat:0|intcomma }} 円
+        </div>
+        <div class="mini">settings.AIAPP_PRO_EQUITY_YEN</div>
+      </div>
+
+      <div class="pro-kv">
+        <div class="k">拘束中（OPEN合計）</div>
+        <div class="v">
+          {{ pro_account.reserved_yen|default:0|floatformat:0|intcomma }} 円
+        </div>
+        <div class="mini">OPENのみ（closed_at=None）</div>
+      </div>
+
+      <div class="pro-kv">
+        <div class="k">残り（建てられる余力）</div>
+        <div class="v {% if pro_account.free_yen|default:0 > 0 %}pos{% else %}neg{% endif %}">
+          {{ pro_account.free_yen|default:0|floatformat:0|intcomma }} 円
+        </div>
+        <div class="mini">口座資金 − 拘束中</div>
+      </div>
+
+      <div class="pro-kv">
+        <div class="k">いまの状態</div>
+        <div class="v">
+          {% if pro_account.open_count|default:0 >= pro_account.max_positions|default:5 %}
+            枠いっぱい
+          {% else %}
+            枠あり
+          {% endif %}
+        </div>
+        <div class="mini">この表示が“真実”基準（PRO口座単体）</div>
+      </div>
     </div>
   </div>
 
+  <!-- ===== KPI（左右2カラム） ===== -->
   <div class="kpi-top">
     <div class="kpi-card">
       <div class="kpi-title">選択日の成績（PRO公式）{% if selected_date_str %}：{{ selected_date_str }}{% endif %}</div>
