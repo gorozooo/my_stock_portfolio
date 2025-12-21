@@ -84,37 +84,54 @@
   .kpi-top{
     display:grid;
     grid-template-columns:repeat(2,minmax(0,1fr));
-    gap:8px;
-    margin-bottom:10px;
+    gap:6px;                 /* ←小さく */
+    margin-bottom:8px;       /* ←小さく */
   }
+  /* ★スマホでも2カラム固定（要求どおり） */
   @media (max-width:480px){
-    .kpi-top{ grid-template-columns:1fr; }
+    .kpi-top{ grid-template-columns:repeat(2,minmax(0,1fr)); }
   }
+
   .kpi-card{
-    padding:10px 12px;
-    border-radius:14px;
+    padding:7px 9px;         /* ←小さく */
+    border-radius:12px;      /* ←少し小さく */
     border:1px solid rgba(148,163,184,0.35);
     background:linear-gradient(135deg,rgba(15,23,42,0.96),rgba(17,94,163,0.85));
-    font-size:12px;
+    font-size:11px;          /* ←小さく */
+    line-height:1.25;        /* ←詰める */
     backdrop-filter:blur(10px);
   }
   .kpi-title{
-    font-size:12px;
-    font-weight:600;
-    margin-bottom:4px;
+    font-size:11px;          /* ←小さく */
+    font-weight:700;         /* ←視認性だけ維持 */
+    margin-bottom:3px;       /* ←小さく */
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
   }
   .kpi-counts{
     display:flex;
     flex-wrap:wrap;
-    gap:6px;
-    margin-bottom:4px;
+    gap:4px 6px;             /* ←小さく */
+    margin-bottom:3px;       /* ←小さく */
+  }
+  .kpi-count{
+    font-size:10px;          /* ←さらに小さく */
+    font-variant-numeric:tabular-nums;
   }
   .kpi-count span.label{ color:var(--sub); margin-right:2px; }
-  .kpi-pl{ font-size:12px; }
+  .kpi-pl{
+    font-size:10px;          /* ←小さく */
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:6px;
+  }
   .kpi-pl-val{
     font-variant-numeric:tabular-nums;
-    font-weight:600;
-    margin-left:4px;
+    font-weight:800;
+    margin-left:6px;
+    white-space:nowrap;
   }
   .kpi-pl-val.pos{color:var(--ok);}
   .kpi-pl-val.neg{color:var(--bad);}
@@ -481,27 +498,27 @@
     </div>
   </div>
 
-  <!-- ===== KPI（左右2カラム） ===== -->
+  <!-- ===== KPI（左右2カラム / さらに小型化） ===== -->
   <div class="kpi-top">
     <div class="kpi-card">
       <div class="kpi-title">選択日の成績（PRO公式）{% if selected_date_str %}：{{ selected_date_str }}{% endif %}</div>
       {% if summary_selected.has_data %}
         <div class="kpi-counts">
-          <div class="kpi-count"><span class="label">勝ち</span>{{ summary_selected.win }}件</div>
-          <div class="kpi-count"><span class="label">負け</span>{{ summary_selected.lose }}件</div>
-          <div class="kpi-count"><span class="label">見送り/持ち越し</span>{{ summary_selected.skip }}件</div>
+          <div class="kpi-count"><span class="label">勝</span>{{ summary_selected.win }}</div>
+          <div class="kpi-count"><span class="label">負</span>{{ summary_selected.lose }}</div>
+          <div class="kpi-count"><span class="label">見/持</span>{{ summary_selected.skip }}</div>
           {% if summary_selected.flat %}
-            <div class="kpi-count"><span class="label">引き分け</span>{{ summary_selected.flat }}件</div>
+            <div class="kpi-count"><span class="label">分</span>{{ summary_selected.flat }}</div>
           {% endif %}
         </div>
         <div class="kpi-pl">
-          合計（PRO実績PL）
+          <span style="color:var(--sub);">合計</span>
           <span class="kpi-pl-val {% if summary_selected.total_pl >= 0 %}pos{% else %}neg{% endif %}">
             {{ summary_selected.total_pl|floatformat:0|intcomma }} 円
           </span>
         </div>
       {% else %}
-        <div class="kpi-pl">この日のシミュレはまだありません。</div>
+        <div class="kpi-pl"><span style="color:var(--sub);">この日のシミュレなし</span><span class="kpi-pl-val pos">0 円</span></div>
       {% endif %}
     </div>
 
@@ -509,21 +526,21 @@
       <div class="kpi-title">通算成績（全期間 / PRO公式）</div>
       {% if summary_total.has_data %}
         <div class="kpi-counts">
-          <div class="kpi-count"><span class="label">勝ち</span>{{ summary_total.win }}件</div>
-          <div class="kpi-count"><span class="label">負け</span>{{ summary_total.lose }}件</div>
-          <div class="kpi-count"><span class="label">見送り/持ち越し</span>{{ summary_total.skip }}件</div>
+          <div class="kpi-count"><span class="label">勝</span>{{ summary_total.win }}</div>
+          <div class="kpi-count"><span class="label">負</span>{{ summary_total.lose }}</div>
+          <div class="kpi-count"><span class="label">見/持</span>{{ summary_total.skip }}</div>
           {% if summary_total.flat %}
-            <div class="kpi-count"><span class="label">引き分け</span>{{ summary_total.flat }}件</div>
+            <div class="kpi-count"><span class="label">分</span>{{ summary_total.flat }}</div>
           {% endif %}
         </div>
         <div class="kpi-pl">
-          合計（PRO実績PL）
+          <span style="color:var(--sub);">合計</span>
           <span class="kpi-pl-val {% if summary_total.total_pl >= 0 %}pos{% else %}neg{% endif %}">
             {{ summary_total.total_pl|floatformat:0|intcomma }} 円
           </span>
         </div>
       {% else %}
-        <div class="kpi-pl">まだシミュレ履歴がありません。</div>
+        <div class="kpi-pl"><span style="color:var(--sub);">履歴なし</span><span class="kpi-pl-val pos">0 円</span></div>
       {% endif %}
     </div>
   </div>
