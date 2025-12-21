@@ -10,6 +10,38 @@ risk_pct: 1.0          # 例: 1.0% リスク
 # 100 にすると余力フル、70 なら余力の 70% までしか使わない
 credit_usage_pct: 70.0
 
+# =========================================================
+# PRO（Collect / Strict を “別の数値” で保持する）
+# ここが UI（PROタブ）の真実ソース
+# =========================================================
+pro:
+  # 現在の学習モード
+  # collect: 母数を増やす（建玉優先）
+  # strict : 質を優先（見送り強化）
+  mode: "collect"
+
+  # Collect側（母数を増やす）
+  collect:
+    max_positions: 5
+    max_yen_per_trade: 2000000
+    min_yen_per_trade: 0
+    pro_equity_yen: 5000000
+    reserve_yen: 0
+    horizon_bd: 3
+
+  # Strict側（質を優先）
+  strict:
+    max_positions: 5
+    max_yen_per_trade: 1500000
+    min_yen_per_trade: 0
+    pro_equity_yen: 5000000
+    reserve_yen: 0
+    horizon_bd: 3
+
+    # Strictの締め付け（Strictにしたら必ず効く想定）
+    strict_min_rr: 1.0
+    strict_min_net_profit_yen: 0
+
 lot_rule:
   # ETF / ETN コードプレフィックス（13xx / 15xx）
   etf_codes_prefix: ["13", "15"]
@@ -37,6 +69,8 @@ fees:
   slippage_rate: 0.001      # 0.10%
 
 limits:
+  # 旧キー（互換のため残す）
+  # ※ 本命は pro.collect / pro.strict の方（UIもそこを表示）
   max_positions: 5
   max_total_risk_r: 3.0
 
