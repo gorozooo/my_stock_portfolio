@@ -29,3 +29,10 @@ db.sqlite3
 .DS_Store
 *.swp
 .env
+
+# --------------------------------------------
+# AI policy runtime（運用ファイルはGit管理しない）
+# Git FORCEしてもここは残る（＝設定が戻らない）
+# --------------------------------------------
+aiapp/policies/*.runtime.yml
+aiapp/policies/*.runtime.yaml
