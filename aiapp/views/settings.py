@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from typing import Any, Dict
 
 import yaml
@@ -19,27 +20,51 @@ from aiapp.services.policy_loader import load_short_aggressive_policy  # noqa: F
 
 
 # ----------------------------------------------------------------------
-# ポリシーファイルへのパス & 読み書き共通ヘルパ
+# ポリシーファイル：テンプレ（Git管理）と、運用（Git管理外）を分離
+# - short_aggressive.yml           : テンプレ（初期値）
+# - short_aggressive.runtime.yml   : 運用（設定画面で編集される“真実ソース”）
 # ----------------------------------------------------------------------
-def _policy_file_path() -> str:
+def _policy_template_path() -> str:
     """
-    short_aggressive.yml のフルパスを、ファイル構成から逆算して求める。
-
-    views/settings.py  … aiapp/views
-    aiapp_dir          … aiapp/
-    policy             … aiapp/policies/short_aggressive.yml
+    Git管理テンプレ：aiapp/policies/short_aggressive.yml
     """
     here = os.path.abspath(os.path.dirname(__file__))  # aiapp/views
     aiapp_dir = os.path.dirname(here)                  # aiapp
     return os.path.join(aiapp_dir, "policies", "short_aggressive.yml")
 
 
+def _policy_runtime_path() -> str:
+    """
+    Git管理外：aiapp/policies/short_aggressive.runtime.yml
+    """
+    here = os.path.abspath(os.path.dirname(__file__))  # aiapp/views
+    aiapp_dir = os.path.dirname(here)                  # aiapp
+    return os.path.join(aiapp_dir, "policies", "short_aggressive.runtime.yml")
+
+
+def _ensure_runtime_policy() -> str:
+    """
+    runtime が無ければテンプレから生成して返す。
+    """
+    runtime = _policy_runtime_path()
+    tmpl = _policy_template_path()
+    os.makedirs(os.path.dirname(runtime), exist_ok=True)
+
+    if not os.path.exists(runtime):
+        # テンプレが無い場合は空で作る（落とさない）
+        if os.path.exists(tmpl):
+            shutil.copyfile(tmpl, runtime)
+        else:
+            with open(runtime, "w", encoding="utf-8") as f:
+                yaml.safe_dump({}, f, allow_unicode=True, sort_keys=False)
+    return runtime
+
+
 def _load_policy_dict() -> Dict[str, Any]:
     """
-    short_aggressive.yml を毎回読み直して dict で返す。
-    （キャッシュは持たない。常に最新ファイルを見る）
+    runtime を毎回読み直して dict で返す。（真実ソース）
     """
-    path = _policy_file_path()
+    path = _ensure_runtime_policy()
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
@@ -52,9 +77,9 @@ def _load_policy_dict() -> Dict[str, Any]:
 
 def _write_policy_dict(data: Dict[str, Any]) -> None:
     """
-    dict をそのまま short_aggressive.yml に書き戻す。
+    dict をそのまま runtime に書き戻す。
     """
-    path = _policy_file_path()
+    path = _ensure_runtime_policy()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
@@ -65,7 +90,7 @@ def _write_policy_dict(data: Dict[str, Any]) -> None:
 # ----------------------------------------------------------------------
 def _build_policy_context() -> Dict[str, Any]:
     """
-    short_aggressive.yml の中身を UI 用に薄く整形して返す。
+    runtime の中身を UI 用に薄く整形して返す。
     """
     data = _load_policy_dict()
     filters = data.get("filters") or {}
@@ -86,8 +111,7 @@ def _build_policy_context() -> Dict[str, Any]:
 
 def _save_policy_basic_params(risk_pct: float, credit_usage_pct: float) -> None:
     """
-    ポリシーファイル short_aggressive.yml の
-    risk_pct / credit_usage_pct だけを上書き保存する。
+    runtime の risk_pct / credit_usage_pct だけを上書き保存する。
     他の filters / fees / pro は維持。
     """
     data = _load_policy_dict()
@@ -153,6 +177,7 @@ def _save_policy_advanced_params(
 
 # ----------------------------------------------------------------------
 # PROタブ：Collect/Strict の “両方を保持” しつつ、選択中をアクティブ反映する
+# + max_total_risk_r を設定画面から編集可能にする
 # ----------------------------------------------------------------------
 def _num(v: Any, default: float) -> float:
     try:
@@ -190,6 +215,10 @@ def _build_pro_context(policy: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(limits, dict):
         limits = {}
 
+    filters = policy.get("filters") or {}
+    if not isinstance(filters, dict):
+        filters = {}
+
     def _profile_get(name: str) -> Dict[str, Any]:
         p = profiles.get(name) or {}
         return p if isinstance(p, dict) else {}
@@ -208,8 +237,7 @@ def _build_pro_context(policy: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(s_tighten, dict):
         s_tighten = {}
 
-    # ---- Collect defaults ----
-    # max_positions は既存 limits から拾えるようにしておく（移行を滑らかに）
+    # Collect defaults（max_positions は旧 limits から拾える）
     c_max_positions = _int(c_limits.get("max_positions"), _int(limits.get("max_positions"), 5))
     c_max_total_risk_r = _num(c_limits.get("max_total_risk_r"), _num(limits.get("max_total_risk_r"), 3.0))
     c_max_notional = _int(c_limits.get("max_notional_per_trade_yen"), 2_000_000)
@@ -218,7 +246,7 @@ def _build_pro_context(policy: Dict[str, Any]) -> Dict[str, Any]:
     c_reserve = _int(c_limits.get("reserve_cash_yen"), 0)
     c_horizon = _int(c_limits.get("horizon_bd"), _int(pro.get("horizon_bd"), 3))
 
-    # ---- Strict defaults ----
+    # Strict defaults
     s_max_positions = _int(s_limits.get("max_positions"), c_max_positions)
     s_max_total_risk_r = _num(s_limits.get("max_total_risk_r"), c_max_total_risk_r)
     s_max_notional = _int(s_limits.get("max_notional_per_trade_yen"), 1_500_000)
@@ -236,7 +264,6 @@ def _build_pro_context(policy: Dict[str, Any]) -> Dict[str, Any]:
         "pro_mode": learn_mode,
         "pro_active_label": active_label,
 
-        # Collect
         "c_max_positions": c_max_positions,
         "c_max_total_risk_r": c_max_total_risk_r,
         "c_max_notional_per_trade_yen": c_max_notional,
@@ -245,7 +272,6 @@ def _build_pro_context(policy: Dict[str, Any]) -> Dict[str, Any]:
         "c_reserve_cash_yen": c_reserve,
         "c_horizon_bd": c_horizon,
 
-        # Strict
         "s_max_positions": s_max_positions,
         "s_max_total_risk_r": s_max_total_risk_r,
         "s_max_notional_per_trade_yen": s_max_notional,
@@ -261,11 +287,11 @@ def _build_pro_context(policy: Dict[str, Any]) -> Dict[str, Any]:
 
 def _save_pro_params_from_post(request: HttpRequest) -> None:
     """
-    PROタブで編集した値を short_aggressive.yml に保存する。
+    PROタブで編集した値を runtime に保存する。
     ポイント：
     - Collect/Strict “両方の値” を pro.profiles に保持
     - 選択中（pro.learn_mode）の値を “既存の limits / filters にも同期”
-      → 他サービスがまだ旧キー参照でも確実に効く
+      → 他サービスが旧キー参照でも確実に効く
     """
     data = _load_policy_dict()
 
@@ -277,8 +303,8 @@ def _save_pro_params_from_post(request: HttpRequest) -> None:
     if not isinstance(profiles, dict):
         profiles = {}
 
-    # 選択モード（UIは pro_mode）
-    pro_mode = str(request.POST.get("pro_mode") or pro.get("learn_mode") or "collect").strip().lower()
+    # 選択モード
+    pro_mode = str(request.POST.get("pro_mode") or "collect").strip().lower()
     if pro_mode not in ("collect", "strict"):
         pro_mode = "collect"
 
@@ -300,12 +326,9 @@ def _save_pro_params_from_post(request: HttpRequest) -> None:
         except Exception:
             return float(default)
 
-    # 現状を基準にする（入力欠損のとき壊さない）
     ctx = _build_pro_context(data)
 
-    # -----------------
     # Collect
-    # -----------------
     c = profiles.get("collect") or {}
     if not isinstance(c, dict):
         c = {}
@@ -314,7 +337,7 @@ def _save_pro_params_from_post(request: HttpRequest) -> None:
         c_limits = {}
 
     c_limits["max_positions"] = max(1, p_int("c_max_positions", ctx["c_max_positions"]))
-    c_limits["max_total_risk_r"] = max(1.0, p_float("c_max_total_risk_r", float(ctx["c_max_total_risk_r"])))
+    c_limits["max_total_risk_r"] = max(0.0, p_float("c_max_total_risk_r", ctx["c_max_total_risk_r"]))
     c_limits["max_notional_per_trade_yen"] = max(0, p_int("c_max_notional_per_trade_yen", ctx["c_max_notional_per_trade_yen"]))
     c_limits["min_notional_per_trade_yen"] = max(0, p_int("c_min_notional_per_trade_yen", ctx["c_min_notional_per_trade_yen"]))
     c_limits["max_total_notional_yen"] = max(0, p_int("c_max_total_notional_yen", ctx["c_max_total_notional_yen"]))
@@ -324,9 +347,7 @@ def _save_pro_params_from_post(request: HttpRequest) -> None:
     c["limits"] = c_limits
     profiles["collect"] = c
 
-    # -----------------
     # Strict
-    # -----------------
     s = profiles.get("strict") or {}
     if not isinstance(s, dict):
         s = {}
@@ -338,7 +359,7 @@ def _save_pro_params_from_post(request: HttpRequest) -> None:
         s_tighten = {}
 
     s_limits["max_positions"] = max(1, p_int("s_max_positions", ctx["s_max_positions"]))
-    s_limits["max_total_risk_r"] = max(1.0, p_float("s_max_total_risk_r", float(ctx["s_max_total_risk_r"])))
+    s_limits["max_total_risk_r"] = max(0.0, p_float("s_max_total_risk_r", ctx["s_max_total_risk_r"]))
     s_limits["max_notional_per_trade_yen"] = max(0, p_int("s_max_notional_per_trade_yen", ctx["s_max_notional_per_trade_yen"]))
     s_limits["min_notional_per_trade_yen"] = max(0, p_int("s_min_notional_per_trade_yen", ctx["s_min_notional_per_trade_yen"]))
     s_limits["max_total_notional_yen"] = max(0, p_int("s_max_total_notional_yen", ctx["s_max_total_notional_yen"]))
@@ -352,7 +373,6 @@ def _save_pro_params_from_post(request: HttpRequest) -> None:
     s["tighten"] = s_tighten
     profiles["strict"] = s
 
-    # 保存
     pro["learn_mode"] = pro_mode
     pro["profiles"] = profiles
     data["pro"] = pro
@@ -372,21 +392,21 @@ def _save_pro_params_from_post(request: HttpRequest) -> None:
     if pro_mode == "collect":
         active = profiles["collect"]["limits"]
         limits["max_positions"] = int(active["max_positions"])
-        limits["max_total_risk_r"] = float(active.get("max_total_risk_r") or 3.0)
+        limits["max_total_risk_r"] = float(active["max_total_risk_r"])
         limits["max_notional_per_trade_yen"] = int(active["max_notional_per_trade_yen"])
         limits["min_notional_per_trade_yen"] = int(active["min_notional_per_trade_yen"])
         limits["max_total_notional_yen"] = int(active["max_total_notional_yen"])
         limits["reserve_cash_yen"] = int(active["reserve_cash_yen"])
         data["pro"]["horizon_bd"] = int(active["horizon_bd"])
 
-        # Collect は母数優先：締め付けはゆるめる
+        # Collect は母数優先：締め付けはゆるめ
         filters["min_reward_risk"] = 0.0
         filters["min_net_profit_yen"] = 0.0
 
     else:
         active = profiles["strict"]["limits"]
         limits["max_positions"] = int(active["max_positions"])
-        limits["max_total_risk_r"] = float(active.get("max_total_risk_r") or 3.0)
+        limits["max_total_risk_r"] = float(active["max_total_risk_r"])
         limits["max_notional_per_trade_yen"] = int(active["max_notional_per_trade_yen"])
         limits["min_notional_per_trade_yen"] = int(active["min_notional_per_trade_yen"])
         limits["max_total_notional_yen"] = int(active["max_total_notional_yen"])
