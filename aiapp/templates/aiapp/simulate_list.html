@@ -1,668 +1,830 @@
 {% extends "base.html" %}
 {% load humanize %}
-{% block title %}AI設定{% endblock %}
+
+{% block title %}AIシミュレ一覧{% endblock %}
 
 {% block head %}
 <style>
   :root{
-    --bg:#0b0f1a;--card:rgba(255,255,255,.06);--fg:#eaf0ff;--sub:#9fb1c7;
-    --line:rgba(255,255,255,.10);--accent:#2563eb;--muted:#334155;
+    --bg:#020617;
+    --card:rgba(15,23,42,0.95);
+    --sub:#94a3b8;
+    --fg:#e5e7eb;
+    --accent:#38bdf8;
+    --ok:#22c55e;
+    --bad:#f97373;
+    --muted:#64748b;
   }
-  body{background:var(--bg);color:var(--fg)}
-  .wrap{max-width:720px;margin:0 auto;padding:18px 14px 90px}
-
-  /* 丸タブ（承認済みデザイン） */
-  .tabs{display:flex;gap:10px;margin:6px 0 14px}
-  .tab{flex:1;text-align:center;padding:12px;border-radius:14px;
-       border:1px solid var(--line);background:rgba(255,255,255,.05);color:#cfe0ff;
-       text-decoration:none;font-weight:700;display:block}
-  .tab.active{
-       background:#1f3a8a;border-color:#2f49a6;color:#fff;
-       box-shadow:0 4px 20px rgba(37,99,235,.25)
+  body{background:var(--bg);color:var(--fg);}
+  body.no-scroll{
+    position:fixed;
+    inset:0;
+    overflow:hidden;
   }
+  .wrap{max-width:720px;margin:0 auto;padding:10px 12px 80px;}
 
-  .sec{
-    border:1px solid var(--line);
-    background:var(--card);
-    border-radius:16px;
-    padding:14px 14px 10px;
-    margin-bottom:12px;
+  /* ===== 上部：PRO残高パネル（2x2圧縮） ===== */
+  .pro-top{
+    margin-bottom:10px;
+    padding:10px 12px;
+    border-radius:14px;
+    border:1px solid rgba(148,163,184,0.35);
+    background:radial-gradient(circle at top left,rgba(56,189,248,0.16),rgba(15,23,42,0.94));
     backdrop-filter:blur(10px);
-    overflow:hidden; /* はみ出しを枠内に収める */
   }
-  .sec h2{font-size:14px;color:var(--sub);margin:0 0 10px 2px;font-weight:600}
-
-  /* 入力行：はみ出し防止 */
-  .row{
-    display:grid;
-    grid-template-columns: 1fr minmax(0, 140px);
-    gap:10px;
-    align-items:center;
-  }
-  .row label{
-    min-width:0;
-    overflow-wrap:anywhere;
-  }
-  .inp{
-       width:100%;
-       max-width:100%;
-       box-sizing:border-box;
-       padding:12px;
-       border-radius:10px;
-       border:1px solid var(--line);
-       background:rgba(255,255,255,.08);
-       color:var(--fg);
-       font-size:16px;
-       text-align:right;
-  }
-  .btn{
-       display:inline-block;text-align:center;padding:12px 18px;border-radius:10px;
-       background:var(--accent);color:#fff;text-decoration:none;border:0;
-       font-weight:800
-  }
-  .note{font-size:12px;color:#9fb1c7;margin-top:6px;line-height:1.55}
-  .msg{margin-top:10px;color:#9fb1c7;font-size:13px;line-height:1.55}
-
-  /* ブローカーごとの倍率ブロック */
-  .broker-block{margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)}
-  .broker-block:first-of-type{margin-top:4px;padding-top:4px;border-top:none}
-  .broker-title{font-size:13px;color:var(--sub);margin:0 0 4px 2px;font-weight:600}
-
-  /* サマリカード */
-  .cards{display:grid;gap:10px}
-  .card{border:1px solid var(--line);border-radius:14px;padding:12px;background:rgba(255,255,255,.05)}
-  .card .hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
-  .badge{font-size:12px;padding:4px 8px;border:1px solid var(--line);
-         border-radius:999px;background:rgba(255,255,255,.06)}
-  .kv{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  .kv .it{border:1px solid var(--line);border-radius:10px;padding:10px}
-  .kv .lb{font-size:12px;color:var(--sub)}
-  .kv .vl{font-size:18px;margin-top:2px;word-break:break-word}
-
-  /* PRO: 学習モード（pill） */
-  .mode-pills{display:flex;gap:10px}
-  .pill{
-    flex:1;
-    display:block;
-    padding:10px 12px;
-    border-radius:12px;
-    border:1px solid var(--line);
-    background:rgba(255,255,255,.05);
-    color:#cfe0ff;
-    text-align:center;
-    font-weight:900;
-    font-size:14px;
-    cursor:pointer;
-    user-select:none;
-  }
-  .pill input{display:none}
-  .pill.active{
-    background:#1f3a8a;border-color:#2f49a6;color:#fff;
-    box-shadow:0 4px 20px rgba(37,99,235,.20)
-  }
-  .pill small{display:block;margin-top:4px;font-weight:700;color:#bcd2ff;font-size:11px;opacity:.9}
-
-  /* PRO: 2カラム（スマホは1列、広い時だけ2列） */
-  .split2{display:grid;grid-template-columns:1fr;gap:10px}
-  @media (min-width: 680px){
-    .split2{grid-template-columns:1fr 1fr}
-  }
-
-  .divider{height:1px;background:rgba(255,255,255,.08);margin:12px 0}
-
-  /* PRO: 選択中だけ表示 */
-  .pro-panel{display:none}
-  .pro-panel.active{display:block}
-
-  .pilltag{
-    display:inline-block;
-    margin-left:8px;
-    padding:2px 10px;
-    border-radius:999px;
-    border:1px solid rgba(255,255,255,.12);
-    background:rgba(255,255,255,.06);
-    color:#cfe0ff;
+  .pro-title{
     font-size:12px;
-    font-weight:900;
-    vertical-align:middle;
+    font-weight:700;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    margin-bottom:6px;
+  }
+  .pro-sub{
+    font-size:11px;
+    color:var(--sub);
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
   }
 
-  .hint{
-    border:1px dashed rgba(255,255,255,.18);
-    border-radius:12px;
-    padding:10px 12px;
-    background:rgba(255,255,255,.04);
-    margin-top:10px;
+  /* ★ 2x2固定（縦を短くする） */
+  .pro-grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px;
   }
-  .hint b{color:#eaf0ff}
+
+  .pro-kv{
+    border:1px solid rgba(148,163,184,0.25);
+    border-radius:12px;
+    padding:8px 10px;
+    background:rgba(15,23,42,0.88);
+  }
+  .pro-kv .k{
+    font-size:11px;
+    color:var(--sub);
+    margin-bottom:2px;
+  }
+  .pro-kv .v{
+    font-size:14px;
+    font-weight:800;
+    font-variant-numeric:tabular-nums;
+    letter-spacing:0.2px;
+  }
+  .pro-kv .v.pos{ color:var(--ok); }
+  .pro-kv .v.neg{ color:var(--bad); }
+  .pro-kv .mini{
+    margin-top:3px;
+    font-size:10px;
+    color:var(--muted);
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+
+  /* 建玉カードだけ少し情報を詰める */
+  .pro-kv.compact .v{
+    font-size:13px;
+    font-weight:800;
+  }
+  .pro-kv.compact .mini{
+    margin-top:2px;
+  }
+
+  /* ===== KPIカード（選択日 / 通算） ===== */
+  .kpi-top{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:6px;
+    margin-bottom:8px;
+  }
+  @media (max-width:480px){
+    .kpi-top{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+  }
+  .kpi-card{
+    padding:7px 9px;
+    border-radius:12px;
+    border:1px solid rgba(148,163,184,0.35);
+    background:linear-gradient(135deg,rgba(15,23,42,0.96),rgba(17,94,163,0.85));
+    font-size:11px;
+    line-height:1.25;
+    backdrop-filter:blur(10px);
+  }
+  .kpi-title{
+    font-size:11px;
+    font-weight:700;
+    margin-bottom:3px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .kpi-counts{
+    display:flex;
+    flex-wrap:wrap;
+    gap:4px 6px;
+    margin-bottom:3px;
+  }
+  .kpi-count{
+    font-size:10px;
+    font-variant-numeric:tabular-nums;
+  }
+  .kpi-count span.label{ color:var(--sub); margin-right:2px; }
+  .kpi-pl{
+    font-size:10px;
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:6px;
+  }
+  .kpi-pl-val{
+    font-variant-numeric:tabular-nums;
+    font-weight:800;
+    margin-left:6px;
+    white-space:nowrap;
+  }
+  .kpi-pl-val.pos{color:var(--ok);}
+  .kpi-pl-val.neg{color:var(--bad);}
+
+  /* ===== フィルタ部 ===== */
+  .filters{
+    margin:0 0 10px 0;
+    padding:10px 12px;
+    border-radius:14px;
+    border:1px solid rgba(148,163,184,0.35);
+    background:rgba(15,23,42,0.9);
+    backdrop-filter:blur(10px);
+    font-size:12px;
+  }
+  .filter-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    margin-bottom:6px;
+    flex-wrap:wrap;
+  }
+  .filter-label{
+    font-size:11px;
+    color:var(--sub);
+    min-width:64px;
+  }
+  .chip-row{
+    display:flex;
+    gap:6px;
+    flex-wrap:wrap;
+  }
+  .chip-form{margin:0;}
+  .chip-btn{
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,0.6);
+    padding:4px 10px;
+    background:rgba(15,23,42,0.9);
+    color:#e5e7eb;
+    font-size:11px;
+    line-height:1.2;
+  }
+  .chip-btn.active{
+    background:rgba(56,189,248,0.18);
+    border-color:rgba(56,189,248,0.9);
+    color:#e0f2fe;
+    font-weight:600;
+  }
+
+  .date-form{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex:1;
+  }
+  .date-input{
+    flex:1;
+    min-width:0;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,0.6);
+    background:rgba(15,23,42,0.9);
+    color:#e5e7eb;
+    font-size:12px;
+    padding:6px 10px;
+  }
+  .date-input::-webkit-calendar-picker-indicator{ filter:invert(1); }
+
+  .search-row{
+    display:flex;
+    gap:6px;
+    margin-top:4px;
+  }
+  .search-input{
+    flex:1;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,0.6);
+    background:rgba(15,23,42,0.9);
+    color:#e5e7eb;
+    font-size:12px;
+    padding:6px 10px;
+  }
+  .search-input::placeholder{ color:rgba(148,163,184,0.9); }
+  .search-btn{
+    border-radius:999px;
+    border:1px solid rgba(56,189,248,0.8);
+    background:rgba(56,189,248,0.18);
+    color:#e0f2fe;
+    font-size:12px;
+    padding:6px 10px;
+    white-space:nowrap;
+  }
+
+  .grid{display:grid;gap:10px;}
+
+  .card{
+    border-radius:14px;
+    border:1px solid rgba(148,163,184,0.35);
+    background:radial-gradient(circle at top left,rgba(56,189,248,0.10),rgba(15,23,42,0.95));
+    padding:10px 12px;
+    backdrop-filter:blur(10px);
+  }
+
+  /* ===== 上部レイアウト ===== */
+  .row-top{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:8px;
+  }
+
+  .code-name{ min-width:0; flex:1; }
+
+  .ts-badge{
+    flex-shrink:0;
+    font-size:11px;
+    color:var(--sub);
+    text-align:right;
+  }
+
+  .code{
+    font-size:13px;
+    color:var(--sub);
+    margin-bottom:2px;
+  }
+
+  .name{
+    font-size:15px;
+    font-weight:600;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:clip;
+    max-width:22ch;
+  }
+
+  .mode-badge{
+    display:inline-block;
+    font-size:11px;
+    padding:2px 8px;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,0.8);
+    margin-top:4px;
+  }
+  .mode-demo{
+    background:rgba(59,130,246,0.18);
+    color:#bfdbfe;
+  }
+  .mode-live{
+    background:rgba(22,163,74,0.18);
+    color:#bbf7d0;
+  }
+
+  .head-result-chip{ margin-top:4px; }
+
+  .result-badge{
+    font-size:10px;
+    padding:2px 6px;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,0.6);
+  }
+  .result-badge-win{
+    background:rgba(34,197,94,0.2);
+    border-color:rgba(34,197,94,0.8);
+    color:#bbf7d0;
+  }
+  .result-badge-lose{
+    background:rgba(248,113,113,0.18);
+    border-color:rgba(248,113,113,0.9);
+    color:#fecaca;
+  }
+  .result-badge-flat{
+    background:rgba(148,163,184,0.2);
+    border-color:rgba(148,163,184,0.9);
+    color:#e5e7eb;
+  }
+  .result-badge-none{
+    background:rgba(15,23,42,0.9);
+    border-color:rgba(148,163,184,0.6);
+    color:#9ca3af;
+  }
+
+  /* ===== メイン2カラム ===== */
+  .body-cols{
+    display:grid;
+    grid-template-columns:minmax(0,1.05fr) minmax(0,1.1fr);
+    gap:8px;
+    margin-top:8px;
+  }
+
+  .ai-box,
+  .real-box{
+    padding:8px 8px 7px;
+    border-radius:10px;
+    background:rgba(15,23,42,0.96);
+    border:1px solid rgba(30,64,175,0.6);
+    font-size:11px;
+  }
+
+  .ai-title,
+  .real-title{
+    font-size:11px;
+    font-weight:600;
+    margin-bottom:4px;
+    color:#e5e7eb;
+  }
+  .ai-row,
+  .real-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:4px;
+    margin-top:2px;
+  }
+  .ai-label,
+  .real-label{
+    color:var(--muted);
+    font-size:11px;
+  }
+  .ai-val,
+  .real-val{
+    font-variant-numeric:tabular-nums;
+    font-size:11px;
+    text-align:right;
+  }
+
+  .ai-section{
+    margin-top:4px;
+    padding-top:4px;
+    border-top:1px dashed rgba(148,163,184,0.4);
+  }
+
+  .ai-val.pos{color:var(--ok);}
+  .ai-val.neg{color:var(--bad);}
+
+  .real-section{
+    margin-top:4px;
+    padding-top:4px;
+    border-top:1px dashed rgba(148,163,184,0.5);
+  }
+
+  .real-note{
+    font-size:10px;
+    color:var(--sub);
+    margin-top:2px;
+  }
+
+  .real-pl-wrap{ margin-top:4px; }
+  .real-pl-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-top:2px;
+  }
+  .result-pl{
+    font-variant-numeric:tabular-nums;
+    font-size:12px;
+  }
+  .result-pl.pos{color:var(--ok);}
+  .result-pl.neg{color:var(--bad);}
+
+  .empty{
+    margin-top:16px;
+    padding:16px;
+    border-radius:12px;
+    border:1px dashed rgba(148,163,184,0.6);
+    font-size:13px;
+    color:#cbd5f5;
+  }
+
+  .delete-row{
+    margin-top:6px;
+    text-align:right;
+  }
+
+  .delete-link{
+    font-size:11px;
+    color:#fca5a5;
+    background:transparent;
+    border:0;
+    padding:0;
+    cursor:pointer;
+    text-decoration:none;
+  }
 </style>
+
+<script>
+  // iOS の date ピッカーを開いている間、背面のスクロールを止める
+  document.addEventListener('focusin', function(e){
+    if (e.target.matches('input[type="date"]')) {
+      var body = document.body;
+      body.dataset.scrollY = window.scrollY || 0;
+      body.classList.add('no-scroll');
+    }
+  });
+  document.addEventListener('focusout', function(e){
+    if (e.target.matches('input[type="date"]')) {
+      var body = document.body;
+      var y = parseInt(body.dataset.scrollY || '0', 10);
+      body.classList.remove('no-scroll');
+      window.scrollTo(0, y);
+    }
+  });
+
+  // 日付が変わったら即サブミット
+  document.addEventListener('DOMContentLoaded', function(){
+    var dateInput = document.querySelector('.date-input');
+    if (dateInput && dateInput.form) {
+      dateInput.addEventListener('change', function(){
+        dateInput.form.submit();
+      });
+    }
+  });
+</script>
 {% endblock %}
 
 {% block content %}
 <div class="wrap">
 
-  <!-- 丸タブ -->
-  <div class="tabs">
-    <a class="tab {% if tab == 'basic' %}active{% endif %}" href="?tab=basic">基本設定</a>
-    <a class="tab {% if tab == 'pro' %}active{% endif %}" href="?tab=pro">PRO</a>
-    <a class="tab {% if tab == 'summary' %}active{% endif %}" href="?tab=summary">証券サマリ</a>
-    <a class="tab {% if tab == 'advanced' %}active{% endif %}" href="?tab=advanced">ルール</a>
+  <!-- ===== PRO残高パネル（2x2） ===== -->
+  <div class="pro-top">
+    <div class="pro-title">
+      <div>PRO口座（統一）残高</div>
+      <div class="pro-sub">建玉 {{ pro_account.open_count|default:0 }} / {{ pro_account.max_positions|default:5 }} ・上限 {{ pro_account.max_total_risk_r|default:3.0 }}R</div>
+    </div>
+
+    <div class="pro-grid">
+      <div class="pro-kv">
+        <div class="k">口座資金</div>
+        <div class="v">
+          {{ pro_account.equity_yen|default:0|floatformat:0|intcomma }} 円
+        </div>
+        <div class="mini">settings.AIAPP_PRO_EQUITY_YEN</div>
+      </div>
+
+      <div class="pro-kv">
+        <div class="k">拘束中（OPEN合計）</div>
+        <div class="v">
+          {{ pro_account.reserved_yen|default:0|floatformat:0|intcomma }} 円
+        </div>
+        <div class="mini">OPENのみ（closed_at=None）</div>
+      </div>
+
+      <div class="pro-kv">
+        <div class="k">残り（建てられる余力）</div>
+        <div class="v {% if pro_account.free_yen|default:0 > 0 %}pos{% else %}neg{% endif %}">
+          {{ pro_account.free_yen|default:0|floatformat:0|intcomma }} 円
+        </div>
+        <div class="mini">口座資金 − 拘束中</div>
+      </div>
+
+      <div class="pro-kv compact">
+        <div class="k">建玉 / 制限</div>
+        <div class="v">
+          {{ pro_account.open_count|default:0 }} / {{ pro_account.max_positions|default:5 }}
+          ・{{ pro_account.max_total_risk_r|default:3.0 }}R
+        </div>
+        <div class="mini">この表示が“真実”基準（PRO口座単体）</div>
+      </div>
+    </div>
   </div>
 
-  {% if tab == 'basic' %}
-    <!-- 基本設定 -->
-    <div class="sec">
-      <h2>数量計算ルール</h2>
-      <form method="post">
-        {% csrf_token %}
-        <input type="hidden" name="tab" value="basic">
-
-        <div class="row">
-          <label style="font-size:14px;color:var(--sub)">
-            1トレードあたりのリスク（％）
-          </label>
-          <input
-            class="inp"
-            name="risk_pct"
-            type="number"
-            inputmode="decimal"
-            step="0.1"
-            min="0"
-            max="100"
-            value="{{ risk_pct|floatformat:2 }}"
-          >
+  <!-- ===== KPI（左右2カラム / 小型） ===== -->
+  <div class="kpi-top">
+    <div class="kpi-card">
+      <div class="kpi-title">選択日の成績（PRO公式）{% if selected_date_str %}：{{ selected_date_str }}{% endif %}</div>
+      {% if summary_selected.has_data %}
+        <div class="kpi-counts">
+          <div class="kpi-count"><span class="label">勝</span>{{ summary_selected.win }}</div>
+          <div class="kpi-count"><span class="label">負</span>{{ summary_selected.lose }}</div>
+          <div class="kpi-count"><span class="label">見/持</span>{{ summary_selected.skip }}</div>
+          {% if summary_selected.flat %}
+            <div class="kpi-count"><span class="label">分</span>{{ summary_selected.flat }}</div>
+          {% endif %}
         </div>
-
-        <div class="row" style="margin-top:8px;">
-          <label style="font-size:14px;color:var(--sub)">
-            信用余力の使用上限（％）
-          </label>
-          <input
-            class="inp"
-            name="credit_usage_pct"
-            type="number"
-            inputmode="decimal"
-            step="1"
-            min="0"
-            max="100"
-            value="{{ credit_usage_pct|floatformat:1 }}"
-          >
+        <div class="kpi-pl">
+          <span style="color:var(--sub);">合計</span>
+          <span class="kpi-pl-val {% if summary_selected.total_pl >= 0 %}pos{% else %}neg{% endif %}">
+            {{ summary_selected.total_pl|floatformat:0|intcomma }} 円
+          </span>
         </div>
-
-        <h2 style="margin-top:14px">倍率 / ヘアカット（概算用）</h2>
-
-        <!-- 楽天 -->
-        <div class="broker-block">
-          <div class="broker-title">楽天</div>
-          <div class="row">
-            <label style="font-size:14px;color:var(--sub)">倍率</label>
-            <input class="inp" name="leverage_rakuten" type="number" inputmode="decimal" step="0.01" min="0"
-                   value="{{ leverage_rakuten|floatformat:2 }}">
-          </div>
-          <div class="row" style="margin-top:6px;">
-            <label style="font-size:14px;color:var(--sub)">ヘアカット</label>
-            <input class="inp" name="haircut_rakuten" type="number" inputmode="decimal" step="0.01" min="0" max="1"
-                   value="{{ haircut_rakuten|floatformat:2 }}">
-          </div>
-        </div>
-
-        <!-- 松井 -->
-        <div class="broker-block">
-          <div class="broker-title">松井</div>
-          <div class="row">
-            <label style="font-size:14px;color:var(--sub)">倍率</label>
-            <input class="inp" name="leverage_matsui" type="number" inputmode="decimal" step="0.01" min="0"
-                   value="{{ leverage_matsui|floatformat:2 }}">
-          </div>
-          <div class="row" style="margin-top:6px;">
-            <label style="font-size:14px;color:var(--sub)">ヘアカット</label>
-            <input class="inp" name="haircut_matsui" type="number" inputmode="decimal" step="0.01" min="0" max="1"
-                   value="{{ haircut_matsui|floatformat:2 }}">
-          </div>
-        </div>
-
-        <!-- SBI -->
-        <div class="broker-block">
-          <div class="broker-title">SBI</div>
-          <div class="row">
-            <label style="font-size:14px;color:var(--sub)">倍率</label>
-            <input class="inp" name="leverage_sbi" type="number" inputmode="decimal" step="0.01" min="0"
-                   value="{{ leverage_sbi|floatformat:2 }}">
-          </div>
-          <div class="row" style="margin-top:6px;">
-            <label style="font-size:14px;color:var(--sub)">ヘアカット</label>
-            <input class="inp" name="haircut_sbi" type="number" inputmode="decimal" step="0.01" min="0" max="1"
-                   value="{{ haircut_sbi|floatformat:2 }}">
-          </div>
-        </div>
-
-        <div style="margin-top:12px;text-align:right">
-          <button class="btn" type="submit">保存</button>
-        </div>
-        <div class="note">
-          ※ ここで設定したリスク％・信用余力の使用上限はポリシーファイルにも反映されます。<br>
-          ※ 倍率/ヘアカットは証券サマリの概算に使われます。
-        </div>
-      </form>
-    </div>
-
-  {% elif tab == 'pro' %}
-    <!-- PROタブ -->
-    <div class="sec">
-      <h2>PRO学習モード（2択固定）</h2>
-
-      <form method="post">
-        {% csrf_token %}
-        <input type="hidden" name="tab" value="pro">
-
-        <div class="mode-pills" style="margin-bottom:10px;">
-          <label class="pill {% if pro_mode == 'collect' %}active{% endif %}">
-            <input type="radio" name="pro_mode" value="collect" {% if pro_mode == 'collect' %}checked{% endif %}>
-            Collect
-            <small>母数を増やす（建玉を優先）</small>
-          </label>
-          <label class="pill {% if pro_mode == 'strict' %}active{% endif %}">
-            <input type="radio" name="pro_mode" value="strict" {% if pro_mode == 'strict' %}checked{% endif %}>
-            Strict
-            <small>質を優先（見送りを強化）</small>
-          </label>
-        </div>
-
-        <div class="note" style="margin-top:0;">
-          ※ ここで選んだモードと数値は short_aggressive.yml（真実ソース）に保存されます。<br>
-          ※ Collect/Strict は別の数値を保持します（同じに見える問題を潰す）。
-        </div>
-
-        <div class="hint">
-          <div class="note" style="margin:0;">
-            <b>「同時に許容する最大リスク数」って何？</b><br>
-            1トレードで「最悪の場合、損切りになる想定」を <b>1回分</b> と数えます。<br>
-            ここを <b>3</b> にすると「同時に最悪3回分までしか持たない」ようにブレーキがかかります。
-          </div>
-        </div>
-
-        <!-- Collect パネル（選択中だけ表示） -->
-        <div class="pro-panel {% if pro_mode == 'collect' %}active{% endif %}" data-pro="collect">
-          <div class="divider"></div>
-          <h2>建玉・資金ルール<span class="pilltag">Collect</span></h2>
-
-          <div class="split2">
-            <div class="row">
-              <label style="font-size:14px;color:var(--sub)">同時建玉数（max_positions）</label>
-              <input class="inp" name="c_max_positions" type="number" inputmode="numeric" step="1" min="1"
-                     value="{{ c_max_positions|floatformat:0 }}">
-            </div>
-
-            <div class="row">
-              <label style="font-size:14px;color:var(--sub)">同時に許容する最大リスク数</label>
-              <input class="inp" name="c_max_total_risk_r" type="number" inputmode="decimal" step="1" min="1"
-                     value="{{ c_max_total_risk_r|floatformat:0 }}">
-            </div>
-
-            <div class="row">
-              <label style="font-size:14px;color:var(--sub)">1銘柄の上限資金（円）</label>
-              <input class="inp" name="c_max_notional_per_trade_yen" type="number" inputmode="numeric" step="10000" min="0"
-                     value="{{ c_max_notional_per_trade_yen|floatformat:0 }}">
-            </div>
-
-            <div class="row">
-              <label style="font-size:14px;color:var(--sub)">1銘柄の下限資金（円）※0で無効</label>
-              <input class="inp" name="c_min_notional_per_trade_yen" type="number" inputmode="numeric" step="10000" min="0"
-                     value="{{ c_min_notional_per_trade_yen|floatformat:0 }}">
-            </div>
-
-            <div class="row">
-              <label style="font-size:14px;color:var(--sub)">口座枠（概算）（円）</label>
-              <input class="inp" name="c_max_total_notional_yen" type="number" inputmode="numeric" step="10000" min="0"
-                     value="{{ c_max_total_notional_yen|floatformat:0 }}">
-            </div>
-
-            <div class="row">
-              <label style="font-size:14px;color:var(--sub)">予備資金（常に残す）（円）</label>
-              <input class="inp" name="c_reserve_cash_yen" type="number" inputmode="numeric" step="10000" min="0"
-                     value="{{ c_reserve_cash_yen|floatformat:0 }}">
-            </div>
-
-            <div class="row">
-              <label style="font-size:14px;color:var(--sub)">最大保有（営業日）horizon_bd</label>
-              <input class="inp" name="c_horizon_bd" type="number" inputmode="numeric" step="1" min="1"
-                     value="{{ c_horizon_bd|floatformat:0 }}">
-            </div>
-          </div>
-        </div>
-
-        <!-- Strict パネル（選択中だけ表示） -->
-        <div class="pro-panel {% if pro_mode == 'strict' %}active{% endif %}" data-pro="strict">
-          <div class="divider"></div>
-          <h2>建玉・資金ルール<span class="pilltag">Strict</span></h2>
-
-          <div class="split2">
-            <div class="row">
-              <label style="font-size:14px;color:var(--sub)">同時建玉数（max_positions）</label>
-              <input class="inp" name="s_max_positions" type="number" inputmode="numeric" step="1" min="1"
-                     value="{{ s_max_positions|floatformat:0 }}">
-            </div>
-
-            <div class="row">
-              <label style="font-size:14px;color:var(--sub)">同時に許容する最大リスク数</label>
-              <input class="inp" name="s_max_total_risk_r" type="number" inputmode="decimal" step="1" min="1"
-                     value="{{ s_max_total_risk_r|floatformat:0 }}">
-            </div>
-
-            <div class="row">
-              <label style="font-size:14px;color:var(--sub)">1銘柄の上限資金（円）</label>
-              <input class="inp" name="s_max_notional_per_trade_yen" type="number" inputmode="numeric" step="10000" min="0"
-                     value="{{ s_max_notional_per_trade_yen|floatformat:0 }}">
-            </div>
-
-            <div class="row">
-              <label style="font-size:14px;color:var(--sub)">1銘柄の下限資金（円）※0で無効</label>
-              <input class="inp" name="s_min_notional_per_trade_yen" type="number" inputmode="numeric" step="10000" min="0"
-                     value="{{ s_min_notional_per_trade_yen|floatformat:0 }}">
-            </div>
-
-            <div class="row">
-              <label style="font-size:14px;color:var(--sub)">口座枠（概算）（円）</label>
-              <input class="inp" name="s_max_total_notional_yen" type="number" inputmode="numeric" step="10000" min="0"
-                     value="{{ s_max_total_notional_yen|floatformat:0 }}">
-            </div>
-
-            <div class="row">
-              <label style="font-size:14px;color:var(--sub)">予備資金（常に残す）（円）</label>
-              <input class="inp" name="s_reserve_cash_yen" type="number" inputmode="numeric" step="10000" min="0"
-                     value="{{ s_reserve_cash_yen|floatformat:0 }}">
-            </div>
-
-            <div class="row">
-              <label style="font-size:14px;color:var(--sub)">最大保有（営業日）horizon_bd</label>
-              <input class="inp" name="s_horizon_bd" type="number" inputmode="numeric" step="1" min="1"
-                     value="{{ s_horizon_bd|floatformat:0 }}">
-            </div>
-          </div>
-
-          <div class="divider"></div>
-
-          <h2>Strict時の締め付け（Strictにしたら必ず効く）</h2>
-
-          <div class="row">
-            <label style="font-size:14px;color:var(--sub)">Strict: 最低RR（R）</label>
-            <input class="inp" name="strict_min_rr" type="number" inputmode="decimal" step="0.1" min="0"
-                   value="{{ strict_min_rr|floatformat:1 }}">
-          </div>
-
-          <div class="row" style="margin-top:8px;">
-            <label style="font-size:14px;color:var(--sub)">Strict: 最低純利益（円）</label>
-            <input class="inp" name="strict_min_net_profit_yen" type="number" inputmode="numeric" step="100" min="0"
-                   value="{{ strict_min_net_profit_yen|floatformat:0 }}">
-          </div>
-        </div>
-
-        <div style="margin-top:12px;text-align:right">
-          <button class="btn" type="submit">保存</button>
-        </div>
-
-        <div class="note">
-          ※ 保存先は short_aggressive.yml（真実ソース）です。<br>
-          ※ 選択中のモードの値が “実際に効く値” として limits / filters に同期されます。
-        </div>
-      </form>
-    </div>
-
-  {% elif tab == 'summary' %}
-    <!-- 証券サマリ -->
-    <div class="sec">
-      <h2>証券会社サマリ（自動計算）</h2>
-      <div class="cards">
-        {% for b in brokers %}
-          <div class="card">
-            <div class="hd">
-              <div class="badge">{{ b.label }}</div>
-            </div>
-            <div class="kv" style="margin-bottom:8px">
-              <div class="it">
-                <div class="lb">現金残高</div>
-                <div class="vl">{{ b.cash_yen|intcomma }} 円</div>
-              </div>
-              <div class="it">
-                <div class="lb">現物（特定）評価額</div>
-                <div class="vl">{{ b.stock_acq_value|intcomma }} 円</div>
-              </div>
-              <div class="it">
-                <div class="lb">信用枠（概算）</div>
-                <div class="vl">{{ b.credit_limit|intcomma }} 円</div>
-              </div>
-              <div class="it">
-                <div class="lb">信用余力（概算）</div>
-                <div class="vl">{{ b.credit_yoryoku|intcomma }} 円</div>
-              </div>
-            </div>
-            <div class="msg">{{ b.note }}</div>
-          </div>
-        {% empty %}
-          <div class="msg">対象の証券口座が見つかりませんでした。</div>
-        {% endfor %}
-      </div>
-      <div class="msg" style="margin-top:12px">
-        ※ NISAは数量算出に含めません<br>
-        ※ 数値は概算です（倍率は設定値、ヘアカットは現物に適用）
-      </div>
-    </div>
-
-  {% else %}
-    <!-- ルール -->
-    <div class="sec">
-      <h2>短期×攻め ポリシー（short_aggressive.yml）</h2>
-
-      {% if policy %}
-        <div class="msg">
-          ポリシーファイルのしきい値をそのまま表示しています。<br>
-          ※ 実際の数量計算では、ここに表示されている値をもとに AI Picks が計算されます。
-        </div>
-
-        <div class="cards" style="margin-top:10px">
-          <!-- 基本 -->
-          <div class="card">
-            <div class="hd">
-              <div class="badge">基本</div>
-              <div style="font-size:12px;color:var(--sub)">
-                mode: {{ policy.mode|default:"short_aggressive" }}
-              </div>
-            </div>
-            <div class="kv">
-              <div class="it">
-                <div class="lb">1トレードのリスク</div>
-                <div class="vl">
-                  {% if policy.risk_pct is not None %}
-                    {{ policy.risk_pct|floatformat:2 }} %
-                  {% else %}
-                    —
-                  {% endif %}
-                </div>
-              </div>
-              <div class="it">
-                <div class="lb">信用余力の使用上限</div>
-                <div class="vl">
-                  {% if policy.credit_usage_pct is not None %}
-                    {{ policy.credit_usage_pct|floatformat:1 }} %
-                  {% else %}
-                    —
-                  {% endif %}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- フィルター -->
-          <div class="card">
-            <div class="hd">
-              <div class="badge">フィルター</div>
-            </div>
-            <div class="kv">
-              <div class="it">
-                <div class="lb">最低純利益</div>
-                <div class="vl">
-                  {% if policy.min_net_profit_yen is not None %}
-                    {{ policy.min_net_profit_yen|floatformat:0|intcomma }} 円
-                  {% else %}
-                    —
-                  {% endif %}
-                </div>
-              </div>
-              <div class="it">
-                <div class="lb">最低 Reward / Risk</div>
-                <div class="vl">
-                  {% if policy.min_reward_risk is not None %}
-                    R {{ policy.min_reward_risk|floatformat:2 }}
-                  {% else %}
-                    —
-                  {% endif %}
-                </div>
-              </div>
-            </div>
-            <div class="msg">
-              純利益がこの金額未満、または R がこの値を下回るケースは「見送り」候補になります。<br>
-              マイナス許容:
-              {% if policy.allow_negative_pl %}
-                許容する（allow_negative_pl = true）
-              {% else %}
-                許容しない（allow_negative_pl = false）
-              {% endif %}
-            </div>
-          </div>
-
-          <!-- コスト想定 -->
-          <div class="card">
-            <div class="hd">
-              <div class="badge">コスト想定</div>
-            </div>
-            <div class="kv">
-              <div class="it">
-                <div class="lb">売買手数料レート</div>
-                <div class="vl">
-                  {% if policy.commission_rate is not None %}
-                    {{ policy.commission_rate|floatformat:4 }} （約定代金に対する割合）
-                  {% else %}
-                    —
-                  {% endif %}
-                </div>
-              </div>
-              <div class="it">
-                <div class="lb">最低手数料</div>
-                <div class="vl">
-                  {% if policy.min_commission is not None %}
-                    {{ policy.min_commission|floatformat:0|intcomma }} 円
-                  {% else %}
-                    —
-                  {% endif %}
-                </div>
-              </div>
-              <div class="it">
-                <div class="lb">スリッページレート</div>
-                <div class="vl">
-                  {% if policy.slippage_rate is not None %}
-                    {{ policy.slippage_rate|floatformat:4 }}
-                  {% else %}
-                    —
-                  {% endif %}
-                </div>
-              </div>
-            </div>
-            <div class="msg">
-              ここで設定したコスト想定を使って、<br>
-              ・純利益がマイナスにならないか<br>
-              ・利益がショボすぎないか<br>
-              をチェックしています。
-            </div>
-          </div>
-        </div>
-
-        <form method="post" style="margin-top:18px;">
-          {% csrf_token %}
-          <input type="hidden" name="tab" value="advanced">
-
-          <h2>ポリシーしきい値の編集</h2>
-
-          <div class="row">
-            <label style="font-size:14px;color:var(--sub)">最低純利益（円）</label>
-            <input class="inp" name="min_net_profit_yen" type="number" inputmode="decimal" step="100" min="0"
-                   value="{% if policy.min_net_profit_yen is not None %}{{ policy.min_net_profit_yen|floatformat:0 }}{% endif %}">
-          </div>
-
-          <div class="row" style="margin-top:8px;">
-            <label style="font-size:14px;color:var(--sub)">最低 Reward / Risk（R）</label>
-            <input class="inp" name="min_reward_risk" type="number" inputmode="decimal" step="0.1" min="0"
-                   value="{% if policy.min_reward_risk is not None %}{{ policy.min_reward_risk|floatformat:2 }}{% endif %}">
-          </div>
-
-          <div class="row" style="margin-top:8px;">
-            <label style="font-size:14px;color:var(--sub)">マイナス許容</label>
-            <select name="allow_negative_pl" class="inp" style="text-align:left;">
-              <option value="false" {% if not policy.allow_negative_pl %}selected{% endif %}>許容しない</option>
-              <option value="true" {% if policy.allow_negative_pl %}selected{% endif %}>許容する</option>
-            </select>
-          </div>
-
-          <h2 style="margin-top:14px;">コスト想定の編集</h2>
-
-          <div class="row">
-            <label style="font-size:14px;color:var(--sub)">売買手数料レート</label>
-            <input class="inp" name="commission_rate" type="number" inputmode="decimal" step="0.0001" min="0"
-                   value="{% if policy.commission_rate is not None %}{{ policy.commission_rate|floatformat:4 }}{% endif %}">
-          </div>
-
-          <div class="row" style="margin-top:8px;">
-            <label style="font-size:14px;color:var(--sub)">最低手数料（円）</label>
-            <input class="inp" name="min_commission" type="number" inputmode="decimal" step="10" min="0"
-                   value="{% if policy.min_commission is not None %}{{ policy.min_commission|floatformat:0 }}{% endif %}">
-          </div>
-
-          <div class="row" style="margin-top:8px;">
-            <label style="font-size:14px;color:var(--sub)">スリッページレート</label>
-            <input class="inp" name="slippage_rate" type="number" inputmode="decimal" step="0.0001" min="0"
-                   value="{% if policy.slippage_rate is not None %}{{ policy.slippage_rate|floatformat:4 }}{% endif %}">
-          </div>
-
-          <div style="margin-top:12px;text-align:right">
-            <button class="btn" type="submit">保存</button>
-          </div>
-          <div class="note">
-            ※ ここで編集した値は short_aggressive.yml に保存され、次回以降の AI Picks 計算に反映されます。
-          </div>
-        </form>
-
       {% else %}
-        <div class="note">
-          short_aggressive.yml を読み込めませんでした。<br>
-          ファイルのパス: <code>aiapp/policies/short_aggressive.yml</code> を確認してください。
-        </div>
+        <div class="kpi-pl"><span style="color:var(--sub);">この日のシミュレなし</span><span class="kpi-pl-val pos">0 円</span></div>
       {% endif %}
     </div>
+
+    <div class="kpi-card">
+      <div class="kpi-title">通算成績（全期間 / PRO公式）</div>
+      {% if summary_total.has_data %}
+        <div class="kpi-counts">
+          <div class="kpi-count"><span class="label">勝</span>{{ summary_total.win }}</div>
+          <div class="kpi-count"><span class="label">負</span>{{ summary_total.lose }}</div>
+          <div class="kpi-count"><span class="label">見/持</span>{{ summary_total.skip }}</div>
+          {% if summary_total.flat %}
+            <div class="kpi-count"><span class="label">分</span>{{ summary_total.flat }}</div>
+          {% endif %}
+        </div>
+        <div class="kpi-pl">
+          <span style="color:var(--sub);">合計</span>
+          <span class="kpi-pl-val {% if summary_total.total_pl >= 0 %}pos{% else %}neg{% endif %}">
+            {{ summary_total.total_pl|floatformat:0|intcomma }} 円
+          </span>
+        </div>
+      {% else %}
+        <div class="kpi-pl"><span style="color:var(--sub);">履歴なし</span><span class="kpi-pl-val pos">0 円</span></div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="filters">
+    <!-- モードフィルタ -->
+    <div class="filter-row">
+      <div class="filter-label">モード</div>
+      <div class="chip-row">
+        <form method="get" class="chip-form">
+          <input type="hidden" name="date" value="{{ selected_date_str }}">
+          <input type="hidden" name="q" value="{{ q }}">
+          <button type="submit" name="mode" value="all"
+                  class="chip-btn {% if mode == 'all' %}active{% endif %}">ALL</button>
+        </form>
+        <form method="get" class="chip-form">
+          <input type="hidden" name="date" value="{{ selected_date_str }}">
+          <input type="hidden" name="q" value="{{ q }}">
+          <button type="submit" name="mode" value="live"
+                  class="chip-btn {% if mode == 'live' %}active{% endif %}">LIVE</button>
+        </form>
+        <form method="get" class="chip-form">
+          <input type="hidden" name="date" value="{{ selected_date_str }}">
+          <input type="hidden" name="q" value="{{ q }}">
+          <button type="submit" name="mode" value="demo"
+                  class="chip-btn {% if mode == 'demo' %}active{% endif %}">DEMO</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- 日付フィルタ（iOS ホイール） -->
+    <div class="filter-row">
+      <div class="filter-label">日付</div>
+      <form method="get" class="date-form">
+        <input type="hidden" name="mode" value="{{ mode }}">
+        <input type="hidden" name="q" value="{{ q }}">
+        <input type="date"
+               name="date"
+               class="date-input"
+               value="{{ selected_date_str }}">
+      </form>
+    </div>
+
+    <!-- 銘柄検索 -->
+    <form method="get" class="search-row">
+      <input type="hidden" name="mode" value="{{ mode }}">
+      <input type="hidden" name="date" value="{{ selected_date_str }}">
+      <input type="text"
+             name="q"
+             value="{{ q }}"
+             class="search-input"
+             placeholder="銘柄コード or 名称で検索（PRO公式のみ）">
+      <button type="submit" class="search-btn">検索</button>
+    </form>
+  </div>
+
+  {% if entries %}
+    <div class="grid">
+      {% for e in entries %}
+        <div class="card">
+          <div class="row-top">
+            <div class="code-name">
+              <div class="code">
+                {{ e.code }}{% if e.price_date %}・{{ e.price_date }}{% endif %}
+              </div>
+              <div class="name">
+                {{ e.name|default:"(名称不明)" }}
+              </div>
+
+              {% if e.mode %}
+                {% if e.mode == "live" %}
+                  <div class="mode-badge mode-live">LIVE シミュレ</div>
+                {% else %}
+                  <div class="mode-badge mode-demo">DEMO シミュレ</div>
+                {% endif %}
+              {% endif %}
+
+              {% if e.combined_label %}
+                <div class="head-result-chip">
+                  <span class="result-badge
+                    {% if e.combined_label == 'win' %}
+                      result-badge-win
+                    {% elif e.combined_label == 'lose' %}
+                      result-badge-lose
+                    {% elif e.combined_label == 'flat' %}
+                      result-badge-flat
+                    {% else %}
+                      result-badge-none
+                    {% endif %}
+                  ">
+                    {% if e.combined_label == 'win' %}
+                      勝ち
+                    {% elif e.combined_label == 'lose' %}
+                      負け
+                    {% elif e.combined_label == 'flat' %}
+                      引き分け
+                    {% elif e.combined_label == 'carry' %}
+                      持ち越し
+                    {% elif e.combined_label == 'skip' %}
+                      見送り
+                    {% else %}
+                      -
+                    {% endif %}
+                  </span>
+                </div>
+              {% endif %}
+            </div>
+
+            <div class="ts-badge">
+              {{ e.ts_label|default:e.ts }}
+            </div>
+          </div>
+
+          <div class="body-cols">
+            <!-- ===== 左：AIスナップ（PRO指値） ===== -->
+            <div class="ai-box">
+              <div class="ai-title">AIスナップ（PRO指値）</div>
+              <div class="ai-row">
+                <div class="ai-label">エントリー</div>
+                <div class="ai-val">
+                  {% if e.entry %}
+                    {{ e.entry|floatformat:0|intcomma }} 円
+                  {% else %}—{% endif %}
+                </div>
+              </div>
+              <div class="ai-row">
+                <div class="ai-label">TP</div>
+                <div class="ai-val">
+                  {% if e.tp %}{{ e.tp|floatformat:0|intcomma }} 円{% else %}—{% endif %}
+                </div>
+              </div>
+              <div class="ai-row">
+                <div class="ai-label">SL</div>
+                <div class="ai-val">
+                  {% if e.sl %}{{ e.sl|floatformat:0|intcomma }} 円{% else %}—{% endif %}
+                </div>
+              </div>
+
+              <div class="ai-section">
+                <div>数量 / 必要資金</div>
+                <div class="ai-row">
+                  <div class="ai-label">PRO数量</div>
+                  <div class="ai-val">
+                    {{ e.qty_pro|floatformat:0|intcomma }} 株
+                  </div>
+                </div>
+                <div class="ai-row">
+                  <div class="ai-label">必要資金</div>
+                  <div class="ai-val">
+                    {% if e.required_cash_pro %}
+                      {{ e.required_cash_pro|floatformat:0|intcomma }} 円
+                    {% else %}0 円{% endif %}
+                  </div>
+                </div>
+              </div>
+
+              <div class="ai-section">
+                <div>想定PL（PRO）</div>
+                <div class="ai-row">
+                  <div class="ai-label">想定利益</div>
+                  <div class="ai-val pos">
+                    {% if e.est_pl_pro %}
+                      +{{ e.est_pl_pro|floatformat:0|intcomma }} 円
+                    {% else %}0 円{% endif %}
+                  </div>
+                </div>
+                <div class="ai-row">
+                  <div class="ai-label">想定損失</div>
+                  <div class="ai-val neg">
+                    {% if e.est_loss_pro %}
+                      -{{ e.est_loss_pro|floatformat:0|intcomma }} 円
+                    {% else %}0 円{% endif %}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ===== 右：シミュ結果（約定＆評価） ===== -->
+            <div class="real-box">
+              <div class="real-title">
+                シミュ結果{% if e.eval_horizon_days %}（{{ e.eval_horizon_days }}営業日後）{% endif %}
+              </div>
+
+              <div class="real-section">
+                <div>約定</div>
+                {% if e.eval_entry_px %}
+                  <div class="real-row">
+                    <div class="real-label">価格</div>
+                    <div class="real-val">
+                      {{ e.eval_entry_px|floatformat:0|intcomma }} 円
+                    </div>
+                  </div>
+                  {% if e.entry_label %}
+                    <div class="real-row">
+                      <div class="real-label">時刻</div>
+                      <div class="real-val">
+                        {{ e.entry_label }}
+                      </div>
+                    </div>
+                  {% endif %}
+                {% else %}
+                  <div class="real-note">
+                    約定できず
+                  </div>
+                {% endif %}
+              </div>
+
+              <div class="real-section">
+                <div>決済</div>
+                {% if e.exit_reason_label %}
+                  <div class="real-row">
+                    <div class="real-label">結果</div>
+                    <div class="real-val">
+                      {{ e.exit_reason_label }}
+                    </div>
+                  </div>
+                  {% if e.exit_label %}
+                    <div class="real-row">
+                      <div class="real-label">時刻</div>
+                      <div class="real-val">
+                        {{ e.exit_label }}
+                      </div>
+                    </div>
+                  {% endif %}
+                {% elif e.eval_exit_reason %}
+                  <div class="real-row">
+                    <div class="real-label">結果</div>
+                    <div class="real-val">
+                      {{ e.eval_exit_reason }}
+                    </div>
+                  </div>
+                {% else %}
+                  <div class="real-note">
+                    まだ評価が実行されていません（ai_sim_eval 未実行）
+                  </div>
+                {% endif %}
+              </div>
+
+              <div class="real-section">
+                <div class="real-pl-wrap">
+                  <div>損益（PRO）</div>
+                  <div class="real-pl-row">
+                    <div class="real-label">実績PL</div>
+                    <div>
+                      {% if e.eval_pl_pro is None %}
+                        <span class="result-pl">—</span>
+                      {% else %}
+                        <span class="result-pl {% if e.eval_pl_pro >= 0 %}pos{% else %}neg{% endif %}">
+                          {{ e.eval_pl_pro|floatformat:0|intcomma }} 円
+                        </span>
+                      {% endif %}
+                    </div>
+                  </div>
+                  <div class="real-note">
+                    ※carry（未確定）の間は “—” 表示。確定するとPLが出ます（replay.pro.last_eval.pl_pro）。
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <form method="post"
+                action="{% url 'aiapp:simulate_delete' e.id %}"
+                class="delete-row"
+                onsubmit="return confirm('このシミュレ記録を削除しますか？');">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button type="submit" class="delete-link">このシミュレを削除</button>
+          </form>
+
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">
+      条件に一致するシミュレ登録がありません。<br>
+      日付やモード・銘柄検索を少しゆるめてみてください。
+    </div>
   {% endif %}
+
 </div>
-
-<script>
-  function applyProPanel(mode){
-    document.querySelectorAll(".pill").forEach(function(el){ el.classList.remove("active"); });
-    var checked = document.querySelector('input[name="pro_mode"][value="'+mode+'"]');
-    if (checked) {
-      var wrap = checked.closest(".pill");
-      if (wrap) wrap.classList.add("active");
-    }
-
-    document.querySelectorAll(".pro-panel").forEach(function(p){
-      p.classList.remove("active");
-      if (p.getAttribute("data-pro") === mode) p.classList.add("active");
-    });
-  }
-
-  document.addEventListener("change", function(e){
-    if (!e.target || e.target.name !== "pro_mode") return;
-    applyProPanel(e.target.value);
-  });
-
-  document.addEventListener("DOMContentLoaded", function(){
-    var current = document.querySelector('input[name="pro_mode"]:checked');
-    applyProPanel(current ? current.value : "collect");
-  });
-</script>
 {% endblock %}
