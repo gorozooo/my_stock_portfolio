@@ -317,6 +317,23 @@
   .result-pl.pos{color:var(--ok);}
   .result-pl.neg{color:var(--bad);}
 
+  /* ★資金の内訳（小さく） */
+  .cash-mini{
+    margin-top:4px;
+    font-size:10px;
+    color:var(--sub);
+    line-height:1.25;
+    display:flex;
+    justify-content:space-between;
+    gap:6px;
+  }
+  .cash-mini .cash-label{ color:rgba(148,163,184,0.9); }
+  .cash-mini .cash-val{
+    font-variant-numeric:tabular-nums;
+    text-align:right;
+    white-space:nowrap;
+  }
+
   .empty{
     margin-top:16px;
     padding:16px;
@@ -571,6 +588,27 @@
                     {% else %}0 円{% endif %}
                   </div>
                 </div>
+
+                <!-- ★資金の内訳（小さく） -->
+                {% if e.cash_before is not None or e.cash_after is not None %}
+                  <div class="cash-mini">
+                    <div class="cash-label">残高（この注文）</div>
+                    <div class="cash-val">
+                      {% if e.cash_before is not None %}
+                        {{ e.cash_before|floatformat:0|intcomma }}
+                      {% else %}
+                        —
+                      {% endif %}
+                      →
+                      {% if e.cash_after is not None %}
+                        {{ e.cash_after|floatformat:0|intcomma }}
+                      {% else %}
+                        —
+                      {% endif %}
+                      円
+                    </div>
+                  </div>
+                {% endif %}
               </div>
 
               <div class="ai-section">
