@@ -23,7 +23,7 @@
   }
   .wrap{max-width:720px;margin:0 auto;padding:10px 12px 80px;}
 
-  /* ===== 上部：PRO残高パネル ===== */
+  /* ===== 上部：PRO残高パネル（2x2圧縮） ===== */
   .pro-top{
     margin-bottom:10px;
     padding:10px 12px;
@@ -47,14 +47,14 @@
     font-variant-numeric:tabular-nums;
     white-space:nowrap;
   }
+
+  /* ★ 2x2固定（縦を短くする） */
   .pro-grid{
     display:grid;
     grid-template-columns:repeat(2,minmax(0,1fr));
     gap:8px;
   }
-  @media (max-width:480px){
-    .pro-grid{ grid-template-columns:1fr; }
-  }
+
   .pro-kv{
     border:1px solid rgba(148,163,184,0.25);
     border-radius:12px;
@@ -68,8 +68,9 @@
   }
   .pro-kv .v{
     font-size:14px;
-    font-weight:700;
+    font-weight:800;
     font-variant-numeric:tabular-nums;
+    letter-spacing:0.2px;
   }
   .pro-kv .v.pos{ color:var(--ok); }
   .pro-kv .v.neg{ color:var(--bad); }
@@ -78,33 +79,43 @@
     font-size:10px;
     color:var(--muted);
     font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+
+  /* 建玉カードだけ少し情報を詰める */
+  .pro-kv.compact .v{
+    font-size:13px;
+    font-weight:800;
+  }
+  .pro-kv.compact .mini{
+    margin-top:2px;
   }
 
   /* ===== KPIカード（選択日 / 通算） ===== */
   .kpi-top{
     display:grid;
     grid-template-columns:repeat(2,minmax(0,1fr));
-    gap:6px;                 /* ←小さく */
-    margin-bottom:8px;       /* ←小さく */
+    gap:6px;
+    margin-bottom:8px;
   }
-  /* ★スマホでも2カラム固定（要求どおり） */
   @media (max-width:480px){
     .kpi-top{ grid-template-columns:repeat(2,minmax(0,1fr)); }
   }
-
   .kpi-card{
-    padding:7px 9px;         /* ←小さく */
-    border-radius:12px;      /* ←少し小さく */
+    padding:7px 9px;
+    border-radius:12px;
     border:1px solid rgba(148,163,184,0.35);
     background:linear-gradient(135deg,rgba(15,23,42,0.96),rgba(17,94,163,0.85));
-    font-size:11px;          /* ←小さく */
-    line-height:1.25;        /* ←詰める */
+    font-size:11px;
+    line-height:1.25;
     backdrop-filter:blur(10px);
   }
   .kpi-title{
-    font-size:11px;          /* ←小さく */
-    font-weight:700;         /* ←視認性だけ維持 */
-    margin-bottom:3px;       /* ←小さく */
+    font-size:11px;
+    font-weight:700;
+    margin-bottom:3px;
     white-space:nowrap;
     overflow:hidden;
     text-overflow:ellipsis;
@@ -112,16 +123,16 @@
   .kpi-counts{
     display:flex;
     flex-wrap:wrap;
-    gap:4px 6px;             /* ←小さく */
-    margin-bottom:3px;       /* ←小さく */
+    gap:4px 6px;
+    margin-bottom:3px;
   }
   .kpi-count{
-    font-size:10px;          /* ←さらに小さく */
+    font-size:10px;
     font-variant-numeric:tabular-nums;
   }
   .kpi-count span.label{ color:var(--sub); margin-right:2px; }
   .kpi-pl{
-    font-size:10px;          /* ←小さく */
+    font-size:10px;
     display:flex;
     align-items:baseline;
     justify-content:space-between;
@@ -449,14 +460,11 @@
 {% block content %}
 <div class="wrap">
 
-  <!-- ===== PRO残高パネル（最上部に単独表示） ===== -->
+  <!-- ===== PRO残高パネル（2x2） ===== -->
   <div class="pro-top">
     <div class="pro-title">
       <div>PRO口座（統一）残高</div>
-      <div class="pro-sub">
-        建玉 {{ pro_account.open_count|default:0 }} / {{ pro_account.max_positions|default:5 }}
-        ・上限 {{ pro_account.max_total_risk_r|default:3.0 }}R
-      </div>
+      <div class="pro-sub">建玉 {{ pro_account.open_count|default:0 }} / {{ pro_account.max_positions|default:5 }} ・上限 {{ pro_account.max_total_risk_r|default:3.0 }}R</div>
     </div>
 
     <div class="pro-grid">
@@ -484,21 +492,18 @@
         <div class="mini">口座資金 − 拘束中</div>
       </div>
 
-      <div class="pro-kv">
-        <div class="k">いまの状態</div>
+      <div class="pro-kv compact">
+        <div class="k">建玉 / 制限</div>
         <div class="v">
-          {% if pro_account.open_count|default:0 >= pro_account.max_positions|default:5 %}
-            枠いっぱい
-          {% else %}
-            枠あり
-          {% endif %}
+          {{ pro_account.open_count|default:0 }} / {{ pro_account.max_positions|default:5 }}
+          ・{{ pro_account.max_total_risk_r|default:3.0 }}R
         </div>
         <div class="mini">この表示が“真実”基準（PRO口座単体）</div>
       </div>
     </div>
   </div>
 
-  <!-- ===== KPI（左右2カラム / さらに小型化） ===== -->
+  <!-- ===== KPI（左右2カラム / 小型） ===== -->
   <div class="kpi-top">
     <div class="kpi-card">
       <div class="kpi-title">選択日の成績（PRO公式）{% if selected_date_str %}：{{ selected_date_str }}{% endif %}</div>
