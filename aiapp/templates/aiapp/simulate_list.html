@@ -36,6 +36,15 @@
     font-size:12px;
     font-weight:700;
     margin-bottom:6px;
+    display:flex;
+    justify-content:space-between;
+    gap:8px;
+    align-items:baseline;
+  }
+  .acct-title small{
+    font-size:10px;
+    color:var(--sub);
+    font-weight:600;
   }
   .acct-row{
     display:flex;
@@ -48,7 +57,7 @@
   .acct-label{ color:var(--sub); }
   .acct-val{
     font-variant-numeric:tabular-nums;
-    font-weight:700;
+    font-weight:800;
     text-align:right;
     white-space:nowrap;
   }
@@ -409,9 +418,14 @@
 {% block content %}
 <div class="wrap">
 
-  <!-- ★上部：残高＋建ててる件数 -->
+  <!-- ★上部：現在残高（最新）＋建ててる件数 -->
   <div class="acct-card">
-    <div class="acct-title">PRO口座サマリー</div>
+    <div class="acct-title">
+      <span>PRO口座サマリー</span>
+      {% if latest_cash_ts_label %}
+        <small>更新: {{ latest_cash_ts_label }}</small>
+      {% endif %}
+    </div>
 
     <div class="acct-row">
       <div class="acct-label">建ててる件数（PRO OPEN）</div>
@@ -419,27 +433,26 @@
     </div>
 
     <div class="acct-row">
-      <div class="acct-label">残高（選択日の流れ）</div>
+      <div class="acct-label">現在残高（最新）</div>
       <div class="acct-val">
-        {% if cash_before_day is not None or cash_after_day is not None %}
-          {% if cash_before_day is not None %}
-            {{ cash_before_day|floatformat:0|intcomma }}
-          {% else %}—{% endif %}
-          →
-          {% if cash_after_day is not None %}
-            {{ cash_after_day|floatformat:0|intcomma }}
-          {% else %}—{% endif %}
-          円
+        {% if current_cash is None %}
+          —
         {% else %}
-          — →
-          — 円
+          {{ current_cash|floatformat:0|intcomma }} 円
         {% endif %}
       </div>
     </div>
 
     <div class="acct-small">
-      ※残高は replay から取得（古いデータで未保存なら “—” になります）。<br>
-      ※「建ててる件数」は PRO accepted かつ entry済み＆未クローズをOPEN扱いでカウント。
+      {% if latest_cash_before is not None or latest_cash_after is not None %}
+        最新の資金推移: 
+        {% if latest_cash_before is None %}—{% else %}{{ latest_cash_before|floatformat:0|intcomma }}{% endif %}
+        →
+        {% if latest_cash_after is None %}—{% else %}{{ latest_cash_after|floatformat:0|intcomma }}{% endif %}
+        円
+      {% else %}
+        ※残高は replay から取得（まだ保存されてない古いデータは “—” になります）
+      {% endif %}
     </div>
   </div>
 
