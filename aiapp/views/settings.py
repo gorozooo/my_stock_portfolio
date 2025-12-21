@@ -190,10 +190,6 @@ def _build_pro_context(policy: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(limits, dict):
         limits = {}
 
-    filters = policy.get("filters") or {}
-    if not isinstance(filters, dict):
-        filters = {}
-
     def _profile_get(name: str) -> Dict[str, Any]:
         p = profiles.get(name) or {}
         return p if isinstance(p, dict) else {}
@@ -212,17 +208,19 @@ def _build_pro_context(policy: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(s_tighten, dict):
         s_tighten = {}
 
-    # デフォルト（collect）
-    # ─ max_positions は既存 limits から拾えるようにしておく（移行を滑らかに）
+    # ---- Collect defaults ----
+    # max_positions は既存 limits から拾えるようにしておく（移行を滑らかに）
     c_max_positions = _int(c_limits.get("max_positions"), _int(limits.get("max_positions"), 5))
+    c_max_total_risk_r = _num(c_limits.get("max_total_risk_r"), _num(limits.get("max_total_risk_r"), 3.0))
     c_max_notional = _int(c_limits.get("max_notional_per_trade_yen"), 2_000_000)
     c_min_notional = _int(c_limits.get("min_notional_per_trade_yen"), 0)
     c_max_total = _int(c_limits.get("max_total_notional_yen"), 5_000_000)
     c_reserve = _int(c_limits.get("reserve_cash_yen"), 0)
     c_horizon = _int(c_limits.get("horizon_bd"), _int(pro.get("horizon_bd"), 3))
 
-    # strict のデフォルト
+    # ---- Strict defaults ----
     s_max_positions = _int(s_limits.get("max_positions"), c_max_positions)
+    s_max_total_risk_r = _num(s_limits.get("max_total_risk_r"), c_max_total_risk_r)
     s_max_notional = _int(s_limits.get("max_notional_per_trade_yen"), 1_500_000)
     s_min_notional = _int(s_limits.get("min_notional_per_trade_yen"), 0)
     s_max_total = _int(s_limits.get("max_total_notional_yen"), c_max_total)
@@ -232,21 +230,24 @@ def _build_pro_context(policy: Dict[str, Any]) -> Dict[str, Any]:
     strict_min_rr = _num(s_tighten.get("min_reward_risk"), 1.0)
     strict_min_net_profit = _int(s_tighten.get("min_net_profit_yen"), 0)
 
-    # 画面に出す：短縮した “今効いてる値（active）” も欲しいとき用
     active_label = "Collect" if learn_mode == "collect" else "Strict"
 
     return {
         "pro_mode": learn_mode,
         "pro_active_label": active_label,
 
+        # Collect
         "c_max_positions": c_max_positions,
+        "c_max_total_risk_r": c_max_total_risk_r,
         "c_max_notional_per_trade_yen": c_max_notional,
         "c_min_notional_per_trade_yen": c_min_notional,
         "c_max_total_notional_yen": c_max_total,
         "c_reserve_cash_yen": c_reserve,
         "c_horizon_bd": c_horizon,
 
+        # Strict
         "s_max_positions": s_max_positions,
+        "s_max_total_risk_r": s_max_total_risk_r,
         "s_max_notional_per_trade_yen": s_max_notional,
         "s_min_notional_per_trade_yen": s_min_notional,
         "s_max_total_notional_yen": s_max_total,
@@ -276,8 +277,8 @@ def _save_pro_params_from_post(request: HttpRequest) -> None:
     if not isinstance(profiles, dict):
         profiles = {}
 
-    # 選択モード
-    pro_mode = str(request.POST.get("pro_mode") or "collect").strip().lower()
+    # 選択モード（UIは pro_mode）
+    pro_mode = str(request.POST.get("pro_mode") or pro.get("learn_mode") or "collect").strip().lower()
     if pro_mode not in ("collect", "strict"):
         pro_mode = "collect"
 
@@ -302,7 +303,9 @@ def _save_pro_params_from_post(request: HttpRequest) -> None:
     # 現状を基準にする（入力欠損のとき壊さない）
     ctx = _build_pro_context(data)
 
+    # -----------------
     # Collect
+    # -----------------
     c = profiles.get("collect") or {}
     if not isinstance(c, dict):
         c = {}
@@ -311,6 +314,7 @@ def _save_pro_params_from_post(request: HttpRequest) -> None:
         c_limits = {}
 
     c_limits["max_positions"] = max(1, p_int("c_max_positions", ctx["c_max_positions"]))
+    c_limits["max_total_risk_r"] = max(1.0, p_float("c_max_total_risk_r", float(ctx["c_max_total_risk_r"])))
     c_limits["max_notional_per_trade_yen"] = max(0, p_int("c_max_notional_per_trade_yen", ctx["c_max_notional_per_trade_yen"]))
     c_limits["min_notional_per_trade_yen"] = max(0, p_int("c_min_notional_per_trade_yen", ctx["c_min_notional_per_trade_yen"]))
     c_limits["max_total_notional_yen"] = max(0, p_int("c_max_total_notional_yen", ctx["c_max_total_notional_yen"]))
@@ -320,7 +324,9 @@ def _save_pro_params_from_post(request: HttpRequest) -> None:
     c["limits"] = c_limits
     profiles["collect"] = c
 
+    # -----------------
     # Strict
+    # -----------------
     s = profiles.get("strict") or {}
     if not isinstance(s, dict):
         s = {}
@@ -332,6 +338,7 @@ def _save_pro_params_from_post(request: HttpRequest) -> None:
         s_tighten = {}
 
     s_limits["max_positions"] = max(1, p_int("s_max_positions", ctx["s_max_positions"]))
+    s_limits["max_total_risk_r"] = max(1.0, p_float("s_max_total_risk_r", float(ctx["s_max_total_risk_r"])))
     s_limits["max_notional_per_trade_yen"] = max(0, p_int("s_max_notional_per_trade_yen", ctx["s_max_notional_per_trade_yen"]))
     s_limits["min_notional_per_trade_yen"] = max(0, p_int("s_min_notional_per_trade_yen", ctx["s_min_notional_per_trade_yen"]))
     s_limits["max_total_notional_yen"] = max(0, p_int("s_max_total_notional_yen", ctx["s_max_total_notional_yen"]))
@@ -345,6 +352,7 @@ def _save_pro_params_from_post(request: HttpRequest) -> None:
     s["tighten"] = s_tighten
     profiles["strict"] = s
 
+    # 保存
     pro["learn_mode"] = pro_mode
     pro["profiles"] = profiles
     data["pro"] = pro
@@ -364,19 +372,21 @@ def _save_pro_params_from_post(request: HttpRequest) -> None:
     if pro_mode == "collect":
         active = profiles["collect"]["limits"]
         limits["max_positions"] = int(active["max_positions"])
+        limits["max_total_risk_r"] = float(active.get("max_total_risk_r") or 3.0)
         limits["max_notional_per_trade_yen"] = int(active["max_notional_per_trade_yen"])
         limits["min_notional_per_trade_yen"] = int(active["min_notional_per_trade_yen"])
         limits["max_total_notional_yen"] = int(active["max_total_notional_yen"])
         limits["reserve_cash_yen"] = int(active["reserve_cash_yen"])
         data["pro"]["horizon_bd"] = int(active["horizon_bd"])
 
-        # Collect は母数優先：締め付けは “ゼロ基準” でゆるめる（Strictと差が見える）
+        # Collect は母数優先：締め付けはゆるめる
         filters["min_reward_risk"] = 0.0
         filters["min_net_profit_yen"] = 0.0
 
     else:
         active = profiles["strict"]["limits"]
         limits["max_positions"] = int(active["max_positions"])
+        limits["max_total_risk_r"] = float(active.get("max_total_risk_r") or 3.0)
         limits["max_notional_per_trade_yen"] = int(active["max_notional_per_trade_yen"])
         limits["min_notional_per_trade_yen"] = int(active["min_notional_per_trade_yen"])
         limits["max_total_notional_yen"] = int(active["max_total_notional_yen"])
@@ -499,7 +509,6 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         if tab == "pro":
             _save_pro_params_from_post(request)
             messages.success(request, "保存しました")
-            # 保存後は同じタブに戻す
             return redirect(f"{request.path}?tab=pro")
 
         # ---------- advanced タブ：filters / fees 編集 ----------
