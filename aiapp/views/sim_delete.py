@@ -14,14 +14,21 @@ from aiapp.models.vtrade import VirtualTrade
 @require_POST
 def simulate_delete(request: HttpRequest, pk: int) -> HttpResponse:
     """
-    シミュレ記録（DB: VirtualTrade）を 1 件だけ削除する。
+    シミュレ記録（DB: VirtualTrade）を 1 件だけ削除する（PRO公式整合版）。
 
-    重要:
-    - simulate_list は entries の e.id に VirtualTrade.pk を入れている
-    - delete も pk を VirtualTrade.pk として扱う
+    方針（simulate_list と同じ）：
+    - 削除対象は「PRO公式記録」のみ
+      = replay.pro.status == "accepted" かつ qty_pro > 0 のものだけ
     - 必ず user で絞って削除し、他ユーザー/他データ誤削除を防ぐ
+    - それ以外（DEMOのみ/旧口座系/PRO未accept）は 404 にして“削除できない”扱い
     """
-    v = get_object_or_404(VirtualTrade, pk=pk, user=request.user)
+    v = get_object_or_404(
+        VirtualTrade,
+        pk=pk,
+        user=request.user,
+        replay__pro__status="accepted",
+        qty_pro__gt=0,
+    )
     v.delete()
 
     # 可能なら元ページへ戻す（フィルタ維持）
