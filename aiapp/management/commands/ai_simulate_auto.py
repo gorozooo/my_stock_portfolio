@@ -416,14 +416,26 @@ def _ev_true_from_behavior(code: str) -> float:
 # ========= PRO: policy path =========
 def _policy_path_default() -> Path:
     """
-    aiapp/policies/short_aggressive.yml の実ファイルパスを作る。
-    - settings.BASE_DIR があればそれを基準
-    - 無ければこのファイル位置から推定（保険）
+    デフォルトのポリシーパスを返す。
+
+    対応方針：
+    - 真実ソースは short_aggressive.runtime.yml（Git管理外）
+    - runtime が無ければ policy_loader 側でテンプレから自動生成される前提
+    - もし policy_loader が使えない状況でも落とさず .yml にフォールバック
     """
+    # まず runtime を正とする（policy_loader があれば確実に作る）
+    try:
+        from aiapp.services.policy_loader import ensure_runtime_policy  # ★追加
+        runtime_path = ensure_runtime_policy("short_aggressive")
+        return Path(runtime_path)
+    except Exception:
+        pass
+
+    # フォールバック：従来通り .yml
     base_dir = getattr(settings, "BASE_DIR", None)
     if base_dir:
         return Path(base_dir) / "aiapp" / "policies" / "short_aggressive.yml"
-    # manage.py のある階層を基準に推定
+
     return Path(__file__).resolve().parents[4] / "aiapp" / "policies" / "short_aggressive.yml"
 
 
@@ -564,18 +576,23 @@ class Command(BaseCommand):
     help = "AIフル自動シミュレ用：DEMO紙トレ注文を JSONL に起票 + VirtualTrade同期（PRO仕様）"
 
     def add_arguments(self, parser):
-        parser.add_argument("--date", type=str, default=None, help="run_date: YYYY-MM-DD（指定がなければJSTの今日）")
-        parser.add_argument(
-            "--trade-date",
-            type=str,
-            default=None,
-            help="trade_date: YYYY-MM-DD（省略時は自動決定。基本は同日、15:30以降は翌営業日）",
-        )
-        parser.add_argument("--overwrite", action="store_true", help="同じ日付の jsonl を上書き")
-        parser.add_argument("--mode-period", type=str, default="short", help="short/mid/long（将来拡張）")
-        parser.add_argument("--mode-aggr", type=str, default="aggr", help="aggr/norm/def（将来拡張）")
-        parser.add_argument("--policy", type=str, default=None, help="policy yml path（省略時: aiapp/policies/short_aggressive.yml）")
-        parser.add_argument("--dry-run", action="store_true", help="DB/JSONLを書かずにログ（確認用）")
+    parser.add_argument("--date", type=str, default=None, help="run_date: YYYY-MM-DD（指定がなければJSTの今日）")
+    parser.add_argument(
+        "--trade-date",
+        type=str,
+        default=None,
+        help="trade_date: YYYY-MM-DD（省略時は自動決定。基本は同日、15:30以降は翌営業日）",
+    )
+    parser.add_argument("--overwrite", action="store_true", help="同じ日付の jsonl を上書き")
+    parser.add_argument("--mode-period", type=str, default="short", help="short/mid/long（将来拡張）")
+    parser.add_argument("--mode-aggr", type=str, default="aggr", help="aggr/norm/def（将来拡張）")
+    parser.add_argument(
+        "--policy",
+        type=str,
+        default=None,
+        help="policy yml path（省略時: aiapp/policies/short_aggressive.runtime.yml を優先。無ければ short_aggressive.yml）",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="DB/JSONLを書かずにログ（確認用）")
 
     def handle(self, *args, **options):
         run_date_str: str = options.get("date") or today_jst_str()
