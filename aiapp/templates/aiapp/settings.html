@@ -135,7 +135,7 @@
   <!-- 丸タブ -->
   <div class="tabs">
     <a class="tab {% if tab == 'basic' %}active{% endif %}" href="?tab=basic">基本設定</a>
-    <a class="tab {% if tab == 'pro' %}active{% endif %}" href="?tab=pro">学習</a>
+    <a class="tab {% if tab == 'pro' %}active{% endif %}" href="?tab=pro">PRO</a>
     <a class="tab {% if tab == 'summary' %}active{% endif %}" href="?tab=summary">証券サマリ</a>
     <a class="tab {% if tab == 'advanced' %}active{% endif %}" href="?tab=advanced">ルール</a>
   </div>
@@ -150,7 +150,7 @@
 
         <div class="row">
           <label style="font-size:14px;color:var(--sub)">
-            1トレードあたりのリスク（％）
+            1回の取引で許容する損失（％）
           </label>
           <input
             class="inp"
@@ -231,7 +231,7 @@
           <button class="btn" type="submit">保存</button>
         </div>
         <div class="note">
-          ※ ここで設定したリスク％・信用余力の使用上限はポリシーファイルにも反映されます。<br>
+          ※ ここで設定した数値は <code>short_aggressive.runtime.yml</code> に保存されます（Git FORCEでも消えません）。<br>
           ※ 倍率/ヘアカットは証券サマリの概算に使われます。
         </div>
       </form>
@@ -260,8 +260,8 @@
         </div>
 
         <div class="note" style="margin-top:0;">
-          ※ ここで選んだモードと数値は short_aggressive.yml（真実ソース）に保存されます。<br>
-          ※ Collect/Strict は別の数値を保持します（同じに見える問題を潰す）。
+          ※ ここで選んだモードと数値は <code>short_aggressive.runtime.yml</code> に保存されます。<br>
+          ※ Collect/Strict は別の数値を保持します。
         </div>
 
         <!-- Collect パネル（選択中だけ表示） -->
@@ -271,16 +271,15 @@
 
           <div class="split2">
             <div class="row">
-              <label style="font-size:14px;color:var(--sub)">同時建玉数（max_positions）</label>
+              <label style="font-size:14px;color:var(--sub)">同時に持てる建玉数（最大）</label>
               <input class="inp" name="c_max_positions" type="number" inputmode="numeric" step="1" min="1"
                      value="{{ c_max_positions|floatformat:0 }}">
             </div>
 
-            <!-- ★追加：最大リスク数（R） -->
             <div class="row">
-              <label style="font-size:14px;color:var(--sub)">同時に許容する最大リスク数（R）</label>
-              <input class="inp" name="c_max_total_risk_r" type="number" inputmode="decimal" step="1" min="1"
-                     value="{{ c_max_total_risk_r|floatformat:0 }}">
+              <label style="font-size:14px;color:var(--sub)">全体のリスク上限（合計R）</label>
+              <input class="inp" name="c_max_total_risk_r" type="number" inputmode="decimal" step="0.1" min="0"
+                     value="{{ c_max_total_risk_r|floatformat:1 }}">
             </div>
 
             <div class="row">
@@ -308,10 +307,15 @@
             </div>
 
             <div class="row">
-              <label style="font-size:14px;color:var(--sub)">最大保有（営業日）horizon_bd</label>
+              <label style="font-size:14px;color:var(--sub)">最大保有日数（営業日）</label>
               <input class="inp" name="c_horizon_bd" type="number" inputmode="numeric" step="1" min="1"
                      value="{{ c_horizon_bd|floatformat:0 }}">
             </div>
+          </div>
+
+          <div class="msg">
+            <b>R（リスク）</b>は「損切りまで行ったときの損失」を基準にした単位。<br>
+            例：1回の取引で 1R ＝ 1万円の損失になる設計なら、合計 5R は最大5万円ぶんのリスクを同時に持つイメージ。
           </div>
         </div>
 
@@ -322,16 +326,15 @@
 
           <div class="split2">
             <div class="row">
-              <label style="font-size:14px;color:var(--sub)">同時建玉数（max_positions）</label>
+              <label style="font-size:14px;color:var(--sub)">同時に持てる建玉数（最大）</label>
               <input class="inp" name="s_max_positions" type="number" inputmode="numeric" step="1" min="1"
                      value="{{ s_max_positions|floatformat:0 }}">
             </div>
 
-            <!-- ★追加：最大リスク数（R） -->
             <div class="row">
-              <label style="font-size:14px;color:var(--sub)">同時に許容する最大リスク数（R）</label>
-              <input class="inp" name="s_max_total_risk_r" type="number" inputmode="decimal" step="1" min="1"
-                     value="{{ s_max_total_risk_r|floatformat:0 }}">
+              <label style="font-size:14px;color:var(--sub)">全体のリスク上限（合計R）</label>
+              <input class="inp" name="s_max_total_risk_r" type="number" inputmode="decimal" step="0.1" min="0"
+                     value="{{ s_max_total_risk_r|floatformat:1 }}">
             </div>
 
             <div class="row">
@@ -359,7 +362,7 @@
             </div>
 
             <div class="row">
-              <label style="font-size:14px;color:var(--sub)">最大保有（営業日）horizon_bd</label>
+              <label style="font-size:14px;color:var(--sub)">最大保有日数（営業日）</label>
               <input class="inp" name="s_horizon_bd" type="number" inputmode="numeric" step="1" min="1"
                      value="{{ s_horizon_bd|floatformat:0 }}">
             </div>
@@ -370,13 +373,13 @@
           <h2>Strict時の締め付け（Strictにしたら必ず効く）</h2>
 
           <div class="row">
-            <label style="font-size:14px;color:var(--sub)">Strict: 最低RR（R）</label>
+            <label style="font-size:14px;color:var(--sub)">最低RR（利益÷損失）</label>
             <input class="inp" name="strict_min_rr" type="number" inputmode="decimal" step="0.1" min="0"
                    value="{{ strict_min_rr|floatformat:1 }}">
           </div>
 
           <div class="row" style="margin-top:8px;">
-            <label style="font-size:14px;color:var(--sub)">Strict: 最低純利益（円）</label>
+            <label style="font-size:14px;color:var(--sub)">最低の見込み純利益（円）</label>
             <input class="inp" name="strict_min_net_profit_yen" type="number" inputmode="numeric" step="100" min="0"
                    value="{{ strict_min_net_profit_yen|floatformat:0 }}">
           </div>
@@ -387,7 +390,7 @@
         </div>
 
         <div class="note">
-          ※ 保存先は short_aggressive.yml（真実ソース）です。<br>
+          ※ 保存先は <code>short_aggressive.runtime.yml</code> です（Git FORCEでも消えません）。<br>
           ※ 選択中のモードの値が “実際に効く値” として limits / filters に同期されます。
         </div>
       </form>
@@ -436,12 +439,12 @@
   {% else %}
     <!-- ルール -->
     <div class="sec">
-      <h2>短期×攻め ポリシー（short_aggressive.yml）</h2>
+      <h2>短期×攻め ポリシー（runtime）</h2>
 
       {% if policy %}
         <div class="msg">
-          ポリシーファイルのしきい値をそのまま表示しています。<br>
-          ※ 実際の数量計算では、ここに表示されている値をもとに AI Picks が計算されます。
+          <code>short_aggressive.runtime.yml</code> のしきい値をそのまま表示しています。<br>
+          ※ 設定画面で保存した内容がそのまま反映されます（Git FORCEでも消えません）。
         </div>
 
         <div class="cards" style="margin-top:10px">
@@ -455,7 +458,7 @@
             </div>
             <div class="kv">
               <div class="it">
-                <div class="lb">1トレードのリスク</div>
+                <div class="lb">1回の取引で許容する損失</div>
                 <div class="vl">
                   {% if policy.risk_pct is not None %}
                     {{ policy.risk_pct|floatformat:2 }} %
@@ -611,14 +614,14 @@
             <button class="btn" type="submit">保存</button>
           </div>
           <div class="note">
-            ※ ここで編集した値は short_aggressive.yml に保存され、次回以降の AI Picks 計算に反映されます。
+            ※ ここで編集した値は <code>short_aggressive.runtime.yml</code> に保存され、次回以降のAI計算に反映されます。
           </div>
         </form>
 
       {% else %}
         <div class="note">
-          short_aggressive.yml を読み込めませんでした。<br>
-          ファイルのパス: <code>aiapp/policies/short_aggressive.yml</code> を確認してください。
+          runtime を読み込めませんでした。<br>
+          ファイルのパス: <code>aiapp/policies/short_aggressive.runtime.yml</code> を確認してください。
         </div>
       {% endif %}
     </div>
