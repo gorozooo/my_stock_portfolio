@@ -27,6 +27,7 @@ pro:
     collect:
       limits:
         max_positions: 5
+        max_total_risk_r: 3.0
         max_notional_per_trade_yen: 2000000
         min_notional_per_trade_yen: 0
         max_total_notional_yen: 5000000
@@ -36,6 +37,7 @@ pro:
     strict:
       limits:
         max_positions: 5
+        max_total_risk_r: 3.0
         max_notional_per_trade_yen: 1500000
         min_notional_per_trade_yen: 0
         max_total_notional_yen: 5000000
