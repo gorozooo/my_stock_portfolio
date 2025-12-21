@@ -186,6 +186,65 @@ def _get_pro_cash_before_after(v: VirtualTrade) -> Tuple[Optional[float], Option
     return cb2_f, ca2_f
 
 
+def _calc_cash_summary_for_selected(entries: List[Dict[str, Any]]) -> Tuple[Optional[float], Optional[float]]:
+    """
+    選択日の entries（同日分）から、表示用の cash_before / cash_after を作る。
+    - opened_at 昇順で見て、最初に見つかった cash_before を採用
+    - opened_at 昇順で見て、最後に見つかった cash_after を採用
+    """
+    if not entries:
+        return None, None
+
+    # _dt（opened_atのローカルdatetime）で昇順
+    tmp = [e for e in entries if e.get("_dt") is not None]
+    tmp.sort(key=lambda x: x.get("_dt"))
+
+    cash_before: Optional[float] = None
+    cash_after: Optional[float] = None
+
+    for e in tmp:
+        cb = e.get("cash_before")
+        if cash_before is None and cb is not None:
+            try:
+                cash_before = float(cb)
+            except Exception:
+                cash_before = None
+
+    for e in tmp:
+        ca = e.get("cash_after")
+        if ca is not None:
+            try:
+                cash_after = float(ca)
+            except Exception:
+                pass
+
+    return cash_before, cash_after
+
+
+def _count_open_positions_pro(user) -> int:
+    """
+    「建ててる件数」= PRO accepted のうち、OPEN建玉扱いの数。
+    ai_simulate_auto の制限ロジックと合わせる（安全寄り）。
+
+    条件（OPEN扱い）:
+    - replay.pro.status = accepted
+    - closed_at is None
+    - (eval_exit_reason == 'carry' or eval_exit_reason == '') を優先
+    - eval_entry_px が入っているもの（entry済み）を数える
+    """
+    qs = (
+        VirtualTrade.objects
+        .filter(user=user, replay__pro__status="accepted")
+        .filter(closed_at=None)
+        .filter(Q(eval_exit_reason="carry") | Q(eval_exit_reason=""))
+        .exclude(eval_entry_px=None)
+    )
+    try:
+        return int(qs.count())
+    except Exception:
+        return 0
+
+
 @login_required
 def simulate_list(request: HttpRequest) -> HttpResponse:
     """
@@ -324,7 +383,7 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
         # PRO実績PL（carry中は None）
         eval_pl_pro = _get_pro_pl(v)
 
-        # ★PRO資金（残高 before/after）
+        # ★カード内では出さないが、上部サマリー用に持つ（entriesに持たせる）
         cash_before, cash_after = _get_pro_cash_before_after(v)
 
         e: Dict[str, Any] = {
@@ -347,7 +406,7 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
             "est_pl_pro": v.est_pl_pro,
             "est_loss_pro": v.est_loss_pro,
 
-            # ★資金の内訳（PRO）
+            # 上部サマリー用
             "cash_before": cash_before,
             "cash_after": cash_after,
 
@@ -374,6 +433,12 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
     # 最大100件
     entries = entries_all[:100]
 
+    # ★上部の「残高」表示（選択日の流れが見える）
+    cash_before_day, cash_after_day = _calc_cash_summary_for_selected(entries)
+
+    # ★上部の「建ててる件数」
+    open_positions_count = _count_open_positions_pro(user)
+
     ctx = {
         "entries": entries,
         "mode": mode,
@@ -382,5 +447,10 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
         "summary_total": summary_total,
         "selected_date": selected_date,
         "selected_date_str": selected_date_str,
+
+        # ★追加：上部サマリー用
+        "cash_before_day": cash_before_day,
+        "cash_after_day": cash_after_day,
+        "open_positions_count": open_positions_count,
     }
     return render(request, "aiapp/simulate_list.html", ctx)
