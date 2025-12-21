@@ -1,51 +1,57 @@
 # aiapp/management/commands/ai_sim_eval.py
 # -*- coding: utf-8 -*-
 """
-ai_sim_eval
+ai_sim_eval（PRO専用）
 
-AI紙シミュ評価（5分足）→ VirtualTrade に eval_* / R / EV_true_pro / rank_pro を反映
+AI紙シミュ評価（5分足）→ VirtualTrade に PRO公式の eval_* を反映
 
-重要方針（あなたのルール）：
+重要方針（合意）：
 - 評価開始時刻は固定しない
 - opened_at（注文を作った時刻＝現実世界で注文を出した時刻）から評価開始
 - ただし時刻比較は必ず tz を揃える（DBはUTC保持、5分足の ts はJST）
 
-今回の修正点（要点）：
-1) 対象抽出を trade_date 基準に統一
+PRO仕様（これが正）：
+- simulate_list は「PRO口座で実際に建てた／評価したシミュレーションの公式記録」
+  → 楽天/SBI/松井はUIもKPIも評価も切り捨て（このファイルでも更新しない）
+
+PROルール：
+1) 対象抽出は trade_date 基準
 2) 評価開始 = opened_at を JST に localtime した上で 5分足 ts と比較
-3) 例外時ログの self.verbosity AttributeError を潰す（options['verbosity'] 参照）
-4) options.get("days") が 0 のとき `or 5` 等で化ける事故を防止
-5) df["ts"] の tz を必ず Asia/Tokyo に寄せて比較（UTC/naive混在で no_bars を防ぐ）
+3) options['verbosity'] を参照（self.verbosity は使わない）
+4) options.get("days") が 0 のとき or で化けない
+5) df["ts"] の tz を必ず Asia/Tokyo に寄せて比較
 
-★プロ仕様（9020の件の本丸）：
-- BUYの指値は「上限価格」なので、寄り/直後の open が entry 以下なら entry 到達を待たずに open で約定する（marketable limit）
-- SELLの指値は「下限価格」なので、寄り/直後の open が entry 以上なら open で約定する
+★約定（marketable limit）
+- BUY の指値は「上限価格」
+  寄り/直後の open が entry 以下なら entry 到達を待たずに open で約定
+- SELL の指値は「下限価格」
+  寄り/直後の open が entry 以上なら open で約定
 
-★プロ仕様：寄り値(09:00)は別取得して寄り約定判定だけに使う
-- 評価開始が 09:00 のときのみ、日足Open（=寄り値）を取得して marketable 判定に使う
+★寄り値(09:00)は別取得して「寄り約定判定だけ」に使う
+- 評価開始が 09:00（=opened_atが寄り前）のときのみ、日足Open（=寄り値）を取得
 
-★プロ仕様：評価期間（休日除外の営業日ベース）
-- --horizon で「何営業日」評価するかを指定（デフォルト 3）
-- 休日判定は「5分足が取れる日を営業日としてカウント」する（= 休日は自動スキップ）
+★評価期間（休日除外の営業日ベース）
+- --horizon で「何営業日」評価するか（デフォルト3）
+- 休日判定は「5分足が取れる日を営業日としてカウント」（=休日は自動スキップ）
 - entry は起票日当日のみ（trade_date のみで約定判定）
   → 刺さらなければ即CLOSED(no_position)
 - TP/SL ヒットで即CLOSED
-- horizon営業日目の最後の足（15:30相当の最後のバー）で未達なら強制CLOSED（exit_reason="time_stop"）
+- horizon営業日目の最後の足で未達なら強制CLOSED（exit_reason="time_stop"）
 - ★未来で horizon 最終営業日データが無い＝ carry（未確定）
 
-★A案（Rを本質にしたプロ仕様）：
+★A案（Rを本質にしたプロ仕様）
 - 約定価格（exec_entry_px）基準で評価する
 - 起票時に想定した R = |entry_plan - sl_plan|
 - tp_ratio = |tp_plan - entry_plan| / R
 - 実際の約定が「有利」にズレた場合のみ、TP/SL を exec_entry_px から同じR幅で再配置
   - BUYで exec < entry_plan のとき：SL=exec-R, TP=exec+R*tp_ratio
   - SELLで exec > entry_plan のとき：SL=exec+R, TP=exec-R*tp_ratio
-- 不利ズレ（BUYで exec>entry_plan / SELLで exec<entry_plan）は、TP/SL を“据え置き”して構造を壊さない
+- 不利ズレ（BUYで exec>entry_plan / SELLで exec<entry_plan）は TP/SL を据え置き
 
-★carry の定義（合意）：
+★carry の定義（合意）
 - 「entry済み」かつ「最終日未到達」かつ「TP/SL未達」→ carry（翌日も評価対象）
 
-★市場前の no_bars の扱い（合意）：
+★市場前の no_bars の扱い（合意）
 - 「まだデータ来てないだけ」は eval_exit_reason を空のままでスキップ（DB更新しない）
 """
 
@@ -57,6 +63,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from aiapp.models.vtrade import VirtualTrade
@@ -95,7 +102,6 @@ def _safe_float(x) -> Optional[float]:
         if x is None:
             return None
 
-        # pandas Series（1要素）対策
         try:
             import pandas as pd  # type: ignore
             if isinstance(x, pd.Series):
@@ -105,7 +111,6 @@ def _safe_float(x) -> Optional[float]:
         except Exception:
             pass
 
-        # list/tuple（1要素）対策
         if isinstance(x, (list, tuple)):
             if len(x) == 0:
                 return None
@@ -117,16 +122,6 @@ def _safe_float(x) -> Optional[float]:
         return f
     except Exception:
         return None
-
-
-def _label(qty: Optional[int], pl_per_share: float) -> str:
-    if qty is None or qty <= 0:
-        return "no_position"
-    if pl_per_share > 0:
-        return "win"
-    if pl_per_share < 0:
-        return "lose"
-    return "flat"
 
 
 def _find_ohlc_columns(df) -> Tuple[Optional[Any], Optional[Any], Optional[Any], Optional[Any]]:
@@ -187,7 +182,6 @@ def _coerce_ts(val: Any, fallback: _dt) -> _dt:
 def _ensure_ts_jst(df) -> Optional[Any]:
     """
     df["ts"] を必ず Asia/Tokyo の tz-aware datetime にそろえる。
-    load_5m_bars の実装やデータ形状で tz がブレても、ここで吸収する。
     """
     try:
         import pandas as pd  # type: ignore
@@ -203,14 +197,11 @@ def _ensure_ts_jst(df) -> Optional[Any]:
         return None
 
     try:
-        # tz-aware の場合
         if getattr(s.dt, "tz", None) is not None:
             s = s.dt.tz_convert("Asia/Tokyo")
         else:
-            # tz-naive の場合：JST として localize
             s = s.dt.tz_localize("Asia/Tokyo")
     except Exception:
-        # object dtype などで dt が使えない場合の最後の砦
         try:
             s2 = []
             for x in s:
@@ -233,11 +224,7 @@ def _ensure_ts_jst(df) -> Optional[Any]:
 
 def _yf_daily_open(code: str, d: _date) -> Optional[float]:
     """
-    プロ仕様：寄り値(09:00)の代替として、日足の Open を取得する。
-    取得できない場合は None。
-
-    ※この関数は「寄り約定判定だけ」に使う。
-    ※処理が増えるが、寄り値1個だけなら軽い。
+    寄り値(09:00)の代替として、日足の Open を取得する（寄り約定判定だけに使う）。
     """
     try:
         import yfinance as yf  # type: ignore
@@ -332,7 +319,6 @@ def _reanchor_tp_sl_A(
     meta["r_plan"] = float(r)
     meta["tp_ratio"] = float(tp_ratio) if tp_ratio is not None else None
 
-    # 有利ズレ判定
     if side == "BUY":
         favorable = float(exec_entry_px) < float(entry_plan)
     else:
@@ -342,7 +328,6 @@ def _reanchor_tp_sl_A(
         meta["a_rule"] = "not_favorable_keep_plan"
         return tp_plan, sl_plan, meta
 
-    # 有利ズレなら、exec を基準に同じR幅で再配置
     if side == "BUY":
         sl_use = float(exec_entry_px) - r
         tp_use = (float(exec_entry_px) + r * float(tp_ratio)) if tp_ratio is not None else tp_plan
@@ -381,9 +366,8 @@ def _collect_horizon_trade_dates(
     start_date を含めて horizon_bd 営業日分の日付リストを作る。
     営業日判定は「5分足が取れる日」でカウントする（休日は自動スキップ）。
 
-    ★重要：
-    - 未来日は当然 bars が無いので out が足りなくなることがある
-      → それはエラーではなく carry の材料（exit側で carry にする）
+    未来日は bars が無いので out が足りないことがある
+    → carry 判定の材料にする（エラー扱いしない）
     """
     if horizon_bd <= 0:
         horizon_bd = 1
@@ -399,6 +383,48 @@ def _collect_horizon_trade_dates(
         d = d + _timedelta(days=1)
 
     return out
+
+
+def _ev_true_from_behavior(code: str) -> float:
+    """
+    EV_true_pro（簡易）：
+    BehaviorStats の all/all を代表として win_rate を 0〜1 に正規化
+    """
+    row = (
+        BehaviorStats.objects
+        .filter(code=str(code), mode_period="all", mode_aggr="all")
+        .values("win_rate")
+        .first()
+    )
+    if not row:
+        return 0.0
+    wr = _safe_float(row.get("win_rate"))
+    if wr is None:
+        return 0.0
+    v = max(0.0, min(1.0, wr / 100.0))
+    return float(v)
+
+
+def _rank_within_run(run_id: str) -> int:
+    """
+    run_id 内で ev_true_pro 降順に rank_pro を振る
+    """
+    qs = (
+        VirtualTrade.objects
+        .filter(run_id=run_id)
+        .order_by("-ev_true_pro", "code", "id")
+        .only("id", "ev_true_pro")
+    )
+
+    updated = 0
+    with transaction.atomic():
+        i = 0
+        for v in qs:
+            i += 1
+            if v.rank_pro != i:
+                VirtualTrade.objects.filter(id=v.id).update(rank_pro=i)
+                updated += 1
+    return updated
 
 
 # ==============================
@@ -419,12 +445,11 @@ class EvalResult:
     eval_exit_reason: str = ""  # hit_tp / hit_sl / time_stop / carry / no_position / (skip reasons...)
     pl_per_share: Optional[float] = None
 
-    # 追加メタ（replayへ）
     meta: Optional[Dict[str, Any]] = None
 
 
 # ==============================
-# core evaluation
+# core evaluation（PRO only）
 # ==============================
 
 def _evaluate_entry_on_trade_date(
@@ -435,13 +460,8 @@ def _evaluate_entry_on_trade_date(
     """
     entry は起票日当日のみ（trade_date のみで約定判定）
     - opened_at（JST）以降で評価開始
-    - 寄り判定だけは「日足Open（=寄り値）」を別取得して使う（プロ仕様）
-    - marketable limit を再現：
-      BUY：open <= entry なら open で即約定
-      SELL：open >= entry なら open で即約定
-    - 通常の指値判定：low<=entry<=high
-    戻り値：
-      (ok, reason, exec_entry_px, entry_ts, tp_use, sl_use, r_plan, meta)
+    - 寄り判定は日足Open（=寄り値）を使う（opened_atが寄り前のときのみ）
+    - marketable limit を再現
     """
     trade_date = v.trade_date
     side = _side(v)
@@ -501,7 +521,7 @@ def _evaluate_entry_on_trade_date(
     exec_entry_px: Optional[float] = None
     entry_ts: Optional[_dt] = None
 
-    # --- 寄り(09:00)の特別判定（プロ仕様） ---
+    # --- 寄り(09:00)の特別判定（opened_atが寄り前のときだけ） ---
     if active_start == session_start:
         yori = _yf_daily_open(str(v.code), trade_date)
         meta["yori_open"] = yori
@@ -510,15 +530,15 @@ def _evaluate_entry_on_trade_date(
             if side == "BUY":
                 if float(yori) <= float(entry_plan):
                     exec_entry_px = float(yori)
-                    entry_ts = session_start  # 09:00
+                    entry_ts = session_start
                     meta["entry_fill"] = "yori_open_marketable"
             else:
                 if float(yori) >= float(entry_plan):
                     exec_entry_px = float(yori)
-                    entry_ts = session_start  # 09:00
+                    entry_ts = session_start
                     meta["entry_fill"] = "yori_open_marketable"
 
-    # --- 5分足での通常判定（寄りで刺さらなかった場合） ---
+    # --- 5分足での判定（寄りで刺さらなかった場合） ---
     if exec_entry_px is None or entry_ts is None:
         for _, row in df_eff.iterrows():
             try:
@@ -589,12 +609,10 @@ def _evaluate_exit_across_horizon(
     verbose: int = 1,
 ) -> EvalResult:
     """
-    entry 後の exit を、休日除外の horizon_bd 営業日ぶんに渡って判定する。
-
-    ルール：
-    - TP/SL にヒットした時点で即CLOSED
-    - horizon_bd 営業日目の最後の足で未達なら time_stop で強制CLOSED
-    - ★未来で horizon 最終営業日のデータが無い → carry（未確定）
+    entry 後の exit を horizon_bd 営業日で判定（PRO）
+    - TP/SL ヒットで即CLOSED
+    - 最終営業日の最後の足で time_stop
+    - 未来データ不足は carry
     """
     trade_date = v.trade_date
     side = _side(v)
@@ -606,12 +624,9 @@ def _evaluate_exit_across_horizon(
         "horizon_dates": [str(d) for d in horizon_dates],
     }
 
-    # entry済みでここに来る前提なので、horizon_dates が空は基本あり得ないが保険
     if not horizon_dates:
-        # ここを「no_bars_horizon」等で確定エラーにしない（carry/未更新を優先したい）
         return EvalResult(ok=True, reason="carry", eval_exit_reason="carry", meta={**meta, "carry_rule": "no_horizon_dates"})
 
-    # 未来で bars が無いせいで horizon_dates が horizon_bd に満たない場合は carry
     if len(horizon_dates) < int(horizon_bd):
         return EvalResult(
             ok=True,
@@ -759,11 +774,10 @@ def _evaluate_one(
     verbose: int = 1,
 ) -> EvalResult:
     """
-    trade_date 起票の紙トレを評価する（プロ仕様）
-    - entry：起票日当日のみ
-    - exit：休日除外の horizon_bd 営業日
-    - carry：未確定なら carry のまま残す（翌日以降も評価対象）
-    - --force：既にCLOSEDでも再評価して上書きできる
+    PRO専用評価
+    - entry：trade_date 当日のみ
+    - exit：horizon_bd 営業日
+    - carry：未確定なら carry のまま
     """
     current_reason = str(v.eval_exit_reason or "").strip()
 
@@ -778,8 +792,6 @@ def _evaluate_one(
     ok, reason, exec_entry_px, entry_ts, tp_use, sl_use, r_plan, meta_entry = _evaluate_entry_on_trade_date(v, verbose=verbose)
 
     if not ok:
-        # 市場前の「まだデータ来てないだけ」は、ここでは reason=no_bars で返る
-        # → handle側で “DB更新しないスキップ” に落とす（合意）
         return EvalResult(ok=False, reason=reason, eval_exit_reason=reason, meta=meta_entry)
 
     if reason == "no_position":
@@ -827,58 +839,11 @@ def _evaluate_one(
 
 
 # ==============================
-# EV / rank
-# ==============================
-
-def _ev_true_from_behavior(code: str) -> float:
-    """
-    A案（全期間）：
-    - BehaviorStats の all/all を代表として EV_true_pro に使う
-    - win_rate を 0〜1 に正規化して “期待値っぽい指標” として扱う
-    """
-    row = (
-        BehaviorStats.objects
-        .filter(code=str(code), mode_period="all", mode_aggr="all")
-        .values("win_rate")
-        .first()
-    )
-    if not row:
-        return 0.0
-    wr = _safe_float(row.get("win_rate"))
-    if wr is None:
-        return 0.0
-    v = max(0.0, min(1.0, wr / 100.0))
-    return float(v)
-
-
-def _rank_within_run(run_id: str) -> int:
-    """
-    1 run_id 内で ev_true_pro 降順に rank_pro を振る
-    """
-    qs = (
-        VirtualTrade.objects
-        .filter(run_id=run_id)
-        .order_by("-ev_true_pro", "code", "id")
-        .only("id", "ev_true_pro")
-    )
-
-    updated = 0
-    with transaction.atomic():
-        i = 0
-        for v in qs:
-            i += 1
-            if v.rank_pro != i:
-                VirtualTrade.objects.filter(id=v.id).update(rank_pro=i)
-                updated += 1
-    return updated
-
-
-# ==============================
 # management command
 # ==============================
 
 class Command(BaseCommand):
-    help = "AI紙シミュ評価（5分足）→ VirtualTrade に eval_* / R / EV_true_pro / Rank を反映（プロ仕様）"
+    help = "AI紙シミュ評価（5分足）→ VirtualTrade に PRO公式の eval_* を反映（PRO専用）"
 
     def add_arguments(self, parser):
         parser.add_argument("--days", type=int, default=10, help="何日前まで評価対象に含めるか（trade_date基準）")
@@ -907,7 +872,7 @@ class Command(BaseCommand):
         now_local = timezone.localtime()
         today = now_local.date()  # JST
 
-        # 朝（市場開始前）に回すと「今日の5分足が無い」ので無駄撃ちになる
+        # 市場前〜引け前に回すと「今日の5分足が無い/途中」になりやすい
         # → 15:40未満なら date_max を昨日に寄せる（運用最適化）
         if now_local.time() < _time(15, 40):
             date_max = today - _timedelta(days=1)
@@ -919,7 +884,16 @@ class Command(BaseCommand):
         else:
             date_min = date_max - _timedelta(days=days)
 
-        qs = VirtualTrade.objects.filter(trade_date__gte=date_min, trade_date__lte=date_max)
+        # ==========================
+        # PRO公式のみ対象：
+        # - replay.pro.status == 'accepted' を公式記録とみなす
+        # ==========================
+        qs = VirtualTrade.objects.filter(
+            trade_date__gte=date_min,
+            trade_date__lte=date_max,
+        ).filter(
+            Q(replay__pro__status="accepted") | Q(replay__pro__enabled=True)
+        )
 
         if not force:
             qs = qs.filter(eval_exit_reason__in=["", "carry"])
@@ -931,7 +905,7 @@ class Command(BaseCommand):
         targets = list(qs)
 
         self.stdout.write(
-            f"[ai_sim_eval] start days={days} horizon={horizon} date_min={date_min} date_max={date_max} "
+            f"[ai_sim_eval] start(PRO) days={days} horizon={horizon} date_min={date_min} date_max={date_max} "
             f"targets={len(targets)} force={force} dry_run={dry_run}"
         )
 
@@ -941,15 +915,18 @@ class Command(BaseCommand):
 
         for v in targets:
             try:
+                # PRO数量が0なら「公式評価対象外」扱い（安全策）
+                qty_pro = int(v.qty_pro or 0)
+                if qty_pro <= 0:
+                    skipped += 1
+                    if verbose >= 2:
+                        self.stdout.write(f"  skip(no_qty_pro) id={v.id} code={v.code} trade_date={v.trade_date}")
+                    continue
+
                 res = _evaluate_one(v, horizon_bd=horizon, force=force, verbose=verbose)
 
-                # ==========================
-                # 「まだデータ来てないだけ」系は DB を更新しない（合意）
-                # ==========================
-                # - no_bars は “その日の bars が 0” で起こる
-                # - 市場前や直後などで一時的に発生することがあるので、trade_date が今日以降なら未更新でスキップ
+                # 「まだデータ来てないだけ」は DB更新しない（合意）
                 if res.reason == "no_bars":
-                    # date_max を昨日に寄せる設計だが、手動実行/テストで今日が混ざっても破壊しない
                     if v.trade_date >= today:
                         skipped += 1
                         if verbose >= 2:
@@ -958,11 +935,8 @@ class Command(BaseCommand):
                             )
                         continue
 
-                # ==========================
-                # ハード失敗系（ここは DB に刻む）
-                # ==========================
+                # ハード失敗（ここは刻む）
                 hard_fail_reasons = {
-                    # "no_bars" は上の soft-skip で吸収したいので hard には入れない
                     "no_bars_after_active",
                     "no_ts",
                     "no_ohlc",
@@ -977,7 +951,7 @@ class Command(BaseCommand):
                     skipped += 1
                     if verbose >= 2:
                         self.stdout.write(
-                            f"  skip id={v.id} code={v.code} trade_date={v.trade_date} reason={res.reason}"
+                            f"  skip(hard_fail) id={v.id} code={v.code} trade_date={v.trade_date} reason={res.reason}"
                         )
                     if not dry_run:
                         VirtualTrade.objects.filter(id=v.id).update(
@@ -992,58 +966,81 @@ class Command(BaseCommand):
                         self.stdout.write(f"  keep id={v.id} code={v.code} trade_date={v.trade_date} already_closed")
                     continue
 
+                exit_reason = str(res.eval_exit_reason or "").strip()
+
+                # CLOSED 判定（carry 以外は確定）
+                if exit_reason in ("hit_tp", "hit_sl", "time_stop", "no_position"):
+                    closed_at = res.eval_exit_ts if res.eval_exit_ts is not None else timezone.now()
+                elif exit_reason == "carry":
+                    closed_at = None
+                else:
+                    # 不明は安全に carry 扱いへ寄せる
+                    exit_reason = "carry"
+                    closed_at = None
+
+                # PRO損益（円）
                 pl_per_share = _safe_float(res.pl_per_share) if res.pl_per_share is not None else None
                 pl_per_share = float(pl_per_share) if pl_per_share is not None else 0.0
 
-                qty_r = int(v.qty_rakuten or 0)
-                qty_s = int(v.qty_sbi or 0)
-                qty_m = int(v.qty_matsui or 0)
-
-                eval_pl_r = pl_per_share * float(qty_r)
-                eval_pl_s = pl_per_share * float(qty_s)
-                eval_pl_m = pl_per_share * float(qty_m)
-
-                lab_r = _label(qty_r, pl_per_share)
-                lab_s = _label(qty_s, pl_per_share)
-                lab_m = _label(qty_m, pl_per_share)
-
-                exit_reason = str(res.eval_exit_reason or "").strip()
-
-                # 旧バージョン由来の no_bars_horizon が来ても carry に寄せる（保険）
-                if exit_reason == "no_bars_horizon":
-                    exit_reason = "carry"
-
-                if exit_reason in ("hit_tp", "hit_sl", "time_stop", "no_position"):
-                    closed_at = res.eval_exit_ts if res.eval_exit_ts is not None else timezone.now()
+                pl_pro: Optional[float]
+                if exit_reason == "carry":
+                    pl_pro = None
+                elif exit_reason == "no_position":
+                    pl_pro = 0.0
                 else:
-                    closed_at = None
+                    pl_pro = pl_per_share * float(qty_pro)
+
+                # PROラベル（勝ち/負け/引き分け/持ち越し/見送り）
+                if exit_reason == "hit_tp":
+                    label_pro = "win"
+                elif exit_reason == "hit_sl":
+                    label_pro = "lose"
+                elif exit_reason == "time_stop":
+                    if pl_per_share > 0:
+                        label_pro = "win"
+                    elif pl_per_share < 0:
+                        label_pro = "lose"
+                    else:
+                        label_pro = "flat"
+                elif exit_reason == "carry":
+                    label_pro = "carry"
+                else:
+                    # no_position など
+                    label_pro = "skip"
 
                 ev_true_pro = _ev_true_from_behavior(v.code)
 
+                # replay へ PRO公式の評価結果を刻む（ここが本体）
                 replay = v.replay if isinstance(v.replay, dict) else {}
-                replay["last_eval"] = {
-                    "trade_date": str(v.trade_date),
-                    "opened_at": str(_to_local(v.opened_at) or v.opened_at),
-                    "active_start_rule": "opened_at_local",
-                    "result": str(res.reason),
-                    "entry_px": res.eval_entry_px,
-                    "entry_ts": str(res.eval_entry_ts) if res.eval_entry_ts else None,
-                    "exit_px": res.eval_exit_px,
-                    "exit_ts": str(res.eval_exit_ts) if res.eval_exit_ts else None,
-                    "exit_reason": exit_reason,
-                    "pl_per_share": pl_per_share if exit_reason not in ("carry", "") else None,
-                    "horizon_bd": int(horizon),
-                    "force": bool(force),
-                }
-                if isinstance(res.meta, dict):
-                    replay["last_eval"]["meta"] = res.meta
+                pro = replay.get("pro") if isinstance(replay.get("pro"), dict) else {}
 
-                pro = replay.get("pro")
-                if isinstance(pro, dict):
-                    pro["ev_true_pro"] = ev_true_pro
-                    replay["pro"] = pro
+                pro.update({
+                    "last_eval": {
+                        "trade_date": str(v.trade_date),
+                        "opened_at_local": str(_to_local(v.opened_at) or v.opened_at),
+                        "result": str(res.reason),
+                        "entry_px": res.eval_entry_px,
+                        "entry_ts": str(res.eval_entry_ts) if res.eval_entry_ts else None,
+                        "exit_px": res.eval_exit_px,
+                        "exit_ts": str(res.eval_exit_ts) if res.eval_exit_ts else None,
+                        "exit_reason": exit_reason,
+                        "label": label_pro,
+                        "qty_pro": int(qty_pro),
+                        "pl_per_share": None if exit_reason == "carry" else float(pl_per_share),
+                        "pl_pro": None if pl_pro is None else float(pl_pro),
+                        "horizon_bd": int(horizon),
+                        "force": bool(force),
+                    },
+                    "ev_true_pro": float(ev_true_pro),
+                })
+
+                if isinstance(res.meta, dict):
+                    pro["last_eval"]["meta"] = res.meta
+
+                replay["pro"] = pro
 
                 if not dry_run:
+                    # PRO公式：entry
                     if exit_reason == "no_position":
                         v.eval_entry_px = None
                         v.eval_entry_ts = None
@@ -1051,41 +1048,31 @@ class Command(BaseCommand):
                         v.eval_entry_px = res.eval_entry_px
                         v.eval_entry_ts = res.eval_entry_ts
 
+                    # PRO公式：exit
                     if exit_reason == "carry":
                         v.eval_exit_px = None
                         v.eval_exit_ts = None
-                        v.eval_pl_rakuten = None
-                        v.eval_pl_sbi = None
-                        v.eval_pl_matsui = None
-                        v.eval_label_rakuten = ""
-                        v.eval_label_sbi = ""
-                        v.eval_label_matsui = ""
                     else:
                         v.eval_exit_px = res.eval_exit_px
                         v.eval_exit_ts = res.eval_exit_ts
-                        v.eval_pl_rakuten = eval_pl_r
-                        v.eval_pl_sbi = eval_pl_s
-                        v.eval_pl_matsui = eval_pl_m
-                        v.eval_label_rakuten = lab_r
-                        v.eval_label_sbi = lab_s
-                        v.eval_label_matsui = lab_m
 
                     v.eval_exit_reason = exit_reason
                     v.closed_at = closed_at
                     v.ev_true_pro = ev_true_pro
+                    v.eval_horizon_days = int(horizon)
                     v.replay = replay
 
-                    v.recompute_r()
+                    # 旧ブローカー系は一切触らない（混ざる原因）
+                    # - eval_label_* / eval_pl_* / result_r_* は更新しない
+                    # - recompute_r() も呼ばない（旧ロジックを動かさない）
 
                     v.save(update_fields=[
                         "eval_entry_px", "eval_entry_ts",
                         "eval_exit_px", "eval_exit_ts",
                         "eval_exit_reason",
-                        "eval_label_rakuten", "eval_label_sbi", "eval_label_matsui",
-                        "eval_pl_rakuten", "eval_pl_sbi", "eval_pl_matsui",
-                        "result_r_rakuten", "result_r_sbi", "result_r_matsui",
                         "closed_at",
                         "ev_true_pro",
+                        "eval_horizon_days",
                         "replay",
                     ])
 
@@ -1095,15 +1082,16 @@ class Command(BaseCommand):
                 else:
                     if verbose >= 2:
                         self.stdout.write(
-                            f"  dry id={v.id} code={v.code} trade_date={v.trade_date} "
-                            f"exit_reason={exit_reason} entry={res.eval_entry_px} exit={res.eval_exit_px}"
+                            f"  dry(PRO) id={v.id} code={v.code} trade_date={v.trade_date} "
+                            f"exit_reason={exit_reason} label={label_pro} entry={res.eval_entry_px} exit={res.eval_exit_px} pl_pro={pl_pro}"
                         )
 
             except Exception as e:
                 skipped += 1
                 if verbose >= 2:
                     self.stdout.write(
-                        f"  skip id={v.id} code={v.code} trade_date={v.trade_date} reason=exception({type(e).__name__}) {e}"
+                        f"  skip(exception) id={v.id} code={v.code} trade_date={v.trade_date} "
+                        f"exception={type(e).__name__} {e}"
                     )
                 if not dry_run:
                     VirtualTrade.objects.filter(id=v.id).update(
@@ -1119,6 +1107,6 @@ class Command(BaseCommand):
                 ranked_rows += _rank_within_run(rid)
 
         self.stdout.write(
-            f"[ai_sim_eval] done updated={updated} skipped={skipped} touched_run_ids={len(touched_run_ids)} "
+            f"[ai_sim_eval] done(PRO) updated={updated} skipped={skipped} touched_run_ids={len(touched_run_ids)} "
             f"ranked_rows={ranked_rows} dry_run={dry_run}"
         )
