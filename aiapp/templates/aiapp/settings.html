@@ -12,7 +12,7 @@
   .wrap{max-width:720px;margin:0 auto;padding:18px 14px 90px}
 
   /* 丸タブ（承認済みデザイン） */
-  .tabs{display:flex;gap:12px;margin:6px 0 14px}
+  .tabs{display:flex;gap:10px;margin:6px 0 14px}
   .tab{flex:1;text-align:center;padding:12px;border-radius:14px;
        border:1px solid var(--line);background:rgba(255,255,255,.05);color:#cfe0ff;
        text-decoration:none;font-weight:700;display:block}
@@ -56,6 +56,27 @@
   .kv .lb{font-size:12px;color:var(--sub)}
   .kv .vl{font-size:18px;margin-top:2px}
   .msg{margin-top:10px;color:#9fb1c7;font-size:13px}
+
+  /* 学習モード */
+  .mode-pills{display:flex;gap:10px}
+  .pill{
+    flex:1;
+    display:block;
+    padding:10px 12px;
+    border-radius:12px;
+    border:1px solid var(--line);
+    background:rgba(255,255,255,.05);
+    color:#cfe0ff;
+    text-align:center;
+    font-weight:800;
+    font-size:14px;
+  }
+  .pill input{display:none}
+  .pill.active{
+    background:#1f3a8a;border-color:#2f49a6;color:#fff;
+    box-shadow:0 4px 20px rgba(37,99,235,.20)
+  }
+  .pill small{display:block;margin-top:4px;font-weight:600;color:#bcd2ff;font-size:11px;opacity:.9}
 </style>
 {% endblock %}
 
@@ -65,12 +86,13 @@
   <!-- 丸タブ -->
   <div class="tabs">
     <a class="tab {% if tab == 'basic' %}active{% endif %}" href="?tab=basic">基本設定</a>
+    <a class="tab {% if tab == 'pro' %}active{% endif %}" href="?tab=pro">PRO</a>
     <a class="tab {% if tab == 'summary' %}active{% endif %}" href="?tab=summary">証券サマリ</a>
     <a class="tab {% if tab == 'advanced' %}active{% endif %}" href="?tab=advanced">ルール</a>
   </div>
 
   {% if tab == 'basic' %}
-    <!-- 基本設定 -->
+    <!-- 基本設定（既存のまま） -->
     <div class="sec">
       <h2>数量計算ルール</h2>
       <form method="post">
@@ -211,6 +233,165 @@
       </form>
     </div>
 
+  {% elif tab == 'pro' %}
+    <!-- PROタブ（新設） -->
+    <div class="sec">
+      <h2>PRO学習モード（2択固定）</h2>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="tab" value="pro">
+
+        <div class="mode-pills" style="margin-bottom:10px;">
+          <label class="pill {% if learn_mode == 'collect' %}active{% endif %}">
+            <input type="radio" name="learn_mode" value="collect" {% if learn_mode == 'collect' %}checked{% endif %}>
+            Collect
+            <small>母数を増やす（建玉を優先）</small>
+          </label>
+          <label class="pill {% if learn_mode == 'strict' %}active{% endif %}">
+            <input type="radio" name="learn_mode" value="strict" {% if learn_mode == 'strict' %}checked{% endif %}>
+            Strict
+            <small>質を優先（見送りを強化）</small>
+          </label>
+        </div>
+
+        <div class="note" style="margin-top:0;">
+          ※ ここで選んだモードは short_aggressive.yml に保存され、simulate_auto / Picks 側の判断に必ず効きます。
+        </div>
+
+        <h2 style="margin-top:14px;">建玉・資金ルール（中枢）</h2>
+
+        <div class="row">
+          <label style="font-size:14px;color:var(--sub)">
+            同時建玉数（max_positions）
+          </label>
+          <input
+            class="inp"
+            name="max_positions"
+            type="number"
+            inputmode="numeric"
+            step="1"
+            min="1"
+            value="{{ max_positions|floatformat:0 }}"
+          >
+        </div>
+
+        <div class="row" style="margin-top:8px;">
+          <label style="font-size:14px;color:var(--sub)">
+            1銘柄の上限資金（円）
+          </label>
+          <input
+            class="inp"
+            name="max_notional_per_trade_yen"
+            type="number"
+            inputmode="numeric"
+            step="10000"
+            min="0"
+            value="{{ max_notional_per_trade_yen|floatformat:0 }}"
+          >
+        </div>
+
+        <div class="row" style="margin-top:8px;">
+          <label style="font-size:14px;color:var(--sub)">
+            1銘柄の下限資金（円）※0で無効
+          </label>
+          <input
+            class="inp"
+            name="min_notional_per_trade_yen"
+            type="number"
+            inputmode="numeric"
+            step="10000"
+            min="0"
+            value="{{ min_notional_per_trade_yen|floatformat:0 }}"
+          >
+        </div>
+
+        <div class="row" style="margin-top:8px;">
+          <label style="font-size:14px;color:var(--sub)">
+            口座枠（概算）（円）
+          </label>
+          <input
+            class="inp"
+            name="max_total_notional_yen"
+            type="number"
+            inputmode="numeric"
+            step="10000"
+            min="0"
+            value="{{ max_total_notional_yen|floatformat:0 }}"
+          >
+        </div>
+
+        <div class="row" style="margin-top:8px;">
+          <label style="font-size:14px;color:var(--sub)">
+            予備資金（常に残す）（円）
+          </label>
+          <input
+            class="inp"
+            name="reserve_cash_yen"
+            type="number"
+            inputmode="numeric"
+            step="10000"
+            min="0"
+            value="{{ reserve_cash_yen|floatformat:0 }}"
+          >
+        </div>
+
+        <div class="row" style="margin-top:8px;">
+          <label style="font-size:14px;color:var(--sub)">
+            最大保有（営業日）horizon_bd
+          </label>
+          <input
+            class="inp"
+            name="horizon_bd"
+            type="number"
+            inputmode="numeric"
+            step="1"
+            min="1"
+            value="{{ horizon_bd|floatformat:0 }}"
+          >
+        </div>
+
+        <h2 style="margin-top:14px;">Strict時の締め付け（Strictにしたら必ず効く）</h2>
+
+        <div class="row">
+          <label style="font-size:14px;color:var(--sub)">
+            Strict: 最低RR（R）
+          </label>
+          <input
+            class="inp"
+            name="strict_min_rr"
+            type="number"
+            inputmode="decimal"
+            step="0.1"
+            min="0"
+            value="{{ strict_min_rr|floatformat:1 }}"
+          >
+        </div>
+
+        <div class="row" style="margin-top:8px;">
+          <label style="font-size:14px;color:var(--sub)">
+            Strict: 最低純利益（円）
+          </label>
+          <input
+            class="inp"
+            name="strict_min_net_profit_yen"
+            type="number"
+            inputmode="numeric"
+            step="100"
+            min="0"
+            value="{{ strict_min_net_profit_yen|floatformat:0 }}"
+          >
+        </div>
+
+        <div style="margin-top:12px;text-align:right">
+          <button class="btn" type="submit">保存</button>
+        </div>
+        <div class="note">
+          ※ 保存先は short_aggressive.yml です（真実ソース）。<br>
+          ※ このタブの値は PRO運用（建玉/母数/上限資金）を直撃します。
+        </div>
+      </form>
+    </div>
+
   {% elif tab == 'summary' %}
     <!-- 証券サマリ -->
     <div class="sec">
@@ -252,7 +433,7 @@
     </div>
 
   {% else %}
-    <!-- 拡張：short_aggressive ポリシーの中身を見える化 + 編集 -->
+    <!-- ルール -->
     <div class="sec">
       <h2>短期×攻め ポリシー（short_aggressive.yml）</h2>
 
@@ -379,7 +560,6 @@
           </div>
         </div>
 
-        {# ▼ ポリシーしきい値編集フォーム ▼ #}
         <form method="post" style="margin-top:18px;">
           {% csrf_token %}
           <input type="hidden" name="tab" value="advanced">
@@ -478,4 +658,16 @@
     </div>
   {% endif %}
 </div>
+
+<script>
+  // PROタブのラジオ pill の見た目を即反映（iPhoneでも迷わない）
+  document.addEventListener("change", function(e){
+    if (!e.target || e.target.name !== "learn_mode") return;
+    document.querySelectorAll(".pill").forEach(function(el){
+      el.classList.remove("active");
+    });
+    var wrap = e.target.closest(".pill");
+    if (wrap) wrap.classList.add("active");
+  });
+</script>
 {% endblock %}
