@@ -146,7 +146,7 @@ def _accumulate_pro(summary: Dict[str, Any], v: VirtualTrade) -> None:
 
 def _get_pro_cash_before_after(v: VirtualTrade) -> Tuple[Optional[float], Optional[float]]:
     """
-    PRO資金の内訳（残高 before/after）を replay から安全に取り出す。
+    PRO資金の内訳（cash_before/after）を replay から安全に取り出す。
 
     優先:
       1) replay.pro.cash.cash_before / cash_after
@@ -186,39 +186,40 @@ def _get_pro_cash_before_after(v: VirtualTrade) -> Tuple[Optional[float], Option
     return cb2_f, ca2_f
 
 
-def _calc_cash_summary_for_selected(entries: List[Dict[str, Any]]) -> Tuple[Optional[float], Optional[float]]:
+def _get_current_cash_snapshot(user) -> Tuple[Optional[float], Optional[float], Optional[float], str]:
     """
-    選択日の entries（同日分）から、表示用の cash_before / cash_after を作る。
-    - opened_at 昇順で見て、最初に見つかった cash_before を採用
-    - opened_at 昇順で見て、最後に見つかった cash_after を採用
+    ★B仕様：現在残高（最新）を返す
+
+    戻り値:
+      (current_cash, latest_cash_before, latest_cash_after, latest_ts_label)
+
+    - PRO accepted の最新レコードから cash_before/after を拾う
+    - current_cash は基本 cash_after（無ければ cash_before）
+    - 見つからなければ全部 None / "" を返す
     """
-    if not entries:
-        return None, None
+    qs = (
+        VirtualTrade.objects
+        .filter(user=user, replay__pro__status="accepted")
+        .filter(qty_pro__gt=0)
+        .order_by("-opened_at", "-id")
+        .only("opened_at", "replay")
+    )
 
-    # _dt（opened_atのローカルdatetime）で昇順
-    tmp = [e for e in entries if e.get("_dt") is not None]
-    tmp.sort(key=lambda x: x.get("_dt"))
+    for v in qs[:300]:  # 念のため上限（通常こんなに要らない）
+        cb, ca = _get_pro_cash_before_after(v)
+        if cb is None and ca is None:
+            continue
 
-    cash_before: Optional[float] = None
-    cash_after: Optional[float] = None
-
-    for e in tmp:
-        cb = e.get("cash_before")
-        if cash_before is None and cb is not None:
+        current = ca if ca is not None else cb
+        ts_label = ""
+        if v.opened_at:
             try:
-                cash_before = float(cb)
+                ts_label = timezone.localtime(v.opened_at).strftime("%Y/%m/%d %H:%M")
             except Exception:
-                cash_before = None
+                ts_label = ""
+        return current, cb, ca, ts_label
 
-    for e in tmp:
-        ca = e.get("cash_after")
-        if ca is not None:
-            try:
-                cash_after = float(ca)
-            except Exception:
-                pass
-
-    return cash_before, cash_after
+    return None, None, None, ""
 
 
 def _count_open_positions_pro(user) -> int:
@@ -383,9 +384,6 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
         # PRO実績PL（carry中は None）
         eval_pl_pro = _get_pro_pl(v)
 
-        # ★カード内では出さないが、上部サマリー用に持つ（entriesに持たせる）
-        cash_before, cash_after = _get_pro_cash_before_after(v)
-
         e: Dict[str, Any] = {
             "id": v.id,
             "code": str(v.code or ""),
@@ -405,10 +403,6 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
             "required_cash_pro": v.required_cash_pro,
             "est_pl_pro": v.est_pl_pro,
             "est_loss_pro": v.est_loss_pro,
-
-            # 上部サマリー用
-            "cash_before": cash_before,
-            "cash_after": cash_after,
 
             # 評価結果
             "eval_entry_px": v.eval_entry_px,
@@ -433,11 +427,11 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
     # 最大100件
     entries = entries_all[:100]
 
-    # ★上部の「残高」表示（選択日の流れが見える）
-    cash_before_day, cash_after_day = _calc_cash_summary_for_selected(entries)
-
     # ★上部の「建ててる件数」
     open_positions_count = _count_open_positions_pro(user)
+
+    # ★B仕様：現在残高（最新）
+    current_cash, latest_cash_before, latest_cash_after, latest_cash_ts_label = _get_current_cash_snapshot(user)
 
     ctx = {
         "entries": entries,
@@ -448,9 +442,11 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
         "selected_date": selected_date,
         "selected_date_str": selected_date_str,
 
-        # ★追加：上部サマリー用
-        "cash_before_day": cash_before_day,
-        "cash_after_day": cash_after_day,
+        # ★上部サマリー用
         "open_positions_count": open_positions_count,
+        "current_cash": current_cash,
+        "latest_cash_before": latest_cash_before,
+        "latest_cash_after": latest_cash_after,
+        "latest_cash_ts_label": latest_cash_ts_label,
     }
     return render(request, "aiapp/simulate_list.html", ctx)
