@@ -4,77 +4,69 @@
 mode: "short_aggressive"
 
 # 1トレードあたりのリスク（総資産に対する％）
-risk_pct: 1.0          # 例: 1.0% リスク
+risk_pct: 1.0
 
 # 信用余力の使用上限（％）
-# 100 にすると余力フル、70 なら余力の 70% までしか使わない
 credit_usage_pct: 70.0
 
-# =========================================================
-# PRO（Collect / Strict を “別の数値” で保持する）
-# ここが UI（PROタブ）の真実ソース
-# =========================================================
-pro:
-  # 現在の学習モード
-  # collect: 母数を増やす（建玉優先）
-  # strict : 質を優先（見送り強化）
-  mode: "collect"
-
-  # Collect側（母数を増やす）
-  collect:
-    max_positions: 5
-    max_yen_per_trade: 2000000
-    min_yen_per_trade: 0
-    pro_equity_yen: 5000000
-    reserve_yen: 0
-    horizon_bd: 3
-
-  # Strict側（質を優先）
-  strict:
-    max_positions: 5
-    max_yen_per_trade: 1500000
-    min_yen_per_trade: 0
-    pro_equity_yen: 5000000
-    reserve_yen: 0
-    horizon_bd: 3
-
-    # Strictの締め付け（Strictにしたら必ず効く想定）
-    strict_min_rr: 1.0
-    strict_min_net_profit_yen: 0
-
 lot_rule:
-  # ETF / ETN コードプレフィックス（13xx / 15xx）
   etf_codes_prefix: ["13", "15"]
   etf_lot: 1
   stock_lot: 100
 
+# =========================================================
+# PRO（Collect/Strict を “両方保持”）
+# - learn_mode: 今どっちを運用しているか（collect/strict）
+# - profiles: 各モードの中枢パラメータ
+# ※ settings.py が、選択中の値を limits / filters に “同期” する
+# =========================================================
+pro:
+  learn_mode: "collect"
+
+  profiles:
+    collect:
+      limits:
+        max_positions: 5
+        max_notional_per_trade_yen: 2000000
+        min_notional_per_trade_yen: 0
+        max_total_notional_yen: 5000000
+        reserve_cash_yen: 0
+        horizon_bd: 3
+
+    strict:
+      limits:
+        max_positions: 5
+        max_notional_per_trade_yen: 1500000
+        min_notional_per_trade_yen: 0
+        max_total_notional_yen: 5000000
+        reserve_cash_yen: 0
+        horizon_bd: 3
+
+      tighten:
+        min_reward_risk: 1.0
+        min_net_profit_yen: 0
+
+# =========================================================
+# 既存キー（後方互換 / 実運用で “今効いてる値”）
+# ※ settings.py が pro.learn_mode に合わせて自動同期する
+# =========================================================
 filters:
-  # 最低純利益（円）…これ未満なら「やっても意味が薄い」と判断
-  min_net_profit_yen: 2000.0
-
-  # 最低 Reward / Risk（TPまでの幅 / SLまでの幅）
-  min_reward_risk: 1.0
-
-  # 純利益がマイナスなら即除外
+  min_net_profit_yen: 0.0
+  min_reward_risk: 0.0
   allow_negative_pl: false
 
 fees:
-  # 売買手数料レート（約定代金に対する割合）
-  commission_rate: 0.0005   # 0.05%
-
-  # 最低手数料（円）
+  commission_rate: 0.0005
   min_commission: 100.0
-
-  # スリッページ（約定代金に対する割合）
-  slippage_rate: 0.001      # 0.10%
+  slippage_rate: 0.001
 
 limits:
-  # 旧キー（互換のため残す）
-  # ※ 本命は pro.collect / pro.strict の方（UIもそこを表示）
   max_positions: 5
   max_total_risk_r: 3.0
+  max_notional_per_trade_yen: 2000000
+  min_notional_per_trade_yen: 0
+  max_total_notional_yen: 5000000
+  reserve_cash_yen: 0
 
 entry_tp_sl:
-  # SL距離を決めるときの ATR 下限係数
-  # loss_per_share = max(entry - sl, atr * atr_sl_ratio)
   atr_sl_ratio: 0.60
