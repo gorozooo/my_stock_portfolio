@@ -61,8 +61,8 @@ def _policy_path_default() -> Path:
     """
     base_dir = getattr(settings, "BASE_DIR", None)
     if base_dir:
-        return Path(base_dir) / "aiapp" / "policies" / "short_aggressive.yml"
-    return Path(__file__).resolve().parents[2] / "policies" / "short_aggressive.yml"
+        return Path(base_dir) / "aiapp" / "policies" / "short_aggressive.runtime.yml"
+    return Path(__file__).resolve().parents[2] / "policies" / "short_aggressive.runtime.yml"
 
 
 def _get_policy_limits_default() -> Tuple[int, float]:
