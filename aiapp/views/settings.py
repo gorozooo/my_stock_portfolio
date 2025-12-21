@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
 import yaml
 from django.contrib import messages
@@ -12,7 +12,10 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 
 from portfolio.models import UserSetting
+from . import settings as _  # noqa: F401, keep
 from aiapp.services.broker_summary import compute_broker_summaries
+# 将来ほかの場所で使うかもしれないので import 自体は残しておく
+from aiapp.services.policy_loader import load_short_aggressive_policy  # noqa: F401
 
 
 # ----------------------------------------------------------------------
@@ -21,6 +24,7 @@ from aiapp.services.broker_summary import compute_broker_summaries
 def _policy_file_path() -> str:
     """
     short_aggressive.yml のフルパスを、ファイル構成から逆算して求める。
+
     views/settings.py  … aiapp/views
     aiapp_dir          … aiapp/
     policy             … aiapp/policies/short_aggressive.yml
@@ -32,7 +36,8 @@ def _policy_file_path() -> str:
 
 def _load_policy_dict() -> Dict[str, Any]:
     """
-    short_aggressive.yml を毎回読み直して dict で返す（常に最新を見る）
+    short_aggressive.yml を毎回読み直して dict で返す。
+    （キャッシュは持たない。常に最新ファイルを見る）
     """
     path = _policy_file_path()
     try:
@@ -40,9 +45,6 @@ def _load_policy_dict() -> Dict[str, Any]:
             data = yaml.safe_load(f) or {}
     except FileNotFoundError:
         data = {}
-    except Exception:
-        data = {}
-
     if not isinstance(data, dict):
         data = {}
     return data
@@ -50,7 +52,7 @@ def _load_policy_dict() -> Dict[str, Any]:
 
 def _write_policy_dict(data: Dict[str, Any]) -> None:
     """
-    dict を short_aggressive.yml に書き戻す
+    dict をそのまま short_aggressive.yml に書き戻す。
     """
     path = _policy_file_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -59,119 +61,15 @@ def _write_policy_dict(data: Dict[str, Any]) -> None:
 
 
 # ----------------------------------------------------------------------
-# タブ判定
+# UI 表示用のポリシーコンテキスト（ルールタブ用）
 # ----------------------------------------------------------------------
-def _get_tab(request: HttpRequest) -> str:
+def _build_policy_context() -> Dict[str, Any]:
     """
-    ?tab=basic / pro / summary / advanced
-    """
-    t = (request.GET.get("tab") or request.POST.get("tab") or "basic").lower().strip()
-    if t not in ("basic", "pro", "summary", "advanced"):
-        return "basic"
-    return t
-
-
-# ----------------------------------------------------------------------
-# PROポリシー：Collect/Strict をYAMLで分けて持つ（真実ソース）
-# ----------------------------------------------------------------------
-def _ensure_pro_schema(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    既存YAMLが古い形でも、proセクションを必ず用意して返す。
-    ここで“勝手に値を変える”はしない。無いものはデフォルトを置くだけ。
-    """
-    pro = data.get("pro")
-    if not isinstance(pro, dict):
-        pro = {}
-
-    mode = pro.get("mode")
-    if mode not in ("collect", "strict"):
-        mode = "collect"
-
-    # Collect / Strict の入れ物
-    collect = pro.get("collect")
-    strict = pro.get("strict")
-    if not isinstance(collect, dict):
-        collect = {}
-    if not isinstance(strict, dict):
-        strict = {}
-
-    # ここは「UI表示が壊れないための最低限デフォルト」
-    # ※値がYAMLにあればそれを優先（上書きしない）
-    def _set_default(dct: Dict[str, Any], key: str, val: Any) -> None:
-        if key not in dct or dct.get(key) is None:
-            dct[key] = val
-
-    # 建玉・資金ルール（中核）
-    _set_default(collect, "max_positions", 5)
-    _set_default(collect, "max_yen_per_trade", 2_000_000)
-    _set_default(collect, "min_yen_per_trade", 0)
-    _set_default(collect, "pro_equity_yen", 5_000_000)
-    _set_default(collect, "reserve_yen", 0)
-    _set_default(collect, "horizon_bd", 3)
-
-    _set_default(strict, "max_positions", 5)
-    _set_default(strict, "max_yen_per_trade", 2_000_000)
-    _set_default(strict, "min_yen_per_trade", 0)
-    _set_default(strict, "pro_equity_yen", 5_000_000)
-    _set_default(strict, "reserve_yen", 0)
-    _set_default(strict, "horizon_bd", 3)
-
-    # Strictの締め付け（Strict時に必ず効く）
-    _set_default(strict, "strict_min_rr", 1.0)
-    _set_default(strict, "strict_min_net_profit_yen", 0)
-
-    pro["mode"] = mode
-    pro["collect"] = collect
-    pro["strict"] = strict
-    data["pro"] = pro
-    return data
-
-
-def _get_pro_blocks(data: Dict[str, Any]) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
-    data2 = _ensure_pro_schema(data)
-    pro = data2.get("pro") or {}
-    mode = (pro.get("mode") or "collect").strip()
-    collect = pro.get("collect") or {}
-    strict = pro.get("strict") or {}
-    if mode not in ("collect", "strict"):
-        mode = "collect"
-    return mode, collect, strict
-
-
-def _save_pro_policy(
-    *,
-    pro_mode: str,
-    collect: Dict[str, Any],
-    strict: Dict[str, Any],
-) -> None:
-    data = _load_policy_dict()
-    data = _ensure_pro_schema(data)
-
-    pro_mode = (pro_mode or "collect").strip().lower()
-    if pro_mode not in ("collect", "strict"):
-        pro_mode = "collect"
-
-    data["pro"]["mode"] = pro_mode
-    data["pro"]["collect"] = collect
-    data["pro"]["strict"] = strict
-    _write_policy_dict(data)
-
-
-# ----------------------------------------------------------------------
-# 既存（basic/advanced）用：UI表示コンテキスト
-# ----------------------------------------------------------------------
-def _build_policy_context_basic_advanced() -> Dict[str, Any]:
-    """
-    既存の filters/fees（ルールタブ用）を表示するだけ。
-    PROタブは別で扱う（混ぜない）。
+    short_aggressive.yml の中身を UI 用に薄く整形して返す。
     """
     data = _load_policy_dict()
     filters = data.get("filters") or {}
     fees = data.get("fees") or {}
-    if not isinstance(filters, dict):
-        filters = {}
-    if not isinstance(fees, dict):
-        fees = {}
 
     return {
         "mode": data.get("mode") or "",
@@ -187,6 +85,11 @@ def _build_policy_context_basic_advanced() -> Dict[str, Any]:
 
 
 def _save_policy_basic_params(risk_pct: float, credit_usage_pct: float) -> None:
+    """
+    ポリシーファイル short_aggressive.yml の
+    risk_pct / credit_usage_pct だけを上書き保存する。
+    他の filters / fees / pro は維持。
+    """
     data = _load_policy_dict()
     data["risk_pct"] = float(risk_pct)
     data["credit_usage_pct"] = float(credit_usage_pct)
@@ -202,17 +105,17 @@ def _save_policy_advanced_params(
     min_commission: float | None,
     slippage_rate: float | None,
 ) -> None:
+    """
+    filters / fees 系のしきい値を更新する。
+    None の項目は「現状維持」。
+    """
     data = _load_policy_dict()
     filters = data.get("filters") or {}
     fees = data.get("fees") or {}
-    if not isinstance(filters, dict):
-        filters = {}
-    if not isinstance(fees, dict):
-        fees = {}
 
     if min_net_profit_yen is not None:
         try:
-            filters["min_net_profit_yen"] = int(min_net_profit_yen)
+            filters["min_net_profit_yen"] = float(min_net_profit_yen)
         except Exception:
             pass
 
@@ -249,6 +152,259 @@ def _save_policy_advanced_params(
 
 
 # ----------------------------------------------------------------------
+# PROタブ：Collect/Strict の “両方を保持” しつつ、選択中をアクティブ反映する
+# ----------------------------------------------------------------------
+def _num(v: Any, default: float) -> float:
+    try:
+        if v is None:
+            return float(default)
+        return float(v)
+    except Exception:
+        return float(default)
+
+
+def _int(v: Any, default: int) -> int:
+    try:
+        if v is None:
+            return int(default)
+        return int(float(v))
+    except Exception:
+        return int(default)
+
+
+def _build_pro_context(policy: Dict[str, Any]) -> Dict[str, Any]:
+    pro = policy.get("pro") or {}
+    if not isinstance(pro, dict):
+        pro = {}
+
+    learn_mode = str(pro.get("learn_mode") or "collect").strip().lower()
+    if learn_mode not in ("collect", "strict"):
+        learn_mode = "collect"
+
+    profiles = pro.get("profiles") or {}
+    if not isinstance(profiles, dict):
+        profiles = {}
+
+    # 既存 limits を “アクティブ値” として持っている前提も残す（後方互換）
+    limits = policy.get("limits") or {}
+    if not isinstance(limits, dict):
+        limits = {}
+
+    filters = policy.get("filters") or {}
+    if not isinstance(filters, dict):
+        filters = {}
+
+    def _profile_get(name: str) -> Dict[str, Any]:
+        p = profiles.get(name) or {}
+        return p if isinstance(p, dict) else {}
+
+    c = _profile_get("collect")
+    s = _profile_get("strict")
+
+    c_limits = c.get("limits") or {}
+    s_limits = s.get("limits") or {}
+    if not isinstance(c_limits, dict):
+        c_limits = {}
+    if not isinstance(s_limits, dict):
+        s_limits = {}
+
+    s_tighten = s.get("tighten") or {}
+    if not isinstance(s_tighten, dict):
+        s_tighten = {}
+
+    # デフォルト（collect）
+    # ─ max_positions は既存 limits から拾えるようにしておく（移行を滑らかに）
+    c_max_positions = _int(c_limits.get("max_positions"), _int(limits.get("max_positions"), 5))
+    c_max_notional = _int(c_limits.get("max_notional_per_trade_yen"), 2_000_000)
+    c_min_notional = _int(c_limits.get("min_notional_per_trade_yen"), 0)
+    c_max_total = _int(c_limits.get("max_total_notional_yen"), 5_000_000)
+    c_reserve = _int(c_limits.get("reserve_cash_yen"), 0)
+    c_horizon = _int(c_limits.get("horizon_bd"), _int(pro.get("horizon_bd"), 3))
+
+    # strict のデフォルト
+    s_max_positions = _int(s_limits.get("max_positions"), c_max_positions)
+    s_max_notional = _int(s_limits.get("max_notional_per_trade_yen"), 1_500_000)
+    s_min_notional = _int(s_limits.get("min_notional_per_trade_yen"), 0)
+    s_max_total = _int(s_limits.get("max_total_notional_yen"), c_max_total)
+    s_reserve = _int(s_limits.get("reserve_cash_yen"), c_reserve)
+    s_horizon = _int(s_limits.get("horizon_bd"), c_horizon)
+
+    strict_min_rr = _num(s_tighten.get("min_reward_risk"), 1.0)
+    strict_min_net_profit = _int(s_tighten.get("min_net_profit_yen"), 0)
+
+    # 画面に出す：短縮した “今効いてる値（active）” も欲しいとき用
+    active_label = "Collect" if learn_mode == "collect" else "Strict"
+
+    return {
+        "pro_mode": learn_mode,
+        "pro_active_label": active_label,
+
+        "c_max_positions": c_max_positions,
+        "c_max_notional_per_trade_yen": c_max_notional,
+        "c_min_notional_per_trade_yen": c_min_notional,
+        "c_max_total_notional_yen": c_max_total,
+        "c_reserve_cash_yen": c_reserve,
+        "c_horizon_bd": c_horizon,
+
+        "s_max_positions": s_max_positions,
+        "s_max_notional_per_trade_yen": s_max_notional,
+        "s_min_notional_per_trade_yen": s_min_notional,
+        "s_max_total_notional_yen": s_max_total,
+        "s_reserve_cash_yen": s_reserve,
+        "s_horizon_bd": s_horizon,
+
+        "strict_min_rr": strict_min_rr,
+        "strict_min_net_profit_yen": strict_min_net_profit,
+    }
+
+
+def _save_pro_params_from_post(request: HttpRequest) -> None:
+    """
+    PROタブで編集した値を short_aggressive.yml に保存する。
+    ポイント：
+    - Collect/Strict “両方の値” を pro.profiles に保持
+    - 選択中（pro.learn_mode）の値を “既存の limits / filters にも同期”
+      → 他サービスがまだ旧キー参照でも確実に効く
+    """
+    data = _load_policy_dict()
+
+    pro = data.get("pro") or {}
+    if not isinstance(pro, dict):
+        pro = {}
+
+    profiles = pro.get("profiles") or {}
+    if not isinstance(profiles, dict):
+        profiles = {}
+
+    # 選択モード
+    pro_mode = str(request.POST.get("pro_mode") or "collect").strip().lower()
+    if pro_mode not in ("collect", "strict"):
+        pro_mode = "collect"
+
+    def p_int(name: str, default: int) -> int:
+        raw = request.POST.get(name)
+        if raw is None or raw == "":
+            return int(default)
+        try:
+            return int(float(raw))
+        except Exception:
+            return int(default)
+
+    def p_float(name: str, default: float) -> float:
+        raw = request.POST.get(name)
+        if raw is None or raw == "":
+            return float(default)
+        try:
+            return float(raw)
+        except Exception:
+            return float(default)
+
+    # 現状を基準にする（入力欠損のとき壊さない）
+    ctx = _build_pro_context(data)
+
+    # Collect
+    c = profiles.get("collect") or {}
+    if not isinstance(c, dict):
+        c = {}
+    c_limits = c.get("limits") or {}
+    if not isinstance(c_limits, dict):
+        c_limits = {}
+
+    c_limits["max_positions"] = max(1, p_int("c_max_positions", ctx["c_max_positions"]))
+    c_limits["max_notional_per_trade_yen"] = max(0, p_int("c_max_notional_per_trade_yen", ctx["c_max_notional_per_trade_yen"]))
+    c_limits["min_notional_per_trade_yen"] = max(0, p_int("c_min_notional_per_trade_yen", ctx["c_min_notional_per_trade_yen"]))
+    c_limits["max_total_notional_yen"] = max(0, p_int("c_max_total_notional_yen", ctx["c_max_total_notional_yen"]))
+    c_limits["reserve_cash_yen"] = max(0, p_int("c_reserve_cash_yen", ctx["c_reserve_cash_yen"]))
+    c_limits["horizon_bd"] = max(1, p_int("c_horizon_bd", ctx["c_horizon_bd"]))
+
+    c["limits"] = c_limits
+    profiles["collect"] = c
+
+    # Strict
+    s = profiles.get("strict") or {}
+    if not isinstance(s, dict):
+        s = {}
+    s_limits = s.get("limits") or {}
+    if not isinstance(s_limits, dict):
+        s_limits = {}
+    s_tighten = s.get("tighten") or {}
+    if not isinstance(s_tighten, dict):
+        s_tighten = {}
+
+    s_limits["max_positions"] = max(1, p_int("s_max_positions", ctx["s_max_positions"]))
+    s_limits["max_notional_per_trade_yen"] = max(0, p_int("s_max_notional_per_trade_yen", ctx["s_max_notional_per_trade_yen"]))
+    s_limits["min_notional_per_trade_yen"] = max(0, p_int("s_min_notional_per_trade_yen", ctx["s_min_notional_per_trade_yen"]))
+    s_limits["max_total_notional_yen"] = max(0, p_int("s_max_total_notional_yen", ctx["s_max_total_notional_yen"]))
+    s_limits["reserve_cash_yen"] = max(0, p_int("s_reserve_cash_yen", ctx["s_reserve_cash_yen"]))
+    s_limits["horizon_bd"] = max(1, p_int("s_horizon_bd", ctx["s_horizon_bd"]))
+
+    s_tighten["min_reward_risk"] = max(0.0, p_float("strict_min_rr", ctx["strict_min_rr"]))
+    s_tighten["min_net_profit_yen"] = max(0, p_int("strict_min_net_profit_yen", ctx["strict_min_net_profit_yen"]))
+
+    s["limits"] = s_limits
+    s["tighten"] = s_tighten
+    profiles["strict"] = s
+
+    pro["learn_mode"] = pro_mode
+    pro["profiles"] = profiles
+    data["pro"] = pro
+
+    # -----------------------------
+    # 既存のキーにも “アクティブ値” を同期（重要）
+    # -----------------------------
+    limits = data.get("limits") or {}
+    if not isinstance(limits, dict):
+        limits = {}
+    filters = data.get("filters") or {}
+    if not isinstance(filters, dict):
+        filters = {}
+    data["limits"] = limits
+    data["filters"] = filters
+
+    if pro_mode == "collect":
+        active = profiles["collect"]["limits"]
+        limits["max_positions"] = int(active["max_positions"])
+        limits["max_notional_per_trade_yen"] = int(active["max_notional_per_trade_yen"])
+        limits["min_notional_per_trade_yen"] = int(active["min_notional_per_trade_yen"])
+        limits["max_total_notional_yen"] = int(active["max_total_notional_yen"])
+        limits["reserve_cash_yen"] = int(active["reserve_cash_yen"])
+        data["pro"]["horizon_bd"] = int(active["horizon_bd"])
+
+        # Collect は母数優先：締め付けは “ゼロ基準” でゆるめる（Strictと差が見える）
+        filters["min_reward_risk"] = 0.0
+        filters["min_net_profit_yen"] = 0.0
+
+    else:
+        active = profiles["strict"]["limits"]
+        limits["max_positions"] = int(active["max_positions"])
+        limits["max_notional_per_trade_yen"] = int(active["max_notional_per_trade_yen"])
+        limits["min_notional_per_trade_yen"] = int(active["min_notional_per_trade_yen"])
+        limits["max_total_notional_yen"] = int(active["max_total_notional_yen"])
+        limits["reserve_cash_yen"] = int(active["reserve_cash_yen"])
+        data["pro"]["horizon_bd"] = int(active["horizon_bd"])
+
+        tighten = profiles["strict"].get("tighten") or {}
+        if not isinstance(tighten, dict):
+            tighten = {}
+        filters["min_reward_risk"] = float(tighten.get("min_reward_risk") or 1.0)
+        filters["min_net_profit_yen"] = float(tighten.get("min_net_profit_yen") or 0.0)
+
+    _write_policy_dict(data)
+
+
+# ----------------------------------------------------------------------
+# タブ判定
+# ----------------------------------------------------------------------
+def _get_tab(request: HttpRequest) -> str:
+    """
+    ?tab=basic / pro / summary / advanced を取得。
+    想定外の値が来たときは basic にフォールバック。
+    """
+    t = (request.GET.get("tab") or request.POST.get("tab") or "basic").lower()
+    return "basic" if t not in ("basic", "pro", "summary", "advanced") else t
+
+
+# ----------------------------------------------------------------------
 # メインビュー
 # ----------------------------------------------------------------------
 @login_required
@@ -257,7 +413,7 @@ def settings_view(request: HttpRequest) -> HttpResponse:
     user = request.user
     tab = _get_tab(request)
 
-    # --- UserSetting を取得/作成（既存） ---
+    # --- UserSetting を取得/作成 --------------------------------------------
     us, _created = UserSetting.objects.get_or_create(
         user=user,
         defaults={
@@ -266,19 +422,19 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         },
     )
 
-    # 既存 basic/advanced 用のポリシー読み込み
-    policy_ctx = _build_policy_context_basic_advanced()
-
+    # ポリシー値を読み込み（なければ UserSetting / デフォルトで補完）
+    policy_ctx = _build_policy_context()
     risk_pct = float(
         (policy_ctx.get("risk_pct") is not None and policy_ctx.get("risk_pct"))
         or (us.risk_pct or 1.0)
     )
     credit_usage_pct = float(
-        (policy_ctx.get("credit_usage_pct") is not None and policy_ctx.get("credit_usage_pct"))
+        (policy_ctx.get("credit_usage_pct") is not None
+         and policy_ctx.get("credit_usage_pct"))
         or 70.0
     )
 
-    # 倍率 / ヘアカット（UserSetting）
+    # 倍率 / ヘアカットは UserSetting 側を使う
     leverage_rakuten = us.leverage_rakuten
     haircut_rakuten = us.haircut_rakuten
     leverage_matsui = us.leverage_matsui
@@ -286,14 +442,13 @@ def settings_view(request: HttpRequest) -> HttpResponse:
     leverage_sbi = us.leverage_sbi
     haircut_sbi = us.haircut_sbi
 
-    # PRO（YAML真実ソース）
-    raw = _load_policy_dict()
-    raw = _ensure_pro_schema(raw)
-    pro_mode, pro_collect, pro_strict = _get_pro_blocks(raw)
+    # PRO（Collect/Strict 両方保持 + 選択モード）
+    policy_raw = _load_policy_dict()
+    pro_ctx = _build_pro_context(policy_raw)
 
     # ------------------------------------------------------------------ POST
     if request.method == "POST":
-        tab = _get_tab(request)
+        tab = _get_tab(request)  # hidden で送っているタブ
 
         def parse_float(name: str, current: float | None) -> float | None:
             v = request.POST.get(name)
@@ -313,7 +468,7 @@ def settings_view(request: HttpRequest) -> HttpResponse:
             except ValueError:
                 return current
 
-        # ---------- basic タブ（既存そのまま） ----------
+        # ---------- basic タブ：UserSetting + ポリシー基本 ----------
         if tab == "basic":
             risk_pct = parse_float("risk_pct", risk_pct) or risk_pct
             us.risk_pct = risk_pct
@@ -340,48 +495,25 @@ def settings_view(request: HttpRequest) -> HttpResponse:
             messages.success(request, "保存しました")
             return redirect(f"{request.path}?tab={tab}")
 
-        # ---------- PRO タブ（新規：Collect/Strict + 建玉/資金ルール） ----------
+        # ---------- pro タブ：Collect/Strict の中枢パラメータ ----------
         if tab == "pro":
-            # mode
-            m = (request.POST.get("pro_mode") or pro_mode).strip().lower()
-            if m not in ("collect", "strict"):
-                m = "collect"
+            _save_pro_params_from_post(request)
+            messages.success(request, "保存しました")
+            # 保存後は同じタブに戻す
+            return redirect(f"{request.path}?tab=pro")
 
-            # collect / strict を“別々に”更新
-            # ここが肝：同じフォーム名でも接頭辞で完全分離する
-            collect = dict(pro_collect or {})
-            strict = dict(pro_strict or {})
-
-            # --- 共通：建玉・資金ルール ---
-            collect["max_positions"] = parse_int("c_max_positions", int(collect.get("max_positions", 5))) or int(collect.get("max_positions", 5))
-            collect["max_yen_per_trade"] = parse_int("c_max_yen_per_trade", int(collect.get("max_yen_per_trade", 2_000_000))) or int(collect.get("max_yen_per_trade", 2_000_000))
-            collect["min_yen_per_trade"] = parse_int("c_min_yen_per_trade", int(collect.get("min_yen_per_trade", 0))) or int(collect.get("min_yen_per_trade", 0))
-            collect["pro_equity_yen"] = parse_int("c_pro_equity_yen", int(collect.get("pro_equity_yen", 5_000_000))) or int(collect.get("pro_equity_yen", 5_000_000))
-            collect["reserve_yen"] = parse_int("c_reserve_yen", int(collect.get("reserve_yen", 0))) or int(collect.get("reserve_yen", 0))
-            collect["horizon_bd"] = parse_int("c_horizon_bd", int(collect.get("horizon_bd", 3))) or int(collect.get("horizon_bd", 3))
-
-            strict["max_positions"] = parse_int("s_max_positions", int(strict.get("max_positions", 5))) or int(strict.get("max_positions", 5))
-            strict["max_yen_per_trade"] = parse_int("s_max_yen_per_trade", int(strict.get("max_yen_per_trade", 2_000_000))) or int(strict.get("max_yen_per_trade", 2_000_000))
-            strict["min_yen_per_trade"] = parse_int("s_min_yen_per_trade", int(strict.get("min_yen_per_trade", 0))) or int(strict.get("min_yen_per_trade", 0))
-            strict["pro_equity_yen"] = parse_int("s_pro_equity_yen", int(strict.get("pro_equity_yen", 5_000_000))) or int(strict.get("pro_equity_yen", 5_000_000))
-            strict["reserve_yen"] = parse_int("s_reserve_yen", int(strict.get("reserve_yen", 0))) or int(strict.get("reserve_yen", 0))
-            strict["horizon_bd"] = parse_int("s_horizon_bd", int(strict.get("horizon_bd", 3))) or int(strict.get("horizon_bd", 3))
-
-            # --- Strictの締め付け（Strict時のみ必ず効く） ---
-            strict["strict_min_rr"] = parse_float("s_strict_min_rr", float(strict.get("strict_min_rr", 1.0))) or float(strict.get("strict_min_rr", 1.0))
-            strict["strict_min_net_profit_yen"] = parse_int("s_strict_min_net_profit_yen", int(strict.get("strict_min_net_profit_yen", 0))) or int(strict.get("strict_min_net_profit_yen", 0))
-
-            _save_pro_policy(pro_mode=m, collect=collect, strict=strict)
-
-            messages.success(request, "保存しました（short_aggressive.yml に反映）")
-            return redirect(f"{request.path}?tab={tab}")
-
-        # ---------- advanced タブ（既存） ----------
+        # ---------- advanced タブ：filters / fees 編集 ----------
         if tab == "advanced":
-            current = _build_policy_context_basic_advanced()
+            current = _build_policy_context()
 
-            min_net_profit_yen = parse_int("min_net_profit_yen", current.get("min_net_profit_yen"))
-            min_reward_risk = parse_float("min_reward_risk", current.get("min_reward_risk"))
+            min_net_profit_yen = parse_int(
+                "min_net_profit_yen",
+                current.get("min_net_profit_yen"),
+            )
+            min_reward_risk = parse_float(
+                "min_reward_risk",
+                current.get("min_reward_risk"),
+            )
 
             allow_raw = request.POST.get("allow_negative_pl")
             if allow_raw is None or allow_raw == "":
@@ -389,9 +521,18 @@ def settings_view(request: HttpRequest) -> HttpResponse:
             else:
                 allow_negative_pl = str(allow_raw).strip().lower() in ("true", "1", "on", "yes")
 
-            commission_rate = parse_float("commission_rate", current.get("commission_rate"))
-            min_commission = parse_float("min_commission", current.get("min_commission"))
-            slippage_rate = parse_float("slippage_rate", current.get("slippage_rate"))
+            commission_rate = parse_float(
+                "commission_rate",
+                current.get("commission_rate"),
+            )
+            min_commission = parse_float(
+                "min_commission",
+                current.get("min_commission"),
+            )
+            slippage_rate = parse_float(
+                "slippage_rate",
+                current.get("slippage_rate"),
+            )
 
             _save_policy_advanced_params(
                 min_net_profit_yen=min_net_profit_yen,
@@ -417,17 +558,12 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         sbi_haircut=haircut_sbi,
     )
 
-    # GET時も最新YAMLを反映して表示
-    raw2 = _load_policy_dict()
-    raw2 = _ensure_pro_schema(raw2)
-    pro_mode, pro_collect, pro_strict = _get_pro_blocks(raw2)
-
     ctx = {
         "tab": tab,
 
-        # basic
         "risk_pct": risk_pct,
         "credit_usage_pct": credit_usage_pct,
+
         "leverage_rakuten": leverage_rakuten,
         "haircut_rakuten": haircut_rakuten,
         "leverage_matsui": leverage_matsui,
@@ -435,16 +571,10 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         "leverage_sbi": leverage_sbi,
         "haircut_sbi": haircut_sbi,
 
-        # summary
         "brokers": brokers,
+        "policy": _build_policy_context(),
 
-        # advanced（既存）
-        "policy": _build_policy_context_basic_advanced(),
-
-        # PRO（新規）
-        "pro_mode": pro_mode,
-        "pro_collect": pro_collect,
-        "pro_strict": pro_strict,
-        "policy_file_path": _policy_file_path(),
+        # PRO
+        **pro_ctx,
     }
     return render(request, "aiapp/settings.html", ctx)
