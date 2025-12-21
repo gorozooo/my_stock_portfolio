@@ -1,16 +1,23 @@
-# aiapp/views/simulate.py
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import date as _date
+from pathlib import Path
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q
+from django.db.models import Q, Sum
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.utils import timezone
 
 from aiapp.models.vtrade import VirtualTrade
+
+# PROポリシーから max_positions を拾う（無い場合はフォールバック）
+try:
+    from aiapp.services.pro_account import load_policy_yaml
+except Exception:  # pragma: no cover
+    load_policy_yaml = None  # type: ignore
 
 
 def _label_exit_reason(exit_reason: str) -> str:
@@ -48,6 +55,45 @@ def _label_exit_reason(exit_reason: str) -> str:
     return ""
 
 
+def _policy_path_default() -> Path:
+    """
+    aiapp/policies/short_aggressive.yml の実ファイルパスを作る（保険付き）
+    """
+    base_dir = getattr(settings, "BASE_DIR", None)
+    if base_dir:
+        return Path(base_dir) / "aiapp" / "policies" / "short_aggressive.yml"
+    return Path(__file__).resolve().parents[2] / "policies" / "short_aggressive.yml"
+
+
+def _get_policy_limits_default() -> Tuple[int, float]:
+    """
+    policy.yml から limits を拾う。
+    取れない場合は安全側のデフォルトへ。
+    """
+    # デフォ: 5銘柄 / 3R
+    default_max_positions = 5
+    default_max_total_risk_r = 3.0
+
+    if load_policy_yaml is None:
+        return default_max_positions, default_max_total_risk_r
+
+    try:
+        policy_path = _policy_path_default()
+        policy = load_policy_yaml(str(policy_path))
+        limits = policy.get("limits") if isinstance(policy, dict) else {}
+        limits = limits if isinstance(limits, dict) else {}
+
+        max_positions = int(limits.get("max_positions", default_max_positions) or default_max_positions)
+        max_total_risk_r = float(limits.get("max_total_risk_r", default_max_total_risk_r) or default_max_total_risk_r)
+        if max_positions <= 0:
+            max_positions = default_max_positions
+        if max_total_risk_r <= 0:
+            max_total_risk_r = default_max_total_risk_r
+        return max_positions, max_total_risk_r
+    except Exception:
+        return default_max_positions, default_max_total_risk_r
+
+
 def _get_pro_last_eval(v: VirtualTrade) -> Dict[str, Any]:
     """
     replay.pro.last_eval を安全に取り出す
@@ -77,8 +123,6 @@ def _combined_label_pro(v: VirtualTrade) -> str:
     if exit_reason == "hit_sl":
         return "lose"
     if exit_reason == "time_stop":
-        # time_stop の勝敗は本来 last_eval.label で決まるが、
-        # 無い場合は pl_per_share で推定
         plps = last_eval.get("pl_per_share")
         try:
             if plps is not None:
@@ -96,11 +140,9 @@ def _combined_label_pro(v: VirtualTrade) -> str:
     if exit_reason == "no_position":
         return "skip"
 
-    # 例外・データ不足系は見送り
     if exit_reason:
         return "skip"
 
-    # 未評価：entry済み＆未クローズなら carry、それ以外は見送り
     if v.closed_at is None and (v.eval_entry_px is not None):
         return "carry"
 
@@ -110,7 +152,7 @@ def _combined_label_pro(v: VirtualTrade) -> str:
 def _get_pro_pl(v: VirtualTrade) -> Optional[float]:
     """
     PRO実績PL（円）
-    - DBに eval_pl_pro が無くても replay.pro.last_eval.pl_pro で表示できる
+    - replay.pro.last_eval.pl_pro を表示に使う
     - carry の間は None（"—"表示）
     """
     last_eval = _get_pro_last_eval(v)
@@ -144,108 +186,6 @@ def _accumulate_pro(summary: Dict[str, Any], v: VirtualTrade) -> None:
         summary["total_pl"] = float(summary.get("total_pl", 0.0)) + float(pl)
 
 
-def _get_pro_cash_before_after(v: VirtualTrade) -> Tuple[Optional[float], Optional[float]]:
-    """
-    PRO資金の内訳（cash_before/after）を replay から安全に取り出す。
-
-    優先:
-      1) replay.pro.cash.cash_before / cash_after
-      2) replay.sim_order.pro_cash_before / pro_cash_after （互換/フォールバック）
-    """
-    replay = v.replay if isinstance(v.replay, dict) else {}
-
-    # 1) replay.pro.cash
-    pro = replay.get("pro") if isinstance(replay.get("pro"), dict) else {}
-    cash = pro.get("cash") if isinstance(pro.get("cash"), dict) else {}
-    cb = cash.get("cash_before")
-    ca = cash.get("cash_after")
-    try:
-        cb_f = float(cb) if cb is not None else None
-    except Exception:
-        cb_f = None
-    try:
-        ca_f = float(ca) if ca is not None else None
-    except Exception:
-        ca_f = None
-    if cb_f is not None or ca_f is not None:
-        return cb_f, ca_f
-
-    # 2) replay.sim_order (JSONL互換)
-    so = replay.get("sim_order") if isinstance(replay.get("sim_order"), dict) else {}
-    cb2 = so.get("pro_cash_before")
-    ca2 = so.get("pro_cash_after")
-    try:
-        cb2_f = float(cb2) if cb2 is not None else None
-    except Exception:
-        cb2_f = None
-    try:
-        ca2_f = float(ca2) if ca2 is not None else None
-    except Exception:
-        ca2_f = None
-
-    return cb2_f, ca2_f
-
-
-def _get_current_cash_snapshot(user) -> Tuple[Optional[float], Optional[float], Optional[float], str]:
-    """
-    ★B仕様：現在残高（最新）を返す
-
-    戻り値:
-      (current_cash, latest_cash_before, latest_cash_after, latest_ts_label)
-
-    - PRO accepted の最新レコードから cash_before/after を拾う
-    - current_cash は基本 cash_after（無ければ cash_before）
-    - 見つからなければ全部 None / "" を返す
-    """
-    qs = (
-        VirtualTrade.objects
-        .filter(user=user, replay__pro__status="accepted")
-        .filter(qty_pro__gt=0)
-        .order_by("-opened_at", "-id")
-        .only("opened_at", "replay")
-    )
-
-    for v in qs[:300]:  # 念のため上限（通常こんなに要らない）
-        cb, ca = _get_pro_cash_before_after(v)
-        if cb is None and ca is None:
-            continue
-
-        current = ca if ca is not None else cb
-        ts_label = ""
-        if v.opened_at:
-            try:
-                ts_label = timezone.localtime(v.opened_at).strftime("%Y/%m/%d %H:%M")
-            except Exception:
-                ts_label = ""
-        return current, cb, ca, ts_label
-
-    return None, None, None, ""
-
-
-def _count_open_positions_pro(user) -> int:
-    """
-    「建ててる件数」= PRO accepted のうち、OPEN建玉扱いの数。
-    ai_simulate_auto の制限ロジックと合わせる（安全寄り）。
-
-    条件（OPEN扱い）:
-    - replay.pro.status = accepted
-    - closed_at is None
-    - (eval_exit_reason == 'carry' or eval_exit_reason == '') を優先
-    - eval_entry_px が入っているもの（entry済み）を数える
-    """
-    qs = (
-        VirtualTrade.objects
-        .filter(user=user, replay__pro__status="accepted")
-        .filter(closed_at=None)
-        .filter(Q(eval_exit_reason="carry") | Q(eval_exit_reason=""))
-        .exclude(eval_entry_px=None)
-    )
-    try:
-        return int(qs.count())
-    except Exception:
-        return 0
-
-
 @login_required
 def simulate_list(request: HttpRequest) -> HttpResponse:
     """
@@ -257,6 +197,7 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
     - KPI:
         * 選択日の成績（PROのみ）
         * 通算（全期間）（PROのみ）
+    - 上部に「PRO残高パネル」（口座資金 / 建玉数 / 拘束 / 残り）を表示
     """
     user = request.user
 
@@ -323,6 +264,35 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
 
     summary_selected["has_data"] = (summary_selected["win"] + summary_selected["lose"] + summary_selected["flat"] + summary_selected["skip"]) > 0
     summary_total["has_data"] = (summary_total["win"] + summary_total["lose"] + summary_total["flat"] + summary_total["skip"]) > 0
+
+    # ---- 上部「PRO残高パネル」用（現在の建玉/拘束）----
+    pro_equity_yen = float(getattr(settings, "AIAPP_PRO_EQUITY_YEN", 5_000_000) or 5_000_000)
+
+    max_positions, max_total_risk_r = _get_policy_limits_default()
+
+    open_qs = (
+        VirtualTrade.objects
+        .filter(user=user, replay__pro__status="accepted")
+        .filter(qty_pro__gt=0)
+        .filter(closed_at=None)
+    )
+    open_count = int(open_qs.count())
+
+    agg = open_qs.aggregate(s=Sum("required_cash_pro"))
+    reserved_cash = float(agg.get("s") or 0.0)
+
+    free_cash = pro_equity_yen - reserved_cash
+    if free_cash < 0:
+        free_cash = 0.0
+
+    pro_account: Dict[str, Any] = {
+        "equity_yen": pro_equity_yen,
+        "reserved_yen": reserved_cash,
+        "free_yen": free_cash,
+        "open_count": open_count,
+        "max_positions": max_positions,
+        "max_total_risk_r": float(max_total_risk_r),
+    }
 
     # ---- 一覧用QS（ここからフィルタ適用 / 母体はPRO acceptedのみ） ----
     qs = (
@@ -427,13 +397,9 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
     # 最大100件
     entries = entries_all[:100]
 
-    # ★上部の「建ててる件数」
-    open_positions_count = _count_open_positions_pro(user)
-
-    # ★B仕様：現在残高（最新）
-    current_cash, latest_cash_before, latest_cash_after, latest_cash_ts_label = _get_current_cash_snapshot(user)
-
     ctx = {
+        "pro_account": pro_account,
+
         "entries": entries,
         "mode": mode,
         "q": q,
@@ -441,12 +407,5 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
         "summary_total": summary_total,
         "selected_date": selected_date,
         "selected_date_str": selected_date_str,
-
-        # ★上部サマリー用
-        "open_positions_count": open_positions_count,
-        "current_cash": current_cash,
-        "latest_cash_before": latest_cash_before,
-        "latest_cash_after": latest_cash_after,
-        "latest_cash_ts_label": latest_cash_ts_label,
     }
     return render(request, "aiapp/simulate_list.html", ctx)
