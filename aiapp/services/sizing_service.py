@@ -20,10 +20,9 @@ AI Picks 用 ポジションサイズ計算サービス（短期×攻め・本�
 - filters.min_reward_risk
 - fees.commission_rate, fees.min_commission, fees.slippage_rate
 
-★今回（本命）:
-- pTP / pSL を EV に混ぜる（R換算）
-    EV_TRUE_R = pTP * RR_net - pSL * 1.0
-  ※ none は無視（期待値0扱い）
+★重要（今回の修正）:
+- ポリシーを import 時に固定しない。
+  compute_position_sizing() の呼び出し毎に YAML を読み直して “常に最新” を使う。
 """
 
 from __future__ import annotations
@@ -47,7 +46,6 @@ from aiapp.services.broker_summary import compute_broker_summaries
 # ------------------------------
 # ポリシーデフォルト値
 # ------------------------------
-
 DEFAULT_MIN_NET_PROFIT_YEN = 1000.0
 DEFAULT_MIN_REWARD_RISK = 1.0
 
@@ -55,38 +53,60 @@ DEFAULT_COMMISSION_RATE = 0.0005  # 0.05%
 DEFAULT_MIN_COMMISSION = 100.0    # 最低手数料
 DEFAULT_SLIPPAGE_RATE = 0.001     # 0.10%
 
-_min_net_profit_yen = DEFAULT_MIN_NET_PROFIT_YEN
-_min_reward_risk = DEFAULT_MIN_REWARD_RISK
-_commission_rate = DEFAULT_COMMISSION_RATE
-_min_commission = DEFAULT_MIN_COMMISSION
-_slippage_rate = DEFAULT_SLIPPAGE_RATE
 
-# aiapp/policies/short_aggressive.yml から上書き読み込み
-try:
-    if yaml is not None:  # PyYAML がある場合のみ
-        policy_path = Path(__file__).resolve().parent.parent / "policies" / "short_aggressive.yml"
-        if policy_path.exists():
-            with policy_path.open("r", encoding="utf-8") as f:
-                pdata = yaml.safe_load(f) or {}
-            filters = pdata.get("filters") or {}
-            fees = pdata.get("fees") or {}
+def _policy_path() -> Path:
+    return Path(__file__).resolve().parent.parent / "policies" / "short_aggressive.yml"
 
-            _min_net_profit_yen = float(filters.get("min_net_profit_yen", _min_net_profit_yen))
-            _min_reward_risk = float(filters.get("min_reward_risk", _min_reward_risk))
 
-            _commission_rate = float(fees.get("commission_rate", _commission_rate))
-            _min_commission = float(fees.get("min_commission", _min_commission))
-            _slippage_rate = float(fees.get("slippage_rate", _slippage_rate))
-except Exception:
-    # 読み込みに失敗してもデフォルトで動くようにする
-    pass
+def _load_policy_values() -> Tuple[float, float, float, float, float]:
+    """
+    short_aggressive.yml を毎回読み直して、使う閾値を返す。
+    戻り値:
+      (min_net_profit_yen, min_reward_risk, commission_rate, min_commission, slippage_rate)
+    """
+    min_net_profit_yen = float(DEFAULT_MIN_NET_PROFIT_YEN)
+    min_reward_risk = float(DEFAULT_MIN_REWARD_RISK)
+    commission_rate = float(DEFAULT_COMMISSION_RATE)
+    min_commission = float(DEFAULT_MIN_COMMISSION)
+    slippage_rate = float(DEFAULT_SLIPPAGE_RATE)
 
-# 実際に使う値（読み取り後）
-MIN_NET_PROFIT_YEN = _min_net_profit_yen
-MIN_REWARD_RISK = _min_reward_risk
-COMMISSION_RATE = _commission_rate
-MIN_COMMISSION = _min_commission
-SLIPPAGE_RATE = _slippage_rate
+    try:
+        if yaml is None:
+            return min_net_profit_yen, min_reward_risk, commission_rate, min_commission, slippage_rate
+        p = _policy_path()
+        if not p.exists():
+            return min_net_profit_yen, min_reward_risk, commission_rate, min_commission, slippage_rate
+
+        with p.open("r", encoding="utf-8") as f:
+            pdata = yaml.safe_load(f) or {}
+
+        filters = pdata.get("filters") or {}
+        fees = pdata.get("fees") or {}
+
+        try:
+            min_net_profit_yen = float(filters.get("min_net_profit_yen", min_net_profit_yen))
+        except Exception:
+            pass
+        try:
+            min_reward_risk = float(filters.get("min_reward_risk", min_reward_risk))
+        except Exception:
+            pass
+        try:
+            commission_rate = float(fees.get("commission_rate", commission_rate))
+        except Exception:
+            pass
+        try:
+            min_commission = float(fees.get("min_commission", min_commission))
+        except Exception:
+            pass
+        try:
+            slippage_rate = float(fees.get("slippage_rate", slippage_rate))
+        except Exception:
+            pass
+
+        return min_net_profit_yen, min_reward_risk, commission_rate, min_commission, slippage_rate
+    except Exception:
+        return min_net_profit_yen, min_reward_risk, commission_rate, min_commission, slippage_rate
 
 
 @dataclass
@@ -195,20 +215,15 @@ def _lot_size_for(code: str) -> int:
     return 100
 
 
-def _estimate_trading_cost(entry: float, qty: int) -> float:
+def _estimate_trading_cost(entry: float, qty: int, *, commission_rate: float, min_commission: float, slippage_rate: float) -> float:
     """
     信用取引のざっくりコスト見積もり（片道）。
-
-    ポリシーの fees セクションから：
-      - COMMISSION_RATE: 売買手数料レート
-      - MIN_COMMISSION: 最低手数料
-      - SLIPPAGE_RATE: スリッページ率
     """
     if entry <= 0 or qty <= 0:
         return 0.0
     notionals = entry * qty
-    fee = max(MIN_COMMISSION, notionals * COMMISSION_RATE)
-    slippage = notionals * SLIPPAGE_RATE
+    fee = max(float(min_commission), notionals * float(commission_rate))
+    slippage = notionals * float(slippage_rate)
     return fee + slippage  # 片道（往復で×2想定）
 
 
@@ -228,6 +243,8 @@ def _build_reason_for_zero(
     budget: float,
     min_lot: int,
     loss_value: float,
+    min_net_profit_yen: float,
+    min_reward_risk: float,
 ) -> str:
     """
     qty=0 になったときの「なぜゼロなのか」を細かく判定して日本語メッセージを返す。
@@ -245,10 +262,10 @@ def _build_reason_for_zero(
     if net_profit <= 0:
         return "手数料・スリッページを考慮すると純利益がマイナスになるため。"
 
-    if net_profit < MIN_NET_PROFIT_YEN:
-        return f"純利益が {int(MIN_NET_PROFIT_YEN):,} 円未満と小さすぎるため。"
+    if net_profit < float(min_net_profit_yen):
+        return f"純利益が {int(float(min_net_profit_yen)):,} 円未満と小さすぎるため。"
 
-    if rr < MIN_REWARD_RISK:
+    if rr < float(min_reward_risk):
         return f"利確幅に対して損切幅が大きく、R={rr:.2f} と基準未満のため。"
 
     # ここまで来て qty=0 はほぼ無いはずだが、念のため
@@ -324,13 +341,6 @@ def compute_position_sizing(
 ) -> Dict[str, Any]:
     """
     AI Picks 1銘柄分の数量と評価・理由を計算して返す。
-
-    返す値（抜粋）:
-      - ev_net_<broker>: 手数料・スリッページ込みの「RR_net（R換算）」 (= net_profit / loss_value)
-      - rr_net_<broker>: 同上（今は同義だが将来拡張のため残す）
-      - ev_true_<broker>: ★本命（pTP混合）
-          EV_TRUE_R = pTP * RR_net - pSL * 1.0
-        ※ none は無視（期待値0扱い）
     """
     if user is None:
         user = _get_or_default_user()
@@ -345,6 +355,9 @@ def compute_position_sizing(
         sbi_leverage,
         sbi_haircut,
     ) = _load_user_setting(user)
+
+    # ★毎回ポリシーを読み直す（最新反映）
+    MIN_NET_PROFIT_YEN, MIN_REWARD_RISK, COMMISSION_RATE, MIN_COMMISSION, SLIPPAGE_RATE = _load_policy_values()
 
     lot = _lot_size_for(code)
 
@@ -468,7 +481,12 @@ def compute_position_sizing(
                     test_qty = lot
                     gross_profit_test = reward_per_share * test_qty
                     loss_value_test = loss_per_share * test_qty
-                    cost_round = _estimate_trading_cost(entry, test_qty) * 2
+                    cost_round = _estimate_trading_cost(
+                        entry, test_qty,
+                        commission_rate=COMMISSION_RATE,
+                        min_commission=MIN_COMMISSION,
+                        slippage_rate=SLIPPAGE_RATE,
+                    ) * 2
                     net_profit_test = gross_profit_test - cost_round
                     rr_test = _safe_div(gross_profit_test, loss_value_test)
 
@@ -481,13 +499,20 @@ def compute_position_sizing(
                         budget=budget,
                         min_lot=lot,
                         loss_value=loss_per_share,
+                        min_net_profit_yen=MIN_NET_PROFIT_YEN,
+                        min_reward_risk=MIN_REWARD_RISK,
                     )
                     reason_code = "filtered"
                 else:
                     # 採用候補としてPL計算（手数料込み）
                     gross_profit = reward_per_share * qty
                     loss_value = loss_per_share * qty
-                    cost_round = _estimate_trading_cost(entry, qty) * 2
+                    cost_round = _estimate_trading_cost(
+                        entry, qty,
+                        commission_rate=COMMISSION_RATE,
+                        min_commission=MIN_COMMISSION,
+                        slippage_rate=SLIPPAGE_RATE,
+                    ) * 2
                     net_profit = gross_profit - cost_round
                     rr = _safe_div(gross_profit, loss_value)
                     rr_net_val = _safe_div(net_profit, loss_value)
