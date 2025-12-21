@@ -31,9 +31,7 @@
     margin-bottom:10px;
   }
   @media (max-width:480px){
-    .kpi-top{
-      grid-template-columns:1fr;
-    }
+    .kpi-top{ grid-template-columns:1fr; }
   }
   .kpi-card{
     padding:10px 12px;
@@ -54,13 +52,8 @@
     gap:6px;
     margin-bottom:4px;
   }
-  .kpi-count span.label{
-    color:var(--sub);
-    margin-right:2px;
-  }
-  .kpi-pl{
-    font-size:12px;
-  }
+  .kpi-count span.label{ color:var(--sub); margin-right:2px; }
+  .kpi-pl{ font-size:12px; }
   .kpi-pl-val{
     font-variant-numeric:tabular-nums;
     font-weight:600;
@@ -130,9 +123,7 @@
     font-size:12px;
     padding:6px 10px;
   }
-  .date-input::-webkit-calendar-picker-indicator{
-    filter:invert(1);
-  }
+  .date-input::-webkit-calendar-picker-indicator{ filter:invert(1); }
 
   .search-row{
     display:flex;
@@ -148,9 +139,7 @@
     font-size:12px;
     padding:6px 10px;
   }
-  .search-input::placeholder{
-    color:rgba(148,163,184,0.9);
-  }
+  .search-input::placeholder{ color:rgba(148,163,184,0.9); }
   .search-btn{
     border-radius:999px;
     border:1px solid rgba(56,189,248,0.8);
@@ -179,10 +168,7 @@
     gap:8px;
   }
 
-  .code-name{
-    min-width:0;
-    flex:1;
-  }
+  .code-name{ min-width:0; flex:1; }
 
   .ts-badge{
     flex-shrink:0;
@@ -223,9 +209,7 @@
     color:#bbf7d0;
   }
 
-  .head-result-chip{
-    margin-top:4px;
-  }
+  .head-result-chip{ margin-top:4px; }
 
   .result-badge{
     font-size:10px;
@@ -254,7 +238,7 @@
     color:#9ca3af;
   }
 
-  /* ===== メイン2カラム（左：AIスナップ / 右：シミュ結果） ===== */
+  /* ===== メイン2カラム ===== */
   .body-cols{
     display:grid;
     grid-template-columns:minmax(0,1.05fr) minmax(0,1.1fr);
@@ -319,9 +303,7 @@
     margin-top:2px;
   }
 
-  .real-pl-wrap{
-    margin-top:4px;
-  }
+  .real-pl-wrap{ margin-top:4px; }
   .real-pl-row{
     display:flex;
     justify-content:space-between;
@@ -406,7 +388,7 @@
           {% endif %}
         </div>
         <div class="kpi-pl">
-          合計（※PRO実績PLは未実装のため現状0表示）
+          合計（PRO実績PL）
           <span class="kpi-pl-val {% if summary_selected.total_pl >= 0 %}pos{% else %}neg{% endif %}">
             {{ summary_selected.total_pl|floatformat:0|intcomma }} 円
           </span>
@@ -428,7 +410,7 @@
           {% endif %}
         </div>
         <div class="kpi-pl">
-          合計（※PRO実績PLは未実装のため現状0表示）
+          合計（PRO実績PL）
           <span class="kpi-pl-val {% if summary_total.total_pl >= 0 %}pos{% else %}neg{% endif %}">
             {{ summary_total.total_pl|floatformat:0|intcomma }} 円
           </span>
@@ -651,6 +633,14 @@
                       {{ e.exit_reason_label }}
                     </div>
                   </div>
+                  {% if e.exit_label %}
+                    <div class="real-row">
+                      <div class="real-label">時刻</div>
+                      <div class="real-val">
+                        {{ e.exit_label }}
+                      </div>
+                    </div>
+                  {% endif %}
                 {% elif e.eval_exit_reason %}
                   <div class="real-row">
                     <div class="real-label">結果</div>
@@ -671,13 +661,17 @@
                   <div class="real-pl-row">
                     <div class="real-label">実績PL</div>
                     <div>
-                      <span class="result-pl">
-                        {{ e.eval_pl_pro|floatformat:0|intcomma }} 円
-                      </span>
+                      {% if e.eval_pl_pro is None %}
+                        <span class="result-pl">—</span>
+                      {% else %}
+                        <span class="result-pl {% if e.eval_pl_pro >= 0 %}pos{% else %}neg{% endif %}">
+                          {{ e.eval_pl_pro|floatformat:0|intcomma }} 円
+                        </span>
+                      {% endif %}
                     </div>
                   </div>
                   <div class="real-note">
-                    ※PRO実績PL（eval_pl_pro等）は未実装のため現状0表示。後でDBに追加したらここが本物になる。
+                    ※carry（未確定）の間は “—” 表示。確定するとPLが出ます（replay.pro.last_eval.pl_pro）。
                   </div>
                 </div>
               </div>
