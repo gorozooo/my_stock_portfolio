@@ -38,7 +38,7 @@
        background:var(--accent);color:#fff;text-decoration:none;border:0;
        font-weight:700
   }
-  .note{font-size:12px;color:#9fb1c7;margin-top:6px}
+  .note{font-size:12px;color:#9fb1c7;margin-top:6px;line-height:1.45}
 
   /* ブローカーごとの倍率ブロック */
   .broker-block{margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)}
@@ -55,9 +55,9 @@
   .kv .it{border:1px solid var(--line);border-radius:10px;padding:10px}
   .kv .lb{font-size:12px;color:var(--sub)}
   .kv .vl{font-size:18px;margin-top:2px}
-  .msg{margin-top:10px;color:#9fb1c7;font-size:13px}
+  .msg{margin-top:10px;color:#9fb1c7;font-size:13px;line-height:1.45}
 
-  /* 学習モード */
+  /* 学習モード（Collect/Strict） */
   .mode-pills{display:flex;gap:10px}
   .pill{
     flex:1;
@@ -77,6 +77,20 @@
     box-shadow:0 4px 20px rgba(37,99,235,.20)
   }
   .pill small{display:block;margin-top:4px;font-weight:600;color:#bcd2ff;font-size:11px;opacity:.9}
+
+  .split2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .pilltag{
+    display:inline-block;
+    font-size:11px;
+    padding:3px 8px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.06);
+    color:#cfe0ff;
+    margin-left:6px;
+    vertical-align:middle;
+  }
+  .divider{height:1px;background:rgba(255,255,255,.08);margin:12px 0}
 </style>
 {% endblock %}
 
@@ -103,32 +117,16 @@
           <label style="font-size:14px;color:var(--sub)">
             1トレードあたりのリスク（％）
           </label>
-          <input
-            class="inp"
-            name="risk_pct"
-            type="number"
-            inputmode="decimal"
-            step="0.1"
-            min="0"
-            max="100"
-            value="{{ risk_pct|floatformat:2 }}"
-          >
+          <input class="inp" name="risk_pct" type="number" inputmode="decimal" step="0.1" min="0" max="100"
+                 value="{{ risk_pct|floatformat:2 }}">
         </div>
 
         <div class="row" style="margin-top:8px;">
           <label style="font-size:14px;color:var(--sub)">
             信用余力の使用上限（％）
           </label>
-          <input
-            class="inp"
-            name="credit_usage_pct"
-            type="number"
-            inputmode="decimal"
-            step="1"
-            min="0"
-            max="100"
-            value="{{ credit_usage_pct|floatformat:1 }}"
-          >
+          <input class="inp" name="credit_usage_pct" type="number" inputmode="decimal" step="1" min="0" max="100"
+                 value="{{ credit_usage_pct|floatformat:1 }}">
         </div>
 
         <h2 style="margin-top:14px">倍率 / ヘアカット（概算用）</h2>
@@ -138,28 +136,13 @@
           <div class="broker-title">楽天</div>
           <div class="row">
             <label style="font-size:14px;color:var(--sub)">倍率</label>
-            <input
-              class="inp"
-              name="leverage_rakuten"
-              type="number"
-              inputmode="decimal"
-              step="0.01"
-              min="0"
-              value="{{ leverage_rakuten|floatformat:2 }}"
-            >
+            <input class="inp" name="leverage_rakuten" type="number" inputmode="decimal" step="0.01" min="0"
+                   value="{{ leverage_rakuten|floatformat:2 }}">
           </div>
           <div class="row" style="margin-top:6px;">
             <label style="font-size:14px;color:var(--sub)">ヘアカット</label>
-            <input
-              class="inp"
-              name="haircut_rakuten"
-              type="number"
-              inputmode="decimal"
-              step="0.01"
-              min="0"
-              max="1"
-              value="{{ haircut_rakuten|floatformat:2 }}"
-            >
+            <input class="inp" name="haircut_rakuten" type="number" inputmode="decimal" step="0.01" min="0" max="1"
+                   value="{{ haircut_rakuten|floatformat:2 }}">
           </div>
         </div>
 
@@ -168,28 +151,13 @@
           <div class="broker-title">松井</div>
           <div class="row">
             <label style="font-size:14px;color:var(--sub)">倍率</label>
-            <input
-              class="inp"
-              name="leverage_matsui"
-              type="number"
-              inputmode="decimal"
-              step="0.01"
-              min="0"
-              value="{{ leverage_matsui|floatformat:2 }}"
-            >
+            <input class="inp" name="leverage_matsui" type="number" inputmode="decimal" step="0.01" min="0"
+                   value="{{ leverage_matsui|floatformat:2 }}">
           </div>
           <div class="row" style="margin-top:6px;">
             <label style="font-size:14px;color:var(--sub)">ヘアカット</label>
-            <input
-              class="inp"
-              name="haircut_matsui"
-              type="number"
-              inputmode="decimal"
-              step="0.01"
-              min="0"
-              max="1"
-              value="{{ haircut_matsui|floatformat:2 }}"
-            >
+            <input class="inp" name="haircut_matsui" type="number" inputmode="decimal" step="0.01" min="0" max="1"
+                   value="{{ haircut_matsui|floatformat:2 }}">
           </div>
         </div>
 
@@ -198,31 +166,16 @@
           <div class="broker-title">SBI</div>
           <div class="row">
             <label style="font-size:14px;color:var(--sub)">倍率</label>
-            <input
-              class="inp"
-              name="leverage_sbi"
-              type="number"
-              inputmode="decimal"
-              step="0.01"
-              min="0"
-              value="{{ leverage_sbi|floatformat:2 }}"
-            >
+            <input class="inp" name="leverage_sbi" type="number" inputmode="decimal" step="0.01" min="0"
+                   value="{{ leverage_sbi|floatformat:2 }}">
           </div>
           <div class="row" style="margin-top:6px;">
             <label style="font-size:14px;color:var(--sub)">ヘアカット</label>
-            <input
-              class="inp"
-              name="haircut_sbi"
-              type="number"
-              inputmode="decimal"
-              step="0.01"
-              min="0"
-              max="1"
-              value="{{ haircut_sbi|floatformat:2 }}"
-            >
+            <input class="inp" name="haircut_sbi" type="number" inputmode="decimal" step="0.01" min="0" max="1"
+                   value="{{ haircut_sbi|floatformat:2 }}">
           </div>
         </div>
-        
+
         <div style="margin-top:12px;text-align:right">
           <button class="btn" type="submit">保存</button>
         </div>
@@ -234,7 +187,7 @@
     </div>
 
   {% elif tab == 'pro' %}
-    <!-- PROタブ（新設） -->
+    <!-- PROタブ（Collect/Strict を “YAMLの別キー” で保持して見える化） -->
     <div class="sec">
       <h2>PRO学習モード（2択固定）</h2>
       <form method="post">
@@ -242,144 +195,108 @@
         <input type="hidden" name="tab" value="pro">
 
         <div class="mode-pills" style="margin-bottom:10px;">
-          <label class="pill {% if learn_mode == 'collect' %}active{% endif %}">
-            <input type="radio" name="learn_mode" value="collect" {% if learn_mode == 'collect' %}checked{% endif %}>
+          <label class="pill {% if pro_mode == 'collect' %}active{% endif %}">
+            <input type="radio" name="pro_mode" value="collect" {% if pro_mode == 'collect' %}checked{% endif %}>
             Collect
             <small>母数を増やす（建玉を優先）</small>
           </label>
-          <label class="pill {% if learn_mode == 'strict' %}active{% endif %}">
-            <input type="radio" name="learn_mode" value="strict" {% if learn_mode == 'strict' %}checked{% endif %}>
+          <label class="pill {% if pro_mode == 'strict' %}active{% endif %}">
+            <input type="radio" name="pro_mode" value="strict" {% if pro_mode == 'strict' %}checked{% endif %}>
             Strict
             <small>質を優先（見送りを強化）</small>
           </label>
         </div>
 
         <div class="note" style="margin-top:0;">
-          ※ ここで選んだモードは short_aggressive.yml に保存され、simulate_auto / Picks 側の判断に必ず効きます。
+          ※ ここで選んだモードと数値は <b>short_aggressive.yml</b>（真実ソース）に保存されます。<br>
+          ※ Collect/Strict は <b>別の数値</b> を持てます（＝今どっちも同じ問題を解消）。
         </div>
 
-        <h2 style="margin-top:14px;">建玉・資金ルール（中枢）</h2>
+        <div class="divider"></div>
 
+        <h2>建玉・資金ルール<span class="pilltag">Collect</span></h2>
+        <div class="split2">
+          <div class="row">
+            <label style="font-size:14px;color:var(--sub)">同時建玉数（max_positions）</label>
+            <input class="inp" name="c_max_positions" type="number" inputmode="numeric" step="1" min="1"
+                   value="{{ pro_collect.max_positions|default:5 }}">
+          </div>
+          <div class="row">
+            <label style="font-size:14px;color:var(--sub)">1銘柄の上限資金（円）</label>
+            <input class="inp" name="c_max_yen_per_trade" type="number" inputmode="numeric" step="10000" min="0"
+                   value="{{ pro_collect.max_yen_per_trade|default:2000000 }}">
+          </div>
+          <div class="row">
+            <label style="font-size:14px;color:var(--sub)">1銘柄の下限資金（円）※0で無効</label>
+            <input class="inp" name="c_min_yen_per_trade" type="number" inputmode="numeric" step="10000" min="0"
+                   value="{{ pro_collect.min_yen_per_trade|default:0 }}">
+          </div>
+          <div class="row">
+            <label style="font-size:14px;color:var(--sub)">口座枠（概算）（円）</label>
+            <input class="inp" name="c_pro_equity_yen" type="number" inputmode="numeric" step="10000" min="0"
+                   value="{{ pro_collect.pro_equity_yen|default:5000000 }}">
+          </div>
+          <div class="row">
+            <label style="font-size:14px;color:var(--sub)">予備資金（常に残す）（円）</label>
+            <input class="inp" name="c_reserve_yen" type="number" inputmode="numeric" step="10000" min="0"
+                   value="{{ pro_collect.reserve_yen|default:0 }}">
+          </div>
+          <div class="row">
+            <label style="font-size:14px;color:var(--sub)">最大保有（営業日）horizon_bd</label>
+            <input class="inp" name="c_horizon_bd" type="number" inputmode="numeric" step="1" min="1"
+                   value="{{ pro_collect.horizon_bd|default:3 }}">
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <h2>建玉・資金ルール<span class="pilltag">Strict</span></h2>
+        <div class="split2">
+          <div class="row">
+            <label style="font-size:14px;color:var(--sub)">同時建玉数（max_positions）</label>
+            <input class="inp" name="s_max_positions" type="number" inputmode="numeric" step="1" min="1"
+                   value="{{ pro_strict.max_positions|default:5 }}">
+          </div>
+          <div class="row">
+            <label style="font-size:14px;color:var(--sub)">1銘柄の上限資金（円）</label>
+            <input class="inp" name="s_max_yen_per_trade" type="number" inputmode="numeric" step="10000" min="0"
+                   value="{{ pro_strict.max_yen_per_trade|default:2000000 }}">
+          </div>
+          <div class="row">
+            <label style="font-size:14px;color:var(--sub)">1銘柄の下限資金（円）※0で無効</label>
+            <input class="inp" name="s_min_yen_per_trade" type="number" inputmode="numeric" step="10000" min="0"
+                   value="{{ pro_strict.min_yen_per_trade|default:0 }}">
+          </div>
+          <div class="row">
+            <label style="font-size:14px;color:var(--sub)">口座枠（概算）（円）</label>
+            <input class="inp" name="s_pro_equity_yen" type="number" inputmode="numeric" step="10000" min="0"
+                   value="{{ pro_strict.pro_equity_yen|default:5000000 }}">
+          </div>
+          <div class="row">
+            <label style="font-size:14px;color:var(--sub)">予備資金（常に残す）（円）</label>
+            <input class="inp" name="s_reserve_yen" type="number" inputmode="numeric" step="10000" min="0"
+                   value="{{ pro_strict.reserve_yen|default:0 }}">
+          </div>
+          <div class="row">
+            <label style="font-size:14px;color:var(--sub)">最大保有（営業日）horizon_bd</label>
+            <input class="inp" name="s_horizon_bd" type="number" inputmode="numeric" step="1" min="1"
+                   value="{{ pro_strict.horizon_bd|default:3 }}">
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <h2>Strict時の締め付け（Strictにしたら必ず効く）</h2>
         <div class="row">
-          <label style="font-size:14px;color:var(--sub)">
-            同時建玉数（max_positions）
-          </label>
-          <input
-            class="inp"
-            name="max_positions"
-            type="number"
-            inputmode="numeric"
-            step="1"
-            min="1"
-            value="{{ max_positions|floatformat:0 }}"
-          >
+          <label style="font-size:14px;color:var(--sub)">Strict: 最低RR（R）</label>
+          <input class="inp" name="s_strict_min_rr" type="number" inputmode="decimal" step="0.1" min="0"
+                 value="{{ pro_strict.strict_min_rr|default:1.0 }}">
         </div>
 
         <div class="row" style="margin-top:8px;">
-          <label style="font-size:14px;color:var(--sub)">
-            1銘柄の上限資金（円）
-          </label>
-          <input
-            class="inp"
-            name="max_notional_per_trade_yen"
-            type="number"
-            inputmode="numeric"
-            step="10000"
-            min="0"
-            value="{{ max_notional_per_trade_yen|floatformat:0 }}"
-          >
-        </div>
-
-        <div class="row" style="margin-top:8px;">
-          <label style="font-size:14px;color:var(--sub)">
-            1銘柄の下限資金（円）※0で無効
-          </label>
-          <input
-            class="inp"
-            name="min_notional_per_trade_yen"
-            type="number"
-            inputmode="numeric"
-            step="10000"
-            min="0"
-            value="{{ min_notional_per_trade_yen|floatformat:0 }}"
-          >
-        </div>
-
-        <div class="row" style="margin-top:8px;">
-          <label style="font-size:14px;color:var(--sub)">
-            口座枠（概算）（円）
-          </label>
-          <input
-            class="inp"
-            name="max_total_notional_yen"
-            type="number"
-            inputmode="numeric"
-            step="10000"
-            min="0"
-            value="{{ max_total_notional_yen|floatformat:0 }}"
-          >
-        </div>
-
-        <div class="row" style="margin-top:8px;">
-          <label style="font-size:14px;color:var(--sub)">
-            予備資金（常に残す）（円）
-          </label>
-          <input
-            class="inp"
-            name="reserve_cash_yen"
-            type="number"
-            inputmode="numeric"
-            step="10000"
-            min="0"
-            value="{{ reserve_cash_yen|floatformat:0 }}"
-          >
-        </div>
-
-        <div class="row" style="margin-top:8px;">
-          <label style="font-size:14px;color:var(--sub)">
-            最大保有（営業日）horizon_bd
-          </label>
-          <input
-            class="inp"
-            name="horizon_bd"
-            type="number"
-            inputmode="numeric"
-            step="1"
-            min="1"
-            value="{{ horizon_bd|floatformat:0 }}"
-          >
-        </div>
-
-        <h2 style="margin-top:14px;">Strict時の締め付け（Strictにしたら必ず効く）</h2>
-
-        <div class="row">
-          <label style="font-size:14px;color:var(--sub)">
-            Strict: 最低RR（R）
-          </label>
-          <input
-            class="inp"
-            name="strict_min_rr"
-            type="number"
-            inputmode="decimal"
-            step="0.1"
-            min="0"
-            value="{{ strict_min_rr|floatformat:1 }}"
-          >
-        </div>
-
-        <div class="row" style="margin-top:8px;">
-          <label style="font-size:14px;color:var(--sub)">
-            Strict: 最低純利益（円）
-          </label>
-          <input
-            class="inp"
-            name="strict_min_net_profit_yen"
-            type="number"
-            inputmode="numeric"
-            step="100"
-            min="0"
-            value="{{ strict_min_net_profit_yen|floatformat:0 }}"
-          >
+          <label style="font-size:14px;color:var(--sub)">Strict: 最低純利益（円）</label>
+          <input class="inp" name="s_strict_min_net_profit_yen" type="number" inputmode="numeric" step="100" min="0"
+                 value="{{ pro_strict.strict_min_net_profit_yen|default:0 }}">
         </div>
 
         <div style="margin-top:12px;text-align:right">
@@ -387,7 +304,7 @@
         </div>
         <div class="note">
           ※ 保存先は short_aggressive.yml です（真実ソース）。<br>
-          ※ このタブの値は PRO運用（建玉/母数/上限資金）を直撃します。
+          ※ Collect/Strict の数値は別管理です（同じに見える問題を潰すため）。
         </div>
       </form>
     </div>
@@ -568,28 +485,14 @@
 
           <div class="row">
             <label style="font-size:14px;color:var(--sub)">最低純利益（円）</label>
-            <input
-              class="inp"
-              name="min_net_profit_yen"
-              type="number"
-              inputmode="decimal"
-              step="100"
-              min="0"
-              value="{% if policy.min_net_profit_yen is not None %}{{ policy.min_net_profit_yen|floatformat:0 }}{% endif %}"
-            >
+            <input class="inp" name="min_net_profit_yen" type="number" inputmode="decimal" step="100" min="0"
+                   value="{% if policy.min_net_profit_yen is not None %}{{ policy.min_net_profit_yen|floatformat:0 }}{% endif %}">
           </div>
 
           <div class="row" style="margin-top:8px;">
             <label style="font-size:14px;color:var(--sub)">最低 Reward / Risk（R）</label>
-            <input
-              class="inp"
-              name="min_reward_risk"
-              type="number"
-              inputmode="decimal"
-              step="0.1"
-              min="0"
-              value="{% if policy.min_reward_risk is not None %}{{ policy.min_reward_risk|floatformat:2 }}{% endif %}"
-            >
+            <input class="inp" name="min_reward_risk" type="number" inputmode="decimal" step="0.1" min="0"
+                   value="{% if policy.min_reward_risk is not None %}{{ policy.min_reward_risk|floatformat:2 }}{% endif %}">
           </div>
 
           <div class="row" style="margin-top:8px;">
@@ -604,41 +507,20 @@
 
           <div class="row">
             <label style="font-size:14px;color:var(--sub)">売買手数料レート</label>
-            <input
-              class="inp"
-              name="commission_rate"
-              type="number"
-              inputmode="decimal"
-              step="0.0001"
-              min="0"
-              value="{% if policy.commission_rate is not None %}{{ policy.commission_rate|floatformat:4 }}{% endif %}"
-            >
+            <input class="inp" name="commission_rate" type="number" inputmode="decimal" step="0.0001" min="0"
+                   value="{% if policy.commission_rate is not None %}{{ policy.commission_rate|floatformat:4 }}{% endif %}">
           </div>
 
           <div class="row" style="margin-top:8px;">
             <label style="font-size:14px;color:var(--sub)">最低手数料（円）</label>
-            <input
-              class="inp"
-              name="min_commission"
-              type="number"
-              inputmode="decimal"
-              step="10"
-              min="0"
-              value="{% if policy.min_commission is not None %}{{ policy.min_commission|floatformat:0 }}{% endif %}"
-            >
+            <input class="inp" name="min_commission" type="number" inputmode="decimal" step="10" min="0"
+                   value="{% if policy.min_commission is not None %}{{ policy.min_commission|floatformat:0 }}{% endif %}">
           </div>
 
           <div class="row" style="margin-top:8px;">
             <label style="font-size:14px;color:var(--sub)">スリッページレート</label>
-            <input
-              class="inp"
-              name="slippage_rate"
-              type="number"
-              inputmode="decimal"
-              step="0.0001"
-              min="0"
-              value="{% if policy.slippage_rate is not None %}{{ policy.slippage_rate|floatformat:4 }}{% endif %}"
-            >
+            <input class="inp" name="slippage_rate" type="number" inputmode="decimal" step="0.0001" min="0"
+                   value="{% if policy.slippage_rate is not None %}{{ policy.slippage_rate|floatformat:4 }}{% endif %}">
           </div>
 
           <div style="margin-top:12px;text-align:right">
@@ -662,7 +544,8 @@
 <script>
   // PROタブのラジオ pill の見た目を即反映（iPhoneでも迷わない）
   document.addEventListener("change", function(e){
-    if (!e.target || e.target.name !== "learn_mode") return;
+    if (!e.target) return;
+    if (e.target.name !== "pro_mode") return;
     document.querySelectorAll(".pill").forEach(function(el){
       el.classList.remove("active");
     });
