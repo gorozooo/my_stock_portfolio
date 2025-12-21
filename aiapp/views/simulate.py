@@ -1,7 +1,7 @@
 # aiapp/views/simulate.py
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import date as _date
 
 from django.contrib.auth.decorators import login_required
@@ -144,6 +144,48 @@ def _accumulate_pro(summary: Dict[str, Any], v: VirtualTrade) -> None:
         summary["total_pl"] = float(summary.get("total_pl", 0.0)) + float(pl)
 
 
+def _get_pro_cash_before_after(v: VirtualTrade) -> Tuple[Optional[float], Optional[float]]:
+    """
+    PRO資金の内訳（残高 before/after）を replay から安全に取り出す。
+
+    優先:
+      1) replay.pro.cash.cash_before / cash_after
+      2) replay.sim_order.pro_cash_before / pro_cash_after （互換/フォールバック）
+    """
+    replay = v.replay if isinstance(v.replay, dict) else {}
+
+    # 1) replay.pro.cash
+    pro = replay.get("pro") if isinstance(replay.get("pro"), dict) else {}
+    cash = pro.get("cash") if isinstance(pro.get("cash"), dict) else {}
+    cb = cash.get("cash_before")
+    ca = cash.get("cash_after")
+    try:
+        cb_f = float(cb) if cb is not None else None
+    except Exception:
+        cb_f = None
+    try:
+        ca_f = float(ca) if ca is not None else None
+    except Exception:
+        ca_f = None
+    if cb_f is not None or ca_f is not None:
+        return cb_f, ca_f
+
+    # 2) replay.sim_order (JSONL互換)
+    so = replay.get("sim_order") if isinstance(replay.get("sim_order"), dict) else {}
+    cb2 = so.get("pro_cash_before")
+    ca2 = so.get("pro_cash_after")
+    try:
+        cb2_f = float(cb2) if cb2 is not None else None
+    except Exception:
+        cb2_f = None
+    try:
+        ca2_f = float(ca2) if ca2 is not None else None
+    except Exception:
+        ca2_f = None
+
+    return cb2_f, ca2_f
+
+
 @login_required
 def simulate_list(request: HttpRequest) -> HttpResponse:
     """
@@ -282,6 +324,9 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
         # PRO実績PL（carry中は None）
         eval_pl_pro = _get_pro_pl(v)
 
+        # ★PRO資金（残高 before/after）
+        cash_before, cash_after = _get_pro_cash_before_after(v)
+
         e: Dict[str, Any] = {
             "id": v.id,
             "code": str(v.code or ""),
@@ -301,6 +346,10 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
             "required_cash_pro": v.required_cash_pro,
             "est_pl_pro": v.est_pl_pro,
             "est_loss_pro": v.est_loss_pro,
+
+            # ★資金の内訳（PRO）
+            "cash_before": cash_before,
+            "cash_after": cash_after,
 
             # 評価結果
             "eval_entry_px": v.eval_entry_px,
