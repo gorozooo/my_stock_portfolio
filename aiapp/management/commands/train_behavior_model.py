@@ -5,7 +5,7 @@ import json
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandParser
@@ -100,22 +100,18 @@ def _bucket_slope(slope: Optional[float]) -> str:
 
 class Command(BaseCommand):
     """
-    latest_behavior_side.jsonl を読み込み、
-    win / lose のトレードを使って
-    ・ブローカー別
-    ・セクター別
-    ・トレンド別
-    ・時間帯別
-    ・ATR帯別
-    ・傾き帯別
-    の統計モデルを JSON で保存する簡易学習コマンド。
+    latest_behavior_side.jsonl（PRO一択）を読み込み、
+    win / lose のトレードを使って統計モデルを JSON で保存する簡易学習コマンド。
+
+    ※ build_behavior_dataset が PRO一択で side を作るため、
+       この学習も自動的に PRO 専用になる。
 
     使い方:
       python manage.py train_behavior_model
       python manage.py train_behavior_model --user 1
     """
 
-    help = "AI 行動データ（side形式）から簡易な統計モデルを学習して JSON に保存する"
+    help = "AI 行動データ（side形式）から簡易な統計モデルを学習して JSON に保存する（PRO一択）"
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
@@ -141,7 +137,9 @@ class Command(BaseCommand):
 
         if not side_path.exists():
             self.stdout.write(
-                self.style.WARNING("[train_behavior_model] latest_behavior_side.jsonl が見つかりません。先に build_behavior_dataset を実行してください。")
+                self.style.WARNING(
+                    "[train_behavior_model] latest_behavior_side.jsonl が見つかりません。先に build_behavior_dataset を実行してください。"
+                )
             )
             return
 
@@ -205,7 +203,7 @@ class Command(BaseCommand):
             label = str(rec.get("eval_label") or "").lower()
             pl = _safe_float(rec.get("eval_pl")) or 0.0
             r_val = _safe_float(rec.get("eval_r"))
-            broker = str(rec.get("broker") or "unknown")
+            broker = str(rec.get("broker") or "unknown")  # 通常 "pro"
             sector = str(rec.get("sector") or "(未分類)")
             trend = str(rec.get("trend_daily") or "不明")
             ts_str = str(rec.get("ts") or "")
@@ -226,7 +224,7 @@ class Command(BaseCommand):
                 sum_r_global += r_val
                 cnt_r_global += 1
 
-            # ブローカー別
+            # ブローカー別（実質 pro）
             bs = broker_stats[broker]
             bs.trials += 1
             if is_win:
@@ -247,14 +245,14 @@ class Command(BaseCommand):
                 ss.cnt_r += 1
 
             # トレンド別
-            ts = trend_stats[trend]
-            ts.trials += 1
+            tsx = trend_stats[trend]
+            tsx.trials += 1
             if is_win:
-                ts.wins += 1
-            ts.sum_pl += pl
+                tsx.wins += 1
+            tsx.sum_pl += pl
             if r_val is not None:
-                ts.sum_r += r_val
-                ts.cnt_r += 1
+                tsx.sum_r += r_val
+                tsx.cnt_r += 1
 
             # 時間帯別
             tms = time_stats[time_bucket]
@@ -319,7 +317,6 @@ class Command(BaseCommand):
             },
         }
 
-        # 日付付きファイル & latest シンボリック的ファイル
         out_path = model_dir / f"{date_tag}_behavior_model_{user_tag}.json"
         latest_path = model_dir / f"latest_behavior_model_{user_tag}.json"
 
@@ -340,7 +337,7 @@ class Command(BaseCommand):
         # サマリ出力
         # --------------------------------------------------
         self.stdout.write("")
-        self.stdout.write("===== 行動モデル 学習サマリ =====")
+        self.stdout.write("===== 行動モデル 学習サマリ（PRO一択） =====")
         self.stdout.write(f"  user_id      : {user_id}")
         self.stdout.write(f"  total_trades : {total_trades}")
         self.stdout.write(f"  wins         : {total_wins}")
