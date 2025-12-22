@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Optional, Tuple, Dict, Any, List
+from typing import Optional, Dict, Any, List
 
 from django.db import transaction
 from django.utils import timezone
@@ -32,20 +32,6 @@ class StatsResult:
     stars: int
 
 
-def _avg_nonnull(*vals: Optional[float]) -> Optional[float]:
-    xs: List[float] = []
-    for v in vals:
-        if v is None:
-            continue
-        try:
-            xs.append(float(v))
-        except Exception:
-            continue
-    if not xs:
-        return None
-    return sum(xs) / len(xs)
-
-
 def _score_to_stars(score_0_1: float) -> int:
     """
     0..1 を 1..5 に変換
@@ -64,14 +50,11 @@ def _score_to_stars(score_0_1: float) -> int:
 
 def _calc_score_0_1(trades: int, wins: int, avg_r: float) -> float:
     """
-    本番用のスコア(0..1) を作る。
+    本番用のスコア(0..1)
 
-    方針（本番寄りではなく「本番」）：
-    - 勝率は生の win/trades を使うと少数サンプルでブレるのでベイズ補正
-    - avg_r も混ぜる（ただし極端に引っ張られないよう tanh で圧縮）
-    - trades が少ないときは信頼度を落とす（サンプル数ゲート）
-
-    返り値: 0..1
+    - 勝率はベイズ補正で少数サンプルの暴れを抑える
+    - avg_r も混ぜる（tanhで圧縮）
+    - trades が少ないときは信頼度ゲートで抑える
     """
     # ベイズ補正（弱めの事前分布）
     alpha = 2.0
@@ -79,18 +62,15 @@ def _calc_score_0_1(trades: int, wins: int, avg_r: float) -> float:
     bayes_win = (wins + alpha) / (trades + alpha + beta) if trades > 0 else 0.5
 
     # avg_r を 0..1 に圧縮（-∞..∞ → 0..1）
-    # avg_r=0 で 0.5、avg_r=+1 でだいたい 0.73、avg_r=-1 で 0.27 くらい
     r_scaled = (math.tanh(avg_r / 1.0) + 1.0) / 2.0
 
-    # メイン合成（勝率重視＋Rも混ぜる）
+    # 合成（勝率重視＋Rも混ぜる）
     base = 0.65 * bayes_win + 0.35 * r_scaled
 
-    # サンプル数ゲート（n=0→0、n≈10で0.63、n≈20で0.86、n≈30で0.95）
+    # サンプル数ゲート
     gate = 1.0 - math.exp(-trades / 10.0)
 
     score = base * gate
-
-    # 安全に 0..1
     if score < 0.0:
         score = 0.0
     if score > 1.0:
@@ -106,6 +86,9 @@ def calc_stats(
 ) -> StatsResult:
     """
     銘柄×モード別の直近 window_days の stats を計算して返す（保存はしない）
+
+    ✅ PRO一択：
+      VirtualTrade.result_r_pro のみで勝敗判定・平均Rを計算する
     """
     now = timezone.now()
     since = now - timedelta(days=int(window_days))
@@ -115,9 +98,7 @@ def calc_stats(
         .filter(code=str(code), mode_period=mode_period, mode_aggr=mode_aggr)
         .filter(closed_at__isnull=False)
         .filter(opened_at__gte=since)
-        .values(
-            "result_r_rakuten", "result_r_matsui", "result_r_sbi",
-        )
+        .values("result_r_pro")
     )
 
     trades = 0
@@ -127,16 +108,16 @@ def calc_stats(
     r_sum = 0.0
 
     for row in qs:
-        r = _avg_nonnull(
-            row.get("result_r_rakuten"),
-            row.get("result_r_matsui"),
-            row.get("result_r_sbi"),
-        )
-        if r is None:
+        r_val = row.get("result_r_pro")
+        if r_val is None:
+            continue
+        try:
+            r = float(r_val)
+        except Exception:
             continue
 
         trades += 1
-        r_sum += float(r)
+        r_sum += r
 
         if r > 0:
             wins += 1
