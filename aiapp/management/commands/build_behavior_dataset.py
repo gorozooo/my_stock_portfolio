@@ -17,12 +17,13 @@ Number = Optional[float]
 @dataclass
 class SideRow:
     """
-    学習用（1行 = 1トレード × 1口座）の行データ（PRO一択）
+    学習用（1行 = 1トレード × 1ブローカー）の行データ
+    ※ PRO一択：broker は常に "pro"
     """
     user_id: int
     ts: str
     mode: str           # "live" / "demo" / "other"
-    broker: str         # "pro" 固定
+    broker: str         # "pro"
     code: str
     name: str
     sector: Optional[str]
@@ -80,44 +81,25 @@ def _safe_float(v: Any) -> Optional[float]:
         return None
 
 
-def _get_nested(d: Any, *keys: str, default=None):
-    cur = d
-    for k in keys:
-        if not isinstance(cur, dict):
-            return default
-        cur = cur.get(k)
-    return cur if cur is not None else default
-
-
-def _is_pro_accepted(r: Dict[str, Any]) -> bool:
-    """
-    PRO一択のフィルタ条件：
-    - replay.pro.status == "accepted" のみ採用
-    """
-    status = _get_nested(r, "replay", "pro", "status", default=None)
-    if status is None:
-        # 互換（万一上位に pro_status があるケース）
-        status = r.get("pro_status")
-    return str(status or "").lower() == "accepted"
-
-
-def _price_date_of(r: Dict[str, Any]) -> Optional[str]:
-    """
-    ログの揺れ吸収：
-    - price_date があればそれ
-    - 無ければ trade_date
-    """
-    v = r.get("price_date")
-    if v in (None, "", "null"):
-        v = r.get("trade_date")
+def _safe_int(v: Any) -> Optional[int]:
     if v in (None, "", "null"):
         return None
-    return str(v)
+    try:
+        return int(v)
+    except Exception:
+        return None
+
+
+def _atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text, encoding=encoding)
+    tmp.replace(path)
 
 
 def _dedup_records(raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    PROシミュレレコードの重複除外。
+    シミュレレコードの重複除外（PRO一択）。
 
     キー：
       (user_id, mode, code, price_date, entry[小数3桁丸め], qty_pro)
@@ -133,7 +115,7 @@ def _dedup_records(raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             r.get("user_id"),
             (r.get("mode") or "").lower(),
             r.get("code"),
-            _price_date_of(r),
+            r.get("price_date"),
             round(entry, 3),
             _safe_float(r.get("qty_pro")) or 0.0,
         )
@@ -148,10 +130,8 @@ def _dedup_records(raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 class Command(BaseCommand):
     """
     /media/aiapp/simulate/*.jsonl を読み込み、
-    PRO一択で：
-
-    - 重複を除外した「行動データセット」
-    - 学習用の「1トレード×PRO」データセット（SideRow）
+    - 重複シミュレを除外した「行動データセット」
+    - 学習用の「1トレード×PRO」データセット
     を /media/aiapp/behavior/ 配下に出力する。
 
     出力ファイル：
@@ -159,20 +139,16 @@ class Command(BaseCommand):
       - latest_behavior.jsonl
       - YYYYMMDD_behavior_side.jsonl
       - latest_behavior_side.jsonl
-
-    注意：
-    - replay.pro.status == "accepted" のみ採用（PROで採用されたものだけが学習/分析対象）
-    - 楽天/SBI/松井のキーは一切参照しない
     """
 
-    help = "AI シミュレログから（PRO一択の）行動データセット／学習用データセットを構築する"
+    help = "AI シミュレログから行動データセット／学習用データセットを構築する（PRO一択）"
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
             "--days",
             type=int,
             default=getattr(settings, "AIAPP_SIM_HORIZON_DAYS", 5),
-            help="評価対象の horizon_days（ラベル付け済み前提／ここでは主にログ用）",
+            help="評価対象の horizon_days（主にログ用）",
         )
         parser.add_argument(
             "--user",
@@ -182,7 +158,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options) -> None:
-        horizon_days: int = options["days"]
+        horizon_days: int = int(options["days"])
         target_user: Optional[int] = options["user"]
 
         simulate_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "simulate"
@@ -201,8 +177,6 @@ class Command(BaseCommand):
         # ---------- シミュレ JSONL を読み込み ----------
         raw_rows: List[Dict[str, Any]] = []
         file_count = 0
-        pro_skipped_not_accepted = 0
-        pro_skipped_qty0 = 0
 
         for path in sorted(simulate_dir.glob("*.jsonl")):
             file_count += 1
@@ -224,28 +198,15 @@ class Command(BaseCommand):
                 if target_user is not None and rec.get("user_id") != target_user:
                     continue
 
-                # PRO一択：accepted のみ
-                if not _is_pro_accepted(rec):
-                    pro_skipped_not_accepted += 1
-                    continue
-
-                qty_pro = _safe_float(rec.get("qty_pro")) or 0.0
-                if qty_pro <= 0:
-                    pro_skipped_qty0 += 1
-                    continue
-
                 raw_rows.append(rec)
 
         if not raw_rows:
-            self.stdout.write(self.style.WARNING("  対象レコードがありませんでした。（PRO accepted / qty_pro>0 が0件）"))
-            self.stdout.write(f"  読み込みファイル数: {file_count}")
-            self.stdout.write(f"  除外: not_accepted={pro_skipped_not_accepted}, qty0={pro_skipped_qty0}")
+            self.stdout.write(self.style.WARNING("  対象レコードがありませんでした。"))
             return
 
-        self.stdout.write(f"  読み込みファイル数: {file_count} / PRO候補行数: {len(raw_rows)}")
-        self.stdout.write(f"  除外: not_accepted={pro_skipped_not_accepted}, qty0={pro_skipped_qty0}")
+        self.stdout.write(f"  読み込みファイル数: {file_count} / 行数: {len(raw_rows)}")
 
-        # ---------- 重複除外 ----------
+        # ---------- 重複除外（PRO基準） ----------
         rows = _dedup_records(raw_rows)
         self.stdout.write(
             f"  重複除外後レコード数: {len(rows)} (差分: {len(raw_rows) - len(rows)})"
@@ -259,24 +220,18 @@ class Command(BaseCommand):
         latest_path = behavior_dir / "latest_behavior.jsonl"
 
         dataset_text = "\n".join(dataset_lines) + ("\n" if dataset_lines else "")
-
-        dataset_path.write_text(dataset_text, encoding="utf-8")
-        latest_path.write_text(dataset_text, encoding="utf-8")
+        _atomic_write_text(dataset_path, dataset_text)
+        _atomic_write_text(latest_path, dataset_text)
 
         self.stdout.write(
             self.style.SUCCESS(
                 f"  行動データセットを書き出しました: {dataset_path.name} (件数: {len(rows)})"
             )
         )
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"  latest_behavior.jsonl を更新しました（{len(rows)} 件）"
-            )
-        )
+        self.stdout.write(self.style.SUCCESS(f"  latest_behavior.jsonl を更新しました（{len(rows)} 件）"))
 
         # ---------- 学習用 Side データセット（PRO一択） ----------
         side_rows: List[SideRow] = []
-        side_skipped_no_eval = 0
 
         for r in rows:
             user_id = int(r.get("user_id") or 0)
@@ -292,11 +247,11 @@ class Command(BaseCommand):
                 code=str(r.get("code") or ""),
                 name=str(r.get("name") or ""),
                 sector=(r.get("sector") or None),
-                price_date=_price_date_of(r),
+                price_date=str(r.get("price_date") or None),
                 entry=_safe_float(r.get("entry")),
                 tp=_safe_float(r.get("tp")),
                 sl=_safe_float(r.get("sl")),
-                eval_horizon_days=r.get("eval_horizon_days"),
+                eval_horizon_days=_safe_int(r.get("eval_horizon_days")),
                 atr_14=_safe_float(r.get("atr_14")),
                 slope_20=_safe_float(r.get("slope_20")),
                 trend_daily=(r.get("trend_daily") or None),
@@ -305,8 +260,6 @@ class Command(BaseCommand):
             side = self._build_side_row_pro(r, base_kwargs=base_kwargs)
             if side is not None:
                 side_rows.append(side)
-            else:
-                side_skipped_no_eval += 1
 
         side_lines = [json.dumps(sr.to_dict(), ensure_ascii=False) for sr in side_rows]
 
@@ -314,26 +267,19 @@ class Command(BaseCommand):
         latest_side_path = behavior_dir / "latest_behavior_side.jsonl"
 
         side_text = "\n".join(side_lines) + ("\n" if side_lines else "")
-
-        side_path.write_text(side_text, encoding="utf-8")
-        latest_side_path.write_text(side_text, encoding="utf-8")
+        _atomic_write_text(side_path, side_text)
+        _atomic_write_text(latest_side_path, side_text)
 
         self.stdout.write(
             self.style.SUCCESS(
                 f"  学習用データセットを書き出しました: {side_path.name} (件数: {len(side_rows)})"
             )
         )
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"  latest_behavior_side.jsonl を更新しました（{len(side_rows)} 件）"
-            )
-        )
-        self.stdout.write(f"  学習対象外（評価なし/未確定）: {side_skipped_no_eval} 件")
-
+        self.stdout.write(self.style.SUCCESS(f"  latest_behavior_side.jsonl を更新しました（{len(side_rows)} 件）"))
         self.stdout.write(self.style.SUCCESS("[build_behavior_dataset] 完了"))
 
     # =========================================================
-    # PROサイド行の構築
+    # サイド行（PRO）の構築
     # =========================================================
 
     def _build_side_row_pro(
@@ -342,36 +288,28 @@ class Command(BaseCommand):
         base_kwargs: Dict[str, Any],
     ) -> Optional[SideRow]:
         """
-        1つのシミュレレコードから、PRO分の SideRow を作る。
+        1つのシミュレレコードから PRO の SideRow を作る（PRO一択）。
 
-        ルール（PRO一択）:
+        ✅ 旧キー（rakuten/sbi/matsui）は一切参照しない。
+        ✅ PROキーが無いなら学習データにしない（= 0件になる）。
+
         - qty_pro <= 0 → 学習に使わない
         - eval_label_pro が win/lose/flat 以外 → 学習に使わない
         - eval_pl_pro が無い → 学習に使わない
-
-        ※ログの揺れ吸収:
-        - eval_label_pro が無ければ eval_label を見る（最後の保険）
-        - eval_pl_pro が無ければ eval_pl を見る
-        - eval_r_pro  が無ければ eval_r を見る
         """
         qty = _safe_float(r.get("qty_pro")) or 0.0
         if qty <= 0:
             return None
 
-        label = (r.get("eval_label_pro") or r.get("eval_label") or "").lower()
-        if label not in ("win", "lose", "flat"):
+        eval_label = (r.get("eval_label_pro") or "").lower()
+        if eval_label not in ("win", "lose", "flat"):
             return None
 
         eval_pl = _safe_float(r.get("eval_pl_pro"))
         if eval_pl is None:
-            eval_pl = _safe_float(r.get("eval_pl"))
-        if eval_pl is None:
             return None
 
         eval_r = _safe_float(r.get("eval_r_pro"))
-        if eval_r is None:
-            eval_r = _safe_float(r.get("eval_r"))
-
         est_pl = _safe_float(r.get("est_pl_pro"))
         est_loss = _safe_float(r.get("est_loss_pro"))
 
@@ -382,6 +320,6 @@ class Command(BaseCommand):
             est_loss=est_loss,
             eval_pl=float(eval_pl),
             eval_r=eval_r,
-            eval_label=label,
+            eval_label=eval_label,
             **base_kwargs,
         )
