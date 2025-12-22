@@ -16,6 +16,113 @@ from aiapp.services.behavior_banner_service import build_behavior_banner_summary
 
 JST = timezone(timedelta(hours=9))
 PICKS_DIR = Path("media/aiapp/picks")
+SIM_DIR = Path("media/aiapp/simulate")
+
+
+# =========================================================
+# PRO専用：シミュ反映バナー集計
+# （旧 楽天/松井/SBI を一切見ない。混在行も “旧扱い” で除外）
+# =========================================================
+def _build_behavior_banner_summary_pro(days: int = 30, user_id: Optional[int] = None) -> Dict[str, Any]:
+    """
+    PRO専用の「シミュレーション反映結果」集計。
+    - PRO判定: proキーが存在する かつ 旧キーが混在しない
+    - evaluated: eval_label_pro が win/lose/flat/no_position のいずれか
+    - skip: eval_label_pro が 'skip' / 'skipped'、または skip フラグが真
+    - pending_future: 将来判定フラグがあればそれを見る（無ければ0扱い）
+    - unknown: 上記以外（eval_label_pro が無い/空 など）
+    """
+    counts = {
+        "evaluated": 0,
+        "pending_future": 0,
+        "skip": 0,
+        "unknown": 0,
+    }
+
+    # 期間（ファイルのtsやdateが無い行もあるので、基本は “見るだけ” にして
+    # ここでは days フィルタを厳密にしない。必要なら将来サービス側で拡張。）
+    # ただし、SIM_DIR が無い・空でも落ちない。
+    if not SIM_DIR.exists():
+        return {"total": 0, "counts": counts}
+
+    pro_keys = {"qty_pro", "eval_label_pro", "eval_pl_pro", "eval_r_pro"}
+    legacy_keys = {
+        "qty_rakuten", "qty_matsui", "qty_sbi",
+        "eval_label_rakuten", "eval_label_matsui", "eval_label_sbi",
+        "eval_pl_rakuten", "eval_pl_matsui", "eval_pl_sbi",
+        "eval_r_rakuten", "eval_r_matsui", "eval_r_sbi",
+    }
+
+    def _is_pro_only(rec: Dict[str, Any]) -> bool:
+        # PRO系キーが一つも無ければPROとして数えない
+        if not any(k in rec for k in pro_keys):
+            return False
+        # 旧キーが混ざってたら “旧データの名残” とみなして除外（PROに加算しない）
+        if any(k in rec for k in legacy_keys):
+            return False
+        return True
+
+    def _safe_str(v: Any) -> str:
+        if v is None:
+            return ""
+        try:
+            return str(v).strip()
+        except Exception:
+            return ""
+
+    # jsonlを総なめ（件数は多くても days=30 相当なので実運用では問題になりにくい）
+    # 重ければ、後で “日付付きファイル名だけ” に絞る最適化を入れる。
+    paths = sorted(SIM_DIR.glob("*.jsonl"))
+    for p in paths:
+        try:
+            with p.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                    except Exception:
+                        continue
+
+                    if user_id is not None and rec.get("user_id") != user_id:
+                        continue
+
+                    if not isinstance(rec, dict):
+                        continue
+
+                    if not _is_pro_only(rec):
+                        continue
+
+                    # --- 分類 ---
+                    label = _safe_str(rec.get("eval_label_pro")).lower()
+
+                    # skip 判定（任意のフラグも拾う）
+                    if label in ("skip", "skipped"):
+                        counts["skip"] += 1
+                        continue
+                    if bool(rec.get("skip")) is True or bool(rec.get("is_skip")) is True:
+                        counts["skip"] += 1
+                        continue
+
+                    # evaluated 判定
+                    if label in ("win", "lose", "flat", "no_position"):
+                        counts["evaluated"] += 1
+                        continue
+
+                    # pending_future（将来判定がある場合だけ）
+                    if bool(rec.get("pending_future_pro")) is True or bool(rec.get("is_future")) is True:
+                        counts["pending_future"] += 1
+                        continue
+
+                    # それ以外は unknown
+                    counts["unknown"] += 1
+
+        except Exception:
+            continue
+
+    total = sum(counts.values())
+    return {"total": total, "counts": counts}
 
 
 # picks_debug.html 側で attribute アクセスしやすいように軽いラッパを用意
@@ -278,7 +385,7 @@ def _load_json(
                 rank=rank,
                 rank_group=rank_group,
                 ev_true_rakuten=ev_true_rakuten,
-                ev_true_matsui=ev_true_matsui,
+                ev_true_matsui=_db_true_matsui if False else ev_true_matsui,  # no-op（既存互換）
                 ev_true_sbi=ev_true_sbi,
 
                 chart_open=chart_open,
@@ -412,7 +519,11 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
         filter_stats_jp[label] = filter_stats_jp.get(label, 0) + cnt
 
     # ===== 行動データ（評価パイプライン）状況バナー =====
+    # 旧：全口座集計（残すけどテンプレでは使わない）
     behavior_banner = build_behavior_banner_summary(days=30)
+
+    # 新：PRO専用（テンプレはこっちだけ参照）
+    behavior_banner_pro = _build_behavior_banner_summary_pro(days=30, user_id=request.user.id)
 
     ctx: Dict[str, Any] = {
         "meta": meta,
@@ -421,6 +532,11 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
         "source_file": source_file,
         "filter_stats": filter_stats_jp,
         "master_total": master_total,
+
+        # 旧（互換）
         "behavior_banner": behavior_banner,
+
+        # ★ PRO専用（テンプレはこちら）
+        "behavior_banner_pro": behavior_banner_pro,
     }
     return render(request, "aiapp/picks_debug.html", ctx)
