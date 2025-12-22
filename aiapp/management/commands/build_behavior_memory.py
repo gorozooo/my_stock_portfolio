@@ -15,13 +15,17 @@ class Command(BaseCommand):
     latest_behavior_side.jsonl から
     「クセの地図（行動メモリ）」を構築して JSON に保存する。
 
+    PRO一択方針：
+    - latest_behavior_side.jsonl 自体が build_behavior_dataset により "pro" のみになる
+    - したがってここは基本的にそのまま動かせば PRO 専用メモリになる
+
     出力:
       MEDIA_ROOT/aiapp/behavior/memory/
         - YYYYMMDD_behavior_memory_u<user>.json
         - latest_behavior_memory_u<user>.json
     """
 
-    help = "AI 行動データから行動メモリ（クセの地図）を構築して保存する"
+    help = "AI 行動データから行動メモリ（クセの地図）を構築して保存する（PRO一択）"
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
@@ -43,13 +47,13 @@ class Command(BaseCommand):
         mem = svc_memory.build_behavior_memory(user_id=user_id)
 
         self.stdout.write("")
-        self.stdout.write(self.style.SUCCESS("===== 行動メモリ サマリ ====="))
+        self.stdout.write(self.style.SUCCESS("===== 行動メモリ サマリ（PRO一択） ====="))
         self.stdout.write(f"  user_id        : {mem.get('user_id')}")
         self.stdout.write(f"  total_trades   : {mem.get('total_trades')}")
         self.stdout.write(f"  updated_at     : {mem.get('updated_at')}")
         self.stdout.write("")
 
-        # broker 別の簡易サマリ
+        # broker 別の簡易サマリ（通常は pro しか出ない）
         self.stdout.write("  broker:")
         broker_map = mem.get("broker") or {}
         for broker, s in broker_map.items():
