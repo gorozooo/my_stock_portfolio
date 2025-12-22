@@ -1,10 +1,9 @@
-# aiapp/services/behavior_stats_service.py
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 
 from django.db import transaction
 from django.utils import timezone
@@ -32,10 +31,19 @@ class StatsResult:
     stars: int
 
 
+def _safe_float(v: object) -> Optional[float]:
+    if v is None:
+        return None
+    try:
+        x = float(v)
+        if math.isfinite(x):
+            return x
+        return None
+    except Exception:
+        return None
+
+
 def _score_to_stars(score_0_1: float) -> int:
-    """
-    0..1 を 1..5 に変換
-    """
     s = float(score_0_1)
     if s < 0.35:
         return 1
@@ -49,25 +57,13 @@ def _score_to_stars(score_0_1: float) -> int:
 
 
 def _calc_score_0_1(trades: int, wins: int, avg_r: float) -> float:
-    """
-    本番用のスコア(0..1)
-
-    - 勝率はベイズ補正で少数サンプルの暴れを抑える
-    - avg_r も混ぜる（tanhで圧縮）
-    - trades が少ないときは信頼度ゲートで抑える
-    """
-    # ベイズ補正（弱めの事前分布）
     alpha = 2.0
     beta = 2.0
     bayes_win = (wins + alpha) / (trades + alpha + beta) if trades > 0 else 0.5
 
-    # avg_r を 0..1 に圧縮（-∞..∞ → 0..1）
     r_scaled = (math.tanh(avg_r / 1.0) + 1.0) / 2.0
 
-    # 合成（勝率重視＋Rも混ぜる）
     base = 0.65 * bayes_win + 0.35 * r_scaled
-
-    # サンプル数ゲート
     gate = 1.0 - math.exp(-trades / 10.0)
 
     score = base * gate
@@ -85,10 +81,8 @@ def calc_stats(
     window_days: int = 90,
 ) -> StatsResult:
     """
-    銘柄×モード別の直近 window_days の stats を計算して返す（保存はしない）
-
     ✅ PRO一択：
-      VirtualTrade.result_r_pro のみで勝敗判定・平均Rを計算する
+      VirtualTrade.result_r_pro のみで勝敗判定・平均Rを計算
     """
     now = timezone.now()
     since = now - timedelta(days=int(window_days))
@@ -98,7 +92,7 @@ def calc_stats(
         .filter(code=str(code), mode_period=mode_period, mode_aggr=mode_aggr)
         .filter(closed_at__isnull=False)
         .filter(opened_at__gte=since)
-        .values("result_r_pro")
+        .values_list("result_r_pro", flat=True)
     )
 
     trades = 0
@@ -107,18 +101,12 @@ def calc_stats(
     flats = 0
     r_sum = 0.0
 
-    for row in qs:
-        r_val = row.get("result_r_pro")
-        if r_val is None:
+    for v in qs:
+        r = _safe_float(v)
+        if r is None:
             continue
-        try:
-            r = float(r_val)
-        except Exception:
-            continue
-
         trades += 1
         r_sum += r
-
         if r > 0:
             wins += 1
         elif r < 0:
@@ -150,9 +138,6 @@ def calc_stats(
 
 @transaction.atomic
 def upsert_stats(res: StatsResult) -> BehaviorStats:
-    """
-    計算結果を DB に保存（upsert）
-    """
     obj, _created = BehaviorStats.objects.update_or_create(
         code=res.code,
         mode_period=res.mode_period,
@@ -174,10 +159,6 @@ def upsert_stats(res: StatsResult) -> BehaviorStats:
 
 
 def refresh_all(window_days: int = 90) -> Dict[str, Any]:
-    """
-    VirtualTrade に存在する (code, mode_period, mode_aggr) の組を全て集計して保存。
-    戻り値は軽いサマリ。
-    """
     keys = (
         VirtualTrade.objects
         .values("code", "mode_period", "mode_aggr")
