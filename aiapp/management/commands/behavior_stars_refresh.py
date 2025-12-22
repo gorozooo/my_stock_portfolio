@@ -1,4 +1,3 @@
-# aiapp/management/commands/behavior_stars_refresh.py
 from __future__ import annotations
 
 from django.core.management.base import BaseCommand, CommandParser
@@ -7,7 +6,7 @@ from aiapp.services.behavior_stats_service import refresh_all
 
 
 class Command(BaseCommand):
-    help = "本番用⭐️（銘柄×mode_period×mode_aggr）を直近N日で集計してDBへ保存"
+    help = "本番用⭐️（銘柄×mode_period×mode_aggr）を直近N日で集計してDBへ保存（PRO一択）"
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
@@ -19,7 +18,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options) -> None:
         days = int(options["days"])
-        self.stdout.write(f"[behavior_stars_refresh] start days={days}")
+        self.stdout.write(f"[behavior_stars_refresh] start days={days} (PRO only)")
 
         info = refresh_all(window_days=days)
 
