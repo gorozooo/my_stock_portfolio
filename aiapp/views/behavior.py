@@ -95,118 +95,55 @@ def _bucket_slope(slope: Optional[float]) -> str:
     return "急騰寄り"
 
 
+# =========================================================
+# ✅ PRO一択：ここから下は “PROキーだけ” を読む
+# =========================================================
 def _get_qty_pro(r: Dict[str, Any]) -> float:
     """
-    PRO一択の数量（latest_behavior.jsonl 側）
-    - 新: qty_pro / qty
-    - 旧: qty_rakuten + qty_sbi + qty_matsui
+    PRO数量（latest_behavior.jsonl 側）
+    - 必ず qty_pro のみを見る
+    - 無い/変換できない → 0
     """
     v = _safe_float(r.get("qty_pro"))
-    if v is not None:
-        return float(v)
-
-    v = _safe_float(r.get("qty"))
-    if v is not None:
-        return float(v)
-
-    q = 0.0
-    for k in ("qty_rakuten", "qty_sbi", "qty_matsui"):
-        q += float(_safe_float(r.get(k)) or 0.0)
-    return float(q)
+    return float(v) if v is not None else 0.0
 
 
 def _get_eval_label_pro(r: Dict[str, Any]) -> str:
     """
-    PRO一択の勝敗ラベル（latest_behavior.jsonl 側）
-    - 新: eval_label_pro / eval_label
-    - 旧: eval_label_rakuten / sbi / matsui から合成
+    PRO勝敗ラベル（latest_behavior.jsonl 側）
+    - 必ず eval_label_pro のみを見る
+    - 無い/空 → "none"
     """
     v = r.get("eval_label_pro")
     if v is None:
-        v = r.get("eval_label")
-    if v is not None:
-        s = str(v).strip().lower()
-        if s:
-            return s
-
-    labels: List[str] = []
-    for k in ("eval_label_rakuten", "eval_label_sbi", "eval_label_matsui"):
-        x = r.get(k)
-        if x is None:
-            continue
-        s = str(x).strip().lower()
-        if s:
-            labels.append(s)
-
-    if not labels:
         return "none"
-
-    sset = set(labels)
-    if sset <= {"no_position"}:
-        return "no_position"
-    if "win" in sset and "lose" in sset:
-        return "mixed"
-    if "win" in sset:
-        return "win"
-    if "lose" in sset:
-        return "lose"
-    if "flat" in sset:
-        return "flat"
-    return "none"
+    s = str(v).strip().lower()
+    return s if s else "none"
 
 
 def _get_eval_pl_pro(r: Dict[str, Any]) -> Optional[float]:
     """
-    PRO一択のPL（latest_behavior.jsonl 側）
-    - 新: eval_pl_pro / eval_pl
-    - 旧: eval_pl_rakuten + eval_pl_sbi + eval_pl_matsui
+    PRO損益（latest_behavior.jsonl 側）
+    - 必ず eval_pl_pro のみを見る
+    - 無い/変換不可 → None
     """
     v = _safe_float(r.get("eval_pl_pro"))
-    if v is not None:
-        return float(v)
-
-    v = _safe_float(r.get("eval_pl"))
-    if v is not None:
-        return float(v)
-
-    total = 0.0
-    found = False
-    for k in ("eval_pl_rakuten", "eval_pl_sbi", "eval_pl_matsui"):
-        x = _safe_float(r.get(k))
-        if x is None:
-            continue
-        found = True
-        total += float(x)
-    return float(total) if found else None
+    return float(v) if v is not None else None
 
 
 def _get_eval_r_pro(r: Dict[str, Any]) -> Optional[float]:
     """
-    PRO一択のR（latest_behavior.jsonl 側）
-    - 新: eval_r_pro / eval_r
-    - 旧: eval_r_rakuten/sbi/matsui の平均（非null）
+    PROのR（latest_behavior.jsonl 側）
+    - 必ず eval_r_pro のみを見る
+    - 無い/変換不可 → None
     """
     v = _safe_float(r.get("eval_r_pro"))
-    if v is not None:
-        return float(v)
-
-    v = _safe_float(r.get("eval_r"))
-    if v is not None:
-        return float(v)
-
-    vals: List[float] = []
-    for k in ("eval_r_rakuten", "eval_r_sbi", "eval_r_matsui"):
-        x = _safe_float(r.get(k))
-        if x is not None:
-            vals.append(float(x))
-    if not vals:
-        return None
-    return float(sum(vals) / len(vals))
+    return float(v) if v is not None else None
 
 
 def _dedup_records(raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    行動データ latest_behavior.jsonl から読み込んだレコードを
+    latest_behavior.jsonl から読み込んだレコードを
     「同日・同コード・同モード・同エントリー・同(PRO)数量」で重複除外する。
     """
     seen: set[Tuple[Any, ...]] = set()
@@ -313,12 +250,13 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     """
     latest_behavior.jsonl を読み込んで、
     - 重複シミュレを除外
-    - PRO一択で集計
+    - ✅ PRO一択で集計（旧口座データは一切参照しない）
     - KPI / セクター / 相性マップ / TOP トレード / インサイト
     を表示するダッシュボード。
 
     さらに latest_behavior_model_uX.json（行動モデル）も読み込んで、
     「AI がどう学習したか」の要約も表示する。
+    ※ 行動モデル側も ✅ pro キーのみを受け入れる（旧キーは無視）
     """
     user = request.user
     behavior_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "behavior"
@@ -375,16 +313,15 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         r_val = _get_eval_r_pro(r)
         qty = _get_qty_pro(r)
 
-        # 数量0なら実質 no_position 扱い
+        # 数量0なら no_position 扱い（評価が無い期間はここが多い）
         if qty == 0:
             label = "no_position"
             if pl_val is None:
                 pl_val = 0.0
 
-        # カウンタ更新（PROのみ）
         pl_counts_pro[label] += 1
 
-        # 実トレード（勝/負/引き分け）のみ KPI / TOP 用に追加
+        # 勝/負/引き分けのみ KPI / TOP 用に追加
         if label in ("win", "lose", "flat"):
             if pl_val is None:
                 pl_val = 0.0
@@ -407,6 +344,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     # 勝率・平均R・平均利益/損失（PRO全体）
     win_trades = [t for t in all_trades if t.label == "win"]
     lose_trades = [t for t in all_trades if t.label == "lose"]
+    flat_trades = [t for t in all_trades if t.label == "flat"]
 
     total_win_lose = len(win_trades) + len(lose_trades)
     win_rate_all: Optional[float] = None
@@ -448,7 +386,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
 
     sector_stats.sort(key=lambda x: (-x["trials"], -x["win_rate"]))
 
-    # ---------- 相性マップ ----------
+    # ---------- 相性マップ（評価が無い期間でも分布は作れる） ----------
     trend_counter: Dict[str, int] = defaultdict(int)
     time_counter: Dict[str, int] = defaultdict(int)
     atr_counter: Dict[str, int] = defaultdict(int)
@@ -473,13 +411,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         total_count = sum(counter.values()) or 1
         items: List[Dict[str, Any]] = []
         for name, c in counter.items():
-            items.append(
-                {
-                    "name": name,
-                    "count": c,
-                    "pct": c / total_count * 100.0,
-                }
-            )
+            items.append({"name": name, "count": c, "pct": c / total_count * 100.0})
         items.sort(key=lambda x: -x["count"])
         return items
 
@@ -492,27 +424,13 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     top_win: List[Dict[str, Any]] = []
     for t in sorted(win_trades, key=lambda x: x.pl, reverse=True)[:5]:
         top_win.append(
-            {
-                "code": t.code,
-                "name": t.name,
-                "broker": "PRO",
-                "pl": t.pl,
-                "mode": t.mode,
-                "ts_label": t.ts_label,
-            }
+            {"code": t.code, "name": t.name, "pl": t.pl, "mode": t.mode, "ts_label": t.ts_label}
         )
 
     top_lose: List[Dict[str, Any]] = []
     for t in sorted(lose_trades, key=lambda x: x.pl)[:5]:
         top_lose.append(
-            {
-                "code": t.code,
-                "name": t.name,
-                "broker": "PRO",
-                "pl": t.pl,
-                "mode": t.mode,
-                "ts_label": t.ts_label,
-            }
+            {"code": t.code, "name": t.name, "pl": t.pl, "mode": t.mode, "ts_label": t.ts_label}
         )
 
     # ---------- 行動モデル（latest_behavior_model_uX.json）読み込み ----------
@@ -540,98 +458,54 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     if model_path is not None:
         try:
             j = json.loads(model_path.read_text(encoding="utf-8"))
-            behavior_model["has_model"] = True
-            behavior_model["total_trades"] = j.get("total_trades")
-            behavior_model["wins"] = j.get("wins")
-            behavior_model["win_rate"] = j.get("win_rate")
-            behavior_model["avg_pl"] = j.get("avg_pl")
-            behavior_model["avg_r"] = j.get("avg_r")
 
-            by_feature = j.get("by_feature", {}) or {}
+            # ✅ PRO一択：by_feature.broker に "pro" が無ければ “モデル無し扱い”
+            broker_map = (j.get("by_feature", {}) or {}).get("broker", {}) or {}
+            if "pro" not in broker_map:
+                behavior_model["has_model"] = False
+            else:
+                behavior_model["has_model"] = True
+                behavior_model["total_trades"] = j.get("total_trades")
+                behavior_model["wins"] = j.get("wins")
+                behavior_model["win_rate"] = j.get("win_rate")
+                behavior_model["avg_pl"] = j.get("avg_pl")
+                behavior_model["avg_r"] = j.get("avg_r")
 
-            # broker 別（PRO一択）
-            brokers: List[Dict[str, Any]] = []
-            broker_map = by_feature.get("broker", {}) or {}
-
-            # 旧JSONの rakuten/matsui が残ってても、表示はPROへ寄せる
-            # （本来は train_behavior_model を回し直せば pro のみに置き換わる）
-            label_map = {"pro": "PRO", "rakuten": "PRO", "matsui": "PRO", "sbi": "PRO"}
-            agg_pro = {
-                "key": "pro",
-                "label": "PRO",
-                "trials": 0,
-                "wins": 0,
-                "win_rate": 0.0,
-                "avg_pl": None,
-                "avg_r": None,
-            }
-
-            # もし broker_map に pro があればそれを採用
-            if "pro" in broker_map:
-                val = broker_map.get("pro") or {}
-                brokers.append(
+                pro = broker_map.get("pro") or {}
+                behavior_model["brokers"] = [
                     {
                         "key": "pro",
                         "label": "PRO",
-                        "trials": val.get("trials", 0),
-                        "wins": val.get("wins", 0),
-                        "win_rate": val.get("win_rate", 0.0),
-                        "avg_pl": val.get("avg_pl"),
-                        "avg_r": val.get("avg_r"),
+                        "trials": pro.get("trials", 0),
+                        "wins": pro.get("wins", 0),
+                        "win_rate": pro.get("win_rate", 0.0),
+                        "avg_pl": pro.get("avg_pl"),
+                        "avg_r": pro.get("avg_r"),
                     }
-                )
-            else:
-                # 旧形式（rakuten/matsui/sbi）が来たら合算して “PRO1行” にする
-                sum_pl = 0.0
-                sum_r = 0.0
-                cnt_r = 0
-                for key, val in broker_map.items():
-                    trials = int(val.get("trials", 0) or 0)
-                    wins = int(val.get("wins", 0) or 0)
-                    agg_pro["trials"] += trials
-                    agg_pro["wins"] += wins
+                ]
 
-                    ap = val.get("avg_pl")
-                    if isinstance(ap, (int, float)) and trials > 0:
-                        sum_pl += float(ap) * trials
-
-                    ar = val.get("avg_r")
-                    if isinstance(ar, (int, float)) and trials > 0:
-                        sum_r += float(ar) * trials
-                        cnt_r += trials
-
-                if agg_pro["trials"] > 0:
-                    agg_pro["win_rate"] = (agg_pro["wins"] / agg_pro["trials"] * 100.0) if agg_pro["trials"] else 0.0
-                    agg_pro["avg_pl"] = (sum_pl / agg_pro["trials"]) if agg_pro["trials"] else None
-                    agg_pro["avg_r"] = (sum_r / cnt_r) if cnt_r > 0 else None
-                    brokers.append(agg_pro)
-
-            behavior_model["brokers"] = brokers
-
-            # sector 別（上位5件まで）
-            sectors: List[Dict[str, Any]] = []
-            sector_map = by_feature.get("sector", {}) or {}
-            for name, val in sector_map.items():
-                sectors.append(
-                    {
-                        "name": name,
-                        "trials": val.get("trials", 0),
-                        "wins": val.get("wins", 0),
-                        "win_rate": val.get("win_rate", 0.0),
-                        "avg_pl": val.get("avg_pl"),
-                        "avg_r": val.get("avg_r"),
-                    }
-                )
-            sectors.sort(key=lambda x: -x["trials"])
-            behavior_model["sectors"] = sectors[:5]
+                # sector 別（上位5件まで）
+                sectors: List[Dict[str, Any]] = []
+                sector_map = (j.get("by_feature", {}) or {}).get("sector", {}) or {}
+                for name, val in sector_map.items():
+                    sectors.append(
+                        {
+                            "name": name,
+                            "trials": val.get("trials", 0),
+                            "wins": val.get("wins", 0),
+                            "win_rate": val.get("win_rate", 0.0),
+                            "avg_pl": val.get("avg_pl"),
+                            "avg_r": val.get("avg_r"),
+                        }
+                    )
+                sectors.sort(key=lambda x: -x["trials"])
+                behavior_model["sectors"] = sectors[:5]
 
         except Exception:
             behavior_model["has_model"] = False
 
-    # ---------- インサイト（元ロジック＋行動モデルをあと乗せ） ----------
-    total_trades_for_insight = len(win_trades) + len(lose_trades) + len(
-        [t for t in all_trades if t.label == "flat"]
-    )
+    # ---------- インサイト ----------
+    total_trades_for_insight = len(win_trades) + len(lose_trades) + len(flat_trades)
     insights = _build_insights(
         total_trades=total_trades_for_insight,
         win_rate_all=win_rate_all,
@@ -659,14 +533,10 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         brokers_ctx = behavior_model.get("brokers") or []
         valid_brokers = [b for b in brokers_ctx if (b.get("trials") or 0) >= 1]
         if valid_brokers:
-            best = max(
-                valid_brokers,
-                key=lambda x: (x.get("win_rate") is not None, x.get("win_rate") or 0.0),
-            )
-            label = best.get("label", "PRO")
-            win_rate_b = best.get("win_rate") or 0.0
+            b0 = valid_brokers[0]
+            win_rate_b = b0.get("win_rate") or 0.0
             extra_insights.append(
-                f"口座（{label}）の勝率は {win_rate_b:.1f}% です。"
+                f"口座（PRO）の勝率は {win_rate_b:.1f}% です。"
                 " ルールとサイズを固定して、期待値の再現性を上げていくのがおすすめです。"
             )
 
@@ -674,8 +544,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     if len(insights) > 5:
         insights = insights[:5]
 
-    # ---------- コンテキスト ----------
-    # 既存テンプレ互換のため、古いキーも残す（中身はPRO）
+    # ---------- コンテキスト（PROのみ） ----------
     ctx = {
         "has_data": True,
         "total": total,
@@ -684,6 +553,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
             "demo": mode_counts.get("demo", 0),
             "other": mode_counts.get("other", 0),
         },
+
         # KPI（PRO全体）
         "kpi_win_rate": win_rate_all,
         "kpi_avg_r": avg_r,
@@ -692,10 +562,6 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
 
         # 勝敗サマリ（PRO）
         "pl_counts_pro": pl_counts_pro,
-
-        # 互換（旧テンプレが pl_counts_r / pl_counts_m を参照しても落ちない）
-        "pl_counts_r": pl_counts_pro,
-        "pl_counts_m": Counter(),
 
         # セクター・相性マップ
         "sector_stats": sector_stats,
@@ -711,7 +577,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         # インサイト文
         "insights": insights,
 
-        # 行動モデル（テンプレ用そのまま）
+        # 行動モデル
         "behavior_model": behavior_model,
     }
     return render(request, "aiapp/behavior_dashboard.html", ctx)
