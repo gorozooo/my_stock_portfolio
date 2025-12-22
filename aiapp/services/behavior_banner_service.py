@@ -58,9 +58,18 @@ def _read_latest_behavior_path() -> Path:
     return Path(settings.MEDIA_ROOT) / "aiapp" / "behavior" / "latest_behavior.jsonl"
 
 
+def _safe_float(v: Any) -> float:
+    if v in (None, "", "null"):
+        return 0.0
+    try:
+        return float(v)
+    except Exception:
+        return 0.0
+
+
 def _classify_row(rec: Dict[str, Any], today: date) -> str:
     """
-    1レコードをカテゴリに分類する。
+    1レコードをカテゴリに分類する（PRO専用）。
     """
     # 未来評価（例：trade_date/run_date/price_date/ts が未来）
     td = (
@@ -72,37 +81,36 @@ def _classify_row(rec: Dict[str, Any], today: date) -> str:
     if td is not None and td > today:
         return "pending_future"
 
+    # --- PROの評価が「存在する」か？（どれか1つでも入っていれば評価パイプライン上は認識する） ---
     has_eval = (
-        ("eval_label_rakuten" in rec)
-        or ("eval_label_matsui" in rec)
+        ("eval_label_pro" in rec)
+        or ("eval_pl_pro" in rec)
+        or ("eval_r_pro" in rec)
         or ("eval_close_px" in rec)
         or ("eval_exit_reason" in rec)
     )
     if not has_eval:
         return "unknown"
 
-    # 数量ゼロ系は skip
-    qty_r = rec.get("qty_rakuten") or 0
-    qty_m = rec.get("qty_matsui") or 0
-    try:
-        qty_r = float(qty_r)
-    except Exception:
-        qty_r = 0.0
-    try:
-        qty_m = float(qty_m)
-    except Exception:
-        qty_m = 0.0
+    # --- PRO 数量0は skip（=評価対象外） ---
+    qty_pro = _safe_float(rec.get("qty_pro"))
+    # 念のため、古い "qty" だけ来るデータが混ざった場合は PRO扱いに寄せる
+    if qty_pro == 0.0:
+        qty_pro = _safe_float(rec.get("qty"))
 
-    if qty_r == 0.0 and qty_m == 0.0:
+    if qty_pro == 0.0:
         return "skip"
 
-    labels = set()
-    for k in ("eval_label_rakuten", "eval_label_matsui"):
-        v = rec.get(k)
-        if isinstance(v, str) and v:
-            labels.add(v.lower().strip())
+    # --- PRO 勝敗ラベル ---
+    v = rec.get("eval_label_pro")
+    if v is None:
+        v = rec.get("eval_label")  # 予備（もし生成側が共通キーを使う場合）
 
-    if labels & {"win", "lose", "flat"}:
+    label = ""
+    if isinstance(v, str):
+        label = v.lower().strip()
+
+    if label in ("win", "lose", "flat"):
         return "evaluated"
 
     return "unknown"
@@ -117,7 +125,7 @@ class BehaviorBanner:
 
 def build_behavior_banner_summary(*, days: int = 30) -> BehaviorBanner:
     """
-    latest_behavior.jsonl をざっくり集計して、Picks上部に出すバナー情報を返す。
+    latest_behavior.jsonl をざっくり集計して、Picks上部に出すバナー情報を返す（PRO専用）。
     """
     today = timezone.localdate()
     today_str = today.strftime("%Y-%m-%d")
