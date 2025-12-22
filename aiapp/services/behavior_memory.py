@@ -13,6 +13,11 @@ from django.utils import timezone
 
 Number = Optional[float]
 
+# =========================================================
+# PRO一択：side rows の broker は "pro" のみ扱う
+# =========================================================
+BROKER_KEY_ALLOWED = "pro"
+
 
 @dataclass
 class StatBucket:
@@ -20,6 +25,7 @@ class StatBucket:
     wins: int = 0
     pl_sum: float = 0.0
     r_sum: float = 0.0
+    r_cnt: int = 0
 
     def add(self, is_win: bool, pl: float, r: Number) -> None:
         self.trials += 1
@@ -28,11 +34,12 @@ class StatBucket:
         self.pl_sum += pl
         if r is not None:
             self.r_sum += float(r)
+            self.r_cnt += 1
 
     def to_dict(self) -> Dict[str, Any]:
         win_rate = (self.wins / self.trials * 100.0) if self.trials > 0 else None
         avg_pl = (self.pl_sum / self.trials) if self.trials > 0 else None
-        avg_r = (self.r_sum / self.trials) if self.trials > 0 else None
+        avg_r = (self.r_sum / self.r_cnt) if self.r_cnt > 0 else None
         return {
             "trials": self.trials,
             "wins": self.wins,
@@ -52,8 +59,6 @@ def _safe_float(v: Any) -> Optional[float]:
 
 
 def _bucket_time_of_day(ts_str: str) -> str:
-    from django.utils import timezone
-
     if not ts_str:
         return "その他"
     try:
@@ -134,12 +139,8 @@ def build_behavior_memory(user_id: Optional[int] = None) -> Dict[str, Any]:
     """
     latest_behavior_side.jsonl から「クセの地図」を構築して dict で返す。
 
-    - ブローカー別
-    - セクター別
-    - 時間帯
-    - ATR ボラティリティ
-    - 傾き（トレンド強度）
-    - トレンド方向（up/flat/down）
+    ✅ PRO一択：
+    - broker == "pro" の行だけ採用（旧データ混入対策）
     """
     rows = _load_latest_side_rows(user_id=user_id)
     if not rows:
@@ -155,7 +156,6 @@ def build_behavior_memory(user_id: Optional[int] = None) -> Dict[str, Any]:
             "trend_daily": {},
         }
 
-    # いろいろなバケツを用意
     broker_stats: Dict[str, StatBucket] = defaultdict(StatBucket)
     sector_stats: Dict[str, StatBucket] = defaultdict(StatBucket)
     time_stats: Dict[str, StatBucket] = defaultdict(StatBucket)
@@ -166,23 +166,31 @@ def build_behavior_memory(user_id: Optional[int] = None) -> Dict[str, Any]:
     total = 0
 
     for r in rows:
+        broker_key = str(r.get("broker") or "unknown").lower()
+        if broker_key != BROKER_KEY_ALLOWED:
+            # PRO以外は一切学習対象にしない
+            continue
+
         label = (r.get("eval_label") or "").lower()
         if label not in ("win", "lose", "flat"):
             continue
 
+        qty = _safe_float(r.get("qty")) or 0.0
+        if qty <= 0:
+            continue
+
         total += 1
-        is_win = label == "win"
+        is_win = (label == "win")
         pl = _safe_float(r.get("eval_pl")) or 0.0
         r_val = _safe_float(r.get("eval_r"))
 
-        broker_key = str(r.get("broker") or "unknown")
         sector_key = str(r.get("sector") or "(未分類)")
         time_key = _bucket_time_of_day(str(r.get("ts") or ""))
         atr_key = _bucket_atr_pct(_safe_float(r.get("atr_14")))
         slope_key = _bucket_slope(_safe_float(r.get("slope_20")))
         trend_key = str(r.get("trend_daily") or "不明")
 
-        broker_stats[broker_key].add(is_win, pl, r_val)
+        broker_stats[BROKER_KEY_ALLOWED].add(is_win, pl, r_val)
         sector_stats[sector_key].add(is_win, pl, r_val)
         time_stats[time_key].add(is_win, pl, r_val)
         atr_stats[atr_key].add(is_win, pl, r_val)
@@ -195,7 +203,7 @@ def build_behavior_memory(user_id: Optional[int] = None) -> Dict[str, Any]:
             out[key] = sb.to_dict()
         return out
 
-    memory: Dict[str, Any] = {
+    return {
         "user_id": user_id,
         "total_trades": total,
         "updated_at": timezone.now().isoformat(),
@@ -206,7 +214,6 @@ def build_behavior_memory(user_id: Optional[int] = None) -> Dict[str, Any]:
         "slope_bucket": _dump(slope_stats),
         "trend_daily": _dump(trend_stats),
     }
-    return memory
 
 
 def save_behavior_memory(user_id: Optional[int] = None) -> Path:
@@ -220,8 +227,8 @@ def save_behavior_memory(user_id: Optional[int] = None) -> Path:
     memory_dir.mkdir(parents=True, exist_ok=True)
 
     today = timezone.localdate().strftime("%Y%m%d")
-    # ユーザー別のファイル名
     uid = memory["user_id"] or "all"
+
     out_path = memory_dir / f"{today}_behavior_memory_u{uid}.json"
     latest_path = memory_dir / f"latest_behavior_memory_u{uid}.json"
 
