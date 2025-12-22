@@ -58,18 +58,40 @@ def _read_latest_behavior_path() -> Path:
     return Path(settings.MEDIA_ROOT) / "aiapp" / "behavior" / "latest_behavior.jsonl"
 
 
-def _safe_float(v: Any) -> float:
-    if v in (None, "", "null"):
-        return 0.0
-    try:
-        return float(v)
-    except Exception:
-        return 0.0
-
-
-def _classify_row(rec: Dict[str, Any], today: date) -> str:
+def _is_pro_relevant(rec: Dict[str, Any]) -> bool:
     """
-    1レコードをカテゴリに分類する（PRO専用）。
+    ✅ 完全PRO主義:
+    - 「PRO評価パイプラインに乗っている」レコードだけを“存在するもの”として扱う。
+    - 楽天/松井/SBI由来のキーしか無い行は、最初から集計対象外（0件扱い）にする。
+    """
+    # PRO側の評価キー（どれか1つでもあれば「PROの評価対象」とみなす）
+    pro_eval_keys = (
+        "eval_label_pro",
+        "eval_pl_pro",
+        "eval_r_pro",
+        "eval_close_px_pro",
+        "eval_exit_reason_pro",
+    )
+    for k in pro_eval_keys:
+        if k in rec:
+            return True
+
+    # 互換として「共通キー(eval_label等)」をPROとして採用している可能性があるならここで拾う
+    # ※もし将来的に共通キーを完全撤廃するなら、このブロックは消してOK
+    common_keys = ("eval_label", "eval_pl", "eval_r", "eval_close_px", "eval_exit_reason")
+    for k in common_keys:
+        if k in rec:
+            return True
+
+    return False
+
+
+def _classify_row_pro_only(rec: Dict[str, Any], today: date) -> Optional[str]:
+    """
+    完全PRO主義の分類:
+      - 未来（pending_future）
+      - 評価済（evaluated：win/lose/flat）
+    それ以外（skip/unknown 相当）は “数えない” = None を返す
     """
     # 未来評価（例：trade_date/run_date/price_date/ts が未来）
     td = (
@@ -81,39 +103,22 @@ def _classify_row(rec: Dict[str, Any], today: date) -> str:
     if td is not None and td > today:
         return "pending_future"
 
-    # --- PROの評価が「存在する」か？（どれか1つでも入っていれば評価パイプライン上は認識する） ---
-    has_eval = (
-        ("eval_label_pro" in rec)
-        or ("eval_pl_pro" in rec)
-        or ("eval_r_pro" in rec)
-        or ("eval_close_px" in rec)
-        or ("eval_exit_reason" in rec)
-    )
-    if not has_eval:
-        return "unknown"
-
-    # --- PRO 数量0は skip（=評価対象外） ---
-    qty_pro = _safe_float(rec.get("qty_pro"))
-    # 念のため、古い "qty" だけ来るデータが混ざった場合は PRO扱いに寄せる
-    if qty_pro == 0.0:
-        qty_pro = _safe_float(rec.get("qty"))
-
-    if qty_pro == 0.0:
-        return "skip"
-
-    # --- PRO 勝敗ラベル ---
+    # PRO評価ラベル（新: eval_label_pro / 互換: eval_label）
     v = rec.get("eval_label_pro")
     if v is None:
-        v = rec.get("eval_label")  # 予備（もし生成側が共通キーを使う場合）
+        v = rec.get("eval_label")
 
     label = ""
     if isinstance(v, str):
-        label = v.lower().strip()
+        label = v.strip().lower()
 
     if label in ("win", "lose", "flat"):
         return "evaluated"
 
-    return "unknown"
+    # ここがポイント：
+    # - qtyが0だろうが、labelが無い/Noneだろうが
+    #   「PROの評価済/未来」になってないものは “存在しない” 扱い（= カウントしない）
+    return None
 
 
 @dataclass
@@ -125,7 +130,12 @@ class BehaviorBanner:
 
 def build_behavior_banner_summary(*, days: int = 30) -> BehaviorBanner:
     """
-    latest_behavior.jsonl をざっくり集計して、Picks上部に出すバナー情報を返す（PRO専用）。
+    latest_behavior.jsonl をざっくり集計して、Picks上部に出すバナー情報を返す。
+
+    ✅ 完全PRO主義（A）:
+    - 楽天/松井/SBI 由来の行は “存在しない” 扱い（集計しない）
+    - PROについても「評価済 / 未来」だけを数える
+    - skip / unknown は常に 0（= 消える）
     """
     today = timezone.localdate()
     today_str = today.strftime("%Y-%m-%d")
@@ -133,8 +143,8 @@ def build_behavior_banner_summary(*, days: int = 30) -> BehaviorBanner:
     counts = {
         "evaluated": 0,
         "pending_future": 0,
-        "skip": 0,
-        "unknown": 0,
+        "skip": 0,      # 表示互換のためキーは残すが、増やさない
+        "unknown": 0,   # 表示互換のためキーは残すが、増やさない
     }
     total = 0
 
@@ -171,7 +181,14 @@ def build_behavior_banner_summary(*, days: int = 30) -> BehaviorBanner:
         if d is not None and d < cutoff:
             continue
 
-        cat = _classify_row(rec, today)
+        # ✅ PROに関係ない行は「存在しない」扱い
+        if not _is_pro_relevant(rec):
+            continue
+
+        cat = _classify_row_pro_only(rec, today)
+        if cat is None:
+            continue
+
         counts[cat] = counts.get(cat, 0) + 1
         total += 1
 
