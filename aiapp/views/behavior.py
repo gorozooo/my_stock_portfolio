@@ -13,15 +13,12 @@ from django.shortcuts import render
 from django.utils import timezone
 
 
-Number = Optional[float]
-
-
 @dataclass
 class TradeSide:
     broker: str          # "PRO"
     pl: float            # 損益
     r: Optional[float]   # R
-    label: str           # "win" / "lose" / "flat" / "no_position" / "none"
+    label: str           # "win" / "lose" / "flat"
     ts: str              # 元の ts 文字列
     ts_label: str        # 表示用 ts
     code: str
@@ -96,49 +93,57 @@ def _bucket_slope(slope: Optional[float]) -> str:
 
 
 # =========================================================
-# ✅ PRO一択：ここから下は “PROキーだけ” を読む
+# ✅ PRO一択：PROキーだけを見る（旧口座は一切見ない）
 # =========================================================
 def _get_qty_pro(r: Dict[str, Any]) -> float:
-    """
-    PRO数量（latest_behavior.jsonl 側）
-    - 必ず qty_pro のみを見る
-    - 無い/変換できない → 0
-    """
     v = _safe_float(r.get("qty_pro"))
     return float(v) if v is not None else 0.0
 
 
 def _get_eval_label_pro(r: Dict[str, Any]) -> str:
-    """
-    PRO勝敗ラベル（latest_behavior.jsonl 側）
-    - 必ず eval_label_pro のみを見る
-    - 無い/空 → "none"
-    """
     v = r.get("eval_label_pro")
     if v is None:
-        return "none"
+        return ""
     s = str(v).strip().lower()
-    return s if s else "none"
+    return s
 
 
 def _get_eval_pl_pro(r: Dict[str, Any]) -> Optional[float]:
-    """
-    PRO損益（latest_behavior.jsonl 側）
-    - 必ず eval_pl_pro のみを見る
-    - 無い/変換不可 → None
-    """
     v = _safe_float(r.get("eval_pl_pro"))
     return float(v) if v is not None else None
 
 
 def _get_eval_r_pro(r: Dict[str, Any]) -> Optional[float]:
-    """
-    PROのR（latest_behavior.jsonl 側）
-    - 必ず eval_r_pro のみを見る
-    - 無い/変換不可 → None
-    """
     v = _safe_float(r.get("eval_r_pro"))
     return float(v) if v is not None else None
+
+
+def _is_pro_effective_record(r: Dict[str, Any]) -> bool:
+    """
+    ✅「PRO評価として有効なレコード」判定
+
+    あなたの要件：
+      - PROがまだ評価0件なら、このページは全部ブランク（=has_data False）でいい
+      - つまり、評価が付いていない “ただのシミュレ登録” は数えない
+
+    有効とみなす条件：
+      - eval_label_pro が入っている（win/lose/flat/no_position など）
+        OR
+      - eval_pl_pro が数値で入っている
+        OR
+      - eval_r_pro が数値で入っている
+
+    ※ qty_pro は「注文量」であって評価ではないので、単独では有効扱いにしない
+       （ここが超重要：qtyがあっても評価が無いなら0件扱いにしたい、という要望に合わせる）
+    """
+    label = _get_eval_label_pro(r)
+    if label:
+        return True
+    if _get_eval_pl_pro(r) is not None:
+        return True
+    if _get_eval_r_pro(r) is not None:
+        return True
+    return False
 
 
 def _dedup_records(raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -175,19 +180,13 @@ def _build_insights(
     kpi_avg_loss: Optional[float],
     dist_trend: Dict[str, int],
 ) -> List[str]:
-    """
-    インサイト文（テキスト）の生成。
-    濃度C：3〜5行くらいの簡易コメント。
-    """
     msgs: List[str] = []
 
-    # 1) 勝率コメント
     if total_trades >= 5 and win_rate_all is not None:
         msgs.append(
             f"直近のトレード勝率はおよそ {win_rate_all:.1f}% です（対象 {total_trades} トレード）。"
         )
 
-    # 2) セクターの得意・不得意
     best_sector: Optional[Tuple[str, float, int]] = None
     worst_sector: Optional[Tuple[str, float, int]] = None
 
@@ -215,7 +214,6 @@ def _build_insights(
             f"一方で「{name}」はまだサンプルが少ないか、やや相性が悪い傾向があります（勝率 {rate:.1f}%／{trials} 件）。"
         )
 
-    # 3) 平均利益・損失のバランス
     if kpi_avg_win is not None and kpi_avg_loss is not None:
         loss_abs = abs(kpi_avg_loss)
         msgs.append(
@@ -223,7 +221,6 @@ def _build_insights(
             " いまは損失側の方がやや大きいため、損切り幅の見直しやロット調整の余地があります。"
         )
 
-    # 4) トレンド方向の偏り
     if dist_trend:
         up_count = dist_trend.get("up", 0)
         total = sum(dist_trend.values())
@@ -235,7 +232,6 @@ def _build_insights(
                     "押し目〜順張りパターンに強みが集まりつつあります。"
                 )
 
-    # 5) データが少ないとき
     if not msgs:
         msgs.append(
             "まだデータ量が少ないため、はっきりしたクセは出ていません。"
@@ -247,27 +243,14 @@ def _build_insights(
 
 @login_required
 def behavior_dashboard(request: HttpRequest) -> HttpResponse:
-    """
-    latest_behavior.jsonl を読み込んで、
-    - 重複シミュレを除外
-    - ✅ PRO一択で集計（旧口座データは一切参照しない）
-    - KPI / セクター / 相性マップ / TOP トレード / インサイト
-    を表示するダッシュボード。
-
-    さらに latest_behavior_model_uX.json（行動モデル）も読み込んで、
-    「AI がどう学習したか」の要約も表示する。
-    ※ 行動モデル側も ✅ pro キーのみを受け入れる（旧キーは無視）
-    """
     user = request.user
     behavior_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "behavior"
     latest_path = behavior_dir / "latest_behavior.jsonl"
 
-    has_data = latest_path.exists()
-    if not has_data:
-        ctx = {"has_data": False}
-        return render(request, "aiapp/behavior_dashboard.html", ctx)
+    if not latest_path.exists():
+        return render(request, "aiapp/behavior_dashboard.html", {"has_data": False})
 
-    # ---------- JSONL 読み込み ----------
+    # ---------- JSONL 読み込み（ユーザー分だけ） ----------
     raw_rows: List[Dict[str, Any]] = []
     try:
         text = latest_path.read_text(encoding="utf-8")
@@ -286,16 +269,18 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
             continue
         raw_rows.append(rec)
 
-    # ユーザー分だけになった状態から重複除外（PRO）
-    rows = _dedup_records(raw_rows)
+    rows_all = _dedup_records(raw_rows)
 
+    # ✅ PRO評価が付いたレコードだけ残す
+    rows = [r for r in rows_all if _is_pro_effective_record(r)]
+
+    # ✅ PRO評価0件なら “全部ブランク扱い”
     if not rows:
-        ctx = {"has_data": False}
-        return render(request, "aiapp/behavior_dashboard.html", ctx)
+        return render(request, "aiapp/behavior_dashboard.html", {"has_data": False})
 
     total = len(rows)
 
-    # ---------- モード別件数 ----------
+    # ---------- モード別件数（PRO評価が付いた分だけ） ----------
     mode_counts = Counter()
     for r in rows:
         mode = (r.get("mode") or "").lower()
@@ -307,41 +292,34 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     pl_counts_pro = Counter()
     all_trades: List[TradeSide] = []
 
-    def add_pro_side(r: Dict[str, Any]) -> None:
-        label = _get_eval_label_pro(r)
-        pl_val = _get_eval_pl_pro(r)
-        r_val = _get_eval_r_pro(r)
-        qty = _get_qty_pro(r)
-
-        # 数量0なら no_position 扱い（評価が無い期間はここが多い）
-        if qty == 0:
-            label = "no_position"
-            if pl_val is None:
-                pl_val = 0.0
-
-        pl_counts_pro[label] += 1
-
-        # 勝/負/引き分けのみ KPI / TOP 用に追加
-        if label in ("win", "lose", "flat"):
-            if pl_val is None:
-                pl_val = 0.0
-            trade = TradeSide(
-                broker="PRO",
-                pl=float(pl_val),
-                r=r_val,
-                label=label,
-                ts=str(r.get("ts") or ""),
-                ts_label=_make_ts_label(str(r.get("ts") or "")),
-                code=str(r.get("code") or ""),
-                name=str(r.get("name") or ""),
-                mode=str(r.get("mode") or ""),
-            )
-            all_trades.append(trade)
-
     for r in rows:
-        add_pro_side(r)
+        label = _get_eval_label_pro(r)
 
-    # 勝率・平均R・平均利益/損失（PRO全体）
+        # ✅ 明示の win/lose/flat/no_position のみカウント
+        if label in ("win", "lose", "flat", "no_position"):
+            pl_counts_pro[label] += 1
+
+        # KPI / TOP は勝敗が付いたものだけ
+        if label in ("win", "lose", "flat"):
+            pl_val = _get_eval_pl_pro(r)
+            r_val = _get_eval_r_pro(r)
+            if pl_val is None:
+                pl_val = 0.0
+
+            all_trades.append(
+                TradeSide(
+                    broker="PRO",
+                    pl=float(pl_val),
+                    r=r_val,
+                    label=label,
+                    ts=str(r.get("ts") or ""),
+                    ts_label=_make_ts_label(str(r.get("ts") or "")),
+                    code=str(r.get("code") or ""),
+                    name=str(r.get("name") or ""),
+                    mode=str(r.get("mode") or ""),
+                )
+            )
+
     win_trades = [t for t in all_trades if t.label == "win"]
     lose_trades = [t for t in all_trades if t.label == "lose"]
     flat_trades = [t for t in all_trades if t.label == "flat"]
@@ -380,13 +358,11 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     for sec, trials in sector_counter_trials.items():
         wins = sector_counter_win.get(sec, 0)
         win_rate = (wins / trials * 100.0) if trials > 0 else 0.0
-        sector_stats.append(
-            {"name": sec, "trials": trials, "wins": wins, "win_rate": win_rate}
-        )
+        sector_stats.append({"name": sec, "trials": trials, "wins": wins, "win_rate": win_rate})
 
     sector_stats.sort(key=lambda x: (-x["trials"], -x["win_rate"]))
 
-    # ---------- 相性マップ（評価が無い期間でも分布は作れる） ----------
+    # ---------- 相性マップ（PRO評価が付いた分だけ） ----------
     trend_counter: Dict[str, int] = defaultdict(int)
     time_counter: Dict[str, int] = defaultdict(int)
     atr_counter: Dict[str, int] = defaultdict(int)
@@ -423,15 +399,11 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     # ---------- TOP 勝ち / 負け（PRO） ----------
     top_win: List[Dict[str, Any]] = []
     for t in sorted(win_trades, key=lambda x: x.pl, reverse=True)[:5]:
-        top_win.append(
-            {"code": t.code, "name": t.name, "pl": t.pl, "mode": t.mode, "ts_label": t.ts_label}
-        )
+        top_win.append({"code": t.code, "name": t.name, "pl": t.pl, "mode": t.mode, "ts_label": t.ts_label})
 
     top_lose: List[Dict[str, Any]] = []
     for t in sorted(lose_trades, key=lambda x: x.pl)[:5]:
-        top_lose.append(
-            {"code": t.code, "name": t.name, "pl": t.pl, "mode": t.mode, "ts_label": t.ts_label}
-        )
+        top_lose.append({"code": t.code, "name": t.name, "pl": t.pl, "mode": t.mode, "ts_label": t.ts_label})
 
     # ---------- 行動モデル（latest_behavior_model_uX.json）読み込み ----------
     behavior_model: Dict[str, Any] = {
@@ -458,12 +430,10 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     if model_path is not None:
         try:
             j = json.loads(model_path.read_text(encoding="utf-8"))
-
-            # ✅ PRO一択：by_feature.broker に "pro" が無ければ “モデル無し扱い”
             broker_map = (j.get("by_feature", {}) or {}).get("broker", {}) or {}
-            if "pro" not in broker_map:
-                behavior_model["has_model"] = False
-            else:
+
+            # ✅ PROが無いならモデル無し扱い（旧口座は無視）
+            if "pro" in broker_map:
                 behavior_model["has_model"] = True
                 behavior_model["total_trades"] = j.get("total_trades")
                 behavior_model["wins"] = j.get("wins")
@@ -484,7 +454,6 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
                     }
                 ]
 
-                # sector 別（上位5件まで）
                 sectors: List[Dict[str, Any]] = []
                 sector_map = (j.get("by_feature", {}) or {}).get("sector", {}) or {}
                 for name, val in sector_map.items():
@@ -500,7 +469,6 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
                     )
                 sectors.sort(key=lambda x: -x["trials"])
                 behavior_model["sectors"] = sectors[:5]
-
         except Exception:
             behavior_model["has_model"] = False
 
@@ -515,36 +483,9 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         dist_trend={k: v for k, v in trend_counter.items()},
     )
 
-    extra_insights: List[str] = []
-    if behavior_model.get("has_model"):
-        avg_r_model = behavior_model.get("avg_r")
-        if isinstance(avg_r_model, (int, float)):
-            if avg_r_model >= 0:
-                extra_insights.append(
-                    f"行動モデル全体で見ると、リスク1単位あたりの平均Rは {avg_r_model:.2f} とおおむねフラット〜ややプラス圏です。"
-                    " 勝ちパターンのRを伸ばしつつ、この水準を安定して維持できると期待値はかなり良くなります。"
-                )
-            else:
-                extra_insights.append(
-                    f"行動モデル全体の平均Rは {avg_r_model:.2f} とマイナス寄りです。"
-                    " いまは「負けのRを小さく抑える」ことを優先テーマにすると、カーブの傾きが改善しやすくなります。"
-                )
-
-        brokers_ctx = behavior_model.get("brokers") or []
-        valid_brokers = [b for b in brokers_ctx if (b.get("trials") or 0) >= 1]
-        if valid_brokers:
-            b0 = valid_brokers[0]
-            win_rate_b = b0.get("win_rate") or 0.0
-            extra_insights.append(
-                f"口座（PRO）の勝率は {win_rate_b:.1f}% です。"
-                " ルールとサイズを固定して、期待値の再現性を上げていくのがおすすめです。"
-            )
-
-    insights = (insights or []) + extra_insights
     if len(insights) > 5:
         insights = insights[:5]
 
-    # ---------- コンテキスト（PROのみ） ----------
     ctx = {
         "has_data": True,
         "total": total,
@@ -553,31 +494,19 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
             "demo": mode_counts.get("demo", 0),
             "other": mode_counts.get("other", 0),
         },
-
-        # KPI（PRO全体）
         "kpi_win_rate": win_rate_all,
         "kpi_avg_r": avg_r,
         "kpi_avg_win": avg_win,
         "kpi_avg_loss": avg_loss,
-
-        # 勝敗サマリ（PRO）
         "pl_counts_pro": pl_counts_pro,
-
-        # セクター・相性マップ
         "sector_stats": sector_stats,
         "trend_stats": trend_stats,
         "time_stats": time_stats,
         "atr_stats": atr_stats,
         "slope_stats": slope_stats,
-
-        # TOP トレード
         "top_win": top_win,
         "top_lose": top_lose,
-
-        # インサイト文
         "insights": insights,
-
-        # 行動モデル
         "behavior_model": behavior_model,
     }
     return render(request, "aiapp/behavior_dashboard.html", ctx)
