@@ -21,7 +21,6 @@
 body{background:var(--bg);color:var(--fg);}
 .wrap{max-width:820px;margin:0 auto;padding:16px 14px 100px;}
 
-/* ===== 共通カード ===== */
 .card{
   margin-top:14px;
   padding:16px;
@@ -33,7 +32,6 @@ body{background:var(--bg);color:var(--fg);}
   backdrop-filter:blur(18px);
 }
 
-/* ===== タイトル ===== */
 .hero{
   padding:18px;
   border-radius:22px;
@@ -41,23 +39,28 @@ body{background:var(--bg);color:var(--fg);}
     linear-gradient(135deg,rgba(56,189,248,0.25),rgba(15,23,42,0.95));
   border:1px solid var(--border);
 }
-.hero h1{
-  font-size:20px;
-  font-weight:800;
-  margin:0 0 6px 0;
+.hero h1{font-size:20px;font-weight:800;margin:0 0 6px 0;}
+.hero p{font-size:12px;color:var(--muted);line-height:1.6;margin:0;}
+.hero .meta{
+  margin-top:10px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
 }
-.hero p{
-  font-size:12px;
-  color:var(--muted);
-  line-height:1.6;
+.pill{
+  display:inline-block;
+  padding:3px 10px;
+  border-radius:999px;
+  font-size:11px;
+  border:1px solid var(--border);
+  background:rgba(15,23,42,0.65);
+  color:#e5e7eb;
 }
+.pill-ok{border-color:rgba(34,197,94,0.45);}
+.pill-warn{border-color:rgba(245,158,11,0.45);}
+.pill-bad{border-color:rgba(239,68,68,0.45);}
 
-/* ===== 思考ブロック ===== */
-.think-grid{
-  display:grid;
-  grid-template-columns:1fr;
-  gap:10px;
-}
+.think-grid{display:grid;grid-template-columns:1fr;gap:10px;}
 .think{
   padding:12px 14px;
   border-radius:14px;
@@ -65,17 +68,9 @@ body{background:var(--bg);color:var(--fg);}
   background:var(--glass);
   font-size:13px;
 }
-.think .label{
-  font-size:11px;
-  color:var(--muted);
-  margin-bottom:4px;
-}
-.think .value{
-  font-weight:600;
-  line-height:1.6;
-}
+.think .label{font-size:11px;color:var(--muted);margin-bottom:4px;}
+.think .value{font-weight:600;line-height:1.65;}
 
-/* ===== メトリクス（非KPI） ===== */
 .metric-grid{
   display:grid;
   grid-template-columns:repeat(2,minmax(0,1fr));
@@ -87,35 +82,39 @@ body{background:var(--bg);color:var(--fg);}
   background:rgba(15,23,42,0.98);
   border:1px solid var(--border);
 }
-.metric .m-title{
-  font-size:11px;
-  color:var(--muted);
-  margin-bottom:6px;
-}
+.metric .m-title{font-size:11px;color:var(--muted);margin-bottom:6px;}
 .metric .m-val{
   font-size:18px;
   font-weight:800;
   font-variant-numeric:tabular-nums;
 }
+.metric .m-sub{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4;}
+.m-pos{color:var(--ok);}
+.m-neg{color:var(--bad);}
+.m-mid{color:var(--accent);}
 
-/* ===== 傾向マップ ===== */
-.map{
-  display:flex;
-  flex-direction:column;
-  gap:8px;
-}
+.map{display:flex;flex-direction:column;gap:8px;}
 .map-row{
   display:flex;
   justify-content:space-between;
+  gap:10px;
   font-size:12px;
   border-bottom:1px dashed var(--border);
   padding-bottom:6px;
 }
-.map-row:last-child{border-bottom:none;}
-.map-name{color:#e5e7eb;}
-.map-val{color:var(--muted);}
+.map-row:last-child{border-bottom:none;padding-bottom:0;}
+.map-name{color:#e5e7eb;white-space:nowrap;}
+.map-val{color:var(--muted);text-align:right;}
 
-/* ===== 未学習 ===== */
+.list{
+  margin:8px 0 0 0;
+  padding-left:18px;
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.7;
+}
+.small{font-size:12px;color:var(--muted);line-height:1.6;margin-top:6px;}
+
 .empty{
   margin-top:24px;
   padding:18px;
@@ -125,6 +124,13 @@ body{background:var(--bg);color:var(--fg);}
   font-size:13px;
   color:var(--muted);
   line-height:1.7;
+}
+
+hr.sep{
+  border:0;
+  height:1px;
+  background:linear-gradient(90deg,transparent,rgba(148,163,184,0.35),transparent);
+  margin:12px 0;
 }
 </style>
 {% endblock %}
@@ -136,89 +142,133 @@ body{background:var(--bg);color:var(--fg);}
   <div class="hero">
     <h1>AI Behavior Lab</h1>
     <p>
-      ここは「成績表」ではありません。<br>
-      AI があなたのトレードをどう“理解し始めているか”を、
-      思考・仮説・偏りとして可視化する実験室です。
+      ここは「成績表」じゃない。<br>
+      AI があなたのトレードをどう“理解しはじめているか”を、仮説と偏りで可視化する実験室。
     </p>
+
+    <div class="meta">
+      <span class="pill">PRO仕様</span>
+      <span class="pill">today: {{ today_label }}</span>
+      {% if model.has_model %}
+        <span class="pill pill-ok">model: ready</span>
+      {% else %}
+        <span class="pill pill-warn">model: none</span>
+      {% endif %}
+      <span class="pill">simulate files: {{ sim_files|default:0 }}</span>
+    </div>
   </div>
 
   {% if not has_data %}
     <div class="empty">
-      まだ AI が学習できるだけの行動データがありません。<br>
-      <br>
-      ▸ AI Picks からシミュレーションを実行すると、<br>
-      ▸ このページは「あなた専用の行動地図」に変化します。
+      まだ AI が学習できるだけの行動データがありません。<br><br>
+      ▸ AI Picks → シミュレーション登録 → 16:00 評価バッチ → ここに出る<br>
+      ▸ PRO評価（win/lose）が増えるほど「クセ」が濃く出ます。
     </div>
   {% else %}
 
-  <!-- AIが今考えていること -->
+  <!-- AIの現在の仮説 -->
   <div class="card">
-    <h3>AI の現在の仮説</h3>
+    <h3 style="margin:0 0 10px 0;">AI の現在の仮説</h3>
     <div class="think-grid">
-      <div class="think">
-        <div class="label">仮説 01</div>
-        <div class="value">
-          あなたは「勝率」よりも「一撃の大きさ」を無意識に優先している可能性があります。
+      {% for h in hypotheses %}
+        <div class="think">
+          <div class="label">仮説 {{ forloop.counter|add:"0"|stringformat:"02d" }}</div>
+          <div class="value">{{ h }}</div>
         </div>
-      </div>
-      <div class="think">
-        <div class="label">仮説 02</div>
-        <div class="value">
-          エントリーの方向性は安定していますが、撤退判断にばらつきが見られます。
+      {% empty %}
+        <div class="think">
+          <div class="label">仮説</div>
+          <div class="value">まだデータが少なく、強い仮説は作っていません。</div>
         </div>
-      </div>
+      {% endfor %}
     </div>
+
+    {% if notes %}
+      <hr class="sep">
+      <div class="small">
+        {% for n in notes %}
+          • {{ n }}<br>
+        {% endfor %}
+      </div>
+    {% endif %}
   </div>
 
-  <!-- 学習メトリクス（非KPI） -->
+  <!-- 学習の進み具合（非KPI） -->
   <div class="card">
-    <h3>学習の進み具合</h3>
+    <h3 style="margin:0 0 10px 0;">学習の進み具合</h3>
+
     <div class="metric-grid">
       <div class="metric">
-        <div class="m-title">AI が観測した行動数</div>
-        <div class="m-val">{{ total|default:"-" }}</div>
+        <div class="m-title">simulate 総レコード（qty_proあり）</div>
+        <div class="m-val m-mid">{{ sim_total|default:"-" }}</div>
+        <div class="m-sub">carry/skip も含む（行動量）</div>
       </div>
+
       <div class="metric">
-        <div class="m-title">現在の理解度（概算）</div>
-        <div class="m-val">LOW → MID</div>
+        <div class="m-title">勝敗が付いたレコード（win/lose）</div>
+        <div class="m-val m-mid">{{ wl_total|default:"-" }}</div>
+        <div class="m-sub">学習に効くコアデータ</div>
       </div>
+
       <div class="metric">
-        <div class="m-title">再現性のあるパターン</div>
-        <div class="m-val">2〜3</div>
+        <div class="m-title">勝率（win/lose）</div>
+        <div class="m-val {% if win_rate and win_rate >= 50 %}m-pos{% elif win_rate is not None %}m-neg{% else %}m-mid{% endif %}">
+          {% if win_rate is not None %}{{ win_rate|floatformat:1 }}%{% else %}-{% endif %}
+        </div>
+        <div class="m-sub">PRO評価ベース</div>
       </div>
+
       <div class="metric">
-        <div class="m-title">未解釈行動</div>
-        <div class="m-val">多め</div>
+        <div class="m-title">平均R</div>
+        <div class="m-val {% if avg_r and avg_r >= 0 %}m-pos{% elif avg_r is not None %}m-neg{% else %}m-mid{% endif %}">
+          {% if avg_r is not None %}{{ avg_r|floatformat:3 }}{% else %}-{% endif %}
+        </div>
+        <div class="m-sub">損益を“ルール距離”で正規化</div>
+      </div>
+
+      <div class="metric">
+        <div class="m-title">平均PL（円）</div>
+        <div class="m-val {% if avg_pl and avg_pl >= 0 %}m-pos{% elif avg_pl is not None %}m-neg{% else %}m-mid{% endif %}">
+          {% if avg_pl is not None %}{{ avg_pl|floatformat:0|intcomma }}{% else %}-{% endif %}
+        </div>
+        <div class="m-sub">carry/skip は 0 の扱い</div>
+      </div>
+
+      <div class="metric">
+        <div class="m-title">理解度（概算）</div>
+        <div class="m-val m-mid">{{ understanding_label }}</div>
+        <div class="m-sub">WL件数に応じて自動で変わる</div>
       </div>
     </div>
   </div>
 
-  <!-- 行動の偏り -->
+  <!-- 行動バイアス -->
   <div class="card">
-    <h3>行動バイアス・マップ</h3>
+    <h3 style="margin:0 0 10px 0;">行動バイアス・マップ</h3>
     <div class="map">
-      <div class="map-row">
-        <div class="map-name">トレンド選好</div>
-        <div class="map-val">順張り寄り</div>
-      </div>
-      <div class="map-row">
-        <div class="map-name">損切り耐性</div>
-        <div class="map-val">やや我慢型</div>
-      </div>
-      <div class="map-row">
-        <div class="map-name">時間帯の癖</div>
-        <div class="map-val">後場に集中</div>
-      </div>
+      {% for b in bias_map %}
+        <div class="map-row">
+          <div class="map-name">{{ b.name }}</div>
+          <div class="map-val">{{ b.value }}</div>
+        </div>
+      {% empty %}
+        <div class="map-row">
+          <div class="map-name">未解析</div>
+          <div class="map-val">データ不足</div>
+        </div>
+      {% endfor %}
     </div>
   </div>
 
-  <!-- 次にAIが見たいもの -->
+  <!-- AIが次に欲しいデータ -->
   <div class="card">
-    <h3>AI が次に欲しがっているデータ</h3>
-    <ul style="font-size:13px;color:var(--muted);line-height:1.7;padding-left:18px;">
-      <li>同一条件での「連続トレード」</li>
-      <li>負けトレード後の行動</li>
-      <li>迷った末に見送ったケース</li>
+    <h3 style="margin:0 0 8px 0;">AI が次に欲しがっているデータ</h3>
+    <ul class="list">
+      {% for w in wanted %}
+        <li>{{ w }}</li>
+      {% empty %}
+        <li>継続してシミュレを増やして（特に同条件の連続トレード）</li>
+      {% endfor %}
     </ul>
   </div>
 
