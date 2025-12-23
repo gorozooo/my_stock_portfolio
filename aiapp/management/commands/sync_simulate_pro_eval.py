@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandParser
-from django.db.models import Q
 from django.utils import timezone
 
 from aiapp.models.vtrade import VirtualTrade
@@ -59,7 +58,6 @@ def _parse_date(v: Any) -> Optional[date]:
     if not s:
         return None
     try:
-        # まず YYYY-MM-DD を想定
         return datetime.fromisoformat(s[:10]).date()
     except Exception:
         return None
@@ -141,7 +139,6 @@ def _build_eval_pack(v: VirtualTrade) -> Optional[EvalPack]:
 
     qty = _safe_float(le.get("qty_pro"))
     if qty is None:
-        # 念のため
         qty = _safe_float(((v.replay or {}).get("pro") or {}).get("qty_pro"))
     if qty is None or qty <= 0:
         return None
@@ -166,8 +163,8 @@ def _build_eval_pack(v: VirtualTrade) -> Optional[EvalPack]:
 
 def _score_candidate(rec: Dict[str, Any], ep: EvalPack) -> float:
     """
-    マッチ候補のスコア。小さいほど良い。
-    - entry がズレるのは仕様なので「近い方」を選ぶだけ
+    候補が複数ある場合の「どれを採用するか」スコア（小さいほど良い）
+    - entry がズレるのは仕様 → 近い方を選ぶだけ
     """
     s = 0.0
     entry = _safe_float(rec.get("entry"))
@@ -176,12 +173,10 @@ def _score_candidate(rec: Dict[str, Any], ep: EvalPack) -> float:
     else:
         s += 1.0
 
-    # run_id が一致したら強く優遇
     rid = _safe_str(rec.get("run_id")).strip()
     if rid and ep.run_id and rid == ep.run_id:
         s -= 0.5
 
-    # price_date は無いことがあるので弱め
     pd = _parse_date(rec.get("price_date"))
     if pd is not None and pd == ep.trade_date:
         s -= 0.1
@@ -191,7 +186,7 @@ def _score_candidate(rec: Dict[str, Any], ep: EvalPack) -> float:
 
 def _compute_eval_pl_pro(rec: Dict[str, Any], ep: EvalPack) -> Optional[float]:
     """
-    last_eval の値を最優先で simulate に書き戻す
+    last_eval の pl_pro を最優先で simulate に書き戻す
     """
     if ep.pl_pro is not None:
         return float(ep.pl_pro)
@@ -211,7 +206,7 @@ def _compute_eval_pl_pro(rec: Dict[str, Any], ep: EvalPack) -> Optional[float]:
 
 def _compute_eval_r_pro(rec: Dict[str, Any], eval_pl: Optional[float]) -> Optional[float]:
     """
-    R を作る（任意だけど、モデルが生きる）
+    R を作る（任意だけどモデルが生きる）
     優先：est_loss_pro
     次点：abs(entry - sl) * qty_pro
     """
@@ -260,7 +255,6 @@ class Command(BaseCommand):
         dry_run: bool = bool(options.get("dry_run"))
         verbosity: int = int(options.get("verbosity") or 1)
 
-        # date_max
         if date_max_s:
             dm = _parse_date(date_max_s)
             date_max = dm if dm is not None else timezone.localdate()
@@ -304,34 +298,22 @@ class Command(BaseCommand):
             packs.append(ep)
 
         target_vtrades = len(packs)
-
-        # 何を触ったかの追跡（任意）
         touched_run_ids: List[str] = sorted({p.run_id for p in packs if p.run_id})
 
-        # simulate ファイルを走査（基本は sim_orders_YYYY-MM-DD.jsonl のみ対象）
         scanned_files = 0
         scanned_lines = 0
         parsed_records = 0
-        matched = 0
+        matched_ep = 0
         updated_records = 0
         updated_files = 0
-        skipped_no_match = 0
 
-        # pack をキーで引けるようにまとめる（複数同一キーがあり得るので list）
-        pack_map: Dict[Tuple[int, str, date, str, int], List[EvalPack]] = {}
-        for ep in packs:
-            # mode は simulate 側の mode と合わせたいので、ここでは "any" にしない
-            # VirtualTrade 側で mode を持ってない可能性があるので、候補側で評価する
-            # → mapキーは (user, code, trade_date, qty_int) に寄せる
-            k = (ep.user_id, ep.code, ep.trade_date, "any", int(ep.qty_pro))
-            pack_map.setdefault(k, []).append(ep)
+        # packが何回当たったか（重複カウント防止）
+        matched_keys: set[Tuple[int, str, str, int]] = set()
 
-        # scan 対象：*.jsonl（空/壊れもあるが吸収）
+        # scan 対象：orders系を中心に処理
         paths = sorted(simulate_dir.glob("*.jsonl"))
 
         for path in paths:
-            # 軽くフィルタ：orders系を優先し、他は読んでも良いが雑音が多いので一旦 skip
-            # 必要ならここを緩められる
             if not path.name.startswith("sim_orders_"):
                 continue
 
@@ -342,7 +324,6 @@ class Command(BaseCommand):
 
             scanned_lines += len(raw_lines)
 
-            # ファイル内の候補行を集めて index を作る（このファイル内だけ）
             # index: (user, code, trade_date, mode, qty_int) -> [(line_idx, rec)]
             idx: Dict[Tuple[int, str, date, str, int], List[Tuple[int, Dict[str, Any]]]] = {}
 
@@ -366,19 +347,22 @@ class Command(BaseCommand):
                 key = (uid, code, td, mode, int(qty))
                 idx.setdefault(key, []).append((i, rec))
 
-            # このファイルで pack を突き合わせる
             file_changed = False
 
             for ep in packs:
-                # vtrade に mode が無いので、modeは simulate の方の一致を優先
-                # candidate keys: ("demo","live","other") を全部試す
+                # 既にこのep（キー）が当たってるなら飛ばす
+                ep_key = (ep.user_id, ep.code, ep.trade_date.isoformat(), int(ep.qty_pro))
+                if ep_key in matched_keys:
+                    continue
+
+                found = False
+
                 for mode in ("demo", "live", "other"):
                     key = (ep.user_id, ep.code, ep.trade_date, mode, int(ep.qty_pro))
                     cands = idx.get(key) or []
                     if not cands:
                         continue
 
-                    # 複数候補がある場合は entry の近さで選ぶ
                     best_i = None
                     best_rec = None
                     best_score = 1e18
@@ -392,62 +376,48 @@ class Command(BaseCommand):
                     if best_i is None or best_rec is None:
                         continue
 
-                    matched += 1
-
-                    # ここで書き戻す
+                    # ---- 書き戻し ----
                     label = ep.label
                     exit_reason = ep.exit_reason
-
-                    # eval_pl_pro
                     eval_pl = _compute_eval_pl_pro(best_rec, ep)
-
-                    # eval_r_pro（任意）
                     eval_r = _compute_eval_r_pro(best_rec, eval_pl)
 
-                    # horizon
-                    horizon_bd = ep.horizon_bd
-                    if horizon_bd is not None:
-                        best_rec["eval_horizon_days"] = int(horizon_bd)
+                    if ep.horizon_bd is not None:
+                        best_rec["eval_horizon_days"] = int(ep.horizon_bd)
 
                     best_rec["eval_label_pro"] = label
                     best_rec["eval_exit_reason_pro"] = exit_reason
 
                     if eval_pl is not None:
                         best_rec["eval_pl_pro"] = float(eval_pl)
-                    else:
-                        # ここは「入れられない」場合は触らない（None のままにする）
-                        # ただし前回値が残るのが嫌なら 0.0 を入れる運用でもOK
-                        pass
-
                     if eval_r is not None:
                         best_rec["eval_r_pro"] = float(eval_r)
 
-                    # キャリー/スキップは学習側で弾くので、ここはそのままでOK
-                    # "carry" のときも label だけは入れる（事実として）
-                    # exit_px は last_eval が持ってるなら保存しておく（任意）
                     if ep.exit_px is not None:
                         best_rec["eval_exit_px_pro"] = float(ep.exit_px)
                     if ep.entry_px is not None:
                         best_rec["eval_entry_px_pro"] = float(ep.entry_px)
 
-                    # 更新
                     parsed[best_i] = best_rec
                     file_changed = True
                     updated_records += 1
+
+                    matched_keys.add(ep_key)
+                    matched_ep += 1
+                    found = True
 
                     if verbosity >= 2:
                         self.stdout.write(
                             f"[sync_simulate_pro_eval] update file={path.name} line={best_i} "
                             f"code={ep.code} date={ep.trade_date.isoformat()} qty={int(ep.qty_pro)} label={label}"
                         )
-                    break  # modeループ終了（最初に一致したmodeで確定）
-                else:
-                    continue  # modeループが break しなければ次へ
-                break  # packごとに1回マッチしたら終了
+
+                    break  # mode loop
+                if found:
+                    continue  # 次のepへ
 
             if file_changed:
                 if not dry_run:
-                    # 書き戻し（JSON化できない行はそのまま残す）
                     out_lines: List[str] = []
                     for i, orig in enumerate(raw_lines):
                         rec = parsed[i] if i < len(parsed) else None
@@ -458,22 +428,15 @@ class Command(BaseCommand):
                     _atomic_write_text(path, "\n".join(out_lines) + "\n")
                 updated_files += 1
 
-        # no_match を数える（packsのうち matched されなかった数を推定）
-        # ※ matched は "候補行" ヒット数なので pack とは一致しない場合がある
-        # ここはざっくりログ用途
-        if matched < target_vtrades:
-            skipped_no_match = target_vtrades - matched
-        else:
-            skipped_no_match = 0
+        skipped_no_match = max(0, target_vtrades - matched_ep)
 
-        # summary
         self.stdout.write("")
         self.stdout.write("===== sync_simulate_pro_eval summary =====")
         self.stdout.write(f"  scanned_files       : {scanned_files}")
         self.stdout.write(f"  scanned_lines       : {scanned_lines}")
         self.stdout.write(f"  parsed_records      : {parsed_records}")
         self.stdout.write(f"  target_vtrades      : {target_vtrades}")
-        self.stdout.write(f"  matched             : {min(matched, target_vtrades)}")
+        self.stdout.write(f"  matched             : {matched_ep}")
         self.stdout.write(f"  updated_records     : {updated_records}")
         self.stdout.write(f"  updated_files       : {updated_files}")
         self.stdout.write(f"  skipped_no_last_eval: {skipped_no_last_eval}")
