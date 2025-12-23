@@ -248,7 +248,6 @@ class Command(BaseCommand):
         parser.add_argument("--user", type=int, default=None, help="対象ユーザーID（省略=全ユーザー）")
         parser.add_argument("--date-max", type=str, default=None, help="上限日(YYYY-MM-DD)（省略=今日）")
         parser.add_argument("--dry-run", action="store_true", help="書き込みせずログのみ")
-        parser.add_argument("-v", "--verbosity", type=int, default=1, help="verbosity (0..2)")
         parser.add_argument("--limit", type=int, default=0, help="処理するVirtualTrade上限（0=無制限）")
 
     def handle(self, *args, **opts) -> None:
