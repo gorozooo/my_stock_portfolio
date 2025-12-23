@@ -8,40 +8,32 @@
 :root{
   --bg:#020617;
   --panel:rgba(15,23,42,0.96);
-  --glass:rgba(255,255,255,0.04);
+  --glass:rgba(255,255,255,0.045);
   --fg:#e5e7eb;
   --muted:#94a3b8;
   --accent:#38bdf8;
   --warn:#f59e0b;
   --ok:#22c55e;
   --bad:#ef4444;
-  --border:rgba(148,163,184,0.25);
+  --border:rgba(148,163,184,0.22);
+  --line:rgba(148,163,184,0.18);
 }
 
 body{background:var(--bg);color:var(--fg);}
-.wrap{max-width:820px;margin:0 auto;padding:16px 14px 100px;}
-
-.card{
-  margin-top:14px;
-  padding:16px;
-  border-radius:20px;
-  border:1px solid var(--border);
-  background:
-    radial-gradient(circle at top left,rgba(56,189,248,0.15),transparent 55%),
-    var(--panel);
-  backdrop-filter:blur(18px);
-}
+.wrap{max-width:860px;margin:0 auto;padding:16px 14px 110px;}
 
 .hero{
   padding:18px;
   border-radius:22px;
   background:
-    linear-gradient(135deg,rgba(56,189,248,0.25),rgba(15,23,42,0.95));
+    radial-gradient(circle at top left,rgba(56,189,248,0.22),transparent 55%),
+    linear-gradient(135deg,rgba(56,189,248,0.14),rgba(15,23,42,0.96));
   border:1px solid var(--border);
+  backdrop-filter:blur(18px);
 }
-.hero h1{font-size:20px;font-weight:800;margin:0 0 6px 0;}
-.hero p{font-size:12px;color:var(--muted);line-height:1.6;margin:0;}
-.hero .meta{
+.hero h1{font-size:20px;font-weight:900;margin:0 0 6px 0;letter-spacing:0.2px;}
+.hero p{font-size:12px;color:var(--muted);line-height:1.65;margin:0;}
+.meta{
   margin-top:10px;
   display:flex;
   flex-wrap:wrap;
@@ -53,23 +45,31 @@ body{background:var(--bg);color:var(--fg);}
   border-radius:999px;
   font-size:11px;
   border:1px solid var(--border);
-  background:rgba(15,23,42,0.65);
+  background:rgba(15,23,42,0.62);
   color:#e5e7eb;
 }
-.pill-ok{border-color:rgba(34,197,94,0.45);}
-.pill-warn{border-color:rgba(245,158,11,0.45);}
-.pill-bad{border-color:rgba(239,68,68,0.45);}
+.pill-ok{border-color:rgba(34,197,94,0.42);}
+.pill-warn{border-color:rgba(245,158,11,0.42);}
+.pill-bad{border-color:rgba(239,68,68,0.42);}
 
-.think-grid{display:grid;grid-template-columns:1fr;gap:10px;}
-.think{
-  padding:12px 14px;
-  border-radius:14px;
-  border:1px dashed var(--border);
-  background:var(--glass);
-  font-size:13px;
+.card{
+  margin-top:14px;
+  padding:16px;
+  border-radius:20px;
+  border:1px solid var(--border);
+  background:
+    radial-gradient(circle at bottom right,rgba(56,189,248,0.10),transparent 55%),
+    var(--panel);
+  backdrop-filter:blur(18px);
 }
-.think .label{font-size:11px;color:var(--muted);margin-bottom:4px;}
-.think .value{font-weight:600;line-height:1.65;}
+.card h3{margin:0 0 10px 0;font-size:14px;font-weight:850;letter-spacing:0.2px;}
+.small{font-size:12px;color:var(--muted);line-height:1.65;}
+
+hr.sep{
+  border:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(148,163,184,0.32),transparent);
+  margin:12px 0;
+}
 
 .metric-grid{
   display:grid;
@@ -84,14 +84,23 @@ body{background:var(--bg);color:var(--fg);}
 }
 .metric .m-title{font-size:11px;color:var(--muted);margin-bottom:6px;}
 .metric .m-val{
-  font-size:18px;
-  font-weight:800;
+  font-size:18px;font-weight:900;
   font-variant-numeric:tabular-nums;
 }
-.metric .m-sub{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4;}
+.metric .m-sub{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.45;}
 .m-pos{color:var(--ok);}
 .m-neg{color:var(--bad);}
 .m-mid{color:var(--accent);}
+
+.think-grid{display:grid;grid-template-columns:1fr;gap:10px;}
+.think{
+  padding:12px 14px;
+  border-radius:16px;
+  border:1px dashed var(--border);
+  background:var(--glass);
+}
+.think .label{font-size:11px;color:var(--muted);margin-bottom:4px;}
+.think .value{font-size:13px;font-weight:650;line-height:1.75;}
 
 .map{display:flex;flex-direction:column;gap:8px;}
 .map-row{
@@ -99,21 +108,65 @@ body{background:var(--bg);color:var(--fg);}
   justify-content:space-between;
   gap:10px;
   font-size:12px;
-  border-bottom:1px dashed var(--border);
+  border-bottom:1px dashed var(--line);
   padding-bottom:6px;
 }
 .map-row:last-child{border-bottom:none;padding-bottom:0;}
 .map-name{color:#e5e7eb;white-space:nowrap;}
 .map-val{color:var(--muted);text-align:right;}
 
-.list{
-  margin:8px 0 0 0;
-  padding-left:18px;
-  color:var(--muted);
-  font-size:13px;
-  line-height:1.7;
+.list{margin:8px 0 0 0;padding-left:18px;color:var(--muted);font-size:13px;line-height:1.75;}
+
+.badge{
+  display:inline-block;
+  padding:2px 8px;
+  border-radius:999px;
+  font-size:11px;
+  border:1px solid var(--border);
+  background:rgba(15,23,42,0.70);
 }
-.small{font-size:12px;color:var(--muted);line-height:1.6;margin-top:6px;}
+.b-ok{border-color:rgba(34,197,94,0.42);}
+.b-bad{border-color:rgba(239,68,68,0.42);}
+.b-warn{border-color:rgba(245,158,11,0.42);}
+
+.seq{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-top:6px;
+}
+.dot{
+  width:auto;
+  padding:4px 8px;
+  border-radius:999px;
+  border:1px solid var(--border);
+  background:rgba(15,23,42,0.75);
+  font-size:11px;
+  font-variant-numeric:tabular-nums;
+}
+.dot.win{border-color:rgba(34,197,94,0.45);}
+.dot.lose{border-color:rgba(239,68,68,0.45);}
+.dot.flat{border-color:rgba(148,163,184,0.35);}
+.dot.meta{border-style:dashed;}
+
+.trade-row{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  padding:10px 10px;
+  border-radius:14px;
+  border:1px solid var(--border);
+  background:rgba(15,23,42,0.98);
+  margin-top:8px;
+}
+.trade-left{min-width:0;}
+.trade-code{font-size:13px;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.trade-sub{font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.trade-right{text-align:right;white-space:nowrap;}
+.pl{font-size:13px;font-weight:900;font-variant-numeric:tabular-nums;}
+.pl.pos{color:var(--ok);}
+.pl.neg{color:var(--bad);}
+.r{font-size:11px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums;}
 
 .empty{
   margin-top:24px;
@@ -125,50 +178,43 @@ body{background:var(--bg);color:var(--fg);}
   color:var(--muted);
   line-height:1.7;
 }
-
-hr.sep{
-  border:0;
-  height:1px;
-  background:linear-gradient(90deg,transparent,rgba(148,163,184,0.35),transparent);
-  margin:12px 0;
-}
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="wrap">
 
-  <!-- HERO -->
   <div class="hero">
     <h1>AI Behavior Lab</h1>
     <p>
-      ここは「成績表」じゃない。<br>
-      AI があなたのトレードをどう“理解しはじめているか”を、仮説と偏りで可視化する実験室。
+      成績表じゃない。<br>
+      「あなたの判断のクセ」を、AIが“仮説→検証”で増殖させる実験室。
     </p>
-
     <div class="meta">
       <span class="pill">PRO仕様</span>
       <span class="pill">today: {{ today_label }}</span>
+      <span class="pill">simulate files: {{ sim_files|default:0 }}</span>
       {% if model.has_model %}
         <span class="pill pill-ok">model: ready</span>
       {% else %}
         <span class="pill pill-warn">model: none</span>
       {% endif %}
-      <span class="pill">simulate files: {{ sim_files|default:0 }}</span>
+      <span class="pill">understanding: {{ understanding_label }}</span>
     </div>
   </div>
 
   {% if not has_data %}
     <div class="empty">
-      まだ AI が学習できるだけの行動データがありません。<br><br>
-      ▸ AI Picks → シミュレーション登録 → 16:00 評価バッチ → ここに出る<br>
-      ▸ PRO評価（win/lose）が増えるほど「クセ」が濃く出ます。
+      まだ学習できるだけの行動データがありません。<br><br>
+      ▸ AI Picks → シミュレーション登録（qty_pro）<br>
+      ▸ 16:00 評価（ai_sim_eval → sync_simulate_pro_eval）<br>
+      ▸ 16:05 dataset → 16:15 model<br><br>
+      “win/lose” が増えるほど、このページは気持ち悪く賢くなります。
     </div>
   {% else %}
 
-  <!-- AIの現在の仮説 -->
   <div class="card">
-    <h3 style="margin:0 0 10px 0;">AI の現在の仮説</h3>
+    <h3>AI の現在の仮説</h3>
     <div class="think-grid">
       {% for h in hypotheses %}
         <div class="think">
@@ -191,12 +237,21 @@ hr.sep{
         {% endfor %}
       </div>
     {% endif %}
+
+    {% if sequence %}
+      <hr class="sep">
+      <div class="small">直近の勝ち負けの並び（古→新）</div>
+      <div class="seq">
+        {% for s in sequence %}
+          <span class="dot {{ s.label }}">{{ s.text }}</span>
+        {% endfor %}
+        <span class="dot meta">streak: {{ streak_label }}</span>
+      </div>
+    {% endif %}
   </div>
 
-  <!-- 学習の進み具合（非KPI） -->
   <div class="card">
-    <h3 style="margin:0 0 10px 0;">学習の進み具合</h3>
-
+    <h3>学習の進み具合</h3>
     <div class="metric-grid">
       <div class="metric">
         <div class="m-title">simulate 総レコード（qty_proあり）</div>
@@ -242,9 +297,8 @@ hr.sep{
     </div>
   </div>
 
-  <!-- 行動バイアス -->
   <div class="card">
-    <h3 style="margin:0 0 10px 0;">行動バイアス・マップ</h3>
+    <h3>行動バイアス・マップ</h3>
     <div class="map">
       {% for b in bias_map %}
         <div class="map-row">
@@ -260,9 +314,38 @@ hr.sep{
     </div>
   </div>
 
-  <!-- AIが次に欲しいデータ -->
+  {% if recent_trades %}
   <div class="card">
-    <h3 style="margin:0 0 8px 0;">AI が次に欲しがっているデータ</h3>
+    <h3>直近のトレード（学習に入ったやつ）</h3>
+    <div class="small">latest_behavior_side.jsonl から抽出</div>
+    {% for t in recent_trades %}
+      <div class="trade-row">
+        <div class="trade-left">
+          <div class="trade-code">
+            {{ t.code }}
+            {% if t.label == "win" %}
+              <span class="badge b-ok">WIN</span>
+            {% elif t.label == "lose" %}
+              <span class="badge b-bad">LOSE</span>
+            {% else %}
+              <span class="badge">FLAT</span>
+            {% endif %}
+          </div>
+          <div class="trade-sub">{{ t.meta }}</div>
+        </div>
+        <div class="trade-right">
+          <div class="pl {% if t.pl >= 0 %}pos{% else %}neg{% endif %}">
+            {{ t.pl|floatformat:0|intcomma }}円
+          </div>
+          <div class="r">R: {% if t.r is not None %}{{ t.r|floatformat:3 }}{% else %}-{% endif %}</div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h3>AI が次に欲しがっているデータ</h3>
     <ul class="list">
       {% for w in wanted %}
         <li>{{ w }}</li>
@@ -273,6 +356,5 @@ hr.sep{
   </div>
 
   {% endif %}
-
 </div>
 {% endblock %}
