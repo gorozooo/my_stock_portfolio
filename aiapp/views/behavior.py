@@ -126,7 +126,7 @@ def _make_sequence(wl_labels: List[str]) -> List[Dict[str, str]]:
     表示用：古→新
     """
     seq: List[Dict[str, str]] = []
-    for i, lab in enumerate(wl_labels):
+    for lab in wl_labels:
         lab2 = lab if lab in ("win", "lose", "flat") else "flat"
         txt = "W" if lab2 == "win" else ("L" if lab2 == "lose" else "F")
         seq.append({"label": lab2, "text": txt})
@@ -142,9 +142,6 @@ def _make_hypotheses(
     streak_label: str,
     streak_len: int,
 ) -> List[str]:
-    """
-    “奇抜だけど嘘はつかない” を徹底して、事実→仮説の順に生成。
-    """
     hyps: List[str] = []
 
     carry = int(labels.get("carry", 0))
@@ -152,13 +149,11 @@ def _make_hypotheses(
     win = int(labels.get("win", 0))
     lose = int(labels.get("lose", 0))
 
-    # 01: 状態宣言（AI人格）
     if wl_total < 5:
         hyps.append("私はまだ“あなたの型”を確定できない。いまは《クセの芽》だけを保存している。")
     else:
         hyps.append("私は“あなたの型”を作り始めた。次は《再現できる勝ち方》だけを残していく。")
 
-    # 02: 勝率の解釈（命中 vs 回収）
     if win_rate is not None:
         if win_rate >= 60:
             hyps.append("命中は高い。問題が起きるなら《勝ちを小さく》《負けを大きく》する癖の方。")
@@ -167,7 +162,6 @@ def _make_hypotheses(
         else:
             hyps.append("命中がまだ低い。選別ロジックが強すぎるか、刺さる条件がズレている。")
 
-    # 03: R（ルール距離）で切る
     if avg_r is not None:
         if avg_r >= 0.3:
             hyps.append("平均Rはプラス。私は《利確の形》を真似し始めていい段階。")
@@ -176,25 +170,21 @@ def _make_hypotheses(
         else:
             hyps.append("平均Rがマイナス。負けがルール想定より深い。ロット/滑り/我慢のどれかが混ざっている。")
 
-    # 04: PL（現金感覚）
     if avg_pl is not None:
         if avg_pl >= 0:
             hyps.append("平均PLはプラス。次の敵は《大負け》ではなく《取りこぼし》の方に移る。")
         else:
             hyps.append("平均PLはマイナス。勝率より先に《負けの平均サイズ》を潰すと立て直しが速い。")
 
-    # 05: carry/skip から “温度” を推定
     if (carry + skip) >= (win + lose) and (carry + skip) >= 3:
         hyps.append("carry/skip が多い。あなたは“撃つ”より“様子を見る”で世界を制御している。条件が厳しすぎる可能性。")
 
-    # 06: 連続の偏り（streak）
     if streak_len >= 2 and streak_label in ("win", "lose"):
         if streak_label == "win":
             hyps.append(f"直近は WIN が {streak_len} 連続。私は“勝てる条件”を固定し、同条件だけを増殖させたい。")
         else:
             hyps.append(f"直近は LOSE が {streak_len} 連続。私は“負けの型”を逆に固定して、そこだけ入らないようにしたい。")
 
-    # 多すぎたら絞る
     return hyps[:6]
 
 
@@ -217,16 +207,11 @@ def _make_bias_map(
     skip = int(labels.get("skip", 0))
     wl = int(labels.get("win", 0)) + int(labels.get("lose", 0))
 
-    # 行動温度
     if wl == 0:
         tempo = "未判定"
     else:
-        if (carry + skip) >= wl:
-            tempo = "冷（見送り/継続多め）"
-        else:
-            tempo = "熱（実行多め）"
+        tempo = "冷（見送り/継続多め）" if (carry + skip) >= wl else "熱（実行多め）"
 
-    # 撤退の質
     if avg_r is None:
         risk = "未判定"
     else:
@@ -237,7 +222,6 @@ def _make_bias_map(
         else:
             risk = "撤退が深い（要修正）"
 
-    # 命中度
     if win_rate is None:
         hit = "未判定"
     else:
@@ -248,14 +232,10 @@ def _make_bias_map(
         else:
             hit = "命中低め"
 
-    # 迷い（skip/carry）
     if (carry + skip) == 0:
         indecision = "未判定"
     else:
-        if skip >= carry:
-            indecision = "見送り優位（慎重）"
-        else:
-            indecision = "継続優位（粘る）"
+        indecision = "見送り優位（慎重）" if skip >= carry else "継続優位（粘る）"
 
     return [
         {"name": "行動温度", "value": tempo},
@@ -292,13 +272,7 @@ def _make_wanted(
 
 
 def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> List[Dict[str, Any]]:
-    """
-    latest_behavior_side.jsonl は “勝敗が付いた学習データ” が中心。
-    直近の表示を作る。
-    """
     out: List[Dict[str, Any]] = []
-
-    # 期待キー: code, eval_label, eval_pl, eval_r, broker/mode/ts など（存在しないものは空でOK）
     for r in side_rows[-limit:]:
         code = str(r.get("code") or "")
         label = str(r.get("eval_label") or "").strip().lower()
@@ -326,10 +300,26 @@ def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> L
                 "meta": meta,
             }
         )
-
-    # 新しい順に見せたいので reverse（表示は上から新）
     out.reverse()
     return out
+
+
+def _load_ticker(ticker_path: Path) -> Dict[str, Any]:
+    """
+    media/aiapp/behavior/ticker/latest_ticker_u{user}.json
+    無ければ空。
+    """
+    j = _read_json(ticker_path)
+    if not j:
+        return {"date": "", "lines": []}
+    lines = j.get("lines") or []
+    if not isinstance(lines, list):
+        lines = []
+    lines = [str(x) for x in lines if str(x).strip()]
+    return {
+        "date": str(j.get("date") or ""),
+        "lines": lines[:8],
+    }
 
 
 # =========================
@@ -339,10 +329,11 @@ def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> L
 @login_required
 def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     """
-    ✅ PRO仕様の行動ダッシュボード（奇抜UI版）
-    - simulate/*.jsonl を集計（carry/skipも含めて行動量を見る）
-    - behavior/model/latest_behavior_model_u{user}.json を読む（学習結果）
-    - behavior/latest_behavior_side.jsonl を読む（直近の勝ち負け並び/表示）
+    ✅ PRO仕様の行動ダッシュボード（奇抜UI版 + 日次テロップ）
+    - simulate/*.jsonl を集計
+    - behavior/model/latest_behavior_model_u{user}.json を読む
+    - behavior/latest_behavior_side.jsonl を読む
+    - behavior/ticker/latest_ticker_u{user}.json を読む（16:20生成）
     """
     user = request.user
     today = timezone.localdate()
@@ -354,11 +345,10 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
 
     model_path = beh_dir / "model" / f"latest_behavior_model_u{user.id}.json"
     side_path = beh_dir / "latest_behavior_side.jsonl"
+    ticker_path = beh_dir / "ticker" / f"latest_ticker_u{user.id}.json"
 
-    # simulate 集計
     sim_sum = _summarize_simulate_dir(sim_dir)
 
-    # 行動モデル（あれば）
     model_json = _read_json(model_path) or {}
     has_model = bool(model_json)
 
@@ -372,10 +362,8 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     eval_done = int(sim_sum.get("eval_done") or 0)
     labels = sim_sum.get("labels") or {}
 
-    # has_data 判定
     has_data = (wl_total >= 1) or (eval_done >= 1)
 
-    # side を読む（勝敗並び・直近表示）
     side_rows = _read_jsonl(side_path)
     wl_labels: List[str] = []
     for r in side_rows:
@@ -383,10 +371,11 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         if lab in ("win", "lose", "flat"):
             wl_labels.append(lab)
 
-    # 直近の並び（古→新）
     seq = _make_sequence(wl_labels)
     streak_label, streak_len = _streak_from_labels(wl_labels)
     streak_text = "none" if streak_len == 0 else f"{streak_label.upper()} x{streak_len}"
+
+    ticker = _load_ticker(ticker_path)
 
     if not has_data:
         return render(
@@ -398,6 +387,8 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
                 "sim_files": sim_sum.get("files", 0),
                 "understanding_label": _understanding_label(0),
                 "model": {"has_model": has_model},
+                "ticker_date": ticker.get("date", ""),
+                "ticker_lines": ticker.get("lines", []),
             },
         )
 
@@ -438,5 +429,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
             "has_model": has_model,
             "total_trades": total_trades,
         },
+        "ticker_date": ticker.get("date", ""),
+        "ticker_lines": ticker.get("lines", []),
     }
     return render(request, "aiapp/behavior_dashboard.html", ctx)
