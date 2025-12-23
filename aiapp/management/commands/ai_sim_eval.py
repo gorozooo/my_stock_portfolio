@@ -153,17 +153,22 @@ def _find_ohlc_columns(df) -> Tuple[Optional[Any], Optional[Any], Optional[Any],
 def _coerce_ts(val: Any, fallback: _dt) -> _dt:
     """
     row["ts"] を確実に datetime にする（SeriesやTimestampでもOK）。
+    返り値は必ず Asia/Tokyo の tz-aware に寄せる。
     """
     try:
         import pandas as pd  # type: ignore
     except Exception:
-        return fallback
+        if timezone.is_naive(fallback):
+            return timezone.make_aware(fallback, timezone.get_default_timezone())
+        return timezone.localtime(fallback)
 
     if isinstance(val, pd.Series):
         if not val.empty:
             val = val.iloc[0]
         else:
-            return fallback
+            if timezone.is_naive(fallback):
+                fallback = timezone.make_aware(fallback, timezone.get_default_timezone())
+            return timezone.localtime(fallback)
 
     try:
         ts = pd.Timestamp(val)
@@ -171,9 +176,13 @@ def _coerce_ts(val: Any, fallback: _dt) -> _dt:
         ts = pd.to_datetime(val, errors="coerce")
 
     if pd.isna(ts):
-        return fallback
+        if timezone.is_naive(fallback):
+            fallback = timezone.make_aware(fallback, timezone.get_default_timezone())
+        return timezone.localtime(fallback)
 
     dt = ts.to_pydatetime()
+
+    # ★ここで必ずJSTへ寄せる
     if timezone.is_naive(dt):
         dt = timezone.make_aware(dt, timezone.get_default_timezone())
     return timezone.localtime(dt)
@@ -692,9 +701,13 @@ def _evaluate_exit_across_horizon(
         hit_tp_idx = None
         hit_sl_idx = None
 
+        # ★TP/SL判定は side で逆（SELLはTP=下/SL=上）
         if tp_use is not None:
             try:
-                tp_mask = df_eff[high_col] >= float(tp_use)
+                if side == "SELL":
+                    tp_mask = df_eff[low_col] <= float(tp_use)
+                else:
+                    tp_mask = df_eff[high_col] >= float(tp_use)
                 if tp_mask.to_numpy().any():
                     hit_tp_idx = df_eff[tp_mask].index[0]
             except Exception:
@@ -702,7 +715,10 @@ def _evaluate_exit_across_horizon(
 
         if sl_use is not None:
             try:
-                sl_mask = df_eff[low_col] <= float(sl_use)
+                if side == "SELL":
+                    sl_mask = df_eff[high_col] >= float(sl_use)
+                else:
+                    sl_mask = df_eff[low_col] <= float(sl_use)
                 if sl_mask.to_numpy().any():
                     hit_sl_idx = df_eff[sl_mask].index[0]
             except Exception:
@@ -710,7 +726,11 @@ def _evaluate_exit_across_horizon(
 
         if hit_tp_idx is not None or hit_sl_idx is not None:
             if hit_tp_idx is not None and hit_sl_idx is not None:
-                tp_first = hit_tp_idx <= hit_sl_idx
+                # indexが同じ（同一足で両方ヒット）は安全側に SL 優先（保守的）
+                if hit_tp_idx == hit_sl_idx:
+                    tp_first = False
+                else:
+                    tp_first = hit_tp_idx <= hit_sl_idx
             else:
                 tp_first = hit_tp_idx is not None
 
@@ -853,8 +873,10 @@ class Command(BaseCommand):
         parser.add_argument("--dry-run", action="store_true", help="DB更新せずログだけ")
 
     def handle(self, *args, **options):
+        # ★options['verbosity'] を参照（self.verbosityは使わない）
         verbose = int(options.get("verbosity", 1) or 1)
 
+        # ★days=0 を潰さない（orで化けない）
         days_opt = options.get("days", None)
         days = 10 if days_opt is None else int(days_opt)
 
