@@ -52,6 +52,58 @@ body{background:var(--bg);color:var(--fg);}
 .pill-warn{border-color:rgba(245,158,11,0.42);}
 .pill-bad{border-color:rgba(239,68,68,0.42);}
 
+/* ===== ticker ===== */
+.ticker{
+  margin-top:10px;
+  border-radius:16px;
+  border:1px solid rgba(148,163,184,0.26);
+  background:rgba(15,23,42,0.70);
+  overflow:hidden;
+}
+.ticker-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  padding:8px 10px 0 10px;
+  font-size:11px;
+  color:var(--muted);
+}
+.ticker-date{
+  white-space:nowrap;
+}
+.ticker-hint{
+  white-space:nowrap;
+  opacity:0.9;
+}
+.ticker-track{
+  position:relative;
+  padding:8px 10px 10px 10px;
+}
+.ticker-rail{
+  display:flex;
+  gap:18px;
+  white-space:nowrap;
+  will-change:transform;
+  animation: marquee 26s linear infinite;
+}
+.ticker:hover .ticker-rail,
+.ticker:active .ticker-rail{
+  animation-play-state: paused;
+}
+.ticker-item{
+  font-size:12px;
+  color:#e5e7eb;
+  padding:3px 10px;
+  border-radius:999px;
+  border:1px solid rgba(148,163,184,0.22);
+  background:rgba(2,6,23,0.30);
+}
+@keyframes marquee{
+  0%{ transform: translateX(0); }
+  100%{ transform: translateX(-50%); }
+}
+
 .card{
   margin-top:14px;
   padding:16px;
@@ -201,6 +253,25 @@ hr.sep{
       {% endif %}
       <span class="pill">understanding: {{ understanding_label }}</span>
     </div>
+
+    {% if ticker_lines %}
+      <div class="ticker">
+        <div class="ticker-head">
+          <div class="ticker-date">本日 {{ ticker_date|default:today_label }}</div>
+          <div class="ticker-hint">（長押し/タップ中は停止）</div>
+        </div>
+        <div class="ticker-track">
+          <div class="ticker-rail">
+            {% for t in ticker_lines %}
+              <span class="ticker-item">{{ t }}</span>
+            {% endfor %}
+            {% for t in ticker_lines %}
+              <span class="ticker-item">{{ t }}</span>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    {% endif %}
   </div>
 
   {% if not has_data %}
@@ -208,7 +279,7 @@ hr.sep{
       まだ学習できるだけの行動データがありません。<br><br>
       ▸ AI Picks → シミュレーション登録（qty_pro）<br>
       ▸ 16:00 評価（ai_sim_eval → sync_simulate_pro_eval）<br>
-      ▸ 16:05 dataset → 16:15 model<br><br>
+      ▸ 16:05 dataset → 16:15 model → 16:20 ticker<br><br>
       “win/lose” が増えるほど、このページは気持ち悪く賢くなります。
     </div>
   {% else %}
