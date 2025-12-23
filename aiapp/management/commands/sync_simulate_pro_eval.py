@@ -2,19 +2,22 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
-from datetime import date as _date, timedelta as _timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandParser
+from django.db.models import Q
 from django.utils import timezone
 
 from aiapp.models.vtrade import VirtualTrade
 
 
+# =========================
+# utils
+# =========================
 def _safe_float(v: Any) -> Optional[float]:
     if v in (None, "", "null"):
         return None
@@ -34,9 +37,32 @@ def _safe_int(v: Any) -> Optional[int]:
 
 
 def _safe_str(v: Any) -> str:
-    if v is None:
+    if v in (None, "", "null"):
         return ""
-    return str(v)
+    try:
+        return str(v)
+    except Exception:
+        return ""
+
+
+def _parse_date(v: Any) -> Optional[date]:
+    """
+    "YYYY-MM-DD" / date / datetime を date にする
+    """
+    if v is None:
+        return None
+    if isinstance(v, date) and not isinstance(v, datetime):
+        return v
+    if isinstance(v, datetime):
+        return v.date()
+    s = _safe_str(v).strip()
+    if not s:
+        return None
+    try:
+        # まず YYYY-MM-DD を想定
+        return datetime.fromisoformat(s[:10]).date()
+    except Exception:
+        return None
 
 
 def _atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
@@ -46,472 +72,417 @@ def _atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
     tmp.replace(path)
 
 
-# ------------------------------------------------------------
-# ファイル名から日付を抜く（sim_orders_YYYY-MM-DD.jsonl など）
-# ------------------------------------------------------------
-_DATE_RE = re.compile(r"(\d{4})[-_]?(\d{2})[-_]?(\d{2})")
-
-
-def _date_from_filename(name: str) -> Optional[_date]:
-    m = _DATE_RE.search(name)
-    if not m:
-        return None
+def _iter_jsonl_lines(path: Path) -> Tuple[List[str], List[Optional[Dict[str, Any]]]]:
+    """
+    生行配列と、パースできた JSON dict（できないなら None）を返す
+    """
     try:
-        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        return _date(y, mo, d)
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except Exception:
-        return None
+        return [], []
+    parsed: List[Optional[Dict[str, Any]]] = []
+    for line in lines:
+        s = line.strip()
+        if not s:
+            parsed.append(None)
+            continue
+        try:
+            parsed.append(json.loads(s))
+        except Exception:
+            parsed.append(None)
+    return lines, parsed
 
 
-def _norm_mode(v: Any) -> str:
-    s = _safe_str(v).strip().lower()
-    if s in ("live", "demo"):
-        return s
-    return "other"
+# =========================
+# matching
+# =========================
+@dataclass
+class EvalPack:
+    user_id: int
+    trade_date: date
+    code: str
+    qty_pro: float
+    label: str
+    exit_reason: str
+    entry_px: Optional[float]
+    exit_px: Optional[float]
+    pl_pro: Optional[float]
+    pl_per_share: Optional[float]
+    horizon_bd: Optional[int]
+    run_id: str
 
 
-def _norm_code(v: Any) -> str:
-    # 1543 みたいなコードは文字列統一
-    s = _safe_str(v).strip()
-    return s
-
-
-def _norm_date_str(v: Any) -> str:
-    # "2025-12-23" など
-    s = _safe_str(v).strip()
-    return s
-
-
-def _record_trade_key_date(r: Dict[str, Any]) -> str:
-    """
-    ✅ 王道(A-2)：
-    price_date が無い（None/""）なら trade_date を使う。
-    trade_date も無いなら run_date を使う。
-    """
-    pd = _norm_date_str(r.get("price_date"))
-    if pd:
-        return pd
-    td = _norm_date_str(r.get("trade_date"))
-    if td:
-        return td
-    rd = _norm_date_str(r.get("run_date"))
-    return rd
-
-
-def _extract_pro_last_eval(v: VirtualTrade) -> Optional[Dict[str, Any]]:
-    """
-    VirtualTrade.replay['pro']['last_eval'] を取り出す。
-    """
-    rep = v.replay or {}
-    pro = rep.get("pro") or {}
-    le = pro.get("last_eval") or {}
+def _get_last_eval_pro(v: VirtualTrade) -> Optional[Dict[str, Any]]:
+    pro = ((v.replay or {}).get("pro") or {})
+    le = (pro.get("last_eval") or {})
     if not isinstance(le, dict) or not le:
         return None
     return le
 
 
-@dataclass
-class VNeed:
-    v_id: int
-    user_id: int
-    code: str
-    trade_date: str
-    mode: str
-    qty_pro: float
-    entry_px: Optional[float]
-    label: str
-    pl_yen: Optional[float]
-    r_val: Optional[float]
-    exit_reason: Optional[str]
-    horizon_days: Optional[int]
-
-
-def _build_vneed(v: VirtualTrade) -> Optional[VNeed]:
-    le = _extract_pro_last_eval(v)
+def _build_eval_pack(v: VirtualTrade) -> Optional[EvalPack]:
+    le = _get_last_eval_pro(v)
     if le is None:
         return None
 
-    qty = _safe_float(le.get("qty_pro"))
-    if qty is None or qty <= 0:
+    td = _parse_date(getattr(v, "trade_date", None) or le.get("trade_date"))
+    if td is None:
         return None
 
-    code = _norm_code(getattr(v, "code", None))
+    code = _safe_str(getattr(v, "code", "")).strip()
+    if not code:
+        code = _safe_str(le.get("code")).strip()
     if not code:
         return None
 
-    trade_date = getattr(v, "trade_date", None)
-    if trade_date is None:
-        return None
-    trade_date_str = str(trade_date)
-
-    mode = _norm_mode(getattr(v, "mode", None))
-
-    label = _safe_str(le.get("label")).strip().lower()
+    label = _safe_str(le.get("label")).lower().strip()
     if not label:
         return None
 
-    # last_eval 側のキーは揺れる可能性があるので複数候補で拾う
-    entry_px = _safe_float(le.get("entry_px"))
-    pl_yen = _safe_float(le.get("pl_yen"))
-    if pl_yen is None:
-        pl_yen = _safe_float(le.get("pl"))
-    if pl_yen is None:
-        pl_yen = _safe_float(le.get("pnl_yen"))
+    qty = _safe_float(le.get("qty_pro"))
+    if qty is None:
+        # 念のため
+        qty = _safe_float(((v.replay or {}).get("pro") or {}).get("qty_pro"))
+    if qty is None or qty <= 0:
+        return None
 
-    r_val = _safe_float(le.get("r"))
-    if r_val is None:
-        r_val = _safe_float(le.get("r_val"))
+    run_id = _safe_str(getattr(v, "run_id", "")).strip()
 
-    exit_reason = le.get("exit_reason")
-    if exit_reason is None:
-        exit_reason = le.get("reason")
-
-    horizon_days = _safe_int(le.get("horizon_days"))
-    if horizon_days is None:
-        horizon_days = _safe_int(le.get("eval_horizon_days"))
-
-    return VNeed(
-        v_id=int(v.id),
+    return EvalPack(
         user_id=int(getattr(v, "user_id", 0) or 0),
+        trade_date=td,
         code=code,
-        trade_date=trade_date_str,
-        mode=mode,
         qty_pro=float(qty),
-        entry_px=entry_px,
         label=label,
-        pl_yen=pl_yen,
-        r_val=r_val,
-        exit_reason=_safe_str(exit_reason) if exit_reason is not None else None,
-        horizon_days=horizon_days,
+        exit_reason=_safe_str(le.get("exit_reason")).lower().strip(),
+        entry_px=_safe_float(le.get("entry_px")),
+        exit_px=_safe_float(le.get("exit_px")),
+        pl_pro=_safe_float(le.get("pl_pro")),
+        pl_per_share=_safe_float(le.get("pl_per_share")),
+        horizon_bd=_safe_int(le.get("horizon_bd")),
+        run_id=run_id,
     )
 
 
-def _is_json_line(s: str) -> bool:
-    s = s.strip()
-    return bool(s) and (s[0] == "{" and s[-1] == "}")
+def _score_candidate(rec: Dict[str, Any], ep: EvalPack) -> float:
+    """
+    マッチ候補のスコア。小さいほど良い。
+    - entry がズレるのは仕様なので「近い方」を選ぶだけ
+    """
+    s = 0.0
+    entry = _safe_float(rec.get("entry"))
+    if entry is not None and ep.entry_px is not None:
+        s += abs(entry - ep.entry_px) / max(1.0, abs(ep.entry_px))
+    else:
+        s += 1.0
+
+    # run_id が一致したら強く優遇
+    rid = _safe_str(rec.get("run_id")).strip()
+    if rid and ep.run_id and rid == ep.run_id:
+        s -= 0.5
+
+    # price_date は無いことがあるので弱め
+    pd = _parse_date(rec.get("price_date"))
+    if pd is not None and pd == ep.trade_date:
+        s -= 0.1
+
+    return s
 
 
-def _best_match_index(
-    candidates: List[Tuple[int, Dict[str, Any]]],
-    want_entry_px: Optional[float],
-) -> Optional[int]:
+def _compute_eval_pl_pro(rec: Dict[str, Any], ep: EvalPack) -> Optional[float]:
     """
-    candidates: [(line_index, record), ...]
-    ✅ entry は一致不要。いちばん近いものを採用（王道）。
+    last_eval の値を最優先で simulate に書き戻す
     """
-    if not candidates:
+    if ep.pl_pro is not None:
+        return float(ep.pl_pro)
+
+    # 保険：pl_per_share * qty_pro
+    if ep.pl_per_share is not None:
+        qty = _safe_float(rec.get("qty_pro"))
+        if qty is None:
+            qty = ep.qty_pro
+        try:
+            return float(ep.pl_per_share) * float(qty)
+        except Exception:
+            return None
+
+    return None
+
+
+def _compute_eval_r_pro(rec: Dict[str, Any], eval_pl: Optional[float]) -> Optional[float]:
+    """
+    R を作る（任意だけど、モデルが生きる）
+    優先：est_loss_pro
+    次点：abs(entry - sl) * qty_pro
+    """
+    if eval_pl is None:
         return None
 
-    if want_entry_px is None:
-        # entry比較できないなら先頭
-        return candidates[0][0]
+    try:
+        est_loss = _safe_float(rec.get("est_loss_pro"))
+        if est_loss is not None and float(est_loss) != 0.0:
+            return float(eval_pl) / abs(float(est_loss))
+    except Exception:
+        pass
 
-    best_i: Optional[int] = None
-    best_d: Optional[float] = None
-
-    for idx, r in candidates:
-        e = _safe_float(r.get("entry"))
-        if e is None:
-            # entry無いのは後回し
-            d = 10**18
-        else:
-            d = abs(e - want_entry_px)
-
-        if best_d is None or d < best_d:
-            best_d = d
-            best_i = idx
-
-    return best_i
+    try:
+        entry = _safe_float(rec.get("entry"))
+        sl = _safe_float(rec.get("sl"))
+        qty = _safe_float(rec.get("qty_pro"))
+        if entry is None or sl is None or qty is None:
+            return None
+        risk = abs(float(entry) - float(sl)) * float(qty)
+        if risk <= 0:
+            return None
+        return float(eval_pl) / risk
+    except Exception:
+        return None
 
 
+# =========================
+# command
+# =========================
 class Command(BaseCommand):
-    """
-    ✅ 王道(A-2)での同期
-
-    - VirtualTrade(replay.pro.last_eval) の PRO評価を、
-      media/aiapp/simulate/*.jsonl の該当レコードへ書き戻す。
-    - 突合は「price_dateが無いならtrade_dateを使う」「entryは近いもの採用」。
-
-    更新するキー：
-      eval_label_pro
-      eval_pl_pro
-      eval_r_pro
-      eval_exit_reason_pro
-      eval_horizon_days
-      price_date（空なら trade_date を補完して埋める）
-    """
-
-    help = "VirtualTradeのPRO評価(last_eval)をsimulate JSONLへ同期（王道A-2: price_date補完 + entry近似）"
+    help = "VirtualTrade(replay.pro.last_eval) を simulate JSONL に書き戻し（PRO一択）"
 
     def add_arguments(self, parser: CommandParser) -> None:
-        parser.add_argument("--days", type=int, default=10, help="対象日数（trade_date 기준）")
-        parser.add_argument("--user", type=int, default=None, help="対象ユーザーID（省略=全ユーザー）")
-        parser.add_argument("--date-max", type=str, default=None, help="上限日(YYYY-MM-DD)（省略=今日）")
-        parser.add_argument("--dry-run", action="store_true", help="書き込みせずログのみ")
-        parser.add_argument("--limit", type=int, default=0, help="処理するVirtualTrade上限（0=無制限）")
+        parser.add_argument("--days", type=int, default=10, help="直近何日分の trade_date を対象にする")
+        parser.add_argument("--user", type=int, default=None, help="対象ユーザーID（省略時は全ユーザー）")
+        parser.add_argument("--date-max", type=str, default=None, help="上限日（YYYY-MM-DD）。省略時は今日")
+        parser.add_argument("--limit", type=int, default=0, help="対象 vtrade を最大何件に制限（0=無制限）")
+        parser.add_argument("--dry-run", action="store_true", help="書き込みを行わずログだけ出す")
 
-    def handle(self, *args, **opts) -> None:
-        days: int = int(opts["days"])
-        user_id: Optional[int] = opts.get("user")
-        date_max_str: Optional[str] = opts.get("date_max")
-        dry_run: bool = bool(opts.get("dry_run"))
-        verbosity: int = int(opts.get("verbosity") or 1)
-        limit: int = int(opts.get("limit") or 0)
+    def handle(self, *args, **options) -> None:
+        days: int = int(options["days"])
+        user_id: Optional[int] = options.get("user")
+        date_max_s: Optional[str] = options.get("date_max")
+        limit: int = int(options.get("limit") or 0)
+        dry_run: bool = bool(options.get("dry_run"))
+        verbosity: int = int(options.get("verbosity") or 1)
 
-        if date_max_str:
-            try:
-                date_max = _date.fromisoformat(date_max_str)
-            except Exception:
-                date_max = timezone.localdate()
+        # date_max
+        if date_max_s:
+            dm = _parse_date(date_max_s)
+            date_max = dm if dm is not None else timezone.localdate()
         else:
             date_max = timezone.localdate()
 
-        date_min = date_max - _timedelta(days=max(0, days - 1))
+        date_min = date_max - timedelta(days=max(0, days - 1))
 
         simulate_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "simulate"
-        if not simulate_dir.exists():
-            self.stdout.write(self.style.WARNING(f"[sync_simulate_pro_eval] simulate_dir not found: {simulate_dir}"))
-            return
-
         self.stdout.write(
-            f"[sync_simulate_pro_eval] start days={days} limit={limit} user={user_id} date_max={date_max} dry_run={dry_run}"
+            f"[sync_simulate_pro_eval] start days={days} limit={limit} user={user_id} "
+            f"date_max={date_max.isoformat()} dry_run={dry_run}"
         )
 
-        # ------------------------------------------------------------
-        # 1) 対象 VirtualTrade を集める（trade_dateで絞る）
-        # ------------------------------------------------------------
+        if not simulate_dir.exists():
+            self.stdout.write(self.style.WARNING("[sync_simulate_pro_eval] simulate_dir not found"))
+            return
+
+        # 対象 vtrade 抽出
         qs = VirtualTrade.objects.all()
+        qs = qs.filter(trade_date__gte=date_min, trade_date__lte=date_max)
         if user_id is not None:
             qs = qs.filter(user_id=user_id)
-        qs = qs.filter(trade_date__gte=date_min, trade_date__lte=date_max).order_by("-trade_date", "-id")
-        if limit > 0:
+        qs = qs.order_by("-trade_date", "-id")
+        if limit and limit > 0:
             qs = qs[:limit]
 
-        vneeds: List[VNeed] = []
+        packs: List[EvalPack] = []
         skipped_no_last_eval = 0
+        skipped_no_qty_pro = 0
+
         for v in qs:
-            vn = _build_vneed(v)
-            if vn is None:
-                skipped_no_last_eval += 1
+            ep = _build_eval_pack(v)
+            if ep is None:
+                le = _get_last_eval_pro(v)
+                if le is None:
+                    skipped_no_last_eval += 1
+                else:
+                    skipped_no_qty_pro += 1
                 continue
-            vneeds.append(vn)
+            packs.append(ep)
 
-        # ------------------------------------------------------------
-        # 2) 対象ファイルを集める（ファイル名日付でざっくり絞る）
-        # ------------------------------------------------------------
-        all_files = sorted(simulate_dir.glob("*.jsonl"))
-        target_files: List[Path] = []
-        for p in all_files:
-            d = _date_from_filename(p.name)
-            if d is None:
-                # 日付読めないものは一応入れる（ただし空ファイルもあるので後で弾く）
-                target_files.append(p)
-                continue
-            if date_min <= d <= date_max:
-                target_files.append(p)
+        target_vtrades = len(packs)
 
+        # 何を触ったかの追跡（任意）
+        touched_run_ids: List[str] = sorted({p.run_id for p in packs if p.run_id})
+
+        # simulate ファイルを走査（基本は sim_orders_YYYY-MM-DD.jsonl のみ対象）
         scanned_files = 0
         scanned_lines = 0
         parsed_records = 0
-
         matched = 0
         updated_records = 0
         updated_files = 0
-        skipped_no_qty_pro = 0
         skipped_no_match = 0
 
-        # どのファイルが更新されたか
-        dirty_files: Dict[Path, List[str]] = {}
+        # pack をキーで引けるようにまとめる（複数同一キーがあり得るので list）
+        pack_map: Dict[Tuple[int, str, date, str, int], List[EvalPack]] = {}
+        for ep in packs:
+            # mode は simulate 側の mode と合わせたいので、ここでは "any" にしない
+            # VirtualTrade 側で mode を持ってない可能性があるので、候補側で評価する
+            # → mapキーは (user, code, trade_date, qty_int) に寄せる
+            k = (ep.user_id, ep.code, ep.trade_date, "any", int(ep.qty_pro))
+            pack_map.setdefault(k, []).append(ep)
 
-        # ------------------------------------------------------------
-        # 3) まず全ファイルを読み込み、検索用インデックスを作る
-        #    index_key = (user_id, code, date_key, mode, qty_pro_intish)
-        # ------------------------------------------------------------
-        # file_lines_map[path] = list[str] (raw lines)
-        file_lines_map: Dict[Path, List[str]] = {}
-        # file_rec_map[path] = list[Optional[dict]]  (JSONならdict、ダメならNone)
-        file_rec_map: Dict[Path, List[Optional[Dict[str, Any]]]] = {}
-        # global index: key -> list[(path, line_idx, rec)]
-        index: Dict[Tuple[int, str, str, str, int], List[Tuple[Path, int, Dict[str, Any]]]] = {}
+        # scan 対象：*.jsonl（空/壊れもあるが吸収）
+        paths = sorted(simulate_dir.glob("*.jsonl"))
 
-        for path in target_files:
+        for path in paths:
+            # 軽くフィルタ：orders系を優先し、他は読んでも良いが雑音が多いので一旦 skip
+            # 必要ならここを緩められる
+            if not path.name.startswith("sim_orders_"):
+                continue
+
             scanned_files += 1
-            try:
-                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-            except Exception:
-                lines = []
-            file_lines_map[path] = lines
-            recs: List[Optional[Dict[str, Any]]] = []
-            file_rec_map[path] = recs
+            raw_lines, parsed = _iter_jsonl_lines(path)
+            if not raw_lines:
+                continue
 
-            for i, line in enumerate(lines):
-                scanned_lines += 1
-                s = line.strip()
-                if not s:
-                    recs.append(None)
-                    continue
-                if not _is_json_line(s):
-                    recs.append(None)
-                    continue
-                try:
-                    rec = json.loads(s)
-                except Exception:
-                    recs.append(None)
-                    continue
+            scanned_lines += len(raw_lines)
 
+            # ファイル内の候補行を集めて index を作る（このファイル内だけ）
+            # index: (user, code, trade_date, mode, qty_int) -> [(line_idx, rec)]
+            idx: Dict[Tuple[int, str, date, str, int], List[Tuple[int, Dict[str, Any]]]] = {}
+
+            for i, rec in enumerate(parsed):
+                if rec is None:
+                    continue
                 parsed_records += 1
-                recs.append(rec)
 
-                # userフィルタ（index作成時点で減らす）
-                ru = rec.get("user_id")
-                if ru is None:
-                    continue
-                if user_id is not None and int(ru) != int(user_id):
+                uid = _safe_int(rec.get("user_id")) or 0
+                if user_id is not None and uid != user_id:
                     continue
 
+                code = _safe_str(rec.get("code")).strip()
+                td = _parse_date(rec.get("trade_date"))
+                mode = _safe_str(rec.get("mode")).lower().strip() or "other"
                 qty = _safe_float(rec.get("qty_pro")) or 0.0
-                if qty <= 0:
+
+                if not code or td is None or qty <= 0:
                     continue
 
-                code = _norm_code(rec.get("code"))
-                mode = _norm_mode(rec.get("mode"))
-                date_key = _record_trade_key_date(rec)  # price_date補完
-                if not code or not date_key:
-                    continue
+                key = (uid, code, td, mode, int(qty))
+                idx.setdefault(key, []).append((i, rec))
 
-                # qtyは float揺れがあるので int丸めでキー化（11, 100, 700 みたいな前提）
-                qty_key = int(round(qty))
+            # このファイルで pack を突き合わせる
+            file_changed = False
 
-                k = (int(ru), code, date_key, mode, qty_key)
-                index.setdefault(k, []).append((path, i, rec))
+            for ep in packs:
+                # vtrade に mode が無いので、modeは simulate の方の一致を優先
+                # candidate keys: ("demo","live","other") を全部試す
+                for mode in ("demo", "live", "other"):
+                    key = (ep.user_id, ep.code, ep.trade_date, mode, int(ep.qty_pro))
+                    cands = idx.get(key) or []
+                    if not cands:
+                        continue
 
-        # ------------------------------------------------------------
-        # 4) VirtualTradeごとに simulate レコードを探して書き戻す
-        # ------------------------------------------------------------
-        touched_run_ids: set[str] = set()
+                    # 複数候補がある場合は entry の近さで選ぶ
+                    best_i = None
+                    best_rec = None
+                    best_score = 1e18
+                    for (li, rec) in cands:
+                        sc = _score_candidate(rec, ep)
+                        if sc < best_score:
+                            best_score = sc
+                            best_i = li
+                            best_rec = rec
 
-        for vn in vneeds:
-            if vn.qty_pro <= 0:
-                skipped_no_qty_pro += 1
-                continue
+                    if best_i is None or best_rec is None:
+                        continue
 
-            qty_key = int(round(vn.qty_pro))
-            k = (vn.user_id, vn.code, vn.trade_date, vn.mode, qty_key)
-            cands = index.get(k) or []
+                    matched += 1
 
-            if not cands:
-                skipped_no_match += 1
-                if verbosity >= 2:
-                    self.stdout.write(
-                        f"[sync_simulate_pro_eval] no_match v_id={vn.v_id} user={vn.user_id} "
-                        f"code={vn.code} trade_date={vn.trade_date} mode={vn.mode} qty_pro={qty_key}"
-                    )
-                continue
+                    # ここで書き戻す
+                    label = ep.label
+                    exit_reason = ep.exit_reason
 
-            # best candidate by closest entry to entry_px (approx)
-            best_line_idx: Optional[int] = _best_match_index(
-                candidates=[(line_idx, rec) for (_p, line_idx, rec) in cands],
-                want_entry_px=vn.entry_px,
-            )
-            if best_line_idx is None:
-                skipped_no_match += 1
-                if verbosity >= 2:
-                    self.stdout.write(
-                        f"[sync_simulate_pro_eval] no_match(best_none) v_id={vn.v_id} user={vn.user_id} code={vn.code}"
-                    )
-                continue
+                    # eval_pl_pro
+                    eval_pl = _compute_eval_pl_pro(best_rec, ep)
 
-            # candidates may be across multiple files; pick the one with that line index in first matching path
-            chosen: Optional[Tuple[Path, int, Dict[str, Any]]] = None
-            for (p, li, rec) in cands:
-                if li == best_line_idx:
-                    chosen = (p, li, rec)
-                    break
-            if chosen is None:
-                chosen = cands[0]
+                    # eval_r_pro（任意）
+                    eval_r = _compute_eval_r_pro(best_rec, eval_pl)
 
-            path, li, rec = chosen
+                    # horizon
+                    horizon_bd = ep.horizon_bd
+                    if horizon_bd is not None:
+                        best_rec["eval_horizon_days"] = int(horizon_bd)
 
-            # 既に同じ評価が入ってるならスキップ（余計な上書きを避ける）
-            cur_label = (rec.get("eval_label_pro") or "")
-            cur_pl = rec.get("eval_pl_pro")
-            cur_r = rec.get("eval_r_pro")
+                    best_rec["eval_label_pro"] = label
+                    best_rec["eval_exit_reason_pro"] = exit_reason
 
-            new_label = vn.label
-            # carry/skip/no_position もそのまま入れてよい（学習側で弾く）
-            new_pl = vn.pl_yen if vn.pl_yen is not None else 0.0
-            new_r = vn.r_val
+                    if eval_pl is not None:
+                        best_rec["eval_pl_pro"] = float(eval_pl)
+                    else:
+                        # ここは「入れられない」場合は触らない（None のままにする）
+                        # ただし前回値が残るのが嫌なら 0.0 を入れる運用でもOK
+                        pass
 
-            # price_date が空なら trade_date を補完して埋める（A-2の肝）
-            if not _norm_date_str(rec.get("price_date")):
-                rec["price_date"] = vn.trade_date
+                    if eval_r is not None:
+                        best_rec["eval_r_pro"] = float(eval_r)
 
-            rec["eval_label_pro"] = new_label
-            rec["eval_pl_pro"] = float(new_pl)
-            if new_r is None:
-                # 無ければキー自体を消さず None を入れる（後段でsafeに処理できる）
-                rec["eval_r_pro"] = None
-            else:
-                rec["eval_r_pro"] = float(new_r)
+                    # キャリー/スキップは学習側で弾くので、ここはそのままでOK
+                    # "carry" のときも label だけは入れる（事実として）
+                    # exit_px は last_eval が持ってるなら保存しておく（任意）
+                    if ep.exit_px is not None:
+                        best_rec["eval_exit_px_pro"] = float(ep.exit_px)
+                    if ep.entry_px is not None:
+                        best_rec["eval_entry_px_pro"] = float(ep.entry_px)
 
-            if vn.exit_reason is not None and vn.exit_reason != "":
-                rec["eval_exit_reason_pro"] = vn.exit_reason
+                    # 更新
+                    parsed[best_i] = best_rec
+                    file_changed = True
+                    updated_records += 1
 
-            if vn.horizon_days is not None:
-                rec["eval_horizon_days"] = int(vn.horizon_days)
+                    if verbosity >= 2:
+                        self.stdout.write(
+                            f"[sync_simulate_pro_eval] update file={path.name} line={best_i} "
+                            f"code={ep.code} date={ep.trade_date.isoformat()} qty={int(ep.qty_pro)} label={label}"
+                        )
+                    break  # modeループ終了（最初に一致したmodeで確定）
+                else:
+                    continue  # modeループが break しなければ次へ
+                break  # packごとに1回マッチしたら終了
 
-            # run_id を収集
-            rid = rec.get("run_id")
-            if rid:
-                touched_run_ids.add(str(rid))
-
-            # 変更があったときだけdirtyへ
-            changed = (cur_label != rec.get("eval_label_pro")) or (cur_pl != rec.get("eval_pl_pro")) or (cur_r != rec.get("eval_r_pro"))
-            if changed:
-                matched += 1
-                updated_records += 1
-
-                # rec を行へ戻す
-                new_line = json.dumps(rec, ensure_ascii=False)
-                lines = file_lines_map.get(path) or []
-                if 0 <= li < len(lines):
-                    lines[li] = new_line
-                    file_lines_map[path] = lines
-                    dirty_files[path] = lines
-
-                if verbosity >= 2:
-                    self.stdout.write(
-                        f"[sync_simulate_pro_eval] update file={path.name} line={li} "
-                        f"code={vn.code} date={vn.trade_date} qty={qty_key} label={new_label}"
-                    )
-            else:
-                matched += 1  # 見つかったが更新不要
-
-        # ------------------------------------------------------------
-        # 5) 書き戻し
-        # ------------------------------------------------------------
-        if not dry_run:
-            for path, lines in dirty_files.items():
-                text = "\n".join(lines) + ("\n" if lines else "")
-                _atomic_write_text(path, text)
+            if file_changed:
+                if not dry_run:
+                    # 書き戻し（JSON化できない行はそのまま残す）
+                    out_lines: List[str] = []
+                    for i, orig in enumerate(raw_lines):
+                        rec = parsed[i] if i < len(parsed) else None
+                        if rec is None:
+                            out_lines.append(orig)
+                            continue
+                        out_lines.append(json.dumps(rec, ensure_ascii=False))
+                    _atomic_write_text(path, "\n".join(out_lines) + "\n")
                 updated_files += 1
 
+        # no_match を数える（packsのうち matched されなかった数を推定）
+        # ※ matched は "候補行" ヒット数なので pack とは一致しない場合がある
+        # ここはざっくりログ用途
+        if matched < target_vtrades:
+            skipped_no_match = target_vtrades - matched
+        else:
+            skipped_no_match = 0
+
+        # summary
         self.stdout.write("")
         self.stdout.write("===== sync_simulate_pro_eval summary =====")
         self.stdout.write(f"  scanned_files       : {scanned_files}")
         self.stdout.write(f"  scanned_lines       : {scanned_lines}")
         self.stdout.write(f"  parsed_records      : {parsed_records}")
-        self.stdout.write(f"  target_vtrades      : {len(vneeds)}")
-        self.stdout.write(f"  matched             : {matched}")
+        self.stdout.write(f"  target_vtrades      : {target_vtrades}")
+        self.stdout.write(f"  matched             : {min(matched, target_vtrades)}")
         self.stdout.write(f"  updated_records     : {updated_records}")
         self.stdout.write(f"  updated_files       : {updated_files}")
         self.stdout.write(f"  skipped_no_last_eval: {skipped_no_last_eval}")
         self.stdout.write(f"  skipped_no_qty_pro  : {skipped_no_qty_pro}")
         self.stdout.write(f"  skipped_no_match    : {skipped_no_match}")
         self.stdout.write(f"  touched_run_ids     : {len(touched_run_ids)}")
-        if verbosity >= 2 and touched_run_ids:
+        if touched_run_ids:
             self.stdout.write("  run_ids:")
-            for x in sorted(touched_run_ids):
-                self.stdout.write(f"    - {x}")
+            for rid in touched_run_ids:
+                self.stdout.write(f"    - {rid}")
 
         self.stdout.write("[sync_simulate_pro_eval] done")
