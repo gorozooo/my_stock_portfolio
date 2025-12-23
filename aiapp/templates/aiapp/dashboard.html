@@ -1,67 +1,164 @@
 {% extends "base.html" %}
 {% load static %}
-{% block title %}AIパイロット｜ホーム{% endblock %}
+{% block title %}AIパイロット{% endblock %}
 
 {% block head %}
 <style>
-  /* 最低限のローカルスタイル（base.htmlに影響しないスコープ） */
-  .ai-wrap{max-width:720px;margin:0 auto;padding:12px 12px 88px}
-  .ai-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.06);
-           border-radius:14px;padding:12px}
-  .ai-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
-  .ai-sm{font-size:12px;opacity:.8}
-  .ai-btn{padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.08);
-          border:1px solid rgba(255,255,255,.14);display:inline-block;text-decoration:none}
-  .ai-chip{padding:6px 10px;border-radius:12px;background:rgba(255,255,255,.08);
-           border:1px solid rgba(255,255,255,.14);display:inline-block}
-  .ai-gap{height:12px}
+  :root{
+    --glass: rgba(255,255,255,.08);
+    --line: rgba(255,255,255,.16);
+    --fg: #e5e7eb;
+    --sub: #9ca3af;
+    --accent: #60a5fa;
+  }
+  .ai-wrap{
+    max-width:720px;
+    margin:0 auto;
+    padding:14px 14px 96px;
+    color:var(--fg);
+  }
+  .ai-card{
+    background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.04));
+    border:1px solid var(--line);
+    border-radius:18px;
+    padding:14px;
+    backdrop-filter: blur(10px);
+  }
+  .ai-gap{height:14px}
+
+  /* ヘッダ */
+  .ai-head{
+    display:flex;align-items:center;justify-content:space-between;gap:10px
+  }
+  .ai-title{
+    font-size:18px;font-weight:700;letter-spacing:.02em
+  }
+  .ai-sub{
+    font-size:12px;color:var(--sub)
+  }
+  .mode-pill{
+    padding:8px 14px;
+    border-radius:999px;
+    border:1px solid var(--line);
+    background:var(--glass);
+    font-size:13px;
+    font-weight:600;
+    text-decoration:none;
+    color:var(--fg);
+  }
+
+  /* ステータス */
+  .status-row{
+    display:grid;
+    grid-template-columns:1fr 1fr 1fr;
+    gap:10px;
+    margin-top:10px;
+  }
+  .status-box{
+    background:var(--glass);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:10px;
+    text-align:center;
+  }
+  .status-val{
+    font-size:20px;
+    font-weight:700;
+    margin-top:4px;
+  }
+  .status-lbl{
+    font-size:11px;
+    color:var(--sub);
+  }
+
+  /* 今日のAI方針 */
+  .ai-intent{
+    font-size:14px;
+    line-height:1.6;
+  }
+
+  /* CTA */
+  .ai-cta{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+  .ai-btn{
+    flex:1;
+    text-align:center;
+    padding:12px 14px;
+    border-radius:14px;
+    border:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(96,165,250,.35),rgba(96,165,250,.15));
+    color:#fff;
+    font-weight:700;
+    text-decoration:none;
+  }
+  .ai-btn.sub{
+    background:var(--glass);
+    font-weight:600;
+  }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="ai-wrap">
 
+  <!-- AI ヘッダ -->
   <div class="ai-card">
-    <div class="ai-row">
+    <div class="ai-head">
       <div>
-        <div class="ai-sm">最終更新</div>
-        <div style="font-size:16px;font-weight:600">
-          {{ last_updated|date:"Y/m/d(D) H:i" }}
+        <div class="ai-title">AI パイロット</div>
+        <div class="ai-sub">
+          最終更新 {{ last_updated|date:"Y/m/d(D) H:i" }}
         </div>
       </div>
-      <div>
-        <a class="ai-btn" href="{% url 'aiapp:toggle' %}">
-          {{ mode }} ▽
-        </a>
+      <a href="{% url 'aiapp:toggle' %}" class="mode-pill">
+        {{ mode }}
+      </a>
+    </div>
+
+    <!-- AIの現在バランス -->
+    <div class="status-row">
+      <div class="status-box">
+        <div class="status-lbl">トレンド追随</div>
+        <div class="status-val">{{ regime.trend }}</div>
       </div>
-    </div>
-
-    <div class="ai-gap"></div>
-
-    <div class="ai-sm">レジーム</div>
-    <div style="font-size:14px;margin-top:4px">
-      追随 {{ regime.trend }}｜逆張り {{ regime.meanrev }}｜防御 {{ regime.defense }}
-    </div>
-
-    <div class="ai-gap"></div>
-
-    <div class="ai-sm">テーマ露出</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
-      {% for name, pct in themes %}
-        <span class="ai-chip">{{ name }} {{ pct }}%</span>
-      {% endfor %}
+      <div class="status-box">
+        <div class="status-lbl">逆張り耐性</div>
+        <div class="status-val">{{ regime.meanrev }}</div>
+      </div>
+      <div class="status-box">
+        <div class="status-lbl">防御姿勢</div>
+        <div class="status-val">{{ regime.defense }}</div>
+      </div>
     </div>
   </div>
 
   <div class="ai-gap"></div>
 
+  <!-- 今日のAI方針 -->
   <div class="ai-card">
-    <div class="ai-row">
-      <div style="font-weight:600">本日の10銘柄（最新）</div>
-      <a class="ai-btn" href="{% url 'aiapp:picks' %}">一覧を見る</a>
+    <div class="ai-sub">今日のAI判断</div>
+    <div class="ai-intent" style="margin-top:6px">
+      相場の流れを優先しつつ、<br>
+      過熱した銘柄は無理に追わず、<br>
+      **成功確率が高い場面だけを狙います。**
     </div>
-    <div class="ai-sm" style="margin-top:6px">
-      まずはダミー表示。次ステップで実データ化します。
+  </div>
+
+  <div class="ai-gap"></div>
+
+  <!-- 行動導線 -->
+  <div class="ai-card">
+    <div class="ai-sub">次にできること</div>
+    <div class="ai-cta" style="margin-top:10px">
+      <a href="{% url 'aiapp:picks' %}" class="ai-btn">
+        今日の10銘柄を見る
+      </a>
+      <a href="#" class="ai-btn sub">
+        AIの判断理由
+      </a>
     </div>
   </div>
 
