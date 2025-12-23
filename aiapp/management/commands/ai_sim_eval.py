@@ -153,22 +153,17 @@ def _find_ohlc_columns(df) -> Tuple[Optional[Any], Optional[Any], Optional[Any],
 def _coerce_ts(val: Any, fallback: _dt) -> _dt:
     """
     row["ts"] を確実に datetime にする（SeriesやTimestampでもOK）。
-    返り値は必ず Asia/Tokyo の tz-aware に寄せる。
     """
     try:
         import pandas as pd  # type: ignore
     except Exception:
-        if timezone.is_naive(fallback):
-            return timezone.make_aware(fallback, timezone.get_default_timezone())
-        return timezone.localtime(fallback)
+        return fallback
 
     if isinstance(val, pd.Series):
         if not val.empty:
             val = val.iloc[0]
         else:
-            if timezone.is_naive(fallback):
-                fallback = timezone.make_aware(fallback, timezone.get_default_timezone())
-            return timezone.localtime(fallback)
+            return fallback
 
     try:
         ts = pd.Timestamp(val)
@@ -176,13 +171,9 @@ def _coerce_ts(val: Any, fallback: _dt) -> _dt:
         ts = pd.to_datetime(val, errors="coerce")
 
     if pd.isna(ts):
-        if timezone.is_naive(fallback):
-            fallback = timezone.make_aware(fallback, timezone.get_default_timezone())
-        return timezone.localtime(fallback)
+        return fallback
 
     dt = ts.to_pydatetime()
-
-    # ★ここで必ずJSTへ寄せる
     if timezone.is_naive(dt):
         dt = timezone.make_aware(dt, timezone.get_default_timezone())
     return timezone.localtime(dt)
@@ -622,9 +613,16 @@ def _evaluate_exit_across_horizon(
     - TP/SL ヒットで即CLOSED
     - 最終営業日の最後の足で time_stop
     - 未来データ不足は carry
+
+    ★重要：未来日データが揃っていなくても、
+      「取れてる日だけ」で TP/SL 判定は必ず先にやる（合意の実運用）
+      → これで「今日TPタッチしたのにcarry」が起きない
     """
     trade_date = v.trade_date
     side = _side(v)
+
+    if horizon_bd <= 0:
+        horizon_bd = 1
 
     horizon_dates = _collect_horizon_trade_dates(str(v.code), trade_date, horizon_bd, max_scan_days=60)
 
@@ -636,18 +634,20 @@ def _evaluate_exit_across_horizon(
     if not horizon_dates:
         return EvalResult(ok=True, reason="carry", eval_exit_reason="carry", meta={**meta, "carry_rule": "no_horizon_dates"})
 
-    if len(horizon_dates) < int(horizon_bd):
-        return EvalResult(
-            ok=True,
-            reason="carry",
-            eval_exit_reason="carry",
-            meta={**meta, "carry_rule": "horizon_incomplete_future", "got": len(horizon_dates)},
-        )
+    # ここが修正ポイント：
+    # 「horizon分の営業日が揃ってない＝即carryでreturn」をやめる
+    # → まず取れてる日でTP/SL判定を実行し、それでも決済できないなら carry
+    horizon_complete = (len(horizon_dates) >= int(horizon_bd))
+    meta["horizon_complete"] = bool(horizon_complete)
+
+    last_target_date: Optional[_date] = horizon_dates[int(horizon_bd) - 1] if horizon_complete else None
+    meta["last_target_date"] = str(last_target_date) if last_target_date else None
 
     last_available_date: Optional[_date] = None
     last_close_px: Optional[float] = None
     last_close_ts: Optional[_dt] = None
 
+    # 評価に使う日付は「今ある分だけ」
     for d in horizon_dates:
         bars = load_5m_bars(v.code, d)
         if bars is None or len(bars) == 0:
@@ -701,13 +701,9 @@ def _evaluate_exit_across_horizon(
         hit_tp_idx = None
         hit_sl_idx = None
 
-        # ★TP/SL判定は side で逆（SELLはTP=下/SL=上）
         if tp_use is not None:
             try:
-                if side == "SELL":
-                    tp_mask = df_eff[low_col] <= float(tp_use)
-                else:
-                    tp_mask = df_eff[high_col] >= float(tp_use)
+                tp_mask = df_eff[high_col] >= float(tp_use)
                 if tp_mask.to_numpy().any():
                     hit_tp_idx = df_eff[tp_mask].index[0]
             except Exception:
@@ -715,10 +711,7 @@ def _evaluate_exit_across_horizon(
 
         if sl_use is not None:
             try:
-                if side == "SELL":
-                    sl_mask = df_eff[high_col] >= float(sl_use)
-                else:
-                    sl_mask = df_eff[low_col] <= float(sl_use)
+                sl_mask = df_eff[low_col] <= float(sl_use)
                 if sl_mask.to_numpy().any():
                     hit_sl_idx = df_eff[sl_mask].index[0]
             except Exception:
@@ -726,11 +719,7 @@ def _evaluate_exit_across_horizon(
 
         if hit_tp_idx is not None or hit_sl_idx is not None:
             if hit_tp_idx is not None and hit_sl_idx is not None:
-                # indexが同じ（同一足で両方ヒット）は安全側に SL 優先（保守的）
-                if hit_tp_idx == hit_sl_idx:
-                    tp_first = False
-                else:
-                    tp_first = hit_tp_idx <= hit_sl_idx
+                tp_first = hit_tp_idx <= hit_sl_idx
             else:
                 tp_first = hit_tp_idx is not None
 
@@ -756,16 +745,42 @@ def _evaluate_exit_across_horizon(
                 meta=meta,
             )
 
-    last_horizon_date = horizon_dates[-1]
-    if last_available_date != last_horizon_date:
+        # 完了していない状態で「ターゲット最終日」より先の判定は不要だが、
+        # horizon_dates自体が「barsがある日だけ」なので、ここでbreakしても問題ない
+        if last_target_date is not None and d >= last_target_date:
+            # 目標最終日まで見終わった
+            break
+
+    # TP/SLで決済できなかった → ここから carry / time_stop を決める
+
+    # horizon分が揃っていない＝未来未到達 → carry
+    if not horizon_complete:
         return EvalResult(
             ok=True,
             reason="carry",
             eval_exit_reason="carry",
             pl_per_share=None,
-            meta={**meta, "carry_rule": "last_horizon_not_available", "last_available_date": str(last_available_date) if last_available_date else None},
+            meta={**meta, "carry_rule": "horizon_incomplete_future", "got": len(horizon_dates), "need": int(horizon_bd)},
         )
 
+    # horizon分は揃っているのに、最後のターゲット日がまだ bars 的に揃ってない → carry
+    if last_target_date is None:
+        return EvalResult(ok=True, reason="carry", eval_exit_reason="carry", meta={**meta, "carry_rule": "no_last_target_date"})
+
+    if last_available_date != last_target_date:
+        return EvalResult(
+            ok=True,
+            reason="carry",
+            eval_exit_reason="carry",
+            pl_per_share=None,
+            meta={
+                **meta,
+                "carry_rule": "last_target_not_available",
+                "last_available_date": str(last_available_date) if last_available_date else None,
+            },
+        )
+
+    # 最終日まで見たがTP/SL未達 → time_stop（最終足の終値でクローズ）
     if last_close_px is None or last_close_ts is None:
         return EvalResult(
             ok=False,
@@ -873,10 +888,8 @@ class Command(BaseCommand):
         parser.add_argument("--dry-run", action="store_true", help="DB更新せずログだけ")
 
     def handle(self, *args, **options):
-        # ★options['verbosity'] を参照（self.verbosityは使わない）
         verbose = int(options.get("verbosity", 1) or 1)
 
-        # ★days=0 を潰さない（orで化けない）
         days_opt = options.get("days", None)
         days = 10 if days_opt is None else int(days_opt)
 
