@@ -1,261 +1,245 @@
 {% extends "base.html" %}
 {% load humanize %}
 
-{# =========================================================
-  aiapp/behavior_dashboard.html
-  - “未来感”は捨てて、ポップで奇抜な「実験ノート」みたいにする
-  - 画面上部：日付 + テロップ（iPhoneでも速くなる距離ベース）
-  - 中段：KPIを “おもちゃ箱” みたいに並べる
-  - 下段：AIの仮説 / 欲しいデータ / 直近トレード（観察ログ）
-========================================================= #}
-
 {% block title %}AI 行動ダッシュボード{% endblock %}
 
 {% block head %}
 <style>
-  /* =========================================================
-    THEME: Pop / Cute / Loud
-    - 未来感（暗いガラス/ネオン/宇宙）は使わない
-    - 白ベース + パステル + 強めのアクセントで“遊具感”
-  ========================================================= */
-
   :root{
-    --bgA:#fff7ed; /* うすオレンジ */
-    --bgB:#fdf2f8; /* うすピンク */
-    --bgC:#ecfeff; /* うすシアン */
-
-    --card:#ffffff;
-    --ink:#0f172a;
+    /* POP palette */
+    --bg:#fff7fb;
+    --bg2:#f5fbff;
+    --paper:#ffffff;
+    --ink:#111827;
     --sub:#475569;
 
-    --line:rgba(15,23,42,.12);
-    --shadow: 0 10px 28px rgba(15,23,42,.10);
-    --shadow2: 0 6px 16px rgba(15,23,42,.08);
-
-    --pink:#ff4d8d;
+    --pink:#ff3d8d;
     --orange:#ff7a18;
     --yellow:#ffd400;
-    --mint:#2ee9c6;
-    --sky:#35b6ff;
+    --mint:#21e6c1;
+    --sky:#2bb7ff;
     --violet:#7c3aed;
 
-    --win:#22c55e;
+    --win:#16a34a;
     --lose:#ef4444;
     --flat:#64748b;
+
+    --line:rgba(17,24,39,.12);
+    --shadow: 0 12px 30px rgba(17,24,39,.10);
+    --shadow2: 0 8px 18px rgba(17,24,39,.08);
+
+    --r:22px;
   }
 
   body{
-    /* コメント：背景は“紙＋落書き”のように軽く派手に */
     background:
-      radial-gradient(circle at 10% 10%, var(--bgC), transparent 55%),
-      radial-gradient(circle at 90% 0%, var(--bgB), transparent 60%),
-      radial-gradient(circle at 18% 96%, #fffbe6, transparent 55%),
-      linear-gradient(180deg, #ffffff 0%, var(--bgA) 55%, #ffffff 100%);
+      radial-gradient(circle at 12% 10%, rgba(43,183,255,.18), transparent 55%),
+      radial-gradient(circle at 90% 0%, rgba(255,61,141,.16), transparent 60%),
+      radial-gradient(circle at 20% 95%, rgba(255,212,0,.18), transparent 55%),
+      linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
     color:var(--ink);
   }
 
   .wrap{
-    max-width: 880px;
-    margin: 0 auto;
-    padding: 14px 12px 88px; /* コメント：下はタブ等を想定して余白 */
+    max-width:920px;
+    margin:0 auto;
+    padding:14px 12px 88px;
   }
 
-  /* =========================================================
-    HEADER CARD
-  ========================================================= */
-  .hero{
+  /* =========================
+     BIG POP HEADER
+     ========================= */
+  .poster{
     position:relative;
-    background: var(--card);
+    background:var(--paper);
     border:1px solid var(--line);
-    border-radius: 24px;
+    border-radius: calc(var(--r) + 6px);
     box-shadow: var(--shadow);
-    padding: 14px 14px 12px;
+    padding:16px 14px 14px;
     overflow:hidden;
   }
-
-  /* コメント：角から“絵の具”が漏れてる感じ */
-  .hero::before{
+  .poster:before{
     content:"";
     position:absolute;
-    right:-70px; top:-70px;
-    width:240px; height:240px;
+    inset:-70px -70px auto auto;
+    width:260px;height:260px;
     border-radius:50%;
     background:
-      radial-gradient(circle at 30% 30%, rgba(255,77,141,.65), transparent 56%),
-      radial-gradient(circle at 70% 70%, rgba(53,182,255,.55), transparent 58%),
-      radial-gradient(circle at 40% 80%, rgba(255,212,0,.42), transparent 62%);
-    transform: rotate(12deg);
+      radial-gradient(circle at 30% 35%, rgba(255,61,141,.65), transparent 55%),
+      radial-gradient(circle at 70% 70%, rgba(43,183,255,.55), transparent 58%),
+      radial-gradient(circle at 35% 75%, rgba(255,212,0,.45), transparent 62%);
+    transform:rotate(8deg);
     pointer-events:none;
   }
-  .hero::after{
+  .poster:after{
     content:"";
     position:absolute;
-    left:-90px; bottom:-90px;
-    width:260px; height:260px;
-    border-radius: 56px;
+    inset:auto auto -90px -90px;
+    width:280px;height:280px;
+    border-radius:60px;
     background:
-      radial-gradient(circle at 30% 30%, rgba(46,233,198,.55), transparent 60%),
-      radial-gradient(circle at 70% 70%, rgba(255,122,24,.45), transparent 62%);
-    transform: rotate(-10deg);
+      radial-gradient(circle at 30% 30%, rgba(33,230,193,.55), transparent 60%),
+      radial-gradient(circle at 70% 70%, rgba(255,122,24,.45), transparent 60%);
+    transform:rotate(-10deg);
     pointer-events:none;
   }
 
-  .heroTop{
+  .posterTop{
     position:relative;
     z-index:1;
     display:flex;
     justify-content:space-between;
     gap:10px;
+    align-items:flex-start;
   }
 
-  .title{
+  .logo{
     display:flex;
     align-items:center;
     gap:10px;
-    font-size: 18px;
-    font-weight: 1000;
-    letter-spacing: .2px;
+    font-weight:1000;
+    letter-spacing:.2px;
+    font-size:18px;
   }
-  .titleDot{
-    width: 10px; height: 10px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, var(--pink), var(--orange));
-    box-shadow: 0 0 0 4px rgba(255,77,141,.18);
-  }
-
-  .subtitle{
-    margin-top:6px;
-    font-size: 12px;
-    color: var(--sub);
-    line-height: 1.55;
+  .logoMark{
+    width:38px;height:38px;
+    border-radius:14px;
+    background:
+      linear-gradient(135deg, rgba(255,61,141,.95), rgba(255,122,24,.90));
+    box-shadow: 0 0 0 6px rgba(255,61,141,.12);
+    display:grid;
+    place-items:center;
+    color:#fff;
+    font-size:18px;
   }
 
-  /* =========================================================
-    CHIP ROW
-  ========================================================= */
-  .chips{
-    margin-top:10px;
+  .posterSub{
+    margin-top:8px;
+    font-size:12px;
+    font-weight:800;
+    color:rgba(17,24,39,.72);
+    line-height:1.55;
+  }
+
+  .metaRow{
     display:flex;
     flex-wrap:wrap;
     gap:8px;
-    position:relative;
-    z-index:1;
+    margin-top:10px;
   }
   .chip{
     display:inline-flex;
     align-items:center;
-    gap:6px;
+    gap:7px;
     padding:7px 10px;
     border-radius:999px;
-    border:1px solid var(--line);
+    border:1px solid rgba(17,24,39,.12);
     background:#fff;
-    box-shadow: 0 2px 10px rgba(15,23,42,.06);
+    box-shadow: 0 3px 10px rgba(17,24,39,.06);
     font-size:12px;
-    font-weight: 950;
+    font-weight:950;
     white-space:nowrap;
   }
-  .chip.pink{ border-color:rgba(255,77,141,.35); background:rgba(255,77,141,.10); }
-  .chip.sky{ border-color:rgba(53,182,255,.35); background:rgba(53,182,255,.12); }
-  .chip.mint{ border-color:rgba(46,233,198,.35); background:rgba(46,233,198,.14); }
-  .chip.yellow{ border-color:rgba(255,212,0,.35); background:rgba(255,212,0,.16); }
-  .chip.violet{ border-color:rgba(124,58,237,.28); background:rgba(124,58,237,.10); }
+  .chip b{font-variant-numeric: tabular-nums;}
+  .chip.pink{background:rgba(255,61,141,.10);border-color:rgba(255,61,141,.22);}
+  .chip.sky{background:rgba(43,183,255,.12);border-color:rgba(43,183,255,.22);}
+  .chip.mint{background:rgba(33,230,193,.14);border-color:rgba(33,230,193,.22);}
+  .chip.yellow{background:rgba(255,212,0,.18);border-color:rgba(255,212,0,.26);}
+  .chip.violet{background:rgba(124,58,237,.10);border-color:rgba(124,58,237,.18);}
 
-  /* =========================================================
-    TICKER (Distance-based for iPhone)
-    - 以前の「2秒にしても変わらない」を潰すため
-    - “duration固定”をやめて、距離(px) / 速度(px/s) で決める
-  ========================================================= */
+  /* =========================
+     FAST TICKER (iPhone OK)
+     ========================= */
   .ticker{
-    margin-top:12px;
-    border-radius: 18px;
-    border: 1px dashed rgba(15,23,42,.18);
-    background: linear-gradient(90deg,
-      rgba(255,77,141,.14),
-      rgba(255,212,0,.14),
-      rgba(46,233,198,.14),
-      rgba(53,182,255,.14)
-    );
-    overflow:hidden;
     position:relative;
     z-index:1;
+    margin-top:12px;
+    border-radius:18px;
+    border:2px dashed rgba(17,24,39,.18);
+    background:
+      linear-gradient(90deg,
+        rgba(255,61,141,.14),
+        rgba(255,212,0,.14),
+        rgba(33,230,193,.14),
+        rgba(43,183,255,.14)
+      );
+    overflow:hidden;
   }
+
   .tickerHead{
     display:flex;
     justify-content:space-between;
     align-items:center;
     gap:10px;
-    padding: 8px 10px 0;
+    padding:8px 10px 0 10px;
     font-size:11px;
     font-weight:1000;
-    color:rgba(15,23,42,.65);
+    color:rgba(17,24,39,.70);
   }
+
   .tickerLane{
-    position:relative;
     overflow:hidden;
-    padding: 8px 10px 10px;
-    touch-action: manipulation;
-    -webkit-user-select:none;
-    user-select:none;
+    padding:10px 10px 12px 10px;
+    touch-action:manipulation;
   }
+
   .tickerTrack{
     display:inline-flex;
-    align-items:center;
     gap:10px;
     white-space:nowrap;
     will-change: transform;
     transform: translate3d(0,0,0);
     animation: ticker-move var(--dur, 12s) linear infinite;
   }
-  .tickerLane.pause .tickerTrack{
-    animation-play-state: paused;
-  }
+  .tickerLane.pause .tickerTrack{ animation-play-state: paused; }
 
-  .tickerTag{
+  .tag{
     display:inline-flex;
     align-items:center;
-    gap:6px;
-    padding: 6px 10px;
+    gap:7px;
+    padding:7px 11px;
     border-radius:999px;
-    border:1px solid rgba(15,23,42,.12);
     background:#fff;
-    box-shadow: 0 2px 8px rgba(15,23,42,.06);
+    border:1px solid rgba(17,24,39,.12);
+    box-shadow: 0 2px 8px rgba(17,24,39,.06);
     font-size:12px;
     font-weight:1000;
     color:#0f172a;
   }
-  .spark{
+  .tagDot{
     width:10px;height:10px;border-radius:3px;
     background: linear-gradient(135deg, var(--orange), var(--pink));
   }
-  .tickerSep{
+  .sep{
     width:6px;height:6px;border-radius:50%;
-    background: rgba(15,23,42,.22);
+    background: rgba(17,24,39,.22);
+    align-self:center;
   }
 
   @keyframes ticker-move{
-    from{ transform: translate3d(var(--from, 0px), 0, 0); }
-    to{ transform: translate3d(var(--to, -600px), 0, 0); }
+    from{ transform: translate3d(var(--from, 0px),0,0); }
+    to{ transform: translate3d(var(--to, -600px),0,0); }
   }
 
-  /* =========================================================
-    GRID + CARDS
-  ========================================================= */
+  /* =========================
+     MAIN GRID
+     ========================= */
   .grid{
-    margin-top: 12px;
+    margin-top:12px;
     display:grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+    gap:10px;
   }
-  @media (max-width: 520px){
+  @media (max-width: 560px){
     .grid{ grid-template-columns: 1fr; }
   }
 
   .card{
-    background: var(--card);
+    background:var(--paper);
     border:1px solid var(--line);
-    border-radius: 22px;
+    border-radius: var(--r);
     box-shadow: var(--shadow2);
-    padding: 12px 12px;
+    padding:12px 12px;
   }
 
   .cardTitle{
@@ -264,113 +248,144 @@
     justify-content:space-between;
     gap:10px;
     font-size:13px;
-    font-weight:1000;
+    font-weight:1100;
     margin-bottom:8px;
   }
 
   .badge{
-    display:inline-flex;
-    align-items:center;
-    gap:6px;
-    padding: 6px 10px;
-    border-radius:999px;
     font-size:11px;
-    font-weight:1000;
-    border:1px solid rgba(15,23,42,.12);
-    background: rgba(15,23,42,.05);
+    font-weight:1100;
+    padding:6px 10px;
+    border-radius:999px;
+    border:1px solid rgba(17,24,39,.12);
+    background:rgba(17,24,39,.04);
     white-space:nowrap;
   }
 
-  /* =========================================================
-    KPI "Toy Box"
-  ========================================================= */
-  .toybox{
-    display:grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap:8px;
-  }
-  .toy{
-    border-radius: 18px;
-    border: 1px solid rgba(15,23,42,.10);
+  /* =========================
+     POP GAUGE (quirky)
+     ========================= */
+  .gauge{
+    border-radius:18px;
+    border:1px solid rgba(17,24,39,.10);
     background:
-      radial-gradient(circle at 20% 10%, rgba(255,212,0,.18), transparent 55%),
-      #ffffff;
-    padding: 10px 10px;
+      radial-gradient(circle at 15% 10%, rgba(255,212,0,.18), transparent 55%),
+      #fff;
+    padding:10px 10px;
   }
-  .toyLabel{
-    font-size:11px;
-    font-weight:1000;
-    color:rgba(15,23,42,.62);
-    margin-bottom:6px;
+  .gaugeTop{
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:10px;
   }
-  .toyVal{
-    font-size:16px;
-    font-weight:1100;
+  .big{
+    font-size:22px;
+    font-weight:1200;
+    letter-spacing:.2px;
     font-variant-numeric: tabular-nums;
   }
-  .toySub{
-    margin-top:4px;
+  .small{
     font-size:11px;
-    color:rgba(15,23,42,.55);
-    line-height:1.45;
+    font-weight:900;
+    color:rgba(17,24,39,.68);
   }
 
-  /* =========================================================
-    AI Hypotheses (quirky)
-  ========================================================= */
-  .hypList{
+  .bar{
+    height:14px;
+    border-radius:999px;
+    background: rgba(17,24,39,.08);
+    overflow:hidden;
+    margin-top:8px;
+    border:1px solid rgba(17,24,39,.08);
+  }
+  .bar > i{
+    display:block;
+    height:100%;
+    width: var(--p, 0%);
+    border-radius:999px;
+    background: linear-gradient(90deg, rgba(255,61,141,.95), rgba(255,212,0,.95), rgba(33,230,193,.95));
+  }
+
+  .kpiRow{
+    display:grid;
+    grid-template-columns: repeat(2, minmax(0,1fr));
+    gap:8px;
+    margin-top:10px;
+  }
+  .kpi{
+    border-radius:16px;
+    border:1px solid rgba(17,24,39,.10);
+    background:#fff;
+    padding:10px 10px;
+  }
+  .kpiLabel{
+    font-size:11px;
+    font-weight:1000;
+    color:rgba(17,24,39,.62);
+    margin-bottom:6px;
+  }
+  .kpiVal{
+    font-size:16px;
+    font-weight:1200;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* =========================
+     "WEIRD BUT USEFUL" blocks
+     ========================= */
+  .list{
     display:flex;
     flex-direction:column;
     gap:8px;
   }
-  .hyp{
-    border-radius: 20px;
-    border: 1px dashed rgba(15,23,42,.18);
+
+  .note{
+    border-radius:18px;
+    border:1px dashed rgba(17,24,39,.20);
     background:
       linear-gradient(0deg, rgba(255,255,255,.96), rgba(255,255,255,.96)),
-      radial-gradient(circle at 20% 10%, rgba(255,77,141,.18), transparent 55%),
-      radial-gradient(circle at 80% 90%, rgba(53,182,255,.18), transparent 60%);
-    padding: 10px 10px;
+      radial-gradient(circle at 20% 10%, rgba(255,61,141,.16), transparent 55%),
+      radial-gradient(circle at 80% 90%, rgba(43,183,255,.14), transparent 60%);
+    padding:10px 10px;
   }
-  .hypHead{
+  .noteHead{
     display:flex;
     align-items:center;
     gap:8px;
     font-size:11px;
-    font-weight:1100;
-    color:rgba(15,23,42,.70);
+    font-weight:1200;
+    color:rgba(17,24,39,.70);
     margin-bottom:6px;
   }
-  .hypNum{
-    width:22px;height:22px;border-radius:10px;
-    display:grid;place-items:center;
-    border:1px solid rgba(255,77,141,.28);
-    background: linear-gradient(135deg, rgba(255,122,24,.20), rgba(255,77,141,.20));
-    font-weight:1100;
+  .num{
+    width:24px;height:24px;
+    border-radius:12px;
+    display:grid;
+    place-items:center;
+    background: rgba(255,212,0,.28);
+    border:1px solid rgba(255,212,0,.35);
+    font-weight:1200;
   }
-  .hypBody{
+  .noteBody{
     font-size:13px;
     font-weight:1000;
     line-height:1.55;
-    color:#0f172a;
   }
 
-  /* =========================================================
-    "DNA map" (bias_map)
-  ========================================================= */
   .kv{
     display:grid;
     grid-template-columns: 1fr 1fr;
     gap:8px;
   }
-  @media (max-width: 520px){
+  @media (max-width: 560px){
     .kv{ grid-template-columns: 1fr; }
   }
   .kvRow{
-    border-radius: 18px;
-    border: 1px solid rgba(15,23,42,.10);
+    border-radius:16px;
+    border:1px solid rgba(17,24,39,.10);
     background:#fff;
-    padding: 10px 10px;
+    padding:10px 10px;
     display:flex;
     justify-content:space-between;
     gap:10px;
@@ -378,118 +393,112 @@
   .kvKey{
     font-size:12px;
     font-weight:1100;
-    color:rgba(15,23,42,.70);
+    color:rgba(17,24,39,.72);
   }
   .kvVal{
     font-size:12px;
-    font-weight:1100;
+    font-weight:1200;
     text-align:right;
   }
 
-  /* =========================================================
-    W/L Sequence
-  ========================================================= */
+  /* =========================
+     W/L confetti sequence
+     ========================= */
   .seq{
     display:flex;
     flex-wrap:wrap;
     gap:6px;
   }
   .pill{
-    width:32px;height:28px;
-    border-radius:14px;
+    width:34px;height:30px;
+    border-radius:15px;
     display:grid;
     place-items:center;
-    font-weight:1100;
-    border:1px solid rgba(15,23,42,.12);
+    font-weight:1200;
+    border:1px solid rgba(17,24,39,.12);
     background:#fff;
-    box-shadow: 0 2px 8px rgba(15,23,42,.05);
+    box-shadow: 0 2px 8px rgba(17,24,39,.05);
   }
-  .pill.win{ background: rgba(34,197,94,.18); border-color: rgba(34,197,94,.35); }
-  .pill.lose{ background: rgba(239,68,68,.16); border-color: rgba(239,68,68,.35); }
-  .pill.flat{ background: rgba(100,116,139,.12); border-color: rgba(100,116,139,.28); }
+  .pill.win{ background: rgba(22,163,74,.16); border-color: rgba(22,163,74,.32); }
+  .pill.lose{ background: rgba(239,68,68,.15); border-color: rgba(239,68,68,.30); }
+  .pill.flat{ background: rgba(100,116,139,.12); border-color: rgba(100,116,139,.26); }
 
   .streak{
     margin-top:8px;
     display:flex;
-    justify-content:space-between;
     align-items:center;
-    gap:10px;
+    justify-content:space-between;
+    gap:8px;
     font-size:12px;
-    font-weight:1100;
+    font-weight:1200;
   }
   .streak strong{
-    font-variant-numeric: tabular-nums;
-    padding: 6px 10px;
+    padding:6px 10px;
     border-radius:999px;
-    border:1px solid rgba(15,23,42,.12);
-    background: rgba(15,23,42,.05);
+    border:1px solid rgba(17,24,39,.12);
+    background:rgba(17,24,39,.05);
+    font-variant-numeric: tabular-nums;
   }
 
-  /* =========================================================
-    Recent trades
-  ========================================================= */
-  .tradeList{
-    display:flex;
-    flex-direction:column;
-    gap:8px;
-  }
+  /* =========================
+     Recent trades
+     ========================= */
   .trade{
-    border-radius: 20px;
-    border:1px solid rgba(15,23,42,.10);
+    border-radius:18px;
+    border:1px solid rgba(17,24,39,.10);
     background:#fff;
-    padding: 10px 10px;
+    padding:10px 10px;
   }
   .tradeTop{
     display:flex;
-    justify-content:space-between;
     align-items:center;
+    justify-content:space-between;
     gap:10px;
   }
-  .tradeCode{
+  .code{
     font-weight:1200;
     font-variant-numeric: tabular-nums;
   }
-  .tradeLabel{
+  .lbl{
     font-size:11px;
     font-weight:1200;
     padding:6px 10px;
     border-radius:999px;
-    border:1px solid rgba(15,23,42,.12);
+    border:1px solid rgba(17,24,39,.12);
   }
-  .tradeLabel.win{ background: rgba(34,197,94,.18); border-color: rgba(34,197,94,.35); }
-  .tradeLabel.lose{ background: rgba(239,68,68,.16); border-color: rgba(239,68,68,.35); }
-  .tradeLabel.flat{ background: rgba(100,116,139,.12); border-color: rgba(100,116,139,.28); }
+  .lbl.win{ background: rgba(22,163,74,.16); border-color: rgba(22,163,74,.32); }
+  .lbl.lose{ background: rgba(239,68,68,.15); border-color: rgba(239,68,68,.30); }
+  .lbl.flat{ background: rgba(100,116,139,.12); border-color: rgba(100,116,139,.26); }
 
   .tradeMid{
     margin-top:6px;
     display:flex;
-    justify-content:space-between;
     align-items:flex-end;
+    justify-content:space-between;
     gap:10px;
   }
-  .tradePL{
+  .pl{
     font-weight:1200;
     font-variant-numeric: tabular-nums;
   }
-  .tradePL.pos{ color: var(--win); }
-  .tradePL.neg{ color: var(--lose); }
-  .tradeMeta{
+  .pl.pos{ color: var(--win); }
+  .pl.neg{ color: var(--lose); }
+
+  .meta{
     font-size:11px;
-    color:rgba(15,23,42,.55);
-    white-space:nowrap;
+    color:rgba(17,24,39,.55);
     text-align:right;
+    white-space:nowrap;
   }
 
-  /* =========================================================
-    Empty
-  ========================================================= */
+  /* Empty */
   .empty{
     margin-top:12px;
-    border-radius: 24px;
-    border:2px dashed rgba(15,23,42,.18);
+    border-radius: calc(var(--r) + 8px);
+    border:2px dashed rgba(17,24,39,.18);
     background:#fff;
     box-shadow: var(--shadow2);
-    padding: 16px 14px;
+    padding:16px 14px;
   }
   .emptyTitle{
     font-size:14px;
@@ -498,58 +507,50 @@
   }
   .emptySub{
     font-size:12px;
-    color:rgba(15,23,42,.65);
-    line-height:1.55;
+    font-weight:900;
+    color:rgba(17,24,39,.65);
+    line-height:1.6;
   }
 </style>
 
 <script>
-  // =========================================================
-  // TICKER SPEED FIX (iPhone対応)
-  // - durationを直接いじっても変わらない原因は「移動距離が変わる」ため
-  // - 距離(px) / 速度(px/s) = 秒 で決めると、体感が一定になる
-  //
-  // 速くしたい時：
-  //   speedPx を上げる（例: 220, 260）
-  // =========================================================
+  // ✅ iPhoneで「2秒にしても変わらない」問題の本体:
+  // duration固定ではなく "距離 ÷ 速度(px/s)" で決める。
+  // さらに iOS の遅延レイアウトに備えて複数回 apply する。
   document.addEventListener("DOMContentLoaded", () => {
     const lane = document.querySelector("[data-ticker-lane]");
     const track = document.querySelector("[data-ticker-track]");
     if (!lane || !track) return;
 
-    const speedPx = 230;   // ★ iPhoneで確実に速くなる：ここを上げる
-    const minDur  = 5;     // ★ 読める最低秒（速すぎ防止）
-    const maxDur  = 26;    // ★ 長すぎ防止
+    const speedPx = 210; // ★ ここを上げると確実に速くなる（iPhoneでも効く）
+    const minDur  = 4;
+    const maxDur  = 26;
 
     const apply = () => {
-      // コメント：Safariはフォント読み込み後に幅が変わることがある
       const laneW  = lane.clientWidth || 320;
       const trackW = track.scrollWidth || 800;
 
-      // コメント：右端（画面外）→ 左へ完全に抜ける
-      const from = laneW;
-      const to   = -trackW;
+      const from = laneW;      // 右外から開始
+      const to   = -trackW;    // 左外へ抜ける
+      const dist = from - to;  // laneW + trackW
 
-      const dist = from - to; // = laneW + trackW
       let dur = dist / speedPx;
       dur = Math.max(minDur, Math.min(maxDur, dur));
 
       track.style.setProperty("--from", from + "px");
-      track.style.setProperty("--to",   to + "px");
-      track.style.setProperty("--dur",  dur + "s");
+      track.style.setProperty("--to", to + "px");
+      track.style.setProperty("--dur", dur + "s");
     };
 
-    // コメント：複数回当てて “iOSの幅確定遅延” に強くする
     apply();
     setTimeout(apply, 80);
     setTimeout(apply, 220);
     setTimeout(apply, 600);
 
-    // コメント：回転やアドレスバー伸縮に追従
     window.addEventListener("resize", () => setTimeout(apply, 80));
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) setTimeout(apply, 120); });
 
-    // コメント：触ってる間は止める（読みやすい）
-    const pauseOn  = () => lane.classList.add("pause");
+    const pauseOn = () => lane.classList.add("pause");
     const pauseOff = () => lane.classList.remove("pause");
 
     lane.addEventListener("touchstart", pauseOn, {passive:true});
@@ -558,11 +559,6 @@
     lane.addEventListener("mousedown", pauseOn);
     lane.addEventListener("mouseup", pauseOff);
     lane.addEventListener("mouseleave", pauseOff);
-
-    // コメント：バックグラウンド復帰後に再計算（iOSで止まる保険）
-    document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) setTimeout(apply, 120);
-    });
   });
 </script>
 {% endblock %}
@@ -570,57 +566,49 @@
 {% block content %}
 <div class="wrap">
 
-  <!-- =======================================================
-    HERO
-  ======================================================== -->
-  <div class="hero">
-    <div class="heroTop">
+  <!-- POP POSTER -->
+  <div class="poster">
+    <div class="posterTop">
       <div>
-        <div class="title">
-          <span class="titleDot"></span>
-          Behavior Lab（ポップ版）
+        <div class="logo">
+          <div class="logoMark">🎈</div>
+          行動ダッシュボード（ポップ版）
+        </div>
+        <div class="posterSub">
+          “未来っぽさ”は捨てた。<br>
+          代わりに <b>見た瞬間わかる</b>・<b>クセが刺さる</b> を優先した。
         </div>
 
-        <div class="subtitle">
-          “勝率”は結果。<br>
-          ここは <b>あなたの判断の癖</b> を、AIが勝手にラベル付けして育てる観察ノート。
-        </div>
-
-        <div class="chips">
-          <span class="chip pink">🧪 PRO仕様</span>
-          <span class="chip sky">📅 {{ today_label }}</span>
-          <span class="chip mint">📂 simulate={{ sim_files|default:0 }}</span>
-          <span class="chip yellow">🎯 WL={{ wl_total|default:0 }}</span>
-          <span class="chip violet">🧠 {{ understanding_label }}</span>
+        <div class="metaRow">
+          <span class="chip pink">📅 <b>{{ today_label|default:"-" }}</b></span>
+          <span class="chip sky">📂 files <b>{{ sim_files|default:0 }}</b></span>
+          <span class="chip mint">🧠 model <b>{% if model.has_model %}READY{% else %}NONE{% endif %}</b></span>
+          <span class="chip yellow">🎯理解度 <b>{{ understanding_label|default:"-" }}</b></span>
+          <span class="chip violet">🧷streak <b>{{ streak_label|default:"none" }}</b></span>
         </div>
       </div>
     </div>
 
-    <!-- =======================================================
-      TICKER
-    ======================================================== -->
-    <div class="ticker">
+    <!-- TICKER -->
+    <div class="ticker" style="margin-top:12px;">
       <div class="tickerHead">
-        <div>本日 {{ today_label }}</div>
-        <div>（長押し/タップ中は停止）</div>
+        <div>本日のテロップ{% if ticker_date %}（{{ ticker_date }}）{% endif %}</div>
+        <div>長押しで停止</div>
       </div>
-
       <div class="tickerLane" data-ticker-lane>
         <div class="tickerTrack" data-ticker-track>
           {% if ticker_lines %}
-            {# コメント：ループ感のため2周 #}
             {% for line in ticker_lines %}
-              <span class="tickerTag"><span class="spark"></span>{{ line }}</span><span class="tickerSep"></span>
+              <span class="tag"><span class="tagDot"></span>{{ line }}</span><span class="sep"></span>
             {% endfor %}
             {% for line in ticker_lines %}
-              <span class="tickerTag"><span class="spark"></span>{{ line }}</span><span class="tickerSep"></span>
+              <span class="tag"><span class="tagDot"></span>{{ line }}</span><span class="sep"></span>
             {% endfor %}
           {% else %}
-            {# コメント：ticker未生成でも画面が寂しくならないようにダミー #}
-            <span class="tickerTag"><span class="spark"></span>テロップ未生成：ticker を作るとここが流れる</span><span class="tickerSep"></span>
-            <span class="tickerTag"><span class="spark"></span>“WLが増えるほど” 癖の輪郭が出る</span><span class="tickerSep"></span>
-            <span class="tickerTag"><span class="spark"></span>16:20生成（または手動）でOK</span><span class="tickerSep"></span>
-            <span class="tickerTag"><span class="spark"></span>テロップ未生成：ticker を作るとここが流れる</span><span class="tickerSep"></span>
+            <span class="tag"><span class="tagDot"></span>テロップ未生成：今日の一言が流れる</span><span class="sep"></span>
+            <span class="tag"><span class="tagDot"></span>速度は “距離÷速度” 計算（iPhoneで効く）</span><span class="sep"></span>
+            <span class="tag"><span class="tagDot"></span>WLが増えるほど、クセが濃くなる</span><span class="sep"></span>
+            <span class="tag"><span class="tagDot"></span>テロップ未生成：今日の一言が流れる</span><span class="sep"></span>
           {% endif %}
         </div>
       </div>
@@ -628,193 +616,173 @@
   </div>
 
   {% if not has_data %}
-    <!-- =======================================================
-      EMPTY
-    ======================================================== -->
     <div class="empty">
-      <div class="emptyTitle">まだ行動データがない ✍️</div>
+      <div class="emptyTitle">まだデータが0 🥚</div>
       <div class="emptySub">
-        AI Picks のカードから「シミュレ」登録 → 16:00台の評価＆学習が走ると、ここが賑やかになります。<br>
-        まずは <b>win/lose</b> を増やすほど “あなたの型” が見えます。
+        ここは “行動のクセ” を育てる場所。<br>
+        まずはシミュレ→評価→学習で <b>win/lose</b> を増やすと、一気に面白くなる。
       </div>
     </div>
-
   {% else %}
 
-    <!-- =======================================================
-      KPI + DNA
-    ======================================================== -->
+    <!-- GRID 1 -->
     <div class="grid">
       <div class="card">
         <div class="cardTitle">
-          <span>おもちゃ箱KPI</span>
-          <span class="badge">simulate={{ sim_total|intcomma }} / WL={{ wl_total|intcomma }}</span>
+          <span>成績じゃない。クセの体温</span>
+          <span class="badge">WL={{ wl_total|default:0 }} / simulate={{ sim_total|default:0 }}</span>
         </div>
 
-        <div class="toybox">
-          <div class="toy">
-            <div class="toyLabel">勝率（win/lose）</div>
-            <div class="toyVal">
-              {% if win_rate is not None %}{{ win_rate|floatformat:1 }}%{% else %}-{% endif %}
+        {% with wr=win_rate|default_if_none:0 %}
+        <div class="gauge" style="--p:{% if win_rate is not None %}{{ win_rate|floatformat:0 }}%{% else %}0%{% endif %};">
+          <div class="gaugeTop">
+            <div class="big">
+              {% if win_rate is not None %}
+                {{ win_rate|floatformat:1 }}%
+              {% else %}
+                -
+              {% endif %}
             </div>
-            <div class="toySub">carry/skipは母数から除外</div>
+            <div class="small">勝率（win/lose）</div>
           </div>
+          <div class="bar"><i></i></div>
 
-          <div class="toy">
-            <div class="toyLabel">平均R</div>
-            <div class="toyVal">
-              {% if avg_r is not None %}{{ avg_r|floatformat:3 }}{% else %}-{% endif %}
+          <div class="kpiRow">
+            <div class="kpi">
+              <div class="kpiLabel">平均R</div>
+              <div class="kpiVal">{% if avg_r is not None %}{{ avg_r|floatformat:3 }}{% else %}-{% endif %}</div>
             </div>
-            <div class="toySub">“撤退の質”の目安</div>
-          </div>
-
-          <div class="toy">
-            <div class="toyLabel">平均PL</div>
-            <div class="toyVal">
-              {% if avg_pl is not None %}{{ avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}
+            <div class="kpi">
+              <div class="kpiLabel">平均PL</div>
+              <div class="kpiVal">{% if avg_pl is not None %}{{ avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}</div>
             </div>
-            <div class="toySub">勝ち/負けのバランスが反映</div>
-          </div>
-
-          <div class="toy">
-            <div class="toyLabel">理解度（AI側）</div>
-            <div class="toyVal">{{ understanding_label }}</div>
-            <div class="toySub">WL件数でラフ判定</div>
+            <div class="kpi">
+              <div class="kpiLabel">理解度ラベル</div>
+              <div class="kpiVal">{{ understanding_label|default:"-" }}</div>
+            </div>
+            <div class="kpi">
+              <div class="kpiLabel">モデル</div>
+              <div class="kpiVal">{% if model.has_model %}READY{% else %}NONE{% endif %}</div>
+            </div>
           </div>
         </div>
+        {% endwith %}
 
         {% if notes %}
-          <div class="toySub" style="margin-top:10px;">
-            {% for n in notes %}
-              • {{ n }}<br>
-            {% endfor %}
+          <div style="margin-top:10px;font-size:12px;font-weight:900;color:rgba(17,24,39,.68);line-height:1.6;">
+            {% for n in notes %}• {{ n }}<br>{% endfor %}
           </div>
         {% endif %}
       </div>
 
       <div class="card">
         <div class="cardTitle">
-          <span>判断DNA（クセの4分割）</span>
-          <span class="badge">streak: <b>{{ streak_label }}</b></span>
+          <span>勝ち負けの“並び”で見る</span>
+          <span class="badge">{{ streak_label|default:"none" }}</span>
         </div>
 
-        <div class="kv">
-          {% for b in bias_map %}
-            <div class="kvRow">
-              <div class="kvKey">{{ b.name }}</div>
-              <div class="kvVal">{{ b.value }}</div>
-            </div>
+        <div class="seq">
+          {% for s in sequence %}
+            <div class="pill {{ s.label }}">{{ s.text }}</div>
+          {% empty %}
+            <div style="font-size:12px;font-weight:900;color:rgba(17,24,39,.65);">まだ並びがありません</div>
           {% endfor %}
         </div>
 
         <div class="streak">
-          <div>直近の並び</div>
-          <strong>{{ streak_label }}</strong>
+          <div>連続状態</div>
+          <strong>{{ streak_label|default:"none" }}</strong>
         </div>
 
-        <div class="seq" style="margin-top:8px;">
-          {% for s in sequence %}
-            <div class="pill {{ s.label }}">{{ s.text }}</div>
-          {% endfor %}
-        </div>
-      </div>
-    </div>
-
-    <!-- =======================================================
-      HYPOTHESES
-    ======================================================== -->
-    <div class="card" style="margin-top:10px;">
-      <div class="cardTitle">
-        <span>AIの仮説（奇抜・直球）</span>
-        <span class="badge">update: {{ today_label }}</span>
-      </div>
-
-      <div class="hypList">
-        {% for h in hypotheses %}
-          <div class="hyp">
-            <div class="hypHead">
-              <div class="hypNum">{{ forloop.counter }}</div>
-              <div>仮説 {{ forloop.counter }}</div>
-            </div>
-            <div class="hypBody">{{ h }}</div>
+        <div style="margin-top:10px;">
+          <div class="cardTitle" style="margin-bottom:6px;">
+            <span>クセの地図（雑に刺す）</span>
+            <span class="badge">4観点</span>
           </div>
-        {% endfor %}
-      </div>
-
-      {% if wanted %}
-        <div class="subtitle" style="margin-top:10px;">
-          <b>AIが欲しい追加データ：</b><br>
-          {% for w in wanted %}
-            • {{ w }}<br>
-          {% endfor %}
+          <div class="kv">
+            {% for b in bias_map %}
+              <div class="kvRow">
+                <div class="kvKey">{{ b.name }}</div>
+                <div class="kvVal">{{ b.value }}</div>
+              </div>
+            {% empty %}
+              <div style="font-size:12px;font-weight:900;color:rgba(17,24,39,.65);">まだ判定できません</div>
+            {% endfor %}
+          </div>
         </div>
-      {% endif %}
+      </div>
     </div>
 
-    <!-- =======================================================
-      RECENT LOGS
-    ======================================================== -->
+    <!-- GRID 2 -->
     <div class="grid" style="margin-top:10px;">
       <div class="card">
         <div class="cardTitle">
-          <span>直近ログ（観察）</span>
+          <span>AIの仮説（刺さるやつだけ）</span>
+          <span class="badge">max 6</span>
+        </div>
+
+        <div class="list">
+          {% for h in hypotheses %}
+            <div class="note">
+              <div class="noteHead">
+                <div class="num">{{ forloop.counter }}</div>
+                <div>仮説 {{ forloop.counter }}</div>
+              </div>
+              <div class="noteBody">{{ h }}</div>
+            </div>
+          {% empty %}
+            <div style="font-size:12px;font-weight:900;color:rgba(17,24,39,.65);line-height:1.6;">
+              まだ仮説を作れるほどデータがありません。WLを増やすと “刺さる文” が出ます。
+            </div>
+          {% endfor %}
+        </div>
+
+        {% if wanted %}
+          <div style="margin-top:10px;font-size:12px;font-weight:1000;color:rgba(17,24,39,.70);line-height:1.6;">
+            <b>AIが欲しい追加データ：</b><br>
+            {% for w in wanted %}• {{ w }}<br>{% endfor %}
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="card">
+        <div class="cardTitle">
+          <span>直近ログ（観察モード）</span>
           <span class="badge">latest_behavior_side</span>
         </div>
 
-        <div class="tradeList">
+        <div class="list">
           {% for t in recent_trades %}
             <div class="trade">
               <div class="tradeTop">
-                <div class="tradeCode">{{ t.code }}</div>
-                <div class="tradeLabel {{ t.label }}">
+                <div class="code">{{ t.code }}</div>
+                <div class="lbl {{ t.label }}">
                   {% if t.label == "win" %}WIN{% elif t.label == "lose" %}LOSE{% else %}FLAT{% endif %}
                 </div>
               </div>
 
               <div class="tradeMid">
                 {% if t.pl >= 0 %}
-                  <div class="tradePL pos">+{{ t.pl|floatformat:0|intcomma }}円</div>
+                  <div class="pl pos">+{{ t.pl|floatformat:0|intcomma }}円</div>
                 {% else %}
-                  <div class="tradePL neg">{{ t.pl|floatformat:0|intcomma }}円</div>
+                  <div class="pl neg">{{ t.pl|floatformat:0|intcomma }}円</div>
                 {% endif %}
-
-                <div class="tradeMeta">
+                <div class="meta">
                   {% if t.r is not None %}R={{ t.r|floatformat:3 }} / {% endif %}
                   {{ t.meta }}
                 </div>
               </div>
             </div>
           {% empty %}
-            <div class="subtitle">まだ side の行がありません。</div>
+            <div style="font-size:12px;font-weight:900;color:rgba(17,24,39,.65);">
+              まだ side の行がありません。
+            </div>
           {% endfor %}
         </div>
-      </div>
 
-      <div class="card">
-        <div class="cardTitle">
-          <span>モデル状態</span>
-          <span class="badge">{% if model.has_model %}READY{% else %}NONE{% endif %}</span>
-        </div>
-
-        <div class="subtitle" style="font-weight:1000;">
-          {% if model.has_model %}
-            学習対象トレード数：<b>{{ model.total_trades|default:0|intcomma }}</b><br>
-            （WLが増えるほど“あなた専用”に寄る）
-          {% else %}
-            まだモデルファイルがありません。<br>
-            （sync → dataset → train の流れが揃うと READY）
-          {% endif %}
-        </div>
-
-        <div class="subtitle" style="margin-top:10px;">
-          <b>ticker：</b> {{ ticker_date|default:"" }}<br>
-          {% if ticker_lines %}
-            {% for line in ticker_lines %}
-              • {{ line }}<br>
-            {% endfor %}
-          {% else %}
-            • テロップはまだ空です（生成すると流れます）<br>
-          {% endif %}
+        <div style="margin-top:12px;font-size:12px;font-weight:900;color:rgba(17,24,39,.65);line-height:1.55;">
+          <b>tips：</b> iPhoneで速度が変わらない時は、duration固定じゃなくて<br>
+          “距離÷速度(px/s)” が効く（このテンプレはその方式）。
         </div>
       </div>
     </div>
