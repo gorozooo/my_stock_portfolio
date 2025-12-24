@@ -4,13 +4,14 @@ import glob
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from collections import defaultdict
 
-from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.utils import timezone
 
+# NOTE: VirtualTrade を import（既存通り）
 from aiapp.models.vtrade import VirtualTrade
 
 
@@ -106,7 +107,7 @@ def _understanding_label(wl_total: int) -> str:
 
 def _streak_from_labels(wl_labels: List[str]) -> Tuple[str, int]:
     """
-    wl_labels は古→新 の win/lose 配列。
+    wl_labels は古→新 の win/lose/flat 配列。
     戻り: (streak_label, streak_len)
     """
     if not wl_labels:
@@ -130,7 +131,7 @@ def _make_sequence(wl_labels: List[str]) -> List[Dict[str, str]]:
         lab2 = lab if lab in ("win", "lose", "flat") else "flat"
         txt = "W" if lab2 == "win" else ("L" if lab2 == "lose" else "F")
         seq.append({"label": lab2, "text": txt})
-    return seq[-12:]  # 直近12個だけ見せる
+    return seq[-12:]
 
 
 def _make_hypotheses(
@@ -322,6 +323,97 @@ def _load_ticker(ticker_path: Path) -> Dict[str, Any]:
     }
 
 
+def _normalize_reason(s: str) -> str:
+    s = (s or "").strip()
+    if not s:
+        return "(未設定)"
+    return s
+
+
+def _get_entry_reason_from_vtrade(v: VirtualTrade) -> str:
+    """
+    entry_reason を VirtualTrade から拾う（まだ無い場合は replay.meta.entry_reason を拾う）
+    """
+    # 1) まず v.entry_reason があればそれ
+    try:
+        val = getattr(v, "entry_reason", None)
+        if val:
+            return _normalize_reason(str(val))
+    except Exception:
+        pass
+
+    # 2) なければ replay.meta.entry_reason
+    try:
+        replay = v.replay if isinstance(v.replay, dict) else {}
+        meta = replay.get("meta") if isinstance(replay.get("meta"), dict) else {}
+        val2 = meta.get("entry_reason")
+        if val2:
+            return _normalize_reason(str(val2))
+    except Exception:
+        pass
+
+    return "(未設定)"
+
+
+def _build_entry_reason_stats_from_side(side_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    behavior/latest_behavior_side.jsonl を元に entry_reason 別の集計を作る。
+    side側は「評価が確定している」前提なので、まずここで可視化を成立させる。
+    """
+    agg_trials: Dict[str, int] = defaultdict(int)
+    agg_wins: Dict[str, int] = defaultdict(int)
+    agg_sum_r: Dict[str, float] = defaultdict(float)
+    agg_cnt_r: Dict[str, int] = defaultdict(int)
+    agg_sum_pl: Dict[str, float] = defaultdict(float)
+    agg_cnt_pl: Dict[str, int] = defaultdict(int)
+
+    for r in side_rows:
+        lab = str(r.get("eval_label") or "").strip().lower()
+        if lab not in ("win", "lose", "flat"):
+            continue
+
+        # entry_reason の拾い方：sideに入っていればそれ、無ければ "(未設定)"
+        reason = _normalize_reason(str(r.get("entry_reason") or r.get("entry_reason_pro") or ""))  # 将来拡張も想定
+        if reason == "(未設定)":
+            # sideに無いなら、replay.meta なども入っていない可能性が高い
+            pass
+
+        agg_trials[reason] += 1
+        if lab == "win":
+            agg_wins[reason] += 1
+
+        rv = _safe_float(r.get("eval_r"))
+        if rv is not None:
+            agg_sum_r[reason] += float(rv)
+            agg_cnt_r[reason] += 1
+
+        plv = _safe_float(r.get("eval_pl"))
+        if plv is not None:
+            agg_sum_pl[reason] += float(plv)
+            agg_cnt_pl[reason] += 1
+
+    out: List[Dict[str, Any]] = []
+    for reason, trials in agg_trials.items():
+        wins = agg_wins.get(reason, 0)
+        win_rate = (wins / trials * 100.0) if trials > 0 else 0.0
+        avg_r = (agg_sum_r[reason] / agg_cnt_r[reason]) if agg_cnt_r.get(reason, 0) > 0 else None
+        avg_pl = (agg_sum_pl[reason] / agg_cnt_pl[reason]) if agg_cnt_pl.get(reason, 0) > 0 else None
+        out.append(
+            {
+                "reason": reason,
+                "trials": trials,
+                "wins": wins,
+                "win_rate": win_rate,
+                "avg_r": avg_r,
+                "avg_pl": avg_pl,
+            }
+        )
+
+    # 表示：試行回数が多い順 → 勝率
+    out.sort(key=lambda x: (-int(x["trials"]), -float(x["win_rate"])))
+    return out
+
+
 # =========================
 # view
 # =========================
@@ -329,18 +421,17 @@ def _load_ticker(ticker_path: Path) -> Dict[str, Any]:
 @login_required
 def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     """
-    ✅ PRO仕様の行動ダッシュボード（奇抜UI版 + 日次テロップ）
+    ✅ PRO仕様の行動ダッシュボード（テロップ + entry_reason別）
     - simulate/*.jsonl を集計
     - behavior/model/latest_behavior_model_u{user}.json を読む
-    - behavior/latest_behavior_side.jsonl を読む
-    - behavior/ticker/latest_ticker_u{user}.json を読む（16:20生成）
+    - behavior/latest_behavior_side.jsonl を読む（まずはこれで entry_reason 別可視化）
+    - behavior/ticker/latest_ticker_u{user}.json を読む
     """
     user = request.user
     today = timezone.localdate()
     today_label = today.strftime("%Y-%m-%d")
 
-    # ✅ 本番/VPSでも確実に合うように MEDIA_ROOT を正にする
-    media_root = Path(getattr(settings, "MEDIA_ROOT", "media"))
+    media_root = Path("media")
     sim_dir = media_root / "aiapp" / "simulate"
     beh_dir = media_root / "aiapp" / "behavior"
 
@@ -366,6 +457,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     has_data = (wl_total >= 1) or (eval_done >= 1)
 
     side_rows = _read_jsonl(side_path)
+
     wl_labels: List[str] = []
     for r in side_rows:
         lab = str(r.get("eval_label") or "").strip().lower()
@@ -377,6 +469,9 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     streak_text = "none" if streak_len == 0 else f"{streak_label.upper()} x{streak_len}"
 
     ticker = _load_ticker(ticker_path)
+
+    # entry_reason 別（sideを元にまず成立させる）
+    entry_reason_stats = _build_entry_reason_stats_from_side(side_rows)
 
     if not has_data:
         return render(
@@ -390,6 +485,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
                 "model": {"has_model": has_model},
                 "ticker_date": ticker.get("date", ""),
                 "ticker_lines": ticker.get("lines", []),
+                "entry_reason_stats": entry_reason_stats,
             },
         )
 
@@ -438,5 +534,6 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         },
         "ticker_date": ticker.get("date", ""),
         "ticker_lines": ticker.get("lines", []),
+        "entry_reason_stats": entry_reason_stats,
     }
     return render(request, "aiapp/behavior_dashboard.html", ctx)
