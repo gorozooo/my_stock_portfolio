@@ -6,50 +6,51 @@
 {% block head %}
 <style>
 :root{
-  /* 以前の “濃紺×ガラス” に戻す */
-  --bg:#020617;                 /* 深い紺 */
-  --bg2:#06122a;                /* グラデ用 */
-  --card:rgba(15,23,42,.92);    /* ガラスカード */
-  --card2:rgba(15,23,42,.86);
-  --fg:#e5edff;                 /* 文字 */
-  --sub:#9ca3af;                /* サブ */
-  --line:rgba(148,163,184,.35); /* 枠線 */
-  --shadow:0 16px 40px rgba(2,6,23,.55);
+  /* ===== いままでの暗め（ガラス）寄りに戻す ===== */
+  --bg:#020617;
+  --card:rgba(15,23,42,.86);
+  --card2:rgba(15,23,42,.72);
+  --fg:#e5edff;
+  --sub:rgba(229,237,255,.70);
+  --muted:rgba(229,237,255,.55);
+  --line:rgba(148,163,184,.22);
 
-  --accent:#2dd4bf;
-  --accent2:#60a5fa;
-  --accent3:#f472b6;
+  --accent:#7c3aed;   /* 紫 */
+  --accent2:#38bdf8;  /* 水色 */
+  --accent3:#fb7185;  /* ピンク */
+
   --ok:#22c55e;
   --bad:#ef4444;
-  --muted:#94a3b8;
 
-  /* テロップ速度（秒）※JS側はpx/secなので参考程度 */
-  --ticker-sec: 30;
+  --shadow:0 14px 40px rgba(0,0,0,.35);
+  --shadow2:0 10px 26px rgba(0,0,0,.26);
+
+  /* テロップ速度は px/sec で制御（JS側） */
 }
 
 body{
   background:
-    radial-gradient(1200px 600px at 12% 12%, rgba(96,165,250,0.18), transparent 55%),
-    radial-gradient(900px 500px at 88% 18%, rgba(45,212,191,0.16), transparent 55%),
-    radial-gradient(800px 500px at 70% 88%, rgba(244,114,182,0.14), transparent 60%),
-    linear-gradient(180deg, var(--bg), var(--bg2));
+    radial-gradient(1200px 700px at 10% 10%, rgba(124,58,237,.22), transparent 55%),
+    radial-gradient(900px 520px at 85% 15%, rgba(56,189,248,.18), transparent 55%),
+    radial-gradient(900px 520px at 70% 90%, rgba(251,113,133,.12), transparent 60%),
+    linear-gradient(180deg, var(--bg), #071028);
   color: var(--fg);
 }
 
 .wrap{
-  max-width: 880px;
+  max-width: 920px;
   margin: 0 auto;
-  padding: 14px 12px 92px;
+  padding: 12px 12px 92px;
 }
 
 /* ===== 上部バー（今日 + テロップ） ===== */
 .topbar{
   position: sticky;
   top: 0;
-  z-index: 30;
+  z-index: 40;
   padding-top: 10px;
-  padding-bottom: 8px;
-  background: linear-gradient(180deg, rgba(2,6,23,0.92), rgba(2,6,23,0.72), rgba(2,6,23,0.00));
+  padding-bottom: 10px;
+  background: linear-gradient(180deg, rgba(2,6,23,.92), rgba(2,6,23,.70), rgba(2,6,23,0));
   backdrop-filter: blur(10px);
 }
 
@@ -66,9 +67,9 @@ body{
   gap:8px;
   padding:8px 10px;
   border-radius: 999px;
-  background: rgba(15,23,42,.92);
-  box-shadow: var(--shadow);
+  background: rgba(15,23,42,.86);
   border: 1px solid var(--line);
+  box-shadow: var(--shadow2);
   font-weight: 900;
   font-size: 12px;
   color: var(--fg);
@@ -76,16 +77,16 @@ body{
 
 .today-pill .sub{
   font-weight: 800;
-  color: rgba(229,237,255,0.65);
+  color: var(--muted);
 }
 
 .ticker{
   flex: 1 1 auto;
   overflow:hidden;
   border-radius: 999px;
-  background: rgba(15,23,42,.90);
-  box-shadow: var(--shadow);
+  background: rgba(15,23,42,.86);
   border: 1px solid var(--line);
+  box-shadow: var(--shadow2);
   height: 36px;
   display:flex;
   align-items:center;
@@ -97,7 +98,7 @@ body{
   position:absolute;
   left:0; top:0; bottom:0;
   width:24px;
-  background: linear-gradient(90deg, rgba(15,23,42,0.98), rgba(15,23,42,0.00));
+  background: linear-gradient(90deg, rgba(2,6,23,.95), rgba(2,6,23,0));
   pointer-events:none;
 }
 .ticker::after{
@@ -105,15 +106,15 @@ body{
   position:absolute;
   right:0; top:0; bottom:0;
   width:24px;
-  background: linear-gradient(270deg, rgba(15,23,42,0.98), rgba(15,23,42,0.00));
+  background: linear-gradient(270deg, rgba(2,6,23,.95), rgba(2,6,23,0));
   pointer-events:none;
 }
 
 .ticker-track{
   display:flex;
   align-items:center;
-  gap: 18px;
-  padding-left: 18px;
+  gap: 16px;
+  padding-left: 16px;
   will-change: transform;
   transform: translate3d(0,0,0);
 }
@@ -125,53 +126,44 @@ body{
   white-space: nowrap;
   font-size: 13px;
   font-weight: 900;
-  color: rgba(229,237,255,0.88);
+  color: rgba(229,237,255,.86);
 }
 
 .dot{
   width:8px; height:8px;
   border-radius: 50%;
   background: var(--accent2);
-  box-shadow: 0 0 0 4px rgba(96,165,250,0.18);
+  box-shadow: 0 0 0 4px rgba(56,189,248,.16);
 }
 
-.ticker-date{
-  position:absolute;
-  right:10px;
-  font-size: 11px;
-  font-weight: 900;
-  color: rgba(229,237,255,0.48);
-}
+/* ★ うっすら日付を完全に消す（邪魔なので） */
+.ticker-date{ display:none !important; }
 
 /* ===== セクション / カード ===== */
 .section{
-  margin-top: 14px;
+  margin-top: 12px;
   border-radius: 18px;
-  padding: 14px;
-  background:
-    radial-gradient(circle at top left, rgba(37,99,235,.18), transparent 55%),
-    rgba(15,23,42,.90);
+  padding: 12px;
+  background: linear-gradient(180deg, rgba(15,23,42,.88), rgba(15,23,42,.76));
   box-shadow: var(--shadow);
   border: 1px solid var(--line);
-  backdrop-filter: blur(10px);
 }
 
 .h-title{
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 1000;
   margin-bottom: 6px;
   letter-spacing: 0.2px;
-  color: rgba(229,237,255,0.96);
 }
 .h-sub{
   font-size: 12px;
   font-weight: 800;
-  color: rgba(229,237,255,0.62);
-  line-height: 1.5;
+  color: var(--sub);
+  line-height: 1.55;
 }
 
 .badges{
-  margin-top: 8px;
+  margin-top: 10px;
   display:flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -181,14 +173,13 @@ body{
   align-items:center;
   gap:6px;
   border-radius: 999px;
-  padding: 4px 10px;
+  padding: 5px 10px;
   font-size: 11px;
-  font-weight: 1000;
-  background: rgba(2,6,23,0.35);
-  border: 1px solid rgba(148,163,184,0.25);
-  color: rgba(229,237,255,0.78);
+  font-weight: 950;
+  background: rgba(2,6,23,.35);
+  border: 1px solid rgba(148,163,184,.20);
+  color: rgba(229,237,255,.86);
 }
-
 .badge .chip{
   width:10px; height:10px;
   border-radius: 4px;
@@ -199,42 +190,43 @@ body{
   display:grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 @media (max-width: 520px){
   .grid2{ grid-template-columns: 1fr; }
 }
 
+/* ★ KPIをコンパクト化（縦に間延びしない） */
 .kpi{
   border-radius: 16px;
-  padding: 12px 12px;
-  background: rgba(2,6,23,0.35);
-  border: 1px solid rgba(148,163,184,0.22);
+  padding: 10px 12px;
+  background: rgba(2,6,23,.32);
+  border: 1px solid rgba(148,163,184,.20);
 }
 .kpi .lab{
   font-size: 11px;
   font-weight: 900;
-  color: rgba(229,237,255,0.56);
-  margin-bottom: 6px;
+  color: rgba(229,237,255,.62);
+  margin-bottom: 4px;
 }
 .kpi .val{
-  font-size: 22px;
-  font-weight: 1100;
-  color: rgba(229,237,255,0.96);
+  font-size: 20px;
+  font-weight: 1000;
+  color: rgba(229,237,255,.95);
   font-variant-numeric: tabular-nums;
-  line-height: 1.1;
+  line-height: 1.12;
 }
 .kpi .sub{
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: 11px;
-  font-weight: 900;
-  color: rgba(229,237,255,0.52);
+  font-weight: 850;
+  color: rgba(229,237,255,.56);
 }
 
 .hr{
   height:1px;
-  background: rgba(148,163,184,0.22);
-  margin: 12px 0;
+  background: rgba(148,163,184,.18);
+  margin: 10px 0;
 }
 
 .list{
@@ -245,9 +237,9 @@ body{
 }
 .card{
   border-radius: 16px;
-  padding: 12px 12px;
-  background: rgba(2,6,23,0.35);
-  border: 1px solid rgba(148,163,184,0.22);
+  padding: 10px 12px;
+  background: rgba(2,6,23,.30);
+  border: 1px solid rgba(148,163,184,.18);
 }
 
 .row{
@@ -259,12 +251,12 @@ body{
 .row .k{
   font-size: 12px;
   font-weight: 900;
-  color: rgba(229,237,255,0.55);
+  color: rgba(229,237,255,.62);
 }
 .row .v{
   font-size: 12px;
-  font-weight: 1100;
-  color: rgba(229,237,255,0.90);
+  font-weight: 1000;
+  color: rgba(229,237,255,.92);
   font-variant-numeric: tabular-nums;
 }
 
@@ -281,12 +273,12 @@ body{
   padding: 6px 10px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 1100;
-  border: 1px solid rgba(148,163,184,0.22);
-  background: rgba(2,6,23,0.35);
-  color: rgba(229,237,255,0.82);
+  font-weight: 1000;
+  border: 1px solid rgba(148,163,184,.18);
+  background: rgba(2,6,23,.34);
+  color: rgba(229,237,255,.86);
 }
-.pill b{ font-weight: 1200; }
+.pill b{ font-weight: 1100; }
 
 .seq{
   margin-top: 10px;
@@ -296,25 +288,26 @@ body{
   align-items: center;
 }
 .seq-dot{
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 10px;
   display:flex;
   align-items:center;
   justify-content:center;
-  font-weight: 1100;
-  border: 1px solid rgba(148,163,184,0.22);
-  background: rgba(2,6,23,0.35);
-  color: rgba(229,237,255,0.80);
+  font-weight: 1000;
+  border: 1px solid rgba(148,163,184,.20);
+  background: rgba(2,6,23,.34);
+  color: rgba(229,237,255,.82);
+  font-size: 12px;
 }
-.seq-dot.win{ background: rgba(34,197,94,0.14); border-color: rgba(34,197,94,0.32); }
-.seq-dot.lose{ background: rgba(239,68,68,0.14); border-color: rgba(239,68,68,0.32); }
-.seq-dot.flat{ background: rgba(99,102,241,0.12); border-color: rgba(99,102,241,0.26); }
+.seq-dot.win{ background: rgba(34,197,94,0.18); border-color: rgba(34,197,94,0.35); }
+.seq-dot.lose{ background: rgba(239,68,68,0.16); border-color: rgba(239,68,68,0.32); }
+.seq-dot.flat{ background: rgba(99,102,241,0.14); border-color: rgba(99,102,241,0.26); }
 
 .small{
   font-size: 11px;
-  font-weight: 900;
-  color: rgba(229,237,255,0.56);
+  font-weight: 850;
+  color: rgba(229,237,255,.58);
 }
 
 .pl-pos{ color: var(--ok); }
@@ -322,20 +315,83 @@ body{
 
 /* ===== 空状態 ===== */
 .empty{
-  margin-top: 16px;
+  margin-top: 14px;
   border-radius: 18px;
-  padding: 16px;
-  background: rgba(15,23,42,.88);
-  border: 1px dashed rgba(148,163,184,0.35);
-  box-shadow: var(--shadow);
-  color: rgba(229,237,255,0.82);
+  padding: 14px;
+  background: rgba(15,23,42,.75);
+  border: 1px dashed rgba(148,163,184,.25);
+  box-shadow: var(--shadow2);
+  color: rgba(229,237,255,.86);
   font-weight: 900;
   line-height: 1.6;
 }
 
-/* iPhone向け：テロップはCSSアニメより JS（transform）で動かす */
+/* ===== AIの仮説：見づらさ改善（折りたたみ + 要点） ===== */
+.hypo-wrap{
+  margin-top: 10px;
+  display:flex;
+  flex-direction: column;
+  gap: 10px;
+}
+details.hypo{
+  border-radius: 16px;
+  background: rgba(2,6,23,.30);
+  border: 1px solid rgba(148,163,184,.18);
+  overflow:hidden;
+}
+details.hypo > summary{
+  list-style: none;
+  cursor: pointer;
+  padding: 10px 12px;
+  display:flex;
+  align-items:flex-start;
+  gap: 10px;
+}
+details.hypo > summary::-webkit-details-marker{ display:none; }
+.hypo-badge{
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight: 1000;
+  background: rgba(124,58,237,.18);
+  border: 1px solid rgba(124,58,237,.30);
+  color: rgba(229,237,255,.92);
+}
+.hypo-title{
+  flex: 1 1 auto;
+  font-size: 12px;
+  font-weight: 950;
+  color: rgba(229,237,255,.92);
+  line-height: 1.45;
+}
+.hypo-open{
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 1000;
+  color: rgba(229,237,255,.55);
+  padding-top: 2px;
+}
+.hypo-body{
+  padding: 0 12px 12px;
+  color: rgba(229,237,255,.80);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.7;
+}
+.hypo-body .mini{
+  margin-top: 8px;
+  font-size: 11px;
+  color: rgba(229,237,255,.55);
+  font-weight: 850;
+}
+
+/* iPhone向け：tickerは JS transform で動かす */
 .no-js .ticker-track{
-  animation: tickerMove var(--ticker-sec) linear infinite;
+  animation: tickerMove 12s linear infinite;
 }
 @keyframes tickerMove{
   0%{ transform: translate3d(0,0,0); }
@@ -365,10 +421,12 @@ body{
               <div class="ticker-item"><span class="dot"></span>{{ line }}</div>
             {% endfor %}
           {% else %}
-            <div class="ticker-item"><span class="dot"></span>テロップ未生成（16:20の生成を待機）</div>
-            <div class="ticker-item"><span class="dot"></span>テロップ未生成（16:20の生成を待機）</div>
+            <div class="ticker-item"><span class="dot"></span>テロップ未生成（生成ジョブ待機中）</div>
+            <div class="ticker-item"><span class="dot"></span>テロップ未生成（生成ジョブ待機中）</div>
           {% endif %}
         </div>
+
+        {# ★ 右側の薄い日付は邪魔なので表示しない（CSSでdisplay:noneにしてある） #}
         <div class="ticker-date">{% if ticker_date %}{{ ticker_date }}{% endif %}</div>
       </div>
     </div>
@@ -385,11 +443,11 @@ body{
     </div>
   {% else %}
 
-    <!-- 概要 -->
+    <!-- 概要（コンパクト版） -->
     <div class="section">
       <div class="h-title">AI 行動ダッシュボード（PRO）</div>
       <div class="h-sub">
-        「結果」だけじゃなく、これからは <b>入った理由（entry_reason）</b> を軸にクセを学習していく。
+        「結果」だけじゃなく、<b>入った理由（entry_reason）</b> を軸にクセを学習していく。
       </div>
 
       <div class="badges">
@@ -405,16 +463,19 @@ body{
           <div class="val">{% if win_rate is not None %}{{ win_rate|floatformat:1 }}%{% else %}-{% endif %}</div>
           <div class="sub">carry/skipは母数に含めない</div>
         </div>
+
         <div class="kpi">
           <div class="lab">平均R</div>
           <div class="val">{% if avg_r is not None %}{{ avg_r|floatformat:2 }}{% else %}-{% endif %}</div>
           <div class="sub">Rが無い日は学習に弱めに反映</div>
         </div>
+
         <div class="kpi">
           <div class="lab">平均PL</div>
           <div class="val">{% if avg_pl is not None %}{{ avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}</div>
           <div class="sub">PLは評価済みのみ</div>
         </div>
+
         <div class="kpi">
           <div class="lab">学習対象トレード数（モデル）</div>
           <div class="val">{% if model.has_model %}{{ model.total_trades|intcomma }}{% else %}-{% endif %}</div>
@@ -437,18 +498,35 @@ body{
       </div>
     </div>
 
-    <!-- 仮説 -->
+    <!-- AIの仮説（見やすい折りたたみ） -->
     <div class="section">
       <div class="h-title">AIの仮説</div>
-      <div class="h-sub">今の少量データから “それっぽいクセ” を仮置き。データが増えるほど鋭くなる。</div>
-
-      <div class="list">
-        {% for h in hypotheses %}
-          <div class="card">
-            <div style="font-weight:1000; color:rgba(229,237,255,0.88); font-size:13px;">{{ h }}</div>
-          </div>
-        {% endfor %}
+      <div class="h-sub">
+        いまの少量データから “それっぽいクセ” を仮置き。<b>必要なときだけ開いて読む</b>スタイル。
       </div>
+
+      {% if hypotheses %}
+        <div class="hypo-wrap">
+          {% for h in hypotheses %}
+            <details class="hypo">
+              <summary>
+                <div class="hypo-badge">{{ forloop.counter }}</div>
+                <div class="hypo-title">{{ h }}</div>
+                <div class="hypo-open">開く</div>
+              </summary>
+              <div class="hypo-body">
+                {{ h }}
+                <div class="mini">※データが増えるほど、仮説は「消える/強くなる/分岐する」を繰り返す。</div>
+              </div>
+            </details>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty" style="margin-top:12px;">
+          まだ仮説を生成できるだけのデータがありません。<br>
+          <span class="small">simulate（PRO）→ 評価 → 同期が揃うと出ます。</span>
+        </div>
+      {% endif %}
 
       <div class="pills">
         {% for n in notes %}
@@ -474,11 +552,11 @@ body{
       </div>
     </div>
 
-    <!-- entry_reason別（ここが本命） -->
+    <!-- entry_reason別 -->
     <div class="section">
       <div class="h-title">entry_reason 別 成績</div>
       <div class="h-sub">
-        ここからが本番。<b>「何で入ったか」</b>で勝率とRが変わるなら、あなたの型が見える。
+        <b>「何で入ったか」</b>で勝率とRが変わるなら、あなたの型が見える。
       </div>
 
       {% if entry_reason_stats %}
@@ -522,7 +600,7 @@ body{
       <div class="list">
         {% for w in wanted %}
           <div class="card">
-            <div style="font-weight:1000; font-size:13px; color:rgba(229,237,255,0.90);">{{ w }}</div>
+            <div style="font-weight:950; font-size:13px; color:rgba(229,237,255,.92); line-height:1.55;">{{ w }}</div>
           </div>
         {% endfor %}
       </div>
@@ -560,7 +638,7 @@ body{
             </div>
             <div class="row" style="margin-top:6px;">
               <div class="k">meta</div>
-              <div class="v" style="font-weight:900;color:rgba(229,237,255,0.58);">{{ t.meta }}</div>
+              <div class="v" style="font-weight:850;color:rgba(229,237,255,.60);">{{ t.meta }}</div>
             </div>
           </div>
         {% endfor %}
@@ -576,18 +654,18 @@ body{
   var root = document.getElementById("behaviorRoot");
   if (root) root.classList.remove("no-js");
 
-  // iPhoneでCSS animationが「体感変わらない」問題に対処：
+  // iPhoneでCSS animationが効きづらい時があるので
   // requestAnimationFrame + translate3d で確実に動かす
   var track = document.getElementById("tickerTrack");
   if (!track) return;
 
-  // 速度：px/sec（これが体感スピード）
-  var pxPerSec = 80; // 速くしたい→ 140 / 180
+  // ★ 体感速度：px/sec（ここだけ触れば速さが変わる）
+  var pxPerSec = 120; // 速く=150/180, 遅く=90
   var x = 0;
   var last = performance.now();
 
   function getLoopWidth(){
-    return Math.max(1, track.scrollWidth / 2);
+    return Math.max(1, track.scrollWidth / 2); // 2回並べてる前提
   }
   var loopW = getLoopWidth();
 
@@ -598,6 +676,8 @@ body{
   function step(now){
     var dt = (now - last) / 1000;
     last = now;
+
+    // iOS復帰でdtが跳ねる対策
     if (dt > 0.05) dt = 0.05;
 
     x -= pxPerSec * dt;
