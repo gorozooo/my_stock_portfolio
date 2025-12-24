@@ -551,6 +551,169 @@ def _as_float_or_none(x) -> Optional[float]:
 
 
 # =========================================================
+# ★ entry_reason（6択を必ず返す）
+# =========================================================
+
+_ENTRY_REASONS = (
+    "trend_follow",   # 順張り
+    "pullback",       # 押し目
+    "breakout",       # ブレイク
+    "reversal",       # 逆張り
+    "news",           # 材料
+    "mean_revert",    # レンジ逆
+)
+
+
+def _classify_entry_reason(
+    feat: pd.DataFrame,
+    *,
+    last: Optional[float],
+    atr: Optional[float],
+    entry: Optional[float],
+    tp: Optional[float],
+    sl: Optional[float],
+    ml_tp_first: Optional[str] = None,
+    ml_tp_probs: Optional[Dict[str, float]] = None,
+    reason_lines: Optional[List[str]] = None,
+    reason_concern: Optional[str] = None,
+) -> str:
+    """
+    entry_reason を 6択から必ず1つ返す。
+    - ここは「UIの分類タグ」用途。厳密さより “一貫性” と “落ちない” を優先。
+    - feat の列名揺れ/欠損があっても落とさない。
+
+    返す値:
+      trend_follow / pullback / breakout / reversal / news / mean_revert
+    """
+    try:
+        if feat is None or len(feat) == 0:
+            return "mean_revert"
+        row = feat.iloc[-1]
+
+        def g(key: str) -> Optional[float]:
+            try:
+                v = row.get(key)
+            except Exception:
+                v = None
+            if v is None:
+                return None
+            try:
+                f = float(v)
+            except Exception:
+                return None
+            if not np.isfinite(f):
+                return None
+            return f
+
+        # --- 主要指標 ---
+        slope25 = g("SLOPE_25")
+        slope5 = g("SLOPE_5")
+        rsi14 = g("RSI14")
+        bb_z = g("BB_Z")
+        vwap_gap = g("VWAP_GAP_PCT")
+        gcross = g("GCROSS")
+        dcross = g("DCROSS")
+
+        r1 = g("RET_1")
+        ret1_pct = (r1 * 100.0) if (r1 is not None) else None
+
+        ma25 = g("MA25") or g("MA20")
+        ma75 = g("MA75") or g("MA60")
+        high_52w = g("HIGH_52W")
+        low_52w = g("LOW_52W")
+
+        last_f = float(last) if (last is not None and np.isfinite(float(last))) else None
+        atr_f = float(atr) if (atr is not None and np.isfinite(float(atr))) else None
+
+        # --- テキスト側のヒント（あれば）---
+        text_blob = ""
+        try:
+            if reason_lines:
+                text_blob += " ".join([str(x) for x in reason_lines if x])
+            if reason_concern:
+                text_blob += " " + str(reason_concern)
+        except Exception:
+            text_blob = ""
+
+        def has_kw(*kws: str) -> bool:
+            if not text_blob:
+                return False
+            for kw in kws:
+                if kw and kw in text_blob:
+                    return True
+            return False
+
+        # =========================================================
+        # 優先度: news > breakout > pullback > trend_follow > reversal > mean_revert
+        # =========================================================
+
+        # --- news（材料）: 急変 or テキストが材料っぽい ---
+        if has_kw("材料", "決算", "IR", "ニュース", "上方修正", "下方修正", "増配", "減配", "自社株買", "TOB"):
+            return "news"
+        if ret1_pct is not None:
+            if abs(float(ret1_pct)) >= 7.0:
+                return "news"
+
+        # --- breakout（ブレイク） ---
+        if gcross is not None and gcross > 0:
+            return "breakout"
+        if last_f is not None and high_52w is not None:
+            # 52週高値の“ほぼ”更新をブレイク扱い
+            if last_f >= float(high_52w) * 0.995:
+                return "breakout"
+        if last_f is not None and ma25 is not None and ma75 is not None:
+            if last_f > float(ma25) and last_f > float(ma75):
+                if slope25 is not None and float(slope25) > 0:
+                    if bb_z is not None and float(bb_z) >= 1.0:
+                        return "breakout"
+
+        # --- pullback（押し目） ---
+        if last_f is not None and ma25 is not None:
+            if slope25 is not None and float(slope25) > 0:
+                # “トレンド上”でMA付近に戻ってる
+                near_ma = abs(last_f - float(ma25)) <= (0.6 * atr_f) if atr_f and atr_f > 0 else abs(last_f - float(ma25)) <= (0.015 * last_f)
+                rsi_ok = (rsi14 is None) or (40.0 <= float(rsi14) <= 60.0)
+                vwap_ok = (vwap_gap is None) or (abs(float(vwap_gap)) <= 1.0)
+                if near_ma and rsi_ok and vwap_ok:
+                    return "pullback"
+
+        # --- trend_follow（順張り） ---
+        if slope25 is not None and float(slope25) > 0:
+            rsi_strong = (rsi14 is None) or (float(rsi14) >= 55.0)
+            if last_f is not None and ma25 is not None:
+                if last_f >= float(ma25) and rsi_strong:
+                    return "trend_follow"
+            if rsi_strong:
+                return "trend_follow"
+
+        # --- reversal（逆張り） ---
+        # 弱トレンド/下向き + RSI低め or BB_Zが低い or 52週安値付近
+        if last_f is not None and low_52w is not None:
+            if last_f <= float(low_52w) * 1.010:
+                return "reversal"
+        if rsi14 is not None and float(rsi14) <= 35.0:
+            return "reversal"
+        if bb_z is not None and float(bb_z) <= -1.2:
+            return "reversal"
+        if slope25 is not None and float(slope25) < 0:
+            if dcross is not None and float(dcross) > 0:
+                return "reversal"
+            # 下向きのときは逆張り寄せ
+            return "reversal"
+
+        # --- mean_revert（レンジ逆） ---
+        # BB_Zが極端 / slopeが小さい / どれにも当たらない最終フォールバック
+        if bb_z is not None and abs(float(bb_z)) >= 1.6:
+            return "mean_revert"
+        if slope25 is not None and abs(float(slope25)) <= 0.02:
+            return "mean_revert"
+
+        return "mean_revert"
+    except Exception:
+        return "mean_revert"
+
+
+# =========================================================
 # 出力アイテム
 # =========================================================
 
@@ -559,6 +722,9 @@ class PickItem:
     code: str
     name: Optional[str] = None
     sector_display: Optional[str] = None
+
+    # ★ entry_reason（6択・必ず1つ）
+    entry_reason: Optional[str] = None
 
     # チャート用 OHLC（最新 max_points 本）
     chart_open: Optional[List[float]] = None
@@ -912,11 +1078,25 @@ def _work_one(
                 if BUILD_LOG:
                     print(f"[picks_build] reasons error for {code_norm}: {ex}")
 
+        # ★ entry_reason（6択・必ず1つ）
+        entry_reason = _classify_entry_reason(
+            feat,
+            last=_nan_to_none(last),
+            atr=_nan_to_none(atr),
+            entry=_nan_to_none(e),
+            tp=_nan_to_none(t),
+            sl=_nan_to_none(s),
+            ml_tp_first=ml_tp,
+            ml_tp_probs=ml_tp_probs if isinstance(ml_tp_probs, dict) else None,
+            reason_lines=reason_lines,
+            reason_concern=reason_concern,
+        )
+
         if BUILD_LOG:
             msg = (
                 f"[picks_build] {code_norm} last={last} atr={atr} "
                 f"score01={s01:.3f} score100={score100} stars={stars} "
-                f"(period={mode_period} aggr={mode_aggr})"
+                f"(period={mode_period} aggr={mode_aggr}) entry_reason={entry_reason}"
             )
             if ml_meta:
                 msg += f" ml(p_win={ml_p_win} ev={ml_ev} hold={ml_hold} tp_first={ml_tp})"
@@ -944,6 +1124,9 @@ def _work_one(
 
             reason_lines=reason_lines,
             reason_concern=reason_concern,
+
+            entry_reason=str(entry_reason),
+
             chart_open=chart_open,
             chart_high=chart_high,
             chart_low=chart_low,
