@@ -1,17 +1,36 @@
 from __future__ import annotations
 
+import os
 import glob
 import json
+from collections import Counter, defaultdict
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.utils import timezone
 
 from aiapp.models.vtrade import VirtualTrade
+
+
+# =========================
+# dataclass
+# =========================
+
+@dataclass
+class TradeSide:
+    broker: str          # "PRO"
+    pl: float            # 損益（円）
+    r: Optional[float]   # R（あれば）
+    label: str           # "win" / "lose" / "flat"
+    ts: str              # 元の ts 文字列
+    ts_label: str        # 表示用 ts
+    code: str
+    name: str
+    mode: str            # live / demo / other
 
 
 # =========================
@@ -27,299 +46,184 @@ def _safe_float(v: Any) -> Optional[float]:
         return None
 
 
-def _read_json(path: Path) -> Optional[Dict[str, Any]]:
+def _parse_dt_to_local(ts_str: str) -> Optional[timezone.datetime]:
+    if not ts_str:
+        return None
     try:
-        if not path.exists():
-            return None
-        return json.loads(path.read_text(encoding="utf-8"))
+        dt = timezone.datetime.fromisoformat(ts_str)
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt, timezone.get_default_timezone())
+        return timezone.localtime(dt)
     except Exception:
         return None
 
 
-def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
+def _make_ts_label(ts_str: str) -> str:
+    dt = _parse_dt_to_local(ts_str)
+    if dt is None:
+        return ts_str or ""
+    return dt.strftime("%Y-%m-%d %H:%M")
+
+
+def _infer_mode_from_replay(replay: Any) -> str:
+    """
+    mode は DBに専用カラムが無いことが多いので replay から拾う。
+    無ければ other。
+    """
     try:
-        if not path.exists():
-            return rows
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            s = line.strip()
-            if not s:
-                continue
-            try:
-                rows.append(json.loads(s))
-            except Exception:
-                continue
+        if isinstance(replay, dict):
+            m = (replay.get("mode") or replay.get("sim_mode") or "").strip().lower()
+            if m in ("live", "demo"):
+                return m
     except Exception:
-        return rows
-    return rows
+        pass
+    return "other"
 
 
-def _summarize_simulate_dir(sim_dir: Path) -> Dict[str, Any]:
+def _get_pro_last_eval(replay: Any) -> Dict[str, Any]:
     """
-    media/aiapp/simulate/sim_orders_*.jsonl を集計する。
-    qty_pro がある行のみ対象。
-    eval_label_pro がある行は「評価済み」扱い。
+    ai_sim_eval が入れる replay.pro.last_eval を拾う。
     """
-    paths = sorted(glob.glob(str(sim_dir / "sim_orders_*.jsonl")))
-    total_qty = 0
-    eval_done = 0
-    wl = 0
-    labels: Dict[str, int] = {"win": 0, "lose": 0, "carry": 0, "skip": 0, "flat": 0, "other": 0}
-
-    for p in paths:
-        for r in _read_jsonl(Path(p)):
-            if not r.get("qty_pro"):
-                continue
-            total_qty += 1
-            lab = r.get("eval_label_pro")
-            if lab is None:
-                continue
-            eval_done += 1
-            lab_s = str(lab).strip().lower()
-            if lab_s in ("win", "lose"):
-                wl += 1
-            if lab_s in labels:
-                labels[lab_s] += 1
-            else:
-                labels["other"] += 1
-
-    return {
-        "files": len(paths),
-        "total_qty": total_qty,
-        "eval_done": eval_done,
-        "wl": wl,
-        "labels": labels,
-    }
+    if not isinstance(replay, dict):
+        return {}
+    pro = replay.get("pro")
+    if not isinstance(pro, dict):
+        return {}
+    last_eval = pro.get("last_eval")
+    if not isinstance(last_eval, dict):
+        return {}
+    return last_eval
 
 
-def _understanding_label(wl_total: int) -> str:
-    if wl_total <= 1:
-        return "ZERO"
-    if wl_total <= 3:
-        return "LOW"
-    if wl_total <= 8:
-        return "MID"
-    if wl_total <= 20:
+def _label_from_exit_reason(exit_reason: str, pl_pro: Optional[float]) -> str:
+    """
+    PRO公式ラベル（win/lose/flat）をここで確定。
+    """
+    r = (exit_reason or "").strip().lower()
+    if r in ("hit_tp",):
+        return "win"
+    if r in ("hit_sl",):
+        return "lose"
+    if r in ("time_stop",):
+        if pl_pro is None:
+            return "flat"
+        if pl_pro > 0:
+            return "win"
+        if pl_pro < 0:
+            return "lose"
+        return "flat"
+    return ""
+
+
+def _count_simulate_files() -> int:
+    """
+    media/aiapp/simulate/sim_orders_*.jsonl の数（表示用）
+    """
+    try:
+        base = getattr(settings, "MEDIA_ROOT", "")
+        ptn = os.path.join(base, "aiapp", "simulate", "sim_orders_*.jsonl")
+        return len(glob.glob(ptn))
+    except Exception:
+        return 0
+
+
+def _load_behavior_model(user_id: int) -> Dict[str, Any]:
+    """
+    media/aiapp/behavior/model/latest_behavior_model_u{user}.json を読んで表示用に整形
+    """
+    base = getattr(settings, "MEDIA_ROOT", "")
+    path = os.path.join(base, "aiapp", "behavior", "model", f"latest_behavior_model_u{user_id}.json")
+    if not os.path.exists(path):
+        return {
+            "has_model": False,
+            "total_trades": None,
+            "wins": None,
+            "win_rate": None,
+            "avg_pl": None,
+            "avg_r": None,
+            "updated_at": None,
+        }
+
+    try:
+        j = json.loads(open(path, "r", encoding="utf-8").read())
+        return {
+            "has_model": True,
+            "total_trades": j.get("total_trades"),
+            "wins": j.get("wins"),
+            "win_rate": j.get("win_rate"),
+            "avg_pl": j.get("avg_pl"),
+            "avg_r": j.get("avg_r"),
+            "updated_at": j.get("updated_at") or j.get("generated_at") or None,
+        }
+    except Exception:
+        return {
+            "has_model": False,
+            "total_trades": None,
+            "wins": None,
+            "win_rate": None,
+            "avg_pl": None,
+            "avg_r": None,
+            "updated_at": None,
+        }
+
+
+def _understanding_level(wl_total: int) -> str:
+    """
+    データ量から “理解度” をざっくり出す（表示用）
+    """
+    if wl_total >= 40:
         return "HIGH"
-    return "DEEP"
+    if wl_total >= 15:
+        return "MID"
+    return "LOW"
 
 
-def _streak_from_labels(wl_labels: List[str]) -> Tuple[str, int]:
-    """
-    wl_labels は古→新 の win/lose 配列。
-    戻り: (streak_label, streak_len)
-    """
-    if not wl_labels:
-        return ("none", 0)
-    last = wl_labels[-1]
-    n = 1
-    for i in range(len(wl_labels) - 2, -1, -1):
-        if wl_labels[i] == last:
-            n += 1
-        else:
-            break
-    return (last, n)
-
-
-def _make_sequence(wl_labels: List[str]) -> List[Dict[str, str]]:
-    """
-    表示用：古→新
-    """
-    seq: List[Dict[str, str]] = []
-    for lab in wl_labels:
-        lab2 = lab if lab in ("win", "lose", "flat") else "flat"
-        txt = "W" if lab2 == "win" else ("L" if lab2 == "lose" else "F")
-        seq.append({"label": lab2, "text": txt})
-    return seq[-12:]  # 直近12個だけ見せる
-
-
-def _make_hypotheses(
+def _build_hypotheses(
     wl_total: int,
     win_rate: Optional[float],
     avg_r: Optional[float],
-    avg_pl: Optional[float],
-    labels: Dict[str, int],
-    streak_label: str,
-    streak_len: int,
-) -> List[str]:
-    hyps: List[str] = []
-
-    carry = int(labels.get("carry", 0))
-    skip = int(labels.get("skip", 0))
-    win = int(labels.get("win", 0))
-    lose = int(labels.get("lose", 0))
-
-    if wl_total < 5:
-        hyps.append("私はまだ“あなたの型”を確定できない。いまは《クセの芽》だけを保存している。")
-    else:
-        hyps.append("私は“あなたの型”を作り始めた。次は《再現できる勝ち方》だけを残していく。")
-
-    if win_rate is not None:
-        if win_rate >= 60:
-            hyps.append("命中は高い。問題が起きるなら《勝ちを小さく》《負けを大きく》する癖の方。")
-        elif win_rate >= 45:
-            hyps.append("命中は平均帯。改善は《入り方》より《撤退の形》に寄る。")
-        else:
-            hyps.append("命中がまだ低い。選別ロジックが強すぎるか、刺さる条件がズレている。")
-
-    if avg_r is not None:
-        if avg_r >= 0.3:
-            hyps.append("平均Rはプラス。私は《利確の形》を真似し始めていい段階。")
-        elif avg_r >= 0:
-            hyps.append("平均Rはゼロ付近。ルール順守はできているが、“伸ばす学習”が不足している。")
-        else:
-            hyps.append("平均Rがマイナス。負けがルール想定より深い。ロット/滑り/我慢のどれかが混ざっている。")
-
-    if avg_pl is not None:
-        if avg_pl >= 0:
-            hyps.append("平均PLはプラス。次の敵は《大負け》ではなく《取りこぼし》の方に移る。")
-        else:
-            hyps.append("平均PLはマイナス。勝率より先に《負けの平均サイズ》を潰すと立て直しが速い。")
-
-    if (carry + skip) >= (win + lose) and (carry + skip) >= 3:
-        hyps.append("carry/skip が多い。あなたは“撃つ”より“様子を見る”で世界を制御している。条件が厳しすぎる可能性。")
-
-    if streak_len >= 2 and streak_label in ("win", "lose"):
-        if streak_label == "win":
-            hyps.append(f"直近は WIN が {streak_len} 連続。私は“勝てる条件”を固定し、同条件だけを増殖させたい。")
-        else:
-            hyps.append(f"直近は LOSE が {streak_len} 連続。私は“負けの型”を逆に固定して、そこだけ入らないようにしたい。")
-
-    return hyps[:6]
-
-
-def _make_notes(wl_total: int, sim_total: int, eval_done: int, labels: Dict[str, int]) -> List[str]:
-    notes: List[str] = []
-    notes.append(f"simulate（qty_proあり）={sim_total} 件 / 評価済み={eval_done} 件 / win-lose={wl_total} 件")
-    if int(labels.get("carry", 0)) > 0:
-        notes.append(f"carry={labels.get('carry', 0)} は“保有継続”なので、勝率の母数には入れていません。")
-    if int(labels.get("skip", 0)) > 0:
-        notes.append(f"skip={labels.get('skip', 0)} は“ポジション無し”なので、勝率の母数には入れていません。")
-    return notes[:4]
-
-
-def _make_bias_map(
-    win_rate: Optional[float],
-    avg_r: Optional[float],
-    labels: Dict[str, int],
+    avg_win: Optional[float],
+    avg_loss: Optional[float],
+    best_sector_name: Optional[str],
 ) -> List[Dict[str, str]]:
-    carry = int(labels.get("carry", 0))
-    skip = int(labels.get("skip", 0))
-    wl = int(labels.get("win", 0)) + int(labels.get("lose", 0))
+    """
+    “奇抜/革新的”寄りに、でも実務に刺さる仮説を出す
+    """
+    hs: List[Dict[str, str]] = []
 
-    if wl == 0:
-        tempo = "未判定"
+    # 仮説01（核）
+    if wl_total < 5 or win_rate is None:
+        hs.append({"level": "SEED", "text": "私は“あなたの型”をまだ作成中。まずは PRO の評価付きログを増やし、勝ち筋と負け筋を分離する。"})
     else:
-        tempo = "冷（見送り/継続多め）" if (carry + skip) >= wl else "熱（実行多め）"
+        hs.append({"level": "CORE", "text": "私は“あなたの型”を作り始めた。次は《再現できる勝ち方》だけを残していく。"})
 
-    if avg_r is None:
-        risk = "未判定"
-    else:
-        if avg_r >= 0.3:
-            risk = "撤退は良い/回収も良い"
-        elif avg_r >= 0:
-            risk = "撤退は概ねルール通り"
-        else:
-            risk = "撤退が深い（要修正）"
-
+    # 仮説02（命中）
     if win_rate is None:
-        hit = "未判定"
+        hs.append({"level": "SEED", "text": "命中率はまだ測定不能。評価付きの win/lose を貯め、条件のズレ（銘柄選別 / 入口 / ロット）を切り分ける。"})
     else:
-        if win_rate >= 60:
-            hit = "命中高め"
-        elif win_rate >= 45:
-            hit = "平均帯"
+        if win_rate < 45:
+            hs.append({"level": "RISK", "text": "命中がまだ低い。選別ロジックが強すぎるか、刺さる条件がズレている。まずは “刺さる市場” を限定して勝ち筋を固定する。"})
+        elif win_rate < 60:
+            hs.append({"level": "MID", "text": "命中は中間。ここから伸ばすには『同じ勝ち方を反復できる条件』の固定が効く。"})
         else:
-            hit = "命中低め"
-
-    if (carry + skip) == 0:
-        indecision = "未判定"
+            hs.append({"level": "EDGE", "text": "命中は高い。次は “負け方の単純化（損切りの統一）” で R を底上げする。"})
+    # 仮説03（R）
+    if avg_r is None:
+        hs.append({"level": "SEED", "text": "Rはまだ未知。Rが取れるログだけで再学習し、“勝ちの大きさ/負けの深さ” を数字で固定する。"})
     else:
-        indecision = "見送り優位（慎重）" if skip >= carry else "継続優位（粘る）"
+        if avg_r < 0:
+            hs.append({"level": "RISK", "text": "平均Rがマイナス。負けがルール想定より深い。ロット / 滑り / 我慢のどれかが混ざっている。"})
+        elif avg_r < 0.5:
+            hs.append({"level": "MID", "text": "平均Rは薄いプラス。勝ちを伸ばすより先に、負けの形を1パターンに固定すると伸びやすい。"})
+        else:
+            hs.append({"level": "EDGE", "text": "平均Rは強い。次は『同条件で勝てる回数』を増やすフェーズに入れる。"})
+    # 仮説04（セクター）
+    if best_sector_name:
+        hs.append({"level": "MAP", "text": f"得意地形は《{best_sector_name}》。ここを“母艦”にして、別セクターは偵察（小ロット）で拡張する。"})
+    else:
+        hs.append({"level": "MAP", "text": "得意地形はまだ確定していない。まずは勝ちが出た条件を “地図化” して固定する。"})
 
-    return [
-        {"name": "行動温度", "value": tempo},
-        {"name": "撤退の質", "value": risk},
-        {"name": "命中度", "value": hit},
-        {"name": "迷いの形", "value": indecision},
-    ]
-
-
-def _make_wanted(
-    wl_total: int,
-    labels: Dict[str, int],
-    avg_r: Optional[float],
-    streak_label: str,
-    streak_len: int,
-) -> List[str]:
-    wanted: List[str] = []
-    carry = int(labels.get("carry", 0))
-    skip = int(labels.get("skip", 0))
-
-    if wl_total < 8:
-        wanted.append("同一ルール・同一モードでの連続トレード（WLを増やす）")
-    if avg_r is not None and avg_r < 0:
-        wanted.append("負けの直後の次の一手（負け→取り返しに行く癖があるか）")
-    if streak_len >= 2 and streak_label == "lose":
-        wanted.append("LOSE連続中の条件を固定して“入らないルール”を作る（NGパターン抽出）")
-    if carry >= 2:
-        wanted.append("carry の最終着地（利確/損切り/時間切れ）を増やす")
-    if skip >= 2:
-        wanted.append("見送った理由（なぜ入らなかったか）をメモに残すと学習が速い")
-    if not wanted:
-        wanted.append("今の勝ちパターンをもう一周（同条件で再現できるか）")
-    return wanted[:6]
-
-
-def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    for r in side_rows[-limit:]:
-        code = str(r.get("code") or "")
-        label = str(r.get("eval_label") or "").strip().lower()
-        pl = _safe_float(r.get("eval_pl")) or 0.0
-        rv = _safe_float(r.get("eval_r"))
-        mode = str(r.get("mode") or "").strip().lower()
-        broker = str(r.get("broker") or "pro").strip().lower()
-        ts = str(r.get("ts") or r.get("trade_date") or "")
-
-        meta_bits: List[str] = []
-        if broker:
-            meta_bits.append(broker.upper())
-        if mode:
-            meta_bits.append(mode.upper())
-        if ts:
-            meta_bits.append(ts)
-        meta = " / ".join(meta_bits) if meta_bits else "-"
-
-        out.append(
-            {
-                "code": code,
-                "label": label if label in ("win", "lose", "flat") else "flat",
-                "pl": float(pl),
-                "r": rv,
-                "meta": meta,
-            }
-        )
-    out.reverse()
-    return out
-
-
-def _load_ticker(ticker_path: Path) -> Dict[str, Any]:
-    """
-    media/aiapp/behavior/ticker/latest_ticker_u{user}.json
-    無ければ空。
-    """
-    j = _read_json(ticker_path)
-    if not j:
-        return {"date": "", "lines": []}
-    lines = j.get("lines") or []
-    if not isinstance(lines, list):
-        lines = []
-    lines = [str(x) for x in lines if str(x).strip()]
-    return {
-        "date": str(j.get("date") or ""),
-        "lines": lines[:8],
-    }
+    return hs[:5]
 
 
 # =========================
@@ -329,107 +233,179 @@ def _load_ticker(ticker_path: Path) -> Dict[str, Any]:
 @login_required
 def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     """
-    ✅ PRO仕様の行動ダッシュボード（奇抜UI版 + 日次テロップ）
-    - simulate/*.jsonl を集計
-    - behavior/model/latest_behavior_model_u{user}.json を読む
-    - behavior/latest_behavior_side.jsonl を読む
-    - behavior/ticker/latest_ticker_u{user}.json を読む（16:20生成）
+    ✅ VirtualTrade（DB）を正とする（JSONL依存しない）
+    - PRO一択
+    - PRO公式評価（replay.pro.last_eval + eval_exit_reason）を表示に使う
     """
     user = request.user
     today = timezone.localdate()
-    today_label = today.strftime("%Y-%m-%d")
 
-    media_root = Path("media")
-    sim_dir = media_root / "aiapp" / "simulate"
-    beh_dir = media_root / "aiapp" / "behavior"
+    # 直近の範囲（重くなったら調整）
+    date_min = today - timezone.timedelta(days=180)
 
-    model_path = beh_dir / "model" / f"latest_behavior_model_u{user.id}.json"
-    side_path = beh_dir / "latest_behavior_side.jsonl"
-    ticker_path = beh_dir / "ticker" / f"latest_ticker_u{user.id}.json"
-
-    sim_sum = _summarize_simulate_dir(sim_dir)
-
-    model_json = _read_json(model_path) or {}
-    has_model = bool(model_json)
-
-    win_rate = _safe_float(model_json.get("win_rate"))
-    avg_pl = _safe_float(model_json.get("avg_pl"))
-    avg_r = _safe_float(model_json.get("avg_r"))
-    total_trades = int(model_json.get("total_trades") or 0)
-
-    wl_total = int(sim_sum.get("wl") or 0)
-    sim_total = int(sim_sum.get("total_qty") or 0)
-    eval_done = int(sim_sum.get("eval_done") or 0)
-    labels = sim_sum.get("labels") or {}
-
-    has_data = (wl_total >= 1) or (eval_done >= 1)
-
-    side_rows = _read_jsonl(side_path)
-    wl_labels: List[str] = []
-    for r in side_rows:
-        lab = str(r.get("eval_label") or "").strip().lower()
-        if lab in ("win", "lose", "flat"):
-            wl_labels.append(lab)
-
-    seq = _make_sequence(wl_labels)
-    streak_label, streak_len = _streak_from_labels(wl_labels)
-    streak_text = "none" if streak_len == 0 else f"{streak_label.upper()} x{streak_len}"
-
-    ticker = _load_ticker(ticker_path)
-
-    if not has_data:
-        return render(
-            request,
-            "aiapp/behavior_dashboard.html",
-            {
-                "has_data": False,
-                "today_label": today_label,
-                "sim_files": sim_sum.get("files", 0),
-                "understanding_label": _understanding_label(0),
-                "model": {"has_model": has_model},
-                "ticker_date": ticker.get("date", ""),
-                "ticker_lines": ticker.get("lines", []),
-            },
-        )
-
-    understanding_label = _understanding_label(wl_total)
-
-    hypotheses = _make_hypotheses(
-        wl_total=wl_total,
-        win_rate=win_rate,
-        avg_r=avg_r,
-        avg_pl=avg_pl,
-        labels=labels,
-        streak_label=streak_label,
-        streak_len=streak_len,
+    qs = (
+        VirtualTrade.objects
+        .filter(user_id=user.id)
+        .filter(trade_date__gte=date_min, trade_date__lte=today)
+        .filter(qty_pro__gt=0)
+        .order_by("-opened_at", "-id")
     )
-    notes = _make_notes(wl_total=wl_total, sim_total=sim_total, eval_done=eval_done, labels=labels)
-    bias_map = _make_bias_map(win_rate=win_rate, avg_r=avg_r, labels=labels)
-    wanted = _make_wanted(wl_total=wl_total, labels=labels, avg_r=avg_r, streak_label=streak_label, streak_len=streak_len)
-    recent_trades = _extract_recent_trades(side_rows, limit=8)
+    rows_vt = list(qs[:3000])
+
+    if not rows_vt:
+        return render(request, "aiapp/behavior_dashboard.html", {"has_data": False})
+
+    # 「評価が1件も無い（=まだ ai_sim_eval/sync してない）」なら空扱い
+    any_eval = any((str(getattr(v, "eval_exit_reason", "") or "").strip() != "") for v in rows_vt)
+    if not any_eval:
+        return render(request, "aiapp/behavior_dashboard.html", {"has_data": False})
+
+    simulate_files = _count_simulate_files()
+    behavior_model = _load_behavior_model(user.id)
+    model_ready = bool(behavior_model.get("has_model"))
+
+    # ---------- モード別件数 ----------
+    mode_counts = Counter()
+    for v in rows_vt:
+        mode_counts[_infer_mode_from_replay(v.replay)] += 1
+
+    # ---------- 集計 ----------
+    pl_counts_pro = Counter()
+    all_trades: List[TradeSide] = []
+
+    sector_trials: Dict[str, int] = defaultdict(int)
+    sector_wins: Dict[str, int] = defaultdict(int)
+
+    for v in rows_vt:
+        replay = v.replay if isinstance(v.replay, dict) else {}
+        last_eval = _get_pro_last_eval(replay)
+
+        exit_reason = (str(getattr(v, "eval_exit_reason", "") or "") or str(last_eval.get("exit_reason") or "")).strip().lower()
+        if exit_reason not in ("hit_tp", "hit_sl", "time_stop", "no_position", "carry"):
+            continue
+
+        mode = _infer_mode_from_replay(replay)
+
+        pl_pro = _safe_float(last_eval.get("pl_pro"))
+        label = _label_from_exit_reason(exit_reason, pl_pro)
+
+        # 勝敗サマリ
+        if label in ("win", "lose", "flat"):
+            pl_counts_pro[label] += 1
+        elif exit_reason == "no_position":
+            pl_counts_pro["no_position"] += 1
+
+        # ここから先は “勝敗が付いたもの” だけ
+        if label in ("win", "lose", "flat"):
+            r_val = _safe_float(last_eval.get("eval_r_pro")) or _safe_float(last_eval.get("r")) or _safe_float(last_eval.get("r_plan"))
+
+            ts_dt = getattr(v, "eval_exit_ts", None) or getattr(v, "eval_entry_ts", None) or getattr(v, "opened_at", None)
+            ts_str = timezone.localtime(ts_dt).isoformat() if ts_dt else ""
+
+            code = str(getattr(v, "code", "") or "")
+            name = str(getattr(v, "name", "") or (replay.get("name") or ""))
+
+            all_trades.append(
+                TradeSide(
+                    broker="PRO",
+                    pl=float(pl_pro or 0.0),
+                    r=r_val,
+                    label=label,
+                    ts=ts_str,
+                    ts_label=_make_ts_label(ts_str),
+                    code=code,
+                    name=name,
+                    mode=mode,
+                )
+            )
+
+            sector = str(getattr(v, "sector", "") or replay.get("sector") or "(未分類)")
+            sector_trials[sector] += 1
+            if label == "win":
+                sector_wins[sector] += 1
+
+    win_trades = [t for t in all_trades if t.label == "win"]
+    lose_trades = [t for t in all_trades if t.label == "lose"]
+    flat_trades = [t for t in all_trades if t.label == "flat"]
+
+    wl_total = len(win_trades) + len(lose_trades)
+    wl_win = len(win_trades)
+    wl_lose = len(lose_trades)
+
+    win_rate_all: Optional[float] = None
+    if wl_total > 0:
+        win_rate_all = wl_win / wl_total * 100.0
+
+    r_values = [t.r for t in all_trades if t.r is not None]
+    avg_r: Optional[float] = None
+    if r_values:
+        avg_r = sum(r_values) / len(r_values)
+
+    avg_win: Optional[float] = None
+    if win_trades:
+        avg_win = sum(t.pl for t in win_trades) / len(win_trades)
+
+    avg_loss: Optional[float] = None
+    if lose_trades:
+        avg_loss = sum(t.pl for t in lose_trades) / len(lose_trades)
+
+    # best sector
+    best_sector_name: Optional[str] = None
+    best_rate = -1.0
+    for sec, trials in sector_trials.items():
+        if trials < 2:
+            continue
+        wins = sector_wins.get(sec, 0)
+        rate = (wins / trials) * 100.0 if trials > 0 else 0.0
+        if rate > best_rate:
+            best_rate = rate
+            best_sector_name = sec
+
+    understanding = _understanding_level(wl_total)
+    hypotheses = _build_hypotheses(
+        wl_total=wl_total,
+        win_rate=win_rate_all,
+        avg_r=avg_r,
+        avg_win=avg_win,
+        avg_loss=avg_loss,
+        best_sector_name=best_sector_name,
+    )
+
+    # TOP
+    top_win: List[Dict[str, Any]] = []
+    for t in sorted(win_trades, key=lambda x: x.pl, reverse=True)[:5]:
+        top_win.append({"code": t.code, "name": t.name, "pl": t.pl, "mode": t.mode, "ts_label": t.ts_label})
+
+    top_lose: List[Dict[str, Any]] = []
+    for t in sorted(lose_trades, key=lambda x: x.pl)[:5]:
+        top_lose.append({"code": t.code, "name": t.name, "pl": t.pl, "mode": t.mode, "ts_label": t.ts_label})
 
     ctx = {
         "has_data": True,
-        "today_label": today_label,
-        "sim_files": int(sim_sum.get("files") or 0),
-        "sim_total": sim_total,
-        "wl_total": wl_total,
-        "win_rate": win_rate,
-        "avg_pl": avg_pl,
-        "avg_r": avg_r,
-        "understanding_label": understanding_label,
+        "today": str(today),
+        "simulate_files": simulate_files,
+        "model_ready": model_ready,
+        "understanding": understanding,
         "hypotheses": hypotheses,
-        "notes": notes,
-        "bias_map": bias_map,
-        "wanted": wanted,
-        "sequence": seq,
-        "streak_label": streak_text,
-        "recent_trades": recent_trades,
-        "model": {
-            "has_model": has_model,
-            "total_trades": total_trades,
+
+        "total": len(rows_vt),
+        "mode_counts": {
+            "live": mode_counts.get("live", 0),
+            "demo": mode_counts.get("demo", 0),
+            "other": mode_counts.get("other", 0),
         },
-        "ticker_date": ticker.get("date", ""),
-        "ticker_lines": ticker.get("lines", []),
+
+        "wl_total": wl_total,
+        "wl_win": wl_win,
+        "wl_lose": wl_lose,
+
+        "kpi_win_rate": win_rate_all or 0.0,
+        "kpi_avg_r": avg_r or 0.0,
+
+        "best_sector_name": best_sector_name,
+
+        "behavior_model": behavior_model,
+        "top_win": top_win,
+        "top_lose": top_lose,
     }
     return render(request, "aiapp/behavior_dashboard.html", ctx)
