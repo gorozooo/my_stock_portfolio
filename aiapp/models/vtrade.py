@@ -18,6 +18,23 @@ class VirtualTrade(models.Model):
     - R/M/S は UI 表示用に残す
     """
 
+    # ---- entry reason choices (唯一の正) ----
+    ENTRY_REASON_TREND_FOLLOW = "trend_follow"  # 順張り
+    ENTRY_REASON_PULLBACK = "pullback"          # 押し目
+    ENTRY_REASON_BREAKOUT = "breakout"          # ブレイク
+    ENTRY_REASON_REVERSAL = "reversal"          # 逆張り
+    ENTRY_REASON_NEWS = "news"                  # 材料
+    ENTRY_REASON_MEAN_REVERT = "mean_revert"    # レンジ逆
+
+    ENTRY_REASON_CHOICES = (
+        (ENTRY_REASON_TREND_FOLLOW, "trend_follow"),
+        (ENTRY_REASON_PULLBACK, "pullback"),
+        (ENTRY_REASON_BREAKOUT, "breakout"),
+        (ENTRY_REASON_REVERSAL, "reversal"),
+        (ENTRY_REASON_NEWS, "news"),
+        (ENTRY_REASON_MEAN_REVERT, "mean_revert"),
+    )
+
     # ---- identity / linkage ----
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -45,6 +62,15 @@ class VirtualTrade(models.Model):
     score = models.FloatField(null=True, blank=True)
     score_100 = models.IntegerField(null=True, blank=True)
     stars = models.IntegerField(null=True, blank=True)
+
+    # ---- ★NEW: entry_reason（その他/未設定は作らない） ----
+    # 既存データ移行の都合で、migration のタイミングだけ default を使う想定。
+    entry_reason = models.CharField(
+        max_length=16,
+        choices=ENTRY_REASON_CHOICES,
+        db_index=True,
+        default=ENTRY_REASON_TREND_FOLLOW,
+    )
 
     # ---- mode (period/aggr) for future expansion ----
     mode_period = models.CharField(max_length=8, blank=True, default="short")  # short/mid/long
@@ -122,6 +148,7 @@ class VirtualTrade(models.Model):
             models.Index(fields=["user", "trade_date"]),
             models.Index(fields=["user", "run_date"]),
             models.Index(fields=["user", "run_date", "rank_pro"]),
+            models.Index(fields=["user", "run_date", "entry_reason"]),
         ]
         constraints = [
             models.UniqueConstraint(fields=["user", "run_id", "code"], name="uq_aiapp_vtrade_user_runid_code"),
