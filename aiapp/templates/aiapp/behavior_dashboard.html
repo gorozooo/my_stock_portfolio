@@ -6,31 +6,24 @@
 {% block head %}
 <style>
 :root{
-  /* 明るめ（でも目が痛くならない） */
-  --bg:#0b1220;
-  --bg2:#111c33;
-  --card:rgba(255,255,255,0.10);
-  --card2:rgba(255,255,255,0.14);
-  --fg:#0b1020;
-  --txt:#0b1020;
-  --txt2:rgba(11,16,32,0.70);
-  --line:rgba(11,16,32,0.12);
-
-  --ink:#0b1020;
-  --white:#ffffff;
+  /* 以前の “濃紺×ガラス” に戻す */
+  --bg:#020617;                 /* 深い紺 */
+  --bg2:#06122a;                /* グラデ用 */
+  --card:rgba(15,23,42,.92);    /* ガラスカード */
+  --card2:rgba(15,23,42,.86);
+  --fg:#e5edff;                 /* 文字 */
+  --sub:#9ca3af;                /* サブ */
+  --line:rgba(148,163,184,.35); /* 枠線 */
+  --shadow:0 16px 40px rgba(2,6,23,.55);
 
   --accent:#2dd4bf;
   --accent2:#60a5fa;
   --accent3:#f472b6;
-
-  --ok:#16a34a;
+  --ok:#22c55e;
   --bad:#ef4444;
-  --muted:#64748b;
+  --muted:#94a3b8;
 
-  --pill:rgba(255,255,255,0.70);
-  --shadow:0 12px 30px rgba(2,6,23,0.18);
-
-  /* テロップ速度（秒） */
+  /* テロップ速度（秒）※JS側はpx/secなので参考程度 */
   --ticker-sec: 12;
 }
 
@@ -40,7 +33,7 @@ body{
     radial-gradient(900px 500px at 88% 18%, rgba(45,212,191,0.16), transparent 55%),
     radial-gradient(800px 500px at 70% 88%, rgba(244,114,182,0.14), transparent 60%),
     linear-gradient(180deg, var(--bg), var(--bg2));
-  color: var(--ink);
+  color: var(--fg);
 }
 
 .wrap{
@@ -56,7 +49,7 @@ body{
   z-index: 30;
   padding-top: 10px;
   padding-bottom: 8px;
-  background: linear-gradient(180deg, rgba(11,18,32,0.92), rgba(11,18,32,0.75), rgba(11,18,32,0.00));
+  background: linear-gradient(180deg, rgba(2,6,23,0.92), rgba(2,6,23,0.72), rgba(2,6,23,0.00));
   backdrop-filter: blur(10px);
 }
 
@@ -73,26 +66,26 @@ body{
   gap:8px;
   padding:8px 10px;
   border-radius: 999px;
-  background: rgba(255,255,255,0.85);
+  background: rgba(15,23,42,.92);
   box-shadow: var(--shadow);
-  border: 1px solid rgba(11,16,32,0.08);
-  font-weight: 800;
+  border: 1px solid var(--line);
+  font-weight: 900;
   font-size: 12px;
-  color: var(--ink);
+  color: var(--fg);
 }
 
 .today-pill .sub{
-  font-weight: 700;
-  color: rgba(11,16,32,0.55);
+  font-weight: 800;
+  color: rgba(229,237,255,0.65);
 }
 
 .ticker{
   flex: 1 1 auto;
   overflow:hidden;
   border-radius: 999px;
-  background: rgba(255,255,255,0.78);
+  background: rgba(15,23,42,.90);
   box-shadow: var(--shadow);
-  border: 1px solid rgba(11,16,32,0.08);
+  border: 1px solid var(--line);
   height: 36px;
   display:flex;
   align-items:center;
@@ -104,7 +97,7 @@ body{
   position:absolute;
   left:0; top:0; bottom:0;
   width:24px;
-  background: linear-gradient(90deg, rgba(255,255,255,0.95), rgba(255,255,255,0.00));
+  background: linear-gradient(90deg, rgba(15,23,42,0.98), rgba(15,23,42,0.00));
   pointer-events:none;
 }
 .ticker::after{
@@ -112,7 +105,7 @@ body{
   position:absolute;
   right:0; top:0; bottom:0;
   width:24px;
-  background: linear-gradient(270deg, rgba(255,255,255,0.95), rgba(255,255,255,0.00));
+  background: linear-gradient(270deg, rgba(15,23,42,0.98), rgba(15,23,42,0.00));
   pointer-events:none;
 }
 
@@ -131,8 +124,8 @@ body{
   gap: 8px;
   white-space: nowrap;
   font-size: 13px;
-  font-weight: 800;
-  color: rgba(11,16,32,0.82);
+  font-weight: 900;
+  color: rgba(229,237,255,0.88);
 }
 
 .dot{
@@ -146,8 +139,8 @@ body{
   position:absolute;
   right:10px;
   font-size: 11px;
-  font-weight: 800;
-  color: rgba(11,16,32,0.48);
+  font-weight: 900;
+  color: rgba(229,237,255,0.48);
 }
 
 /* ===== セクション / カード ===== */
@@ -155,21 +148,25 @@ body{
   margin-top: 14px;
   border-radius: 18px;
   padding: 14px;
-  background: rgba(255,255,255,0.72);
+  background:
+    radial-gradient(circle at top left, rgba(37,99,235,.18), transparent 55%),
+    rgba(15,23,42,.90);
   box-shadow: var(--shadow);
-  border: 1px solid rgba(11,16,32,0.08);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(10px);
 }
 
 .h-title{
   font-size: 16px;
-  font-weight: 900;
+  font-weight: 1000;
   margin-bottom: 6px;
   letter-spacing: 0.2px;
+  color: rgba(229,237,255,0.96);
 }
 .h-sub{
   font-size: 12px;
   font-weight: 800;
-  color: rgba(11,16,32,0.58);
+  color: rgba(229,237,255,0.62);
   line-height: 1.5;
 }
 
@@ -186,10 +183,10 @@ body{
   border-radius: 999px;
   padding: 4px 10px;
   font-size: 11px;
-  font-weight: 900;
-  background: rgba(255,255,255,0.82);
-  border: 1px solid rgba(11,16,32,0.10);
-  color: rgba(11,16,32,0.78);
+  font-weight: 1000;
+  background: rgba(2,6,23,0.35);
+  border: 1px solid rgba(148,163,184,0.25);
+  color: rgba(229,237,255,0.78);
 }
 
 .badge .chip{
@@ -211,19 +208,19 @@ body{
 .kpi{
   border-radius: 16px;
   padding: 12px 12px;
-  background: rgba(255,255,255,0.78);
-  border: 1px solid rgba(11,16,32,0.08);
+  background: rgba(2,6,23,0.35);
+  border: 1px solid rgba(148,163,184,0.22);
 }
 .kpi .lab{
   font-size: 11px;
   font-weight: 900;
-  color: rgba(11,16,32,0.52);
+  color: rgba(229,237,255,0.56);
   margin-bottom: 6px;
 }
 .kpi .val{
   font-size: 22px;
-  font-weight: 1000;
-  color: rgba(11,16,32,0.92);
+  font-weight: 1100;
+  color: rgba(229,237,255,0.96);
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
 }
@@ -231,12 +228,12 @@ body{
   margin-top: 6px;
   font-size: 11px;
   font-weight: 900;
-  color: rgba(11,16,32,0.54);
+  color: rgba(229,237,255,0.52);
 }
 
 .hr{
   height:1px;
-  background: rgba(11,16,32,0.08);
+  background: rgba(148,163,184,0.22);
   margin: 12px 0;
 }
 
@@ -249,8 +246,8 @@ body{
 .card{
   border-radius: 16px;
   padding: 12px 12px;
-  background: rgba(255,255,255,0.80);
-  border: 1px solid rgba(11,16,32,0.08);
+  background: rgba(2,6,23,0.35);
+  border: 1px solid rgba(148,163,184,0.22);
 }
 
 .row{
@@ -262,12 +259,12 @@ body{
 .row .k{
   font-size: 12px;
   font-weight: 900;
-  color: rgba(11,16,32,0.54);
+  color: rgba(229,237,255,0.55);
 }
 .row .v{
   font-size: 12px;
-  font-weight: 1000;
-  color: rgba(11,16,32,0.88);
+  font-weight: 1100;
+  color: rgba(229,237,255,0.90);
   font-variant-numeric: tabular-nums;
 }
 
@@ -284,12 +281,12 @@ body{
   padding: 6px 10px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 1000;
-  border: 1px solid rgba(11,16,32,0.10);
-  background: rgba(255,255,255,0.85);
-  color: rgba(11,16,32,0.80);
+  font-weight: 1100;
+  border: 1px solid rgba(148,163,184,0.22);
+  background: rgba(2,6,23,0.35);
+  color: rgba(229,237,255,0.82);
 }
-.pill b{ font-weight: 1100; }
+.pill b{ font-weight: 1200; }
 
 .seq{
   margin-top: 10px;
@@ -305,19 +302,19 @@ body{
   display:flex;
   align-items:center;
   justify-content:center;
-  font-weight: 1000;
-  border: 1px solid rgba(11,16,32,0.10);
-  background: rgba(255,255,255,0.85);
-  color: rgba(11,16,32,0.78);
+  font-weight: 1100;
+  border: 1px solid rgba(148,163,184,0.22);
+  background: rgba(2,6,23,0.35);
+  color: rgba(229,237,255,0.80);
 }
-.seq-dot.win{ background: rgba(34,197,94,0.18); border-color: rgba(34,197,94,0.35); }
-.seq-dot.lose{ background: rgba(239,68,68,0.16); border-color: rgba(239,68,68,0.32); }
-.seq-dot.flat{ background: rgba(99,102,241,0.14); border-color: rgba(99,102,241,0.26); }
+.seq-dot.win{ background: rgba(34,197,94,0.14); border-color: rgba(34,197,94,0.32); }
+.seq-dot.lose{ background: rgba(239,68,68,0.14); border-color: rgba(239,68,68,0.32); }
+.seq-dot.flat{ background: rgba(99,102,241,0.12); border-color: rgba(99,102,241,0.26); }
 
 .small{
   font-size: 11px;
   font-weight: 900;
-  color: rgba(11,16,32,0.56);
+  color: rgba(229,237,255,0.56);
 }
 
 .pl-pos{ color: var(--ok); }
@@ -328,10 +325,10 @@ body{
   margin-top: 16px;
   border-radius: 18px;
   padding: 16px;
-  background: rgba(255,255,255,0.70);
-  border: 1px dashed rgba(11,16,32,0.18);
+  background: rgba(15,23,42,.88);
+  border: 1px dashed rgba(148,163,184,0.35);
   box-shadow: var(--shadow);
-  color: rgba(11,16,32,0.78);
+  color: rgba(229,237,255,0.82);
   font-weight: 900;
   line-height: 1.6;
 }
@@ -448,7 +445,7 @@ body{
       <div class="list">
         {% for h in hypotheses %}
           <div class="card">
-            <div style="font-weight:1000; color:rgba(11,16,32,0.84); font-size:13px;">{{ h }}</div>
+            <div style="font-weight:1000; color:rgba(229,237,255,0.88); font-size:13px;">{{ h }}</div>
           </div>
         {% endfor %}
       </div>
@@ -525,7 +522,7 @@ body{
       <div class="list">
         {% for w in wanted %}
           <div class="card">
-            <div style="font-weight:1000; font-size:13px; color:rgba(11,16,32,0.86);">{{ w }}</div>
+            <div style="font-weight:1000; font-size:13px; color:rgba(229,237,255,0.90);">{{ w }}</div>
           </div>
         {% endfor %}
       </div>
@@ -563,7 +560,7 @@ body{
             </div>
             <div class="row" style="margin-top:6px;">
               <div class="k">meta</div>
-              <div class="v" style="font-weight:900;color:rgba(11,16,32,0.58);">{{ t.meta }}</div>
+              <div class="v" style="font-weight:900;color:rgba(229,237,255,0.58);">{{ t.meta }}</div>
             </div>
           </div>
         {% endfor %}
@@ -584,26 +581,20 @@ body{
   var track = document.getElementById("tickerTrack");
   if (!track) return;
 
-  // 速度：秒（短いほど速い）
-  // 「2秒でも変わらない」対策として、px/secベースで制御する
-  var pxPerSec = 110; // ← ここが体感スピード。もっと速くしたければ 140, 180 に。
-  var gap = 18;       // CSSのgapと同じイメージ
+  // 速度：px/sec（これが体感スピード）
+  var pxPerSec = 110; // 速くしたい→ 140 / 180
   var x = 0;
   var last = performance.now();
 
-  // ループ距離（半分で戻す：重複並べている前提）
   function getLoopWidth(){
-    // 全幅の半分を目安にループ
     return Math.max(1, track.scrollWidth / 2);
   }
   var loopW = getLoopWidth();
 
-  // リサイズで再計算
   window.addEventListener("resize", function(){
     loopW = getLoopWidth();
   });
 
-  // iOSはバックグラウンド復帰時に時間差が大きくなるのでclamp
   function step(now){
     var dt = (now - last) / 1000;
     last = now;
