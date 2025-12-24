@@ -69,13 +69,8 @@ body{background:var(--bg);color:var(--fg);}
   font-size:11px;
   color:var(--muted);
 }
-.ticker-date{
-  white-space:nowrap;
-}
-.ticker-hint{
-  white-space:nowrap;
-  opacity:0.9;
-}
+.ticker-date{white-space:nowrap;}
+.ticker-hint{white-space:nowrap;opacity:0.9;}
 .ticker-track{
   position:relative;
   padding:8px 10px 10px 10px;
@@ -85,8 +80,19 @@ body{background:var(--bg);color:var(--fg);}
   gap:18px;
   white-space:nowrap;
   will-change:transform;
-  animation: marquee 26s linear infinite;
+
+  /* ★ 速度UP：26s → 14s */
+  animation: marquee 14s linear infinite;
 }
+
+/* 画面が狭いほど、もう一段速くする（iPhone向け） */
+@media (max-width: 420px){
+  .ticker-rail{ animation-duration: 11s; }
+}
+@media (max-width: 360px){
+  .ticker-rail{ animation-duration: 9s; }
+}
+
 .ticker:hover .ticker-rail,
 .ticker:active .ticker-rail{
   animation-play-state: paused;
