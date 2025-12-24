@@ -1,538 +1,798 @@
 {% extends "base.html" %}
 {% load humanize %}
 
-{% block title %}AI Behavior Lab{% endblock %}
+{% block title %}AI 行動ダッシュボード{% endblock %}
 
 {% block head %}
 <style>
-/* =========================================================
-   AI Behavior Lab — Bright Glass + iPhone Fast Ticker
-   ========================================================= */
+  :root{
+    --bg1:#FFF7ED;
+    --bg2:#FDF2F8;
+    --bg3:#ECFEFF;
 
-:root{
-  /* 明るい“ネイビー昼光” */
-  --bg:#081a3a;
-  --fg:#f1f5ff;
-  --sub:#d2dcff;
-  --muted:#a9b7e8;
+    --card:#ffffff;
+    --ink:#0f172a;
+    --sub:#475569;
 
-  --card:rgba(255,255,255,.09);
-  --card2:rgba(12,24,54,.58);
-  --border:rgba(255,255,255,.18);
+    --line:rgba(15,23,42,.12);
 
-  --accent:#60a5fa;
-  --accent2:#34d399;
-  --accent3:#a78bfa;
+    --pink:#ff4d8d;
+    --orange:#ff7a18;
+    --yellow:#ffd400;
+    --lime:#7CFF5B;
+    --mint:#2ee9c6;
+    --sky:#35b6ff;
+    --violet:#7c3aed;
 
-  --ok:#22c55e;
-  --bad:#fb7185;
+    --win:#22c55e;
+    --lose:#ef4444;
+    --flat:#64748b;
 
-  /* ticker speed */
-  --ticker-sec: 8s; /* base */
-}
+    --shadow: 0 10px 30px rgba(15,23,42,.10);
+    --shadow2: 0 6px 16px rgba(15,23,42,.08);
+  }
 
-/* iOS(iPhone/iPad)だけ速くする */
-@supports (-webkit-touch-callout: none){
-  :root{ --ticker-sec: 3.2s; }
-}
+  body{
+    background:
+      radial-gradient(circle at 12% 10%, var(--bg3), transparent 55%),
+      radial-gradient(circle at 88% 0%, var(--bg2), transparent 60%),
+      radial-gradient(circle at 20% 95%, #fffbe6, transparent 55%),
+      linear-gradient(180deg, #ffffff 0%, var(--bg1) 50%, #ffffff 100%);
+    color:var(--ink);
+  }
 
-html, body{
-  background: transparent;
-}
-body{
-  color:var(--fg);
-  background:
-    radial-gradient(circle at 20% 10%, rgba(96,165,250,.28), transparent 55%),
-    radial-gradient(circle at 80% 0%, rgba(52,211,153,.18), transparent 50%),
-    radial-gradient(circle at 55% 110%, rgba(167,139,250,.18), transparent 55%),
-    var(--bg);
-}
+  .wrap{
+    max-width:860px;
+    margin:0 auto;
+    padding:14px 12px 86px;
+  }
 
-/* wrap */
-.wrap{
-  max-width: 860px;
-  margin: 0 auto;
-  padding: 14px 14px 92px;
-}
+  /* Pop header */
+  .hero{
+    position:relative;
+    padding:16px 14px;
+    border-radius:22px;
+    background: var(--card);
+    border:1px solid var(--line);
+    box-shadow: var(--shadow);
+    overflow:hidden;
+  }
+  .hero:before{
+    content:"";
+    position:absolute;
+    inset:-60px -60px auto auto;
+    width:220px;height:220px;
+    border-radius:50%;
+    background:
+      radial-gradient(circle at 30% 30%, rgba(255,77,141,.65), transparent 55%),
+      radial-gradient(circle at 70% 70%, rgba(53,182,255,.55), transparent 55%),
+      radial-gradient(circle at 40% 80%, rgba(255,212,0,.45), transparent 60%);
+    filter: blur(0px);
+    transform: rotate(12deg);
+    pointer-events:none;
+  }
+  .hero:after{
+    content:"";
+    position:absolute;
+    inset:auto auto -80px -80px;
+    width:220px;height:220px;
+    border-radius:48px;
+    background:
+      radial-gradient(circle at 30% 30%, rgba(46,233,198,.55), transparent 60%),
+      radial-gradient(circle at 70% 70%, rgba(255,122,24,.45), transparent 60%);
+    transform: rotate(-10deg);
+    pointer-events:none;
+  }
 
-/* section */
-.section{
-  margin-top:14px;
-  padding:14px;
-  border-radius:20px;
-  border:1px solid var(--border);
-  background:
-    radial-gradient(circle at top left, rgba(96,165,250,.20), transparent 55%),
-    radial-gradient(circle at bottom right, rgba(255,255,255,.10), transparent 60%),
-    var(--card2);
-  box-shadow:
-    0 10px 30px rgba(0,0,0,.25),
-    0 0 0 1px rgba(255,255,255,.06) inset;
-  backdrop-filter: blur(16px);
-}
+  .heroTop{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:10px;
+    position:relative;
+    z-index:1;
+  }
 
-/* header */
-.hero{
-  padding:16px;
-  border-radius:22px;
-  border:1px solid rgba(255,255,255,.20);
-  background:
-    linear-gradient(135deg, rgba(96,165,250,.18), rgba(52,211,153,.08) 55%, rgba(167,139,250,.10)),
-    rgba(255,255,255,.06);
-  box-shadow:
-    0 18px 40px rgba(0,0,0,.28),
-    0 0 0 1px rgba(255,255,255,.08) inset;
-  backdrop-filter: blur(18px);
-}
+  .title{
+    font-size:18px;
+    font-weight:900;
+    letter-spacing:.2px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .title .dot{
+    width:10px;height:10px;border-radius:50%;
+    background: linear-gradient(135deg, var(--pink), var(--orange));
+    box-shadow: 0 0 0 4px rgba(255,77,141,.18);
+  }
 
-.hero-title{
-  font-size:20px;
-  font-weight:800;
-  letter-spacing:.3px;
-  margin-bottom:4px;
-}
-.hero-sub{
-  font-size:12px;
-  color:var(--sub);
-  line-height:1.6;
-  opacity:.95;
-}
+  .subtitle{
+    margin-top:6px;
+    font-size:12px;
+    color:var(--sub);
+    line-height:1.55;
+    position:relative;
+    z-index:1;
+  }
 
-/* chips */
-.chips{
-  display:flex;
-  flex-wrap:wrap;
-  gap:8px;
-  margin-top:12px;
-}
-.chip{
-  display:inline-flex;
-  align-items:center;
-  gap:6px;
-  padding:6px 10px;
-  border-radius:999px;
-  border:1px solid rgba(255,255,255,.18);
-  background:rgba(255,255,255,.08);
-  color:var(--fg);
-  font-size:12px;
-  line-height:1;
-  white-space:nowrap;
-}
-.chip.ok{
-  border-color: rgba(34,197,94,.35);
-  box-shadow: 0 0 0 1px rgba(34,197,94,.10) inset;
-}
-.chip.mid{
-  border-color: rgba(96,165,250,.35);
-  box-shadow: 0 0 0 1px rgba(96,165,250,.10) inset;
-}
-.chip.warn{
-  border-color: rgba(251,113,133,.35);
-  box-shadow: 0 0 0 1px rgba(251,113,133,.08) inset;
-}
-.dot{
-  width:8px;height:8px;border-radius:99px;
-  background: rgba(255,255,255,.65);
-}
-.dot.ok{ background: rgba(34,197,94,.95); }
-.dot.mid{ background: rgba(96,165,250,.95); }
-.dot.warn{ background: rgba(251,113,133,.95); }
+  .chips{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-top:10px;
+    position:relative;
+    z-index:1;
+  }
 
-/* =========================================================
-   Ticker (telop)
-   - iPhone speed via --ticker-sec
-   - pause via JS class "is-paused"
-   ========================================================= */
+  .chip{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:7px 10px;
+    border-radius:999px;
+    border:1px solid var(--line);
+    background:#ffffff;
+    box-shadow: 0 2px 10px rgba(15,23,42,.06);
+    font-size:12px;
+    font-weight:800;
+    color:#0f172a;
+    white-space:nowrap;
+  }
+  .chip .emoji{font-size:14px;}
+  .chip.pink{border-color:rgba(255,77,141,.35); background:rgba(255,77,141,.10);}
+  .chip.sky{border-color:rgba(53,182,255,.35); background:rgba(53,182,255,.12);}
+  .chip.mint{border-color:rgba(46,233,198,.35); background:rgba(46,233,198,.14);}
+  .chip.yellow{border-color:rgba(255,212,0,.35); background:rgba(255,212,0,.16);}
+  .chip.violet{border-color:rgba(124,58,237,.28); background:rgba(124,58,237,.10);}
 
-.ticker{
-  margin-top: 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,.18);
-  background: rgba(255,255,255,.07);
-  overflow: hidden;
-  position: relative;
-}
+  /* Ticker (fast on iPhone) */
+  .ticker{
+    margin-top:12px;
+    border-radius:18px;
+    border:1px dashed rgba(15,23,42,.18);
+    background:
+      linear-gradient(90deg, rgba(255,77,141,.14), rgba(255,212,0,.14), rgba(46,233,198,.14), rgba(53,182,255,.14));
+    overflow:hidden;
+    position:relative;
+    z-index:1;
+  }
+  .tickerHead{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    padding:8px 10px 0 10px;
+    font-size:11px;
+    color:rgba(15,23,42,.65);
+    font-weight:900;
+  }
+  .tickerHead .hint{
+    font-weight:800;
+    color:rgba(15,23,42,.55);
+  }
 
-.ticker-head{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
-  padding:10px 12px 6px;
-  font-size:12px;
-  color: var(--sub);
-}
+  .tickerLane{
+    position:relative;
+    overflow:hidden;
+    padding:8px 10px 10px 10px;
+    touch-action:manipulation;
+    -webkit-user-select:none;
+    user-select:none;
+  }
+  .tickerTrack{
+    display:inline-flex;
+    align-items:center;
+    gap:10px;
+    white-space:nowrap;
+    will-change: transform;
+    transform: translate3d(0,0,0);
+    animation: ticker-move var(--dur, 14s) linear infinite;
+  }
+  .tickerLane.pause .tickerTrack{
+    animation-play-state: paused;
+  }
+  .tickerTag{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:6px 10px;
+    border-radius:999px;
+    background:#fff;
+    border:1px solid rgba(15,23,42,.12);
+    box-shadow: 0 2px 8px rgba(15,23,42,.06);
+    font-size:12px;
+    font-weight:900;
+    color:#0f172a;
+  }
+  .tickerTag .spark{
+    width:10px;height:10px;border-radius:3px;
+    background: linear-gradient(135deg, var(--orange), var(--pink));
+  }
+  .tickerSep{
+    width:6px;height:6px;border-radius:50%;
+    background: rgba(15,23,42,.22);
+  }
 
-.ticker-date{
-  font-weight:800;
-  letter-spacing:.2px;
-  color: var(--fg);
-}
-.ticker-hint{
-  font-size:11px;
-  color: var(--sub);
-  opacity:.9;
-  white-space:nowrap;
-}
+  @keyframes ticker-move{
+    from{ transform: translate3d(var(--from, 0px),0,0); }
+    to{ transform: translate3d(var(--to, -600px),0,0); }
+  }
 
-.ticker-body{
-  padding: 0 12px 10px;
-}
+  /* Sections */
+  .grid{
+    margin-top:12px;
+    display:grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap:10px;
+  }
+  @media (max-width: 520px){
+    .grid{ grid-template-columns: 1fr; }
+  }
 
-.ticker-viewport{
-  width: 100%;
-  overflow: hidden;
-}
+  .card{
+    background: var(--card);
+    border:1px solid var(--line);
+    border-radius:20px;
+    box-shadow: var(--shadow2);
+    padding:12px 12px;
+  }
 
-.ticker-rail{
-  display: inline-flex;
-  gap: 28px;
-  white-space: nowrap;
-  animation: marquee var(--ticker-sec) linear infinite !important;
-  will-change: transform;
-  font-size: 13px;
-  color: var(--fg);
-}
+  .cardTitle{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    font-size:13px;
+    font-weight:950;
+    margin-bottom:8px;
+  }
+  .badge{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:6px 10px;
+    border-radius:999px;
+    font-size:11px;
+    font-weight:950;
+    border:1px solid rgba(15,23,42,.12);
+    background:rgba(15,23,42,.04);
+    color:#0f172a;
+    white-space:nowrap;
+  }
 
-.ticker.is-paused .ticker-rail{
-  animation-play-state: paused !important;
-}
+  .big{
+    font-size:18px;
+    font-weight:1000;
+    letter-spacing:.2px;
+    font-variant-numeric: tabular-nums;
+  }
+  .sub{
+    margin-top:4px;
+    font-size:11px;
+    color:var(--sub);
+    line-height:1.45;
+  }
 
-/* iOS :activeの暴発対策（CSSで止めない） */
-.ticker:active .ticker-rail{
-  animation-play-state: running !important;
-}
+  .kpis{
+    display:grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap:8px;
+  }
+  .kpi{
+    border-radius:16px;
+    border:1px solid rgba(15,23,42,.10);
+    background:
+      radial-gradient(circle at 20% 10%, rgba(255,212,0,.18), transparent 55%),
+      #ffffff;
+    padding:10px 10px;
+  }
+  .kpiLabel{
+    font-size:11px;
+    color:rgba(15,23,42,.62);
+    font-weight:900;
+    margin-bottom:6px;
+  }
+  .kpiVal{
+    font-size:16px;
+    font-weight:1000;
+    font-variant-numeric: tabular-nums;
+  }
 
-.ticker-strong{
-  color: var(--accent);
-  font-weight: 800;
-}
+  /* Hypotheses list (quirky) */
+  .hypList{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .hyp{
+    border-radius:18px;
+    border:1px dashed rgba(15,23,42,.18);
+    background:
+      linear-gradient(0deg, rgba(255,255,255,.94), rgba(255,255,255,.94)),
+      radial-gradient(circle at 20% 10%, rgba(255,77,141,.18), transparent 50%),
+      radial-gradient(circle at 80% 90%, rgba(53,182,255,.18), transparent 55%);
+    padding:10px 10px;
+  }
+  .hypHead{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-weight:1000;
+    font-size:11px;
+    color:rgba(15,23,42,.70);
+    margin-bottom:6px;
+  }
+  .hypNum{
+    width:22px;height:22px;border-radius:10px;
+    display:grid;place-items:center;
+    background: linear-gradient(135deg, rgba(255,122,24,.20), rgba(255,77,141,.20));
+    border:1px solid rgba(255,77,141,.28);
+    font-weight:1100;
+    color:#0f172a;
+  }
+  .hypBody{
+    font-size:13px;
+    font-weight:900;
+    line-height:1.55;
+    color:#0f172a;
+  }
 
-@keyframes marquee{
-  0%   { transform: translateX(0); }
-  100% { transform: translateX(-100%); }
-}
+  /* Bias map */
+  .kv{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:8px;
+  }
+  @media (max-width: 520px){
+    .kv{ grid-template-columns: 1fr; }
+  }
+  .kvRow{
+    border:1px solid rgba(15,23,42,.10);
+    background:#fff;
+    border-radius:16px;
+    padding:10px 10px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+  }
+  .kvKey{
+    font-size:12px;
+    font-weight:1000;
+    color:rgba(15,23,42,.70);
+  }
+  .kvVal{
+    font-size:12px;
+    font-weight:1000;
+    color:#0f172a;
+    text-align:right;
+  }
 
-/* KPI strip */
-.kpi-strip{
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap:10px;
-  margin-top: 12px;
-}
-.kpi-box{
-  border-radius: 16px;
-  border:1px solid rgba(255,255,255,.18);
-  background: rgba(255,255,255,.07);
-  padding:10px 12px;
-}
-.kpi-label{
-  font-size: 11px;
-  color: var(--sub);
-  margin-bottom: 4px;
-  opacity:.95;
-}
-.kpi-value{
-  font-size: 16px;
-  font-weight: 900;
-  font-variant-numeric: tabular-nums;
-}
-.kpi-mini{
-  margin-top:4px;
-  font-size: 11px;
-  color: var(--muted);
-}
+  /* W/L sequence */
+  .seq{
+    display:flex;
+    gap:6px;
+    flex-wrap:wrap;
+  }
+  .pill{
+    width:32px;height:28px;
+    border-radius:14px;
+    display:grid;
+    place-items:center;
+    font-weight:1000;
+    border:1px solid rgba(15,23,42,.12);
+    background:#fff;
+    box-shadow: 0 2px 8px rgba(15,23,42,.05);
+  }
+  .pill.win{ background: rgba(34,197,94,.18); border-color: rgba(34,197,94,.35); }
+  .pill.lose{ background: rgba(239,68,68,.16); border-color: rgba(239,68,68,.35); }
+  .pill.flat{ background: rgba(100,116,139,.12); border-color: rgba(100,116,139,.28); }
 
-/* Lab blocks */
-.lab-title{
-  font-size: 15px;
-  font-weight: 850;
-  margin-bottom: 10px;
-}
-.card-grid{
-  display:grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-}
+  .streak{
+    margin-top:8px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    font-size:12px;
+    font-weight:1000;
+  }
+  .streak strong{
+    font-variant-numeric: tabular-nums;
+    padding:6px 10px;
+    border-radius:999px;
+    border:1px solid rgba(15,23,42,.12);
+    background:rgba(15,23,42,.05);
+  }
 
-.hypo{
-  border-radius: 18px;
-  border:1px dashed rgba(255,255,255,.18);
-  background: rgba(255,255,255,.06);
-  padding: 12px;
-}
-.hypo-top{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-.hypo-tag{
-  font-size:12px;
-  color: var(--sub);
-  opacity:.9;
-}
-.hypo-badge{
-  font-size: 11px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,.18);
-  background: rgba(255,255,255,.07);
-}
-.hypo-text{
-  font-size: 13px;
-  line-height: 1.65;
-  color: var(--fg);
-}
+  /* Recent trades */
+  .tradeList{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .trade{
+    border-radius:18px;
+    border:1px solid rgba(15,23,42,.10);
+    background:#fff;
+    padding:10px 10px;
+  }
+  .tradeTop{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+  }
+  .tradeCode{
+    font-weight:1100;
+    font-variant-numeric: tabular-nums;
+  }
+  .tradeLabel{
+    font-size:11px;
+    font-weight:1100;
+    padding:6px 10px;
+    border-radius:999px;
+    border:1px solid rgba(15,23,42,.12);
+  }
+  .tradeLabel.win{ background: rgba(34,197,94,.18); border-color: rgba(34,197,94,.35); }
+  .tradeLabel.lose{ background: rgba(239,68,68,.16); border-color: rgba(239,68,68,.35); }
+  .tradeLabel.flat{ background: rgba(100,116,139,.12); border-color: rgba(100,116,139,.28); }
 
-/* Stats list */
-.mini-kv{
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 12px;
-  margin-top: 10px;
-}
-.kv-row{
-  display:flex;
-  justify-content:space-between;
-  gap: 10px;
-  font-size: 12px;
-  color: var(--fg);
-}
-.kv-key{
-  color: var(--sub);
-  opacity:.95;
-}
-.kv-val{
-  font-variant-numeric: tabular-nums;
-}
+  .tradeMid{
+    margin-top:6px;
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:10px;
+  }
+  .tradePL{
+    font-weight:1100;
+    font-variant-numeric: tabular-nums;
+  }
+  .tradePL.pos{ color: var(--win); }
+  .tradePL.neg{ color: var(--lose); }
+  .tradeMeta{
+    font-size:11px;
+    color:rgba(15,23,42,.55);
+    text-align:right;
+    white-space:nowrap;
+  }
 
-/* top list */
-.trade-item{
-  border-radius: 16px;
-  border:1px solid rgba(255,255,255,.18);
-  background: rgba(255,255,255,.07);
-  padding: 10px 12px;
-}
-.trade-title{
-  font-size: 13px;
-  font-weight: 800;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 4px;
-}
-.trade-sub{
-  display:flex;
-  justify-content:space-between;
-  gap: 10px;
-  font-size: 11px;
-  color: var(--sub);
-  opacity:.95;
-}
-.pl-pos{ color: var(--ok); font-weight: 900; }
-.pl-neg{ color: var(--bad); font-weight: 900; }
-
-/* empty */
-.empty{
-  margin-top: 16px;
-  padding: 16px;
-  border-radius: 18px;
-  border: 1px dashed rgba(255,255,255,.22);
-  background: rgba(255,255,255,.06);
-  color: var(--sub);
-  line-height: 1.7;
-  font-size: 13px;
-}
+  /* Empty state */
+  .empty{
+    margin-top:12px;
+    border-radius:22px;
+    border:2px dashed rgba(15,23,42,.18);
+    background: #ffffff;
+    box-shadow: var(--shadow2);
+    padding:16px 14px;
+    color:#0f172a;
+  }
+  .emptyTitle{
+    font-size:14px;
+    font-weight:1100;
+    margin-bottom:6px;
+  }
+  .emptySub{
+    font-size:12px;
+    color:rgba(15,23,42,.65);
+    line-height:1.55;
+  }
 </style>
 
 <script>
-/* iPhone向け：タップ/長押し中だけ停止（CSS :active の暴発を回避） */
-document.addEventListener("DOMContentLoaded", () => {
-  const ticker = document.querySelector(".ticker");
-  if (!ticker) return;
+  // iPhoneでも「体感で速くなる」ように、距離ベースで duration を決める
+  // 速度(px/s)を上げたいなら speedPx を上げる（例: 220）
+  document.addEventListener("DOMContentLoaded", () => {
+    const lane = document.querySelector("[data-ticker-lane]");
+    const track = document.querySelector("[data-ticker-track]");
+    const body  = document.body;
+    if (!lane || !track) return;
 
-  const pause = () => ticker.classList.add("is-paused");
-  const play  = () => ticker.classList.remove("is-paused");
+    const speedPx = 190; // ★ ここを上げると速くなる（iPhoneでも効く）
+    const minDur  = 5;   // 最短秒（極端に短いと読めないので制限）
+    const maxDur  = 30;  // 最長秒
 
-  ticker.addEventListener("touchstart", pause, {passive:true});
-  ticker.addEventListener("touchend", play, {passive:true});
-  ticker.addEventListener("touchcancel", play, {passive:true});
-});
+    const apply = () => {
+      // track幅が確定してから計算（フォント読み込みやSafari都合に強くする）
+      const laneW = lane.clientWidth || 300;
+      const trackW = track.scrollWidth || 600;
+
+      // 右端（画面外）から左端（完全に抜ける）まで
+      const from = laneW;
+      const to = -trackW;
+
+      const dist = from - to; // = laneW + trackW
+      let dur = dist / speedPx;
+      dur = Math.max(minDur, Math.min(maxDur, dur));
+
+      track.style.setProperty("--from", from + "px");
+      track.style.setProperty("--to", to + "px");
+      track.style.setProperty("--dur", dur + "s");
+    };
+
+    // 初回
+    apply();
+
+    // iOS/Safariでレイアウトが後から確定するケースに備えて複数回
+    setTimeout(apply, 80);
+    setTimeout(apply, 220);
+    setTimeout(apply, 600);
+
+    // 回転/リサイズにも追従
+    window.addEventListener("resize", () => setTimeout(apply, 60));
+
+    // 長押し/タップ中は停止（スクショの挙動に合わせる）
+    const pauseOn = () => lane.classList.add("pause");
+    const pauseOff = () => lane.classList.remove("pause");
+
+    lane.addEventListener("touchstart", pauseOn, {passive:true});
+    lane.addEventListener("touchend", pauseOff, {passive:true});
+    lane.addEventListener("touchcancel", pauseOff, {passive:true});
+    lane.addEventListener("mousedown", pauseOn);
+    lane.addEventListener("mouseup", pauseOff);
+    lane.addEventListener("mouseleave", pauseOff);
+
+    // Safariの省エネで止まった時の保険：復帰時に再計算
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) setTimeout(apply, 80);
+    });
+  });
 </script>
 {% endblock %}
 
 {% block content %}
 <div class="wrap">
 
-  {% if not has_data %}
-    <div class="hero">
-      <div class="hero-title">AI Behavior Lab</div>
-      <div class="hero-sub">
-        成績表じゃない。<br>
-        「あなたの判断のクセ」を、AIが“仮説→検証”で増殖させる実験室。
+  <!-- HERO -->
+  <div class="hero">
+    <div class="heroTop">
+      <div>
+        <div class="title">
+          <span class="dot"></span>
+          AI Behavior Lab
+        </div>
+        <div class="subtitle">
+          成績表じゃない。<br>
+          「あなたの判断のクセ」を AI が“仮説→検証”で育てる実験室。
+        </div>
+
+        <div class="chips">
+          <span class="chip pink"><span class="emoji">🧪</span>PRO仕様</span>
+          <span class="chip sky"><span class="emoji">📅</span>today: {{ today_label }}</span>
+          <span class="chip mint"><span class="emoji">📂</span>simulate files: {{ sim_files|default:0 }}</span>
+          <span class="chip yellow"><span class="emoji">🧠</span>model: {% if model.has_model %}ready{% else %}none{% endif %}</span>
+          <span class="chip violet"><span class="emoji">🎯</span>understanding: {{ understanding_label }}</span>
+        </div>
       </div>
     </div>
 
-    <div class="empty">
-      まだ PRO 行動データ（評価付き）がありません。<br>
-      先に <span class="ticker-strong">ai_sim_eval → sync_simulate_pro_eval → build_behavior_dataset → train_behavior_model</span>
-      が揃うと、ここに “学習内容 / 傾向 / 改善の打ち手” が出ます。
-    </div>
+    <!-- TICKER -->
+    <div class="ticker">
+      <div class="tickerHead">
+        <div>本日 {{ today_label }}</div>
+        <div class="hint">（長押し/タップ中は停止）</div>
+      </div>
 
+      <div class="tickerLane" data-ticker-lane>
+        <div class="tickerTrack" data-ticker-track>
+          {% if ticker_lines %}
+            {% for line in ticker_lines %}
+              <span class="tickerTag"><span class="spark"></span>{{ line }}</span>
+              <span class="tickerSep"></span>
+            {% endfor %}
+            {# ループ感を出すために2周ぶん #}
+            {% for line in ticker_lines %}
+              <span class="tickerTag"><span class="spark"></span>{{ line }}</span>
+              <span class="tickerSep"></span>
+            {% endfor %}
+          {% else %}
+            <span class="tickerTag"><span class="spark"></span>テロップ未生成：ticker を作るとここが流れる</span>
+            <span class="tickerSep"></span>
+            <span class="tickerTag"><span class="spark"></span>16:20 の生成（または手動）でOK</span>
+            <span class="tickerSep"></span>
+            <span class="tickerTag"><span class="spark"></span>まずはWLを増やすと“クセ”が濃くなる</span>
+            <span class="tickerSep"></span>
+            <span class="tickerTag"><span class="spark"></span>テロップ未生成：ticker を作るとここが流れる</span>
+            <span class="tickerSep"></span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if not has_data %}
+    <div class="empty">
+      <div class="emptyTitle">まだ行動データがない ✍️</div>
+      <div class="emptySub">
+        AI Picks のカードから「シミュレ」登録 → 16:00台の評価＆学習が走ると、ここが一気に賑やかになります。<br>
+        まずは <b>win/lose</b> が増えるほど “あなたの型” が見えます。
+      </div>
+    </div>
   {% else %}
 
-    <!-- HERO -->
-    <div class="hero">
-      <div class="hero-title">AI Behavior Lab</div>
-      <div class="hero-sub">
-        成績表じゃない。<br>
-        「あなたの判断のクセ」を、AIが“仮説→検証”で増殖させる実験室。
-      </div>
-
-      <!-- CHIPS -->
-      <div class="chips">
-        <div class="chip"><span class="dot mid"></span> PRO仕様</div>
-        <div class="chip mid">today: {{ today }}</div>
-        <div class="chip">simulate files: {{ simulate_files|default:0 }}</div>
-
-        {% if model_ready %}
-          <div class="chip ok"><span class="dot ok"></span> model: ready</div>
-        {% else %}
-          <div class="chip warn"><span class="dot warn"></span> model: none</div>
-        {% endif %}
-
-        <div class="chip mid">understanding: {{ understanding|default:"MID" }}</div>
-      </div>
-
-      <!-- TICKER -->
-      <div class="ticker">
-        <div class="ticker-head">
-          <div class="ticker-date">本日 {{ today }}</div>
-          <div class="ticker-hint">（長押し/タップ中は停止）</div>
+    <!-- KPI Row -->
+    <div class="grid">
+      <div class="card">
+        <div class="cardTitle">
+          <span>学習スコア（いまの中身）</span>
+          <span class="badge">WL={{ wl_total }} / simulate={{ sim_total }}</span>
         </div>
-        <div class="ticker-body">
-          <div class="ticker-viewport">
-            <div class="ticker-rail">
-              <span>学習: WL={{ wl_total }} 勝率={{ kpi_win_rate|floatformat:1 }}%（W{{ wl_win }}/L{{ wl_lose }}）</span>
-              <span class="ticker-strong">平均R: {{ kpi_avg_r|floatformat:3 }}</span>
-              <span>平均PL: {{ behavior_model.avg_pl|floatformat:0|intcomma }}円</span>
-              <span>相性TOP: {{ best_sector_name|default:"-" }}</span>
 
-              <!-- 同じ文をもう一回（-100%移動で切れないように） -->
-              <span>学習: WL={{ wl_total }} 勝率={{ kpi_win_rate|floatformat:1 }}%（W{{ wl_win }}/L{{ wl_lose }}）</span>
-              <span class="ticker-strong">平均R: {{ kpi_avg_r|floatformat:3 }}</span>
-              <span>平均PL: {{ behavior_model.avg_pl|floatformat:0|intcomma }}円</span>
-              <span>相性TOP: {{ best_sector_name|default:"-" }}</span>
+        <div class="kpis">
+          <div class="kpi">
+            <div class="kpiLabel">勝率（win/lose）</div>
+            <div class="kpiVal">
+              {% if win_rate is not None %}
+                {{ win_rate|floatformat:1 }}%
+              {% else %}
+                -
+              {% endif %}
+            </div>
+          </div>
+          <div class="kpi">
+            <div class="kpiLabel">平均R</div>
+            <div class="kpiVal">
+              {% if avg_r is not None %}
+                {{ avg_r|floatformat:3 }}
+              {% else %}
+                -
+              {% endif %}
+            </div>
+          </div>
+          <div class="kpi">
+            <div class="kpiLabel">平均PL</div>
+            <div class="kpiVal">
+              {% if avg_pl is not None %}
+                {{ avg_pl|floatformat:0|intcomma }}円
+              {% else %}
+                -
+              {% endif %}
+            </div>
+          </div>
+          <div class="kpi">
+            <div class="kpiLabel">評価済み（PRO）</div>
+            <div class="kpiVal">
+              {{ sim_total|default:0|intcomma }} → {{ wl_total|default:0|intcomma }}
             </div>
           </div>
         </div>
+
+        {% if notes %}
+          <div class="sub" style="margin-top:8px;">
+            {% for n in notes %}
+              • {{ n }}<br>
+            {% endfor %}
+          </div>
+        {% endif %}
       </div>
 
-      <!-- KPI STRIP -->
-      <div class="kpi-strip">
-        <div class="kpi-box">
-          <div class="kpi-label">学習（win/lose）</div>
-          <div class="kpi-value">WL={{ wl_total }} 勝率={{ kpi_win_rate|floatformat:1 }}%（W{{ wl_win }}/L{{ wl_lose }}）</div>
-          <div class="kpi-mini">PROのみ（carry/skipは除外）</div>
+      <div class="card">
+        <div class="cardTitle">
+          <span>クセの地図（ざっくり判定）</span>
+          <span class="badge">streak: <b>{{ streak_label }}</b></span>
         </div>
-        <div class="kpi-box">
-          <div class="kpi-label">平均R</div>
-          <div class="kpi-value">{{ kpi_avg_r|floatformat:3 }}</div>
-          <div class="kpi-mini">Rが取れている分だけで計算</div>
+
+        <div class="kv">
+          {% for b in bias_map %}
+            <div class="kvRow">
+              <div class="kvKey">{{ b.name }}</div>
+              <div class="kvVal">{{ b.value }}</div>
+            </div>
+          {% endfor %}
+        </div>
+
+        <div class="streak">
+          <div>直近の並び</div>
+          <strong>{{ streak_label }}</strong>
+        </div>
+
+        <div class="seq" style="margin-top:8px;">
+          {% for s in sequence %}
+            <div class="pill {{ s.label }}">{{ s.text }}</div>
+          {% endfor %}
         </div>
       </div>
     </div>
 
     <!-- Hypotheses -->
-    <div class="section">
-      <div class="lab-title">AI の現在の仮説</div>
+    <div class="card" style="margin-top:10px;">
+      <div class="cardTitle">
+        <span>AI の現在の仮説（ぶっ刺さり版）</span>
+        <span class="badge">更新: {{ today_label }}</span>
+      </div>
 
-      <div class="card-grid">
+      <div class="hypList">
         {% for h in hypotheses %}
-          <div class="hypo">
-            <div class="hypo-top">
-              <div class="hypo-tag">仮説 {{ forloop.counter|stringformat:"02d" }}</div>
-              <div class="hypo-badge">{{ h.level }}</div>
+          <div class="hyp">
+            <div class="hypHead">
+              <div class="hypNum">{{ forloop.counter }}</div>
+              <div>仮説 {{ forloop.counter|add:"0" }}</div>
             </div>
-            <div class="hypo-text">{{ h.text }}</div>
-          </div>
-        {% empty %}
-          <div class="hypo">
-            <div class="hypo-text">
-              まだ仮説を作るにはデータが足りません。もう少し PRO 評価付きログが増えると、
-              “勝ち筋/負け筋” を切り分けた仮説が増殖します。
-            </div>
+            <div class="hypBody">{{ h }}</div>
           </div>
         {% endfor %}
       </div>
 
-      <div class="mini-kv">
-        <div class="kv-row"><div class="kv-key">総レコード（表示対象）</div><div class="kv-val">{{ total|intcomma }}</div></div>
-        <div class="kv-row"><div class="kv-key">WL対象</div><div class="kv-val">{{ wl_total }}</div></div>
-        <div class="kv-row"><div class="kv-key">DEMO</div><div class="kv-val">{{ mode_counts.demo|default:0 }}</div></div>
-        <div class="kv-row"><div class="kv-key">LIVE</div><div class="kv-val">{{ mode_counts.live|default:0 }}</div></div>
+      {% if wanted %}
+        <div class="sub" style="margin-top:10px;">
+          <b>AIが欲しい追加データ：</b><br>
+          {% for w in wanted %}
+            • {{ w }}<br>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Recent trades -->
+    <div class="grid" style="margin-top:10px;">
+      <div class="card">
+        <div class="cardTitle">
+          <span>直近ログ（観察用）</span>
+          <span class="badge">latest_behavior_side</span>
+        </div>
+
+        <div class="tradeList">
+          {% for t in recent_trades %}
+            <div class="trade">
+              <div class="tradeTop">
+                <div class="tradeCode">{{ t.code }}</div>
+                <div class="tradeLabel {{ t.label }}">
+                  {% if t.label == "win" %}WIN{% elif t.label == "lose" %}LOSE{% else %}FLAT{% endif %}
+                </div>
+              </div>
+              <div class="tradeMid">
+                {% if t.pl >= 0 %}
+                  <div class="tradePL pos">+{{ t.pl|floatformat:0|intcomma }}円</div>
+                {% else %}
+                  <div class="tradePL neg">{{ t.pl|floatformat:0|intcomma }}円</div>
+                {% endif %}
+                <div class="tradeMeta">
+                  {% if t.r is not None %}R={{ t.r|floatformat:3 }} / {% endif %}
+                  {{ t.meta }}
+                </div>
+              </div>
+            </div>
+          {% empty %}
+            <div class="sub">まだ side の行がありません。</div>
+          {% endfor %}
+        </div>
       </div>
-    </div>
 
-    <!-- Model summary -->
-    <div class="section">
-      <div class="lab-title">学習サマリ（behavior model）</div>
-
-      {% if behavior_model.has_model %}
-        <div class="mini-kv">
-          <div class="kv-row"><div class="kv-key">学習トレード数</div><div class="kv-val">{{ behavior_model.total_trades|default:0 }}</div></div>
-          <div class="kv-row"><div class="kv-key">勝ち</div><div class="kv-val">{{ behavior_model.wins|default:0 }}</div></div>
-          <div class="kv-row"><div class="kv-key">勝率</div><div class="kv-val">{{ behavior_model.win_rate|floatformat:1 }}%</div></div>
-          <div class="kv-row"><div class="kv-key">平均PL</div><div class="kv-val">{{ behavior_model.avg_pl|floatformat:0|intcomma }}円</div></div>
-          <div class="kv-row"><div class="kv-key">平均R</div><div class="kv-val">{{ behavior_model.avg_r|floatformat:3 }}</div></div>
-          <div class="kv-row"><div class="kv-key">更新時刻</div><div class="kv-val">{{ behavior_model.updated_at|default:"-" }}</div></div>
+      <div class="card">
+        <div class="cardTitle">
+          <span>モデル状態</span>
+          <span class="badge">{% if model.has_model %}READY{% else %}NONE{% endif %}</span>
         </div>
-      {% else %}
-        <div class="empty" style="margin-top:8px;">
-          まだ学習モデルがありません。<br>
-          <span class="ticker-strong">train_behavior_model</span> 実行後にここが埋まります。
+
+        <div class="sub" style="font-weight:900;">
+          {% if model.has_model %}
+            学習対象トレード数：<b>{{ model.total_trades|default:0|intcomma }}</b><br>
+            <span style="color:rgba(15,23,42,.65);font-weight:800;">
+              （PRO一択で回す前提。WLが増えるほど“あなた専用”に寄ります）
+            </span>
+          {% else %}
+            まだモデルファイルがありません。<br>
+            <span style="color:rgba(15,23,42,.65);font-weight:800;">
+              sync → dataset → memory → train が揃うと READY になります。
+            </span>
+          {% endif %}
         </div>
-      {% endif %}
-    </div>
 
-    <!-- TOP win / lose -->
-    <div class="section">
-      <div class="lab-title">TOP 勝ち（PRO）</div>
-      {% if top_win %}
-        {% for r in top_win %}
-          <div class="trade-item">
-            <div class="trade-title">{{ r.code }} {{ r.name }}</div>
-            <div class="trade-sub">
-              <div class="pl-pos">+{{ r.pl|floatformat:0|intcomma }} 円</div>
-              <div>{{ r.mode }} ／ {{ r.ts_label }}</div>
-            </div>
-          </div>
-        {% endfor %}
-      {% else %}
-        <div class="empty">勝ちトレードがまだありません。</div>
-      {% endif %}
-    </div>
-
-    <div class="section">
-      <div class="lab-title">TOP 負け（PRO）</div>
-      {% if top_lose %}
-        {% for r in top_lose %}
-          <div class="trade-item">
-            <div class="trade-title">{{ r.code }} {{ r.name }}</div>
-            <div class="trade-sub">
-              <div class="pl-neg">{{ r.pl|floatformat:0|intcomma }} 円</div>
-              <div>{{ r.mode }} ／ {{ r.ts_label }}</div>
-            </div>
-          </div>
-        {% endfor %}
-      {% else %}
-        <div class="empty">負けトレードがまだありません。</div>
-      {% endif %}
+        <div class="sub" style="margin-top:10px;">
+          <b>ticker：</b> {{ ticker_date|default:"" }}<br>
+          {% if ticker_lines %}
+            {% for line in ticker_lines %}
+              • {{ line }}<br>
+            {% endfor %}
+          {% else %}
+            • テロップはまだ空です（生成すると流れます）<br>
+          {% endif %}
+        </div>
+      </div>
     </div>
 
   {% endif %}
-
 </div>
 {% endblock %}
