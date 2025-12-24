@@ -5,53 +5,70 @@
 
 {% block head %}
 <style>
+/* =========================================================
+   iPhone専用：視認性ファースト（暗背景でも沈まない）
+   - 文字を明るく、コントラスト強め
+   - 境界線は「薄い線 + 内側の影」でカード輪郭を出す
+   - 余白は詰めるが、行間は確保（読める最低ライン）
+========================================================= */
 :root{
-  /* ===== いままでの暗め（ガラス）寄りに戻す ===== */
-  --bg:#020617;
-  --card:rgba(15,23,42,.86);
-  --card2:rgba(15,23,42,.72);
-  --fg:#e5edff;
-  --sub:rgba(229,237,255,.70);
-  --muted:rgba(229,237,255,.55);
-  --line:rgba(148,163,184,.22);
+  --bg:#050b1a;
+  --bg2:#070f24;
 
-  --accent:#7c3aed;   /* 紫 */
-  --accent2:#38bdf8;  /* 水色 */
-  --accent3:#fb7185;  /* ピンク */
+  --card: rgba(17, 27, 54, .78);
+  --card2: rgba(17, 27, 54, .60);
+
+  --line: rgba(255,255,255,.10);
+  --line2: rgba(255,255,255,.14);
+
+  --fg: rgba(245,247,255,.95);
+  --sub: rgba(245,247,255,.72);
+  --muted: rgba(245,247,255,.58);
+
+  --accent:#8b5cf6;
+  --accent2:#38bdf8;
+  --accent3:#fb7185;
 
   --ok:#22c55e;
   --bad:#ef4444;
 
-  --shadow:0 14px 40px rgba(0,0,0,.35);
-  --shadow2:0 10px 26px rgba(0,0,0,.26);
+  --shadow: 0 14px 40px rgba(0,0,0,.40);
+  --inset: inset 0 1px 0 rgba(255,255,255,.08);
+  --glass: blur(10px);
 
-  /* テロップ速度は px/sec で制御（JS側） */
+  --radius: 18px;
+
+  --kpiVal: 22px; /* iPhoneで数字を読みやすく */
 }
 
+/* iPhoneの100vh問題対策も兼ねて濃淡背景 */
 body{
   background:
-    radial-gradient(1200px 700px at 10% 10%, rgba(124,58,237,.22), transparent 55%),
-    radial-gradient(900px 520px at 85% 15%, rgba(56,189,248,.18), transparent 55%),
-    radial-gradient(900px 520px at 70% 90%, rgba(251,113,133,.12), transparent 60%),
-    linear-gradient(180deg, var(--bg), #071028);
+    radial-gradient(1000px 600px at 14% 10%, rgba(139,92,246,.22), transparent 56%),
+    radial-gradient(900px 520px at 86% 12%, rgba(56,189,248,.18), transparent 56%),
+    radial-gradient(900px 520px at 70% 92%, rgba(251,113,133,.12), transparent 60%),
+    linear-gradient(180deg, var(--bg), var(--bg2));
   color: var(--fg);
+  -webkit-text-size-adjust: 100%;
 }
 
 .wrap{
-  max-width: 920px;
+  max-width: 520px; /* ★iPhone専用：横は締める */
   margin: 0 auto;
-  padding: 12px 12px 92px;
+  padding: 10px 12px 96px;
 }
 
-/* ===== 上部バー（今日 + テロップ） ===== */
+/* =========================================================
+   上部バー（今日 + テロップ）… “読める” を最優先
+========================================================= */
 .topbar{
   position: sticky;
   top: 0;
-  z-index: 40;
+  z-index: 50;
   padding-top: 10px;
   padding-bottom: 10px;
-  background: linear-gradient(180deg, rgba(2,6,23,.92), rgba(2,6,23,.70), rgba(2,6,23,0));
-  backdrop-filter: blur(10px);
+  background: linear-gradient(180deg, rgba(5,11,26,.92), rgba(5,11,26,.70), rgba(5,11,26,0));
+  backdrop-filter: blur(12px);
 }
 
 .topbar-inner{
@@ -61,33 +78,33 @@ body{
 }
 
 .today-pill{
-  flex: 0 0 auto;
+  flex:0 0 auto;
   display:flex;
   align-items:center;
   gap:8px;
-  padding:8px 10px;
+  padding: 9px 10px;
   border-radius: 999px;
-  background: rgba(15,23,42,.86);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow2);
-  font-weight: 900;
-  font-size: 12px;
+  background: rgba(17,27,54,.78);
+  border: 1px solid var(--line2);
+  box-shadow: 0 10px 26px rgba(0,0,0,.28);
   color: var(--fg);
+  font-size: 12px;
+  font-weight: 1000;
+  letter-spacing: .2px;
 }
-
 .today-pill .sub{
-  font-weight: 800;
   color: var(--muted);
+  font-weight: 950;
 }
 
 .ticker{
   flex: 1 1 auto;
   overflow:hidden;
   border-radius: 999px;
-  background: rgba(15,23,42,.86);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow2);
-  height: 36px;
+  background: rgba(17,27,54,.74);
+  border: 1px solid var(--line2);
+  box-shadow: 0 10px 26px rgba(0,0,0,.28);
+  height: 38px; /* 少し太くして読みやすく */
   display:flex;
   align-items:center;
   position: relative;
@@ -97,16 +114,16 @@ body{
   content:"";
   position:absolute;
   left:0; top:0; bottom:0;
-  width:24px;
-  background: linear-gradient(90deg, rgba(2,6,23,.95), rgba(2,6,23,0));
+  width:26px;
+  background: linear-gradient(90deg, rgba(5,11,26,.96), rgba(5,11,26,0));
   pointer-events:none;
 }
 .ticker::after{
   content:"";
   position:absolute;
   right:0; top:0; bottom:0;
-  width:24px;
-  background: linear-gradient(270deg, rgba(2,6,23,.95), rgba(2,6,23,0));
+  width:26px;
+  background: linear-gradient(270deg, rgba(5,11,26,.96), rgba(5,11,26,0));
   pointer-events:none;
 }
 
@@ -125,8 +142,8 @@ body{
   gap: 8px;
   white-space: nowrap;
   font-size: 13px;
-  font-weight: 900;
-  color: rgba(229,237,255,.86);
+  font-weight: 1000;
+  color: rgba(245,247,255,.92);
 }
 
 .dot{
@@ -136,32 +153,44 @@ body{
   box-shadow: 0 0 0 4px rgba(56,189,248,.16);
 }
 
-/* ★ うっすら日付を完全に消す（邪魔なので） */
+/* ★テロップ内の日付は消す */
 .ticker-date{ display:none !important; }
 
-/* ===== セクション / カード ===== */
+/* =========================================================
+   セクション / カード（輪郭強め、文字沈まない）
+========================================================= */
 .section{
   margin-top: 12px;
-  border-radius: 18px;
+  border-radius: var(--radius);
   padding: 12px;
-  background: linear-gradient(180deg, rgba(15,23,42,.88), rgba(15,23,42,.76));
+  background: linear-gradient(180deg, rgba(17,27,54,.84), rgba(17,27,54,.66));
+  border: 1px solid var(--line2);
   box-shadow: var(--shadow);
-  border: 1px solid var(--line);
+  position: relative;
+}
+.section::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  border-radius: var(--radius);
+  pointer-events:none;
+  box-shadow: var(--inset);
 }
 
 .h-title{
-  font-size: 15px;
-  font-weight: 1000;
+  font-size: 16px;
+  font-weight: 1100;
+  letter-spacing: .2px;
   margin-bottom: 6px;
-  letter-spacing: 0.2px;
 }
 .h-sub{
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 900;
   color: var(--sub);
-  line-height: 1.55;
+  line-height: 1.6;
 }
 
+/* バッジ：背景を濃くして読めるように */
 .badges{
   margin-top: 10px;
   display:flex;
@@ -171,14 +200,14 @@ body{
 .badge{
   display:inline-flex;
   align-items:center;
-  gap:6px;
+  gap:7px;
   border-radius: 999px;
-  padding: 5px 10px;
+  padding: 6px 10px;
   font-size: 11px;
-  font-weight: 950;
-  background: rgba(2,6,23,.35);
-  border: 1px solid rgba(148,163,184,.20);
-  color: rgba(229,237,255,.86);
+  font-weight: 1050;
+  background: rgba(5,11,26,.32);
+  border: 1px solid rgba(255,255,255,.12);
+  color: rgba(245,247,255,.90);
 }
 .badge .chip{
   width:10px; height:10px;
@@ -186,47 +215,94 @@ body{
   background: var(--accent);
 }
 
+/* KPI：数字が最優先。カード境界も強め */
 .grid2{
   display:grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-top: 10px;
 }
-@media (max-width: 520px){
-  .grid2{ grid-template-columns: 1fr; }
-}
-
-/* ★ KPIをコンパクト化（縦に間延びしない） */
 .kpi{
   border-radius: 16px;
   padding: 10px 12px;
-  background: rgba(2,6,23,.32);
-  border: 1px solid rgba(148,163,184,.20);
+  background: rgba(5,11,26,.30);
+  border: 1px solid rgba(255,255,255,.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
 }
 .kpi .lab{
   font-size: 11px;
-  font-weight: 900;
-  color: rgba(229,237,255,.62);
+  font-weight: 950;
+  color: rgba(245,247,255,.70);
   margin-bottom: 4px;
 }
 .kpi .val{
-  font-size: 20px;
-  font-weight: 1000;
-  color: rgba(229,237,255,.95);
+  font-size: var(--kpiVal);
+  font-weight: 1200;
+  color: rgba(255,255,255,.98);
   font-variant-numeric: tabular-nums;
   line-height: 1.12;
 }
 .kpi .sub{
   margin-top: 4px;
   font-size: 11px;
-  font-weight: 850;
-  color: rgba(229,237,255,.56);
+  font-weight: 900;
+  color: rgba(245,247,255,.62);
 }
 
 .hr{
   height:1px;
-  background: rgba(148,163,184,.18);
+  background: rgba(255,255,255,.12);
   margin: 10px 0;
+}
+
+/* ストリーク */
+.row{
+  display:flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+}
+.row .k{
+  font-size: 12px;
+  font-weight: 950;
+  color: rgba(245,247,255,.72);
+}
+.row .v{
+  font-size: 12px;
+  font-weight: 1100;
+  color: rgba(255,255,255,.95);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 直近12個 */
+.seq{
+  margin-top: 10px;
+  display:flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.seq-dot{
+  width: 28px;
+  height: 28px;
+  border-radius: 11px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight: 1100;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(5,11,26,.30);
+  color: rgba(255,255,255,.92);
+  font-size: 12px;
+}
+.seq-dot.win{ background: rgba(34,197,94,0.22); border-color: rgba(34,197,94,0.35); }
+.seq-dot.lose{ background: rgba(239,68,68,0.18); border-color: rgba(239,68,68,0.32); }
+.seq-dot.flat{ background: rgba(99,102,241,0.16); border-color: rgba(99,102,241,0.26); }
+
+.small{
+  font-size: 11px;
+  font-weight: 900;
+  color: rgba(245,247,255,.60);
 }
 
 .list{
@@ -238,28 +314,12 @@ body{
 .card{
   border-radius: 16px;
   padding: 10px 12px;
-  background: rgba(2,6,23,.30);
-  border: 1px solid rgba(148,163,184,.18);
+  background: rgba(5,11,26,.28);
+  border: 1px solid rgba(255,255,255,.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
 }
 
-.row{
-  display:flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: baseline;
-}
-.row .k{
-  font-size: 12px;
-  font-weight: 900;
-  color: rgba(229,237,255,.62);
-}
-.row .v{
-  font-size: 12px;
-  font-weight: 1000;
-  color: rgba(229,237,255,.92);
-  font-variant-numeric: tabular-nums;
-}
-
+/* pill */
 .pills{
   display:flex;
   flex-wrap: wrap;
@@ -273,60 +333,33 @@ body{
   padding: 6px 10px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 1000;
-  border: 1px solid rgba(148,163,184,.18);
-  background: rgba(2,6,23,.34);
-  color: rgba(229,237,255,.86);
+  font-weight: 1050;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(5,11,26,.30);
+  color: rgba(255,255,255,.90);
 }
-.pill b{ font-weight: 1100; }
-
-.seq{
-  margin-top: 10px;
-  display:flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-}
-.seq-dot{
-  width: 26px;
-  height: 26px;
-  border-radius: 10px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  font-weight: 1000;
-  border: 1px solid rgba(148,163,184,.20);
-  background: rgba(2,6,23,.34);
-  color: rgba(229,237,255,.82);
-  font-size: 12px;
-}
-.seq-dot.win{ background: rgba(34,197,94,0.18); border-color: rgba(34,197,94,0.35); }
-.seq-dot.lose{ background: rgba(239,68,68,0.16); border-color: rgba(239,68,68,0.32); }
-.seq-dot.flat{ background: rgba(99,102,241,0.14); border-color: rgba(99,102,241,0.26); }
-
-.small{
-  font-size: 11px;
-  font-weight: 850;
-  color: rgba(229,237,255,.58);
-}
+.pill b{ font-weight: 1200; }
 
 .pl-pos{ color: var(--ok); }
 .pl-neg{ color: var(--bad); }
 
-/* ===== 空状態 ===== */
 .empty{
   margin-top: 14px;
-  border-radius: 18px;
+  border-radius: var(--radius);
   padding: 14px;
-  background: rgba(15,23,42,.75);
-  border: 1px dashed rgba(148,163,184,.25);
-  box-shadow: var(--shadow2);
-  color: rgba(229,237,255,.86);
-  font-weight: 900;
-  line-height: 1.6;
+  background: rgba(17,27,54,.70);
+  border: 1px dashed rgba(255,255,255,.16);
+  box-shadow: 0 10px 26px rgba(0,0,0,.28);
+  color: rgba(255,255,255,.90);
+  font-weight: 950;
+  line-height: 1.65;
 }
 
-/* ===== AIの仮説：見づらさ改善（折りたたみ + 要点） ===== */
+/* =========================================================
+   AIの仮説：iPhoneで「読みやすい」構造に刷新
+   - summaryは1行で収める（長文は中身で読む）
+   - 折りたたみのタップ領域を太くする
+========================================================= */
 .hypo-wrap{
   margin-top: 10px;
   display:flex;
@@ -335,64 +368,77 @@ body{
 }
 details.hypo{
   border-radius: 16px;
-  background: rgba(2,6,23,.30);
-  border: 1px solid rgba(148,163,184,.18);
+  background: rgba(5,11,26,.28);
+  border: 1px solid rgba(255,255,255,.12);
   overflow:hidden;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
 }
 details.hypo > summary{
-  list-style: none;
-  cursor: pointer;
-  padding: 10px 12px;
+  list-style:none;
+  cursor:pointer;
+  padding: 12px 12px;          /* ★タップ領域を太く */
   display:flex;
-  align-items:flex-start;
+  align-items:center;
   gap: 10px;
 }
 details.hypo > summary::-webkit-details-marker{ display:none; }
+
 .hypo-badge{
-  flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-  border-radius: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 12px;
   display:flex;
   align-items:center;
   justify-content:center;
-  font-weight: 1000;
-  background: rgba(124,58,237,.18);
-  border: 1px solid rgba(124,58,237,.30);
-  color: rgba(229,237,255,.92);
+  font-weight: 1200;
+  background: rgba(139,92,246,.20);
+  border: 1px solid rgba(139,92,246,.34);
+  color: rgba(255,255,255,.95);
+  flex: 0 0 auto;
 }
+
 .hypo-title{
   flex: 1 1 auto;
   font-size: 12px;
-  font-weight: 950;
-  color: rgba(229,237,255,.92);
-  line-height: 1.45;
+  font-weight: 1000;
+  color: rgba(255,255,255,.92);
+  line-height: 1.35;
+  /* ★summaryは1行にして“見た目の圧”を下げる */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
 .hypo-open{
   flex: 0 0 auto;
   font-size: 12px;
-  font-weight: 1000;
-  color: rgba(229,237,255,.55);
-  padding-top: 2px;
+  font-weight: 1100;
+  color: rgba(245,247,255,.60);
 }
+
 .hypo-body{
   padding: 0 12px 12px;
-  color: rgba(229,237,255,.80);
-  font-size: 12px;
-  font-weight: 850;
-  line-height: 1.7;
+  color: rgba(255,255,255,.88);
+  font-size: 13px;             /* ★中身は少し大きめ */
+  font-weight: 900;
+  line-height: 1.75;
 }
 .hypo-body .mini{
   margin-top: 8px;
   font-size: 11px;
-  color: rgba(229,237,255,.55);
-  font-weight: 850;
+  color: rgba(245,247,255,.60);
+  font-weight: 900;
 }
 
-/* iPhone向け：tickerは JS transform で動かす */
-.no-js .ticker-track{
-  animation: tickerMove 12s linear infinite;
+/* iPhone横幅最適化 */
+@media (max-width: 430px){
+  .wrap{ padding-left: 10px; padding-right: 10px; }
+  .grid2{ gap: 9px; }
+  .section{ padding: 12px; }
 }
+
+/* CSSアニメ保険（基本はJSで動かす） */
+.no-js .ticker-track{ animation: tickerMove 12s linear infinite; }
 @keyframes tickerMove{
   0%{ transform: translate3d(0,0,0); }
   100%{ transform: translate3d(-50%,0,0); }
@@ -425,8 +471,6 @@ details.hypo > summary::-webkit-details-marker{ display:none; }
             <div class="ticker-item"><span class="dot"></span>テロップ未生成（生成ジョブ待機中）</div>
           {% endif %}
         </div>
-
-        {# ★ 右側の薄い日付は邪魔なので表示しない（CSSでdisplay:noneにしてある） #}
         <div class="ticker-date">{% if ticker_date %}{{ ticker_date }}{% endif %}</div>
       </div>
     </div>
@@ -443,7 +487,7 @@ details.hypo > summary::-webkit-details-marker{ display:none; }
     </div>
   {% else %}
 
-    <!-- 概要（コンパクト版） -->
+    <!-- 概要 -->
     <div class="section">
       <div class="h-title">AI 行動ダッシュボード（PRO）</div>
       <div class="h-sub">
@@ -463,19 +507,16 @@ details.hypo > summary::-webkit-details-marker{ display:none; }
           <div class="val">{% if win_rate is not None %}{{ win_rate|floatformat:1 }}%{% else %}-{% endif %}</div>
           <div class="sub">carry/skipは母数に含めない</div>
         </div>
-
         <div class="kpi">
           <div class="lab">平均R</div>
           <div class="val">{% if avg_r is not None %}{{ avg_r|floatformat:2 }}{% else %}-{% endif %}</div>
           <div class="sub">Rが無い日は学習に弱めに反映</div>
         </div>
-
         <div class="kpi">
           <div class="lab">平均PL</div>
           <div class="val">{% if avg_pl is not None %}{{ avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}</div>
           <div class="sub">PLは評価済みのみ</div>
         </div>
-
         <div class="kpi">
           <div class="lab">学習対象トレード数（モデル）</div>
           <div class="val">{% if model.has_model %}{{ model.total_trades|intcomma }}{% else %}-{% endif %}</div>
@@ -498,11 +539,11 @@ details.hypo > summary::-webkit-details-marker{ display:none; }
       </div>
     </div>
 
-    <!-- AIの仮説（見やすい折りたたみ） -->
+    <!-- AIの仮説 -->
     <div class="section">
       <div class="h-title">AIの仮説</div>
       <div class="h-sub">
-        いまの少量データから “それっぽいクセ” を仮置き。<b>必要なときだけ開いて読む</b>スタイル。
+        一覧は“短く”、本文は“開いて読む”。iPhoneで読める形に最適化。
       </div>
 
       {% if hypotheses %}
@@ -516,7 +557,7 @@ details.hypo > summary::-webkit-details-marker{ display:none; }
               </summary>
               <div class="hypo-body">
                 {{ h }}
-                <div class="mini">※データが増えるほど、仮説は「消える/強くなる/分岐する」を繰り返す。</div>
+                <div class="mini">※データが増えるほど仮説は更新されます。</div>
               </div>
             </details>
           {% endfor %}
@@ -600,7 +641,9 @@ details.hypo > summary::-webkit-details-marker{ display:none; }
       <div class="list">
         {% for w in wanted %}
           <div class="card">
-            <div style="font-weight:950; font-size:13px; color:rgba(229,237,255,.92); line-height:1.55;">{{ w }}</div>
+            <div style="font-weight:1050; font-size:13px; color:rgba(255,255,255,.92); line-height:1.6;">
+              {{ w }}
+            </div>
           </div>
         {% endfor %}
       </div>
@@ -638,7 +681,7 @@ details.hypo > summary::-webkit-details-marker{ display:none; }
             </div>
             <div class="row" style="margin-top:6px;">
               <div class="k">meta</div>
-              <div class="v" style="font-weight:850;color:rgba(229,237,255,.60);">{{ t.meta }}</div>
+              <div class="v" style="font-weight:900;color:rgba(245,247,255,.62);">{{ t.meta }}</div>
             </div>
           </div>
         {% endfor %}
@@ -650,22 +693,18 @@ details.hypo > summary::-webkit-details-marker{ display:none; }
 
 <script>
 (function(){
-  // JS動作の印
   var root = document.getElementById("behaviorRoot");
   if (root) root.classList.remove("no-js");
 
-  // iPhoneでCSS animationが効きづらい時があるので
-  // requestAnimationFrame + translate3d で確実に動かす
   var track = document.getElementById("tickerTrack");
   if (!track) return;
 
-  // ★ 体感速度：px/sec（ここだけ触れば速さが変わる）
-  var pxPerSec = 70; // 速く=150/180, 遅く=90
+  var pxPerSec = 115; // iPhoneで“読める”速度（速すぎ注意）
   var x = 0;
   var last = performance.now();
 
   function getLoopWidth(){
-    return Math.max(1, track.scrollWidth / 2); // 2回並べてる前提
+    return Math.max(1, track.scrollWidth / 2);
   }
   var loopW = getLoopWidth();
 
@@ -676,8 +715,6 @@ details.hypo > summary::-webkit-details-marker{ display:none; }
   function step(now){
     var dt = (now - last) / 1000;
     last = now;
-
-    // iOS復帰でdtが跳ねる対策
     if (dt > 0.05) dt = 0.05;
 
     x -= pxPerSec * dt;
