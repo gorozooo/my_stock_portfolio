@@ -5,271 +5,324 @@
 
 {% block head %}
 <style>
-/* =========================================================
-   iPhone専用：視認性ファースト（暗背景でも沈まない）
-   - 文字を明るく、コントラスト強め
-   - 境界線は「薄い線 + 内側の影」でカード輪郭を出す
-   - 余白は詰めるが、行間は確保（読める最低ライン）
-========================================================= */
 :root{
-  --bg:#050b1a;
-  --bg2:#070f24;
+  --bg:#070B18;
+  --bg2:#0A1026;
 
-  --card: rgba(17, 27, 54, .78);
-  --card2: rgba(17, 27, 54, .60);
+  --fg:#EAF0FF;
+  --sub:rgba(234,240,255,.72);
+  --muted:rgba(234,240,255,.56);
 
-  --line: rgba(255,255,255,.10);
-  --line2: rgba(255,255,255,.14);
+  --card:rgba(255,255,255,.06);
+  --card2:rgba(255,255,255,.085);
+  --line:rgba(255,255,255,.10);
 
-  --fg: rgba(245,247,255,.95);
-  --sub: rgba(245,247,255,.72);
-  --muted: rgba(245,247,255,.58);
+  --accent:#7C3AED;
+  --accent2:#22D3EE;
+  --accent3:#FB7185;
 
-  --accent:#8b5cf6;
-  --accent2:#38bdf8;
-  --accent3:#fb7185;
+  --ok:#22C55E;
+  --bad:#EF4444;
 
-  --ok:#22c55e;
-  --bad:#ef4444;
-
-  --shadow: 0 14px 40px rgba(0,0,0,.40);
+  --shadow: 0 18px 44px rgba(0,0,0,.44);
   --inset: inset 0 1px 0 rgba(255,255,255,.08);
-  --glass: blur(10px);
+  --r:18px;
 
-  --radius: 18px;
-
-  --kpiVal: 22px; /* iPhoneで数字を読みやすく */
+  --safeB: env(safe-area-inset-bottom);
+  --safeT: env(safe-area-inset-top);
 }
 
-/* iPhoneの100vh問題対策も兼ねて濃淡背景 */
+*{ box-sizing:border-box; }
 body{
   background:
-    radial-gradient(1000px 600px at 14% 10%, rgba(139,92,246,.22), transparent 56%),
-    radial-gradient(900px 520px at 86% 12%, rgba(56,189,248,.18), transparent 56%),
-    radial-gradient(900px 520px at 70% 92%, rgba(251,113,133,.12), transparent 60%),
+    radial-gradient(900px 520px at 14% 10%, rgba(124,58,237,.22), transparent 58%),
+    radial-gradient(900px 520px at 86% 12%, rgba(34,211,238,.18), transparent 58%),
+    radial-gradient(900px 520px at 70% 92%, rgba(251,113,133,.12), transparent 62%),
     linear-gradient(180deg, var(--bg), var(--bg2));
   color: var(--fg);
   -webkit-text-size-adjust: 100%;
+  overflow-x:hidden;
 }
 
 .wrap{
-  max-width: 520px; /* ★iPhone専用：横は締める */
+  max-width: 520px;
   margin: 0 auto;
-  padding: 10px 12px 96px;
+  padding: 10px 12px calc(110px + var(--safeB));
 }
 
-/* =========================================================
-   上部バー（今日 + テロップ）… “読める” を最優先
-========================================================= */
-.topbar{
+/* =========================
+   ヘッダー（固定）
+========================= */
+.header{
   position: sticky;
   top: 0;
-  z-index: 50;
-  padding-top: 10px;
+  z-index: 60;
+  padding-top: calc(10px + var(--safeT));
   padding-bottom: 10px;
-  background: linear-gradient(180deg, rgba(5,11,26,.92), rgba(5,11,26,.70), rgba(5,11,26,0));
+  background: linear-gradient(180deg, rgba(7,11,24,.94), rgba(7,11,24,.78), rgba(7,11,24,0));
   backdrop-filter: blur(12px);
 }
 
-.topbar-inner{
+.headerRow{
   display:flex;
-  align-items:center;
   gap:10px;
+  align-items:center;
 }
 
-.today-pill{
+.todayPill{
   flex:0 0 auto;
   display:flex;
   align-items:center;
   gap:8px;
   padding: 9px 10px;
-  border-radius: 999px;
-  background: rgba(17,27,54,.78);
-  border: 1px solid var(--line2);
+  border-radius:999px;
+  background: rgba(255,255,255,.06);
+  border:1px solid var(--line);
   box-shadow: 0 10px 26px rgba(0,0,0,.28);
-  color: var(--fg);
-  font-size: 12px;
-  font-weight: 1000;
-  letter-spacing: .2px;
+  font-size:12px;
+  font-weight:1000;
+  letter-spacing:.2px;
 }
-.today-pill .sub{
+.todayPill .sub{
   color: var(--muted);
-  font-weight: 950;
+  font-weight:950;
 }
 
 .ticker{
-  flex: 1 1 auto;
-  overflow:hidden;
+  flex:1 1 auto;
+  height: 40px;
   border-radius: 999px;
-  background: rgba(17,27,54,.74);
-  border: 1px solid var(--line2);
+  background: rgba(255,255,255,.06);
+  border:1px solid var(--line);
   box-shadow: 0 10px 26px rgba(0,0,0,.28);
-  height: 38px; /* 少し太くして読みやすく */
+  overflow:hidden;
+  position:relative;
   display:flex;
   align-items:center;
-  position: relative;
 }
-
 .ticker::before{
   content:"";
   position:absolute;
-  left:0; top:0; bottom:0;
-  width:26px;
-  background: linear-gradient(90deg, rgba(5,11,26,.96), rgba(5,11,26,0));
+  inset:0;
   pointer-events:none;
+  background:
+    linear-gradient(90deg, rgba(7,11,24,.96), rgba(7,11,24,0) 18%),
+    linear-gradient(270deg, rgba(7,11,24,.96), rgba(7,11,24,0) 18%);
 }
-.ticker::after{
-  content:"";
-  position:absolute;
-  right:0; top:0; bottom:0;
-  width:26px;
-  background: linear-gradient(270deg, rgba(5,11,26,.96), rgba(5,11,26,0));
-  pointer-events:none;
-}
-
-.ticker-track{
+.tickerTrack{
   display:flex;
-  align-items:center;
-  gap: 16px;
-  padding-left: 16px;
+  gap:16px;
+  padding-left:16px;
   will-change: transform;
   transform: translate3d(0,0,0);
 }
-
-.ticker-item{
+.tickerItem{
   display:inline-flex;
+  gap:8px;
   align-items:center;
-  gap: 8px;
-  white-space: nowrap;
-  font-size: 13px;
-  font-weight: 1000;
-  color: rgba(245,247,255,.92);
+  white-space:nowrap;
+  font-size:13px;
+  font-weight:1000;
+  color: rgba(234,240,255,.92);
 }
-
 .dot{
-  width:8px; height:8px;
-  border-radius: 50%;
+  width:8px;height:8px;border-radius:50%;
   background: var(--accent2);
-  box-shadow: 0 0 0 4px rgba(56,189,248,.16);
+  box-shadow: 0 0 0 4px rgba(34,211,238,.16);
+}
+/* テロップ内のうっすら日付は完全撤去 */
+.tickerDate{ display:none !important; }
+
+/* =========================
+   ページ切替UI（横スワイプ）
+========================= */
+.pagerTop{
+  margin-top: 10px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+.pagerTitle{
+  font-size:13px;
+  font-weight:1100;
+  color: rgba(234,240,255,.92);
+}
+.dots{
+  display:flex;
+  gap:6px;
+  align-items:center;
+}
+.dotNav{
+  width:7px;height:7px;border-radius:99px;
+  background: rgba(255,255,255,.20);
+  border:1px solid rgba(255,255,255,.10);
+}
+.dotNav.active{
+  width:18px;
+  background: rgba(124,58,237,.55);
+  border-color: rgba(124,58,237,.60);
 }
 
-/* ★テロップ内の日付は消す */
-.ticker-date{ display:none !important; }
+.tabs{
+  margin-top: 10px;
+  display:flex;
+  gap:8px;
+  overflow-x:auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px;
+}
+.tab{
+  flex:0 0 auto;
+  border-radius: 999px;
+  border:1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06);
+  color: rgba(234,240,255,.82);
+  font-weight:1050;
+  font-size:12px;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+.tab.active{
+  background: rgba(124,58,237,.22);
+  border-color: rgba(124,58,237,.45);
+  color: rgba(255,255,255,.96);
+}
 
-/* =========================================================
-   セクション / カード（輪郭強め、文字沈まない）
-========================================================= */
-.section{
+/* スワイプ本体 */
+.viewport{
   margin-top: 12px;
-  border-radius: var(--radius);
-  padding: 12px;
-  background: linear-gradient(180deg, rgba(17,27,54,.84), rgba(17,27,54,.66));
-  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
   box-shadow: var(--shadow);
-  position: relative;
+  overflow:hidden;
 }
-.section::before{
+.scroller{
+  display:flex;
+  width:100%;
+  scroll-snap-type: x mandatory;
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior:smooth;
+}
+.scroller::-webkit-scrollbar{ display:none; }
+.page{
+  scroll-snap-align: start;
+  flex: 0 0 100%;
+  padding: 14px;
+  min-height: 62vh; /* 長すぎる縦を減らす */
+  position:relative;
+}
+.page::before{
   content:"";
   position:absolute;
   inset:0;
-  border-radius: var(--radius);
   pointer-events:none;
   box-shadow: var(--inset);
 }
 
-.h-title{
-  font-size: 16px;
-  font-weight: 1100;
-  letter-spacing: .2px;
+/* ページ内部：縦スクロールは必要なときだけ */
+.pageInner{
+  max-height: 68vh;
+  overflow:auto;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 2px;
+}
+.pageInner::-webkit-scrollbar{ width: 6px; }
+.pageInner::-webkit-scrollbar-thumb{ background: rgba(255,255,255,.14); border-radius: 99px; }
+.pageInner::-webkit-scrollbar-track{ background: transparent; }
+
+.h1{
+  font-size:16px;
+  font-weight:1200;
+  letter-spacing:.2px;
   margin-bottom: 6px;
 }
-.h-sub{
-  font-size: 12px;
-  font-weight: 900;
+.sub{
+  font-size:12px;
+  font-weight:900;
   color: var(--sub);
-  line-height: 1.6;
+  line-height:1.6;
 }
 
-/* バッジ：背景を濃くして読めるように */
+/* =========================
+   カード / KPI（読みやすさ特化）
+========================= */
+.kpiGrid{
+  margin-top: 12px;
+  display:grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap:10px;
+}
+.kpi{
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+}
+.kpi .lab{
+  font-size:11px;
+  font-weight:1000;
+  color: rgba(234,240,255,.72);
+}
+.kpi .val{
+  margin-top: 6px;
+  font-size: 24px;
+  font-weight:1300;
+  color: rgba(255,255,255,.98);
+  font-variant-numeric: tabular-nums;
+  line-height:1.05;
+}
+.kpi .hint{
+  margin-top: 6px;
+  font-size:11px;
+  font-weight:900;
+  color: rgba(234,240,255,.60);
+  line-height:1.45;
+}
+
 .badges{
   margin-top: 10px;
   display:flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 .badge{
   display:inline-flex;
   align-items:center;
-  gap:7px;
-  border-radius: 999px;
-  padding: 6px 10px;
-  font-size: 11px;
-  font-weight: 1050;
-  background: rgba(5,11,26,.32);
-  border: 1px solid rgba(255,255,255,.12);
-  color: rgba(245,247,255,.90);
+  gap:8px;
+  border-radius:999px;
+  padding: 7px 10px;
+  font-size:12px;
+  font-weight:1100;
+  background: rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.12);
+  color: rgba(255,255,255,.92);
 }
-.badge .chip{
-  width:10px; height:10px;
-  border-radius: 4px;
-  background: var(--accent);
-}
-
-/* KPI：数字が最優先。カード境界も強め */
-.grid2{
-  display:grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 10px;
-}
-.kpi{
-  border-radius: 16px;
-  padding: 10px 12px;
-  background: rgba(5,11,26,.30);
-  border: 1px solid rgba(255,255,255,.12);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
-}
-.kpi .lab{
-  font-size: 11px;
-  font-weight: 950;
-  color: rgba(245,247,255,.70);
-  margin-bottom: 4px;
-}
-.kpi .val{
-  font-size: var(--kpiVal);
-  font-weight: 1200;
-  color: rgba(255,255,255,.98);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.12;
-}
-.kpi .sub{
-  margin-top: 4px;
-  font-size: 11px;
-  font-weight: 900;
-  color: rgba(245,247,255,.62);
+.chip{
+  width:10px;height:10px;border-radius:4px;
+  background: var(--accent2);
 }
 
-.hr{
-  height:1px;
-  background: rgba(255,255,255,.12);
-  margin: 10px 0;
-}
+.hr{ height:1px; background: rgba(255,255,255,.10); margin: 12px 0; }
 
-/* ストリーク */
 .row{
   display:flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: baseline;
+  justify-content:space-between;
+  gap:12px;
+  align-items:baseline;
 }
 .row .k{
-  font-size: 12px;
-  font-weight: 950;
-  color: rgba(245,247,255,.72);
+  font-size:12px;
+  font-weight:950;
+  color: rgba(234,240,255,.70);
 }
 .row .v{
-  font-size: 12px;
-  font-weight: 1100;
+  font-size:12px;
+  font-weight:1100;
   color: rgba(255,255,255,.95);
   font-variant-numeric: tabular-nums;
 }
@@ -278,208 +331,144 @@ body{
 .seq{
   margin-top: 10px;
   display:flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-}
-.seq-dot{
-  width: 28px;
-  height: 28px;
-  border-radius: 11px;
-  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
   align-items:center;
-  justify-content:center;
-  font-weight: 1100;
-  border: 1px solid rgba(255,255,255,.12);
-  background: rgba(5,11,26,.30);
+}
+.seqDot{
+  width:28px;height:28px;border-radius:11px;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:1200;font-size:12px;
+  border:1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06);
   color: rgba(255,255,255,.92);
-  font-size: 12px;
 }
-.seq-dot.win{ background: rgba(34,197,94,0.22); border-color: rgba(34,197,94,0.35); }
-.seq-dot.lose{ background: rgba(239,68,68,0.18); border-color: rgba(239,68,68,0.32); }
-.seq-dot.flat{ background: rgba(99,102,241,0.16); border-color: rgba(99,102,241,0.26); }
-
-.small{
-  font-size: 11px;
-  font-weight: 900;
-  color: rgba(245,247,255,.60);
-}
+.seqDot.win{ background: rgba(34,197,94,.22); border-color: rgba(34,197,94,.35); }
+.seqDot.lose{ background: rgba(239,68,68,.18); border-color: rgba(239,68,68,.32); }
+.seqDot.flat{ background: rgba(99,102,241,.16); border-color: rgba(99,102,241,.26); }
+.small{ font-size:11px; font-weight:900; color: rgba(234,240,255,.58); }
 
 .list{
-  display:flex;
-  flex-direction: column;
-  gap: 10px;
   margin-top: 10px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
 }
 .card{
   border-radius: 16px;
-  padding: 10px 12px;
-  background: rgba(5,11,26,.28);
-  border: 1px solid rgba(255,255,255,.12);
+  padding: 12px;
+  background: rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.10);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
 }
+.cardTitle{
+  font-size:13px;
+  font-weight:1150;
+  color: rgba(255,255,255,.95);
+  line-height:1.5;
+}
+.cardSub{
+  margin-top: 8px;
+  font-size:12px;
+  font-weight:900;
+  color: rgba(234,240,255,.68);
+  line-height:1.6;
+}
 
-/* pill */
 .pills{
-  display:flex;
-  flex-wrap: wrap;
-  gap: 6px;
   margin-top: 10px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
 }
 .pill{
-  display:inline-flex;
-  align-items:center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 1050;
-  border: 1px solid rgba(255,255,255,.12);
-  background: rgba(5,11,26,.30);
+  display:inline-flex; align-items:center; gap:6px;
+  padding: 7px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:1100;
+  border:1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06);
   color: rgba(255,255,255,.90);
 }
-.pill b{ font-weight: 1200; }
+.plPos{ color: var(--ok); }
+.plNeg{ color: var(--bad); }
 
-.pl-pos{ color: var(--ok); }
-.pl-neg{ color: var(--bad); }
-
+/* 空状態 */
 .empty{
-  margin-top: 14px;
-  border-radius: var(--radius);
+  border-radius: var(--r);
   padding: 14px;
-  background: rgba(17,27,54,.70);
-  border: 1px dashed rgba(255,255,255,.16);
-  box-shadow: 0 10px 26px rgba(0,0,0,.28);
+  background: rgba(255,255,255,.05);
+  border:1px dashed rgba(255,255,255,.16);
   color: rgba(255,255,255,.90);
-  font-weight: 950;
-  line-height: 1.65;
+  font-weight:1000;
+  line-height:1.7;
 }
 
-/* =========================================================
-   AIの仮説：iPhoneで「読みやすい」構造に刷新
-   - summaryは1行で収める（長文は中身で読む）
-   - 折りたたみのタップ領域を太くする
-========================================================= */
-.hypo-wrap{
-  margin-top: 10px;
-  display:flex;
-  flex-direction: column;
-  gap: 10px;
-}
-details.hypo{
-  border-radius: 16px;
-  background: rgba(5,11,26,.28);
-  border: 1px solid rgba(255,255,255,.12);
-  overflow:hidden;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
-}
-details.hypo > summary{
-  list-style:none;
-  cursor:pointer;
-  padding: 12px 12px;          /* ★タップ領域を太く */
-  display:flex;
-  align-items:center;
-  gap: 10px;
-}
-details.hypo > summary::-webkit-details-marker{ display:none; }
-
-.hypo-badge{
-  width: 30px;
-  height: 30px;
-  border-radius: 12px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  font-weight: 1200;
-  background: rgba(139,92,246,.20);
-  border: 1px solid rgba(139,92,246,.34);
-  color: rgba(255,255,255,.95);
-  flex: 0 0 auto;
-}
-
-.hypo-title{
-  flex: 1 1 auto;
-  font-size: 12px;
-  font-weight: 1000;
-  color: rgba(255,255,255,.92);
-  line-height: 1.35;
-  /* ★summaryは1行にして“見た目の圧”を下げる */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.hypo-open{
-  flex: 0 0 auto;
-  font-size: 12px;
-  font-weight: 1100;
-  color: rgba(245,247,255,.60);
-}
-
-.hypo-body{
-  padding: 0 12px 12px;
-  color: rgba(255,255,255,.88);
-  font-size: 13px;             /* ★中身は少し大きめ */
-  font-weight: 900;
-  line-height: 1.75;
-}
-.hypo-body .mini{
-  margin-top: 8px;
-  font-size: 11px;
-  color: rgba(245,247,255,.60);
-  font-weight: 900;
-}
-
-/* iPhone横幅最適化 */
+/* iPhone調整 */
 @media (max-width: 430px){
   .wrap{ padding-left: 10px; padding-right: 10px; }
-  .grid2{ gap: 9px; }
-  .section{ padding: 12px; }
-}
-
-/* CSSアニメ保険（基本はJSで動かす） */
-.no-js .ticker-track{ animation: tickerMove 12s linear infinite; }
-@keyframes tickerMove{
-  0%{ transform: translate3d(0,0,0); }
-  100%{ transform: translate3d(-50%,0,0); }
+  .page{ padding: 12px; }
+  .kpi .val{ font-size: 24px; }
 }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="wrap no-js" id="behaviorRoot">
+<div class="wrap" id="behaviorRoot">
 
-  <!-- 上部：今日 + テロップ -->
-  <div class="topbar">
-    <div class="topbar-inner">
-      <div class="today-pill">
+  <!-- Header -->
+  <div class="header">
+    <div class="headerRow">
+      <div class="todayPill">
         <span>本日</span>
         <span class="sub">{{ today_label }}</span>
       </div>
 
       <div class="ticker" aria-label="ticker">
-        <div class="ticker-track" id="tickerTrack">
+        <div class="tickerTrack" id="tickerTrack">
           {% if ticker_lines %}
             {% for line in ticker_lines %}
-              <div class="ticker-item"><span class="dot"></span>{{ line }}</div>
+              <div class="tickerItem"><span class="dot"></span>{{ line }}</div>
             {% endfor %}
             {% for line in ticker_lines %}
-              <div class="ticker-item"><span class="dot"></span>{{ line }}</div>
+              <div class="tickerItem"><span class="dot"></span>{{ line }}</div>
             {% endfor %}
           {% else %}
-            <div class="ticker-item"><span class="dot"></span>テロップ未生成（生成ジョブ待機中）</div>
-            <div class="ticker-item"><span class="dot"></span>テロップ未生成（生成ジョブ待機中）</div>
+            <div class="tickerItem"><span class="dot"></span>テロップ未生成（生成ジョブ待機中）</div>
+            <div class="tickerItem"><span class="dot"></span>テロップ未生成（生成ジョブ待機中）</div>
           {% endif %}
         </div>
-        <div class="ticker-date">{% if ticker_date %}{{ ticker_date }}{% endif %}</div>
+        <div class="tickerDate">{% if ticker_date %}{{ ticker_date }}{% endif %}</div>
       </div>
+    </div>
+
+    <div class="pagerTop">
+      <div class="pagerTitle" id="pagerTitle">概要</div>
+      <div class="dots" id="pagerDots" aria-label="pages">
+        <div class="dotNav active"></div>
+        <div class="dotNav"></div>
+        <div class="dotNav"></div>
+        <div class="dotNav"></div>
+        <div class="dotNav"></div>
+        <div class="dotNav"></div>
+      </div>
+    </div>
+
+    <div class="tabs" id="tabs">
+      <button type="button" class="tab active" data-i="0">概要</button>
+      <button type="button" class="tab" data-i="1">仮説</button>
+      <button type="button" class="tab" data-i="2">バイアス</button>
+      <button type="button" class="tab" data-i="3">理由別</button>
+      <button type="button" class="tab" data-i="4">次に欲しい</button>
+      <button type="button" class="tab" data-i="5">最近</button>
     </div>
   </div>
 
   {% if not has_data %}
     <div class="empty">
       まだ行動データがありません。<br>
-      <span class="small">simulate（PRO）にログが溜まり、さらに ai_sim_eval → sync_simulate_pro_eval が走ると分析が出ます。</span><br>
+      <span style="font-weight:900;color:rgba(234,240,255,.68);">simulate（PRO）→ ai_sim_eval → sync_simulate_pro_eval が揃うと分析が出ます。</span>
       <div class="pills" style="margin-top:10px;">
         <span class="pill"><b>simulate files</b> {{ sim_files }}</span>
         <span class="pill"><b>理解度</b> {{ understanding_label }}</span>
@@ -487,244 +476,287 @@ details.hypo > summary::-webkit-details-marker{ display:none; }
     </div>
   {% else %}
 
-    <!-- 概要 -->
-    <div class="section">
-      <div class="h-title">AI 行動ダッシュボード（PRO）</div>
-      <div class="h-sub">
-        「結果」だけじゃなく、<b>入った理由（entry_reason）</b> を軸にクセを学習していく。
-      </div>
+  <!-- Swipe Pages -->
+  <div class="viewport">
+    <div class="scroller" id="scroller">
 
-      <div class="badges">
-        <span class="badge"><span class="chip" style="background:var(--accent2)"></span>simulate files: {{ sim_files }}</span>
-        <span class="badge"><span class="chip" style="background:var(--accent)"></span>qty_pro: {{ sim_total|intcomma }}</span>
-        <span class="badge"><span class="chip" style="background:var(--accent3)"></span>win/lose: {{ wl_total|intcomma }}</span>
-        <span class="badge"><span class="chip" style="background:#a78bfa"></span>理解度: {{ understanding_label }}</span>
-      </div>
+      <!-- Page 0: 概要 -->
+      <section class="page" data-title="概要">
+        <div class="pageInner">
+          <div class="h1">AI 行動ダッシュボード（PRO）</div>
+          <div class="sub">「結果」だけじゃなく、<b>入った理由（entry_reason）</b>を軸にクセを学習していく。</div>
 
-      <div class="grid2">
-        <div class="kpi">
-          <div class="lab">勝率（win/lose）</div>
-          <div class="val">{% if win_rate is not None %}{{ win_rate|floatformat:1 }}%{% else %}-{% endif %}</div>
-          <div class="sub">carry/skipは母数に含めない</div>
-        </div>
-        <div class="kpi">
-          <div class="lab">平均R</div>
-          <div class="val">{% if avg_r is not None %}{{ avg_r|floatformat:2 }}{% else %}-{% endif %}</div>
-          <div class="sub">Rが無い日は学習に弱めに反映</div>
-        </div>
-        <div class="kpi">
-          <div class="lab">平均PL</div>
-          <div class="val">{% if avg_pl is not None %}{{ avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}</div>
-          <div class="sub">PLは評価済みのみ</div>
-        </div>
-        <div class="kpi">
-          <div class="lab">学習対象トレード数（モデル）</div>
-          <div class="val">{% if model.has_model %}{{ model.total_trades|intcomma }}{% else %}-{% endif %}</div>
-          <div class="sub">latest_behavior_model_u*.json</div>
-        </div>
-      </div>
+          <div class="badges">
+            <span class="badge"><span class="chip" style="background:var(--accent2)"></span>simulate files: {{ sim_files }}</span>
+            <span class="badge"><span class="chip" style="background:var(--accent)"></span>qty_pro: {{ sim_total|intcomma }}</span>
+            <span class="badge"><span class="chip" style="background:var(--accent3)"></span>win/lose: {{ wl_total|intcomma }}</span>
+            <span class="badge"><span class="chip" style="background:#a78bfa"></span>理解度: {{ understanding_label }}</span>
+          </div>
 
-      <div class="hr"></div>
-
-      <div class="row">
-        <div class="k">直近ストリーク</div>
-        <div class="v">{{ streak_label }}</div>
-      </div>
-
-      <div class="seq" aria-label="sequence">
-        {% for s in sequence %}
-          <div class="seq-dot {{ s.label }}">{{ s.text }}</div>
-        {% endfor %}
-        <div class="small">直近12個</div>
-      </div>
-    </div>
-
-    <!-- AIの仮説 -->
-    <div class="section">
-      <div class="h-title">AIの仮説</div>
-      <div class="h-sub">
-        一覧は“短く”、本文は“開いて読む”。iPhoneで読める形に最適化。
-      </div>
-
-      {% if hypotheses %}
-        <div class="hypo-wrap">
-          {% for h in hypotheses %}
-            <details class="hypo">
-              <summary>
-                <div class="hypo-badge">{{ forloop.counter }}</div>
-                <div class="hypo-title">{{ h }}</div>
-                <div class="hypo-open">開く</div>
-              </summary>
-              <div class="hypo-body">
-                {{ h }}
-                <div class="mini">※データが増えるほど仮説は更新されます。</div>
-              </div>
-            </details>
-          {% endfor %}
-        </div>
-      {% else %}
-        <div class="empty" style="margin-top:12px;">
-          まだ仮説を生成できるだけのデータがありません。<br>
-          <span class="small">simulate（PRO）→ 評価 → 同期が揃うと出ます。</span>
-        </div>
-      {% endif %}
-
-      <div class="pills">
-        {% for n in notes %}
-          <span class="pill">{{ n }}</span>
-        {% endfor %}
-      </div>
-    </div>
-
-    <!-- バイアスマップ -->
-    <div class="section">
-      <div class="h-title">バイアスマップ</div>
-      <div class="h-sub">あなたの “癖の種類” を4軸で表示。</div>
-
-      <div class="grid2">
-        {% for b in bias_map %}
-          <div class="card">
-            <div class="row">
-              <div class="k">{{ b.name }}</div>
-              <div class="v">{{ b.value }}</div>
+          <div class="kpiGrid">
+            <div class="kpi">
+              <div class="lab">勝率（win/lose）</div>
+              <div class="val">{% if win_rate is not None %}{{ win_rate|floatformat:1 }}%{% else %}-{% endif %}</div>
+              <div class="hint">carry/skipは母数に含めない</div>
+            </div>
+            <div class="kpi">
+              <div class="lab">平均R</div>
+              <div class="val">{% if avg_r is not None %}{{ avg_r|floatformat:2 }}{% else %}-{% endif %}</div>
+              <div class="hint">Rが無い日は学習に弱めに反映</div>
+            </div>
+            <div class="kpi">
+              <div class="lab">平均PL</div>
+              <div class="val">{% if avg_pl is not None %}{{ avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}</div>
+              <div class="hint">PLは評価済みのみ</div>
+            </div>
+            <div class="kpi">
+              <div class="lab">学習対象トレード数（モデル）</div>
+              <div class="val">{% if model.has_model %}{{ model.total_trades|intcomma }}{% else %}-{% endif %}</div>
+              <div class="hint">latest_behavior_model_u*.json</div>
             </div>
           </div>
-        {% endfor %}
-      </div>
-    </div>
 
-    <!-- entry_reason別 -->
-    <div class="section">
-      <div class="h-title">entry_reason 別 成績</div>
-      <div class="h-sub">
-        <b>「何で入ったか」</b>で勝率とRが変わるなら、あなたの型が見える。
-      </div>
+          <div class="hr"></div>
 
-      {% if entry_reason_stats %}
-        <div class="list">
-          {% for r in entry_reason_stats %}
-            <div class="card">
-              <div class="row">
-                <div class="k">{{ r.reason }}</div>
-                <div class="v">{{ r.wins }}/{{ r.trials }}（{{ r.win_rate|floatformat:1 }}%）</div>
+          <div class="row">
+            <div class="k">直近ストリーク</div>
+            <div class="v">{{ streak_label }}</div>
+          </div>
+
+          <div class="seq" aria-label="sequence">
+            {% for s in sequence %}
+              <div class="seqDot {{ s.label }}">{{ s.text }}</div>
+            {% endfor %}
+            <div class="small">直近12個</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Page 1: 仮説 -->
+      <section class="page" data-title="仮説">
+        <div class="pageInner">
+          <div class="h1">AIの仮説</div>
+          <div class="sub">“長文の壁” をやめて、<b>1つずつ読みやすいカード</b>に分割。</div>
+
+          <div class="list">
+            {% for h in hypotheses %}
+              <div class="card">
+                <div class="cardTitle">{{ forloop.counter }}. {{ h }}</div>
               </div>
-              <div class="row" style="margin-top:6px;">
-                <div class="k">avgR</div>
-                <div class="v">{% if r.avg_r is not None %}{{ r.avg_r|floatformat:2 }}{% else %}-{% endif %}</div>
-              </div>
-              <div class="row" style="margin-top:6px;">
-                <div class="k">avgPL</div>
-                <div class="v">
-                  {% if r.avg_pl is not None %}
-                    {{ r.avg_pl|floatformat:0|intcomma }}円
-                  {% else %}
-                    -
-                  {% endif %}
+            {% endfor %}
+          </div>
+
+          <div class="pills">
+            {% for n in notes %}
+              <span class="pill">{{ n }}</span>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <!-- Page 2: バイアス -->
+      <section class="page" data-title="バイアス">
+        <div class="pageInner">
+          <div class="h1">バイアスマップ</div>
+          <div class="sub">あなたの “癖の種類” を4軸で表示。</div>
+
+          <div class="list">
+            {% for b in bias_map %}
+              <div class="card">
+                <div class="row">
+                  <div class="k">{{ b.name }}</div>
+                  <div class="v">{{ b.value }}</div>
                 </div>
               </div>
-            </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <div class="empty" style="margin-top:12px;">
-          entry_reason のデータがまだありません。<br>
-          <span class="small">次に VirtualTrade に entry_reason を追加して、シミュレ登録時に保存します。</span>
-        </div>
-      {% endif %}
-    </div>
-
-    <!-- 欲しいデータ -->
-    <div class="section">
-      <div class="h-title">次に欲しいデータ</div>
-      <div class="h-sub">これが揃うほど “言い当て精度” が上がる。</div>
-
-      <div class="list">
-        {% for w in wanted %}
-          <div class="card">
-            <div style="font-weight:1050; font-size:13px; color:rgba(255,255,255,.92); line-height:1.6;">
-              {{ w }}
-            </div>
+            {% endfor %}
           </div>
-        {% endfor %}
-      </div>
-    </div>
+        </div>
+      </section>
 
-    <!-- 最近のトレード -->
-    <div class="section">
-      <div class="h-title">最近の評価（抜粋）</div>
-      <div class="h-sub">勝ち/負けだけじゃなく、理由とセットで見るための足場。</div>
+      <!-- Page 3: entry_reason別 -->
+      <section class="page" data-title="理由別">
+        <div class="pageInner">
+          <div class="h1">entry_reason 別 成績</div>
+          <div class="sub"><b>「何で入ったか」</b>で勝率とRが変わるなら、あなたの型が見える。</div>
 
-      <div class="list">
-        {% for t in recent_trades %}
-          <div class="card">
-            <div class="row">
-              <div class="k">{{ t.code }}</div>
-              <div class="v">
-                {% if t.label == "win" %}
-                  <span class="pl-pos">WIN</span>
-                {% elif t.label == "lose" %}
-                  <span class="pl-neg">LOSE</span>
-                {% else %}
-                  FLAT
-                {% endif %}
+          {% if entry_reason_stats %}
+            <div class="list">
+              {% for r in entry_reason_stats %}
+                <div class="card">
+                  <div class="row">
+                    <div class="k">{{ r.reason }}</div>
+                    <div class="v">{{ r.wins }}/{{ r.trials }}（{{ r.win_rate|floatformat:1 }}%）</div>
+                  </div>
+                  <div class="hr"></div>
+                  <div class="row">
+                    <div class="k">avgR</div>
+                    <div class="v">{% if r.avg_r is not None %}{{ r.avg_r|floatformat:2 }}{% else %}-{% endif %}</div>
+                  </div>
+                  <div class="row" style="margin-top:8px;">
+                    <div class="k">avgPL</div>
+                    <div class="v">
+                      {% if r.avg_pl is not None %}
+                        {{ r.avg_pl|floatformat:0|intcomma }}円
+                      {% else %}-{% endif %}
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty" style="margin-top:10px;">
+              entry_reason のデータがまだありません。<br>
+              <span style="font-weight:900;color:rgba(234,240,255,.68);">次に VirtualTrade に entry_reason を追加して、シミュレ登録時に保存します。</span>
+            </div>
+          {% endif %}
+        </div>
+      </section>
+
+      <!-- Page 4: 次に欲しいデータ -->
+      <section class="page" data-title="次に欲しい">
+        <div class="pageInner">
+          <div class="h1">次に欲しいデータ</div>
+          <div class="sub">これが揃うほど “言い当て精度” が上がる。</div>
+
+          <div class="list">
+            {% for w in wanted %}
+              <div class="card">
+                <div class="cardTitle">{{ w }}</div>
               </div>
-            </div>
-            <div class="row" style="margin-top:6px;">
-              <div class="k">PL</div>
-              <div class="v {% if t.pl >= 0 %}pl-pos{% else %}pl-neg{% endif %}">
-                {{ t.pl|floatformat:0|intcomma }}円
-              </div>
-            </div>
-            <div class="row" style="margin-top:6px;">
-              <div class="k">R</div>
-              <div class="v">{% if t.r is not None %}{{ t.r|floatformat:2 }}{% else %}-{% endif %}</div>
-            </div>
-            <div class="row" style="margin-top:6px;">
-              <div class="k">meta</div>
-              <div class="v" style="font-weight:900;color:rgba(245,247,255,.62);">{{ t.meta }}</div>
-            </div>
+            {% endfor %}
           </div>
-        {% endfor %}
-      </div>
+        </div>
+      </section>
+
+      <!-- Page 5: 最近の評価 -->
+      <section class="page" data-title="最近">
+        <div class="pageInner">
+          <div class="h1">最近の評価（抜粋）</div>
+          <div class="sub">勝ち/負けだけじゃなく、理由とセットで見るための足場。</div>
+
+          <div class="list">
+            {% for t in recent_trades %}
+              <div class="card">
+                <div class="row">
+                  <div class="k">{{ t.code }}</div>
+                  <div class="v">
+                    {% if t.label == "win" %}
+                      <span class="plPos">WIN</span>
+                    {% elif t.label == "lose" %}
+                      <span class="plNeg">LOSE</span>
+                    {% else %}
+                      FLAT
+                    {% endif %}
+                  </div>
+                </div>
+
+                <div class="hr"></div>
+
+                <div class="row">
+                  <div class="k">PL</div>
+                  <div class="v {% if t.pl >= 0 %}plPos{% else %}plNeg{% endif %}">
+                    {{ t.pl|floatformat:0|intcomma }}円
+                  </div>
+                </div>
+
+                <div class="row" style="margin-top:8px;">
+                  <div class="k">R</div>
+                  <div class="v">{% if t.r is not None %}{{ t.r|floatformat:2 }}{% else %}-{% endif %}</div>
+                </div>
+
+                <div class="row" style="margin-top:8px;">
+                  <div class="k">meta</div>
+                  <div class="v" style="color:rgba(234,240,255,.66);font-weight:900;">
+                    {{ t.meta }}
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
     </div>
+  </div>
 
   {% endif %}
 </div>
 
 <script>
 (function(){
-  var root = document.getElementById("behaviorRoot");
-  if (root) root.classList.remove("no-js");
-
+  // ===== テロップ（iPhoneでも確実に動く）=====
   var track = document.getElementById("tickerTrack");
-  if (!track) return;
+  if (track){
+    var pxPerSec = 115;
+    var x = 0;
+    var last = performance.now();
+    function loopW(){ return Math.max(1, track.scrollWidth / 2); }
+    var w = loopW();
+    window.addEventListener("resize", function(){ w = loopW(); });
 
-  var pxPerSec = 115; // iPhoneで“読める”速度（速すぎ注意）
-  var x = 0;
-  var last = performance.now();
-
-  function getLoopWidth(){
-    return Math.max(1, track.scrollWidth / 2);
-  }
-  var loopW = getLoopWidth();
-
-  window.addEventListener("resize", function(){
-    loopW = getLoopWidth();
-  });
-
-  function step(now){
-    var dt = (now - last) / 1000;
-    last = now;
-    if (dt > 0.05) dt = 0.05;
-
-    x -= pxPerSec * dt;
-    if (-x >= loopW){
-      x = 0;
+    function step(now){
+      var dt = (now - last)/1000;
+      last = now;
+      if (dt > 0.05) dt = 0.05;
+      x -= pxPerSec * dt;
+      if (-x >= w) x = 0;
+      track.style.transform = "translate3d(" + x.toFixed(2) + "px,0,0)";
+      requestAnimationFrame(step);
     }
-    track.style.transform = "translate3d(" + x.toFixed(2) + "px,0,0)";
     requestAnimationFrame(step);
   }
-  requestAnimationFrame(step);
+
+  // ===== 横スワイプ UI =====
+  var scroller = document.getElementById("scroller");
+  var tabs = document.getElementById("tabs");
+  var titleEl = document.getElementById("pagerTitle");
+  var dotsWrap = document.getElementById("pagerDots");
+  if (!scroller || !tabs || !titleEl || !dotsWrap) return;
+
+  var pages = scroller.querySelectorAll(".page");
+  var tabBtns = tabs.querySelectorAll(".tab");
+  var dots = dotsWrap.querySelectorAll(".dotNav");
+  var titles = [];
+  pages.forEach(function(p){ titles.push(p.getAttribute("data-title") || ""); });
+
+  function setActive(i){
+    i = Math.max(0, Math.min(i, pages.length-1));
+    titleEl.textContent = titles[i] || "";
+    tabBtns.forEach(function(b,idx){
+      if (idx === i) b.classList.add("active");
+      else b.classList.remove("active");
+    });
+    dots.forEach(function(d,idx){
+      if (idx === i) d.classList.add("active");
+      else d.classList.remove("active");
+    });
+  }
+
+  function scrollToIndex(i){
+    var x = scroller.clientWidth * i;
+    scroller.scrollTo({left:x, behavior:"smooth"});
+    setActive(i);
+  }
+
+  tabBtns.forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var i = parseInt(btn.getAttribute("data-i") || "0", 10);
+      scrollToIndex(i);
+    });
+  });
+
+  // スクロール位置から現在ページを推定
+  var raf = null;
+  scroller.addEventListener("scroll", function(){
+    if (raf) cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(function(){
+      var i = Math.round(scroller.scrollLeft / Math.max(1, scroller.clientWidth));
+      setActive(i);
+    });
+  });
+
+  // 初期
+  setActive(0);
 })();
 </script>
 {% endblock %}
