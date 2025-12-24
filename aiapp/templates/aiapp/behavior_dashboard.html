@@ -5,433 +5,534 @@
 
 {% block head %}
 <style>
+/* =========================================================
+   AI Behavior Lab — Bright Glass + iPhone Fast Ticker
+   ========================================================= */
+
 :root{
-  --bg:#020617;
-  --panel:rgba(15,23,42,0.96);
-  --glass:rgba(255,255,255,0.045);
-  --fg:#e5e7eb;
-  --muted:#94a3b8;
-  --accent:#38bdf8;
-  --warn:#f59e0b;
+  /* 明るい“ネイビー昼光” */
+  --bg:#081a3a;
+  --fg:#f1f5ff;
+  --sub:#d2dcff;
+  --muted:#a9b7e8;
+
+  --card:rgba(255,255,255,.09);
+  --card2:rgba(12,24,54,.58);
+  --border:rgba(255,255,255,.18);
+
+  --accent:#60a5fa;
+  --accent2:#34d399;
+  --accent3:#a78bfa;
+
   --ok:#22c55e;
-  --bad:#ef4444;
-  --border:rgba(148,163,184,0.22);
-  --line:rgba(148,163,184,0.18);
+  --bad:#fb7185;
+
+  /* ticker speed */
+  --ticker-sec: 8s; /* base */
 }
 
-body{background:var(--bg);color:var(--fg);}
-.wrap{max-width:860px;margin:0 auto;padding:16px 14px 110px;}
+/* iOS(iPhone/iPad)だけ速くする */
+@supports (-webkit-touch-callout: none){
+  :root{ --ticker-sec: 3.2s; }
+}
 
-.hero{
-  padding:18px;
-  border-radius:22px;
+html, body{
+  background: transparent;
+}
+body{
+  color:var(--fg);
   background:
-    radial-gradient(circle at top left,rgba(56,189,248,0.22),transparent 55%),
-    linear-gradient(135deg,rgba(56,189,248,0.14),rgba(15,23,42,0.96));
-  border:1px solid var(--border);
-  backdrop-filter:blur(18px);
-}
-.hero h1{font-size:20px;font-weight:900;margin:0 0 6px 0;letter-spacing:0.2px;}
-.hero p{font-size:12px;color:var(--muted);line-height:1.65;margin:0;}
-.meta{
-  margin-top:10px;
-  display:flex;
-  flex-wrap:wrap;
-  gap:6px;
-}
-.pill{
-  display:inline-block;
-  padding:3px 10px;
-  border-radius:999px;
-  font-size:11px;
-  border:1px solid var(--border);
-  background:rgba(15,23,42,0.62);
-  color:#e5e7eb;
-}
-.pill-ok{border-color:rgba(34,197,94,0.42);}
-.pill-warn{border-color:rgba(245,158,11,0.42);}
-.pill-bad{border-color:rgba(239,68,68,0.42);}
-
-/* ===== ticker ===== */
-.ticker{
-  margin-top:10px;
-  border-radius:16px;
-  border:1px solid rgba(148,163,184,0.26);
-  background:rgba(15,23,42,0.70);
-  overflow:hidden;
-}
-.ticker-head{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:10px;
-  padding:8px 10px 0 10px;
-  font-size:11px;
-  color:var(--muted);
-}
-.ticker-date{white-space:nowrap;}
-.ticker-hint{white-space:nowrap;opacity:0.9;}
-.ticker-track{
-  position:relative;
-  padding:8px 10px 10px 10px;
-}
-.ticker-rail{
-  display:flex;
-  gap:18px;
-  white-space:nowrap;
-  will-change:transform;
-
-  /* ★ 速度UP：26s → 14s */
-  animation: marquee 2s linear infinite;
+    radial-gradient(circle at 20% 10%, rgba(96,165,250,.28), transparent 55%),
+    radial-gradient(circle at 80% 0%, rgba(52,211,153,.18), transparent 50%),
+    radial-gradient(circle at 55% 110%, rgba(167,139,250,.18), transparent 55%),
+    var(--bg);
 }
 
-/* 画面が狭いほど、もう一段速くする（iPhone向け） */
-@media (max-width: 420px){
-  .ticker-rail{ animation-duration: 11s; }
-}
-@media (max-width: 360px){
-  .ticker-rail{ animation-duration: 9s; }
-}
-
-.ticker:hover .ticker-rail,
-.ticker:active .ticker-rail{
-  animation-play-state: paused;
-}
-.ticker-item{
-  font-size:12px;
-  color:#e5e7eb;
-  padding:3px 10px;
-  border-radius:999px;
-  border:1px solid rgba(148,163,184,0.22);
-  background:rgba(2,6,23,0.30);
-}
-@keyframes marquee{
-  0%{ transform: translateX(0); }
-  100%{ transform: translateX(-50%); }
+/* wrap */
+.wrap{
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 14px 14px 92px;
 }
 
-.card{
+/* section */
+.section{
   margin-top:14px;
-  padding:16px;
+  padding:14px;
   border-radius:20px;
   border:1px solid var(--border);
   background:
-    radial-gradient(circle at bottom right,rgba(56,189,248,0.10),transparent 55%),
-    var(--panel);
-  backdrop-filter:blur(18px);
-}
-.card h3{margin:0 0 10px 0;font-size:14px;font-weight:850;letter-spacing:0.2px;}
-.small{font-size:12px;color:var(--muted);line-height:1.65;}
-
-hr.sep{
-  border:0;height:1px;
-  background:linear-gradient(90deg,transparent,rgba(148,163,184,0.32),transparent);
-  margin:12px 0;
+    radial-gradient(circle at top left, rgba(96,165,250,.20), transparent 55%),
+    radial-gradient(circle at bottom right, rgba(255,255,255,.10), transparent 60%),
+    var(--card2);
+  box-shadow:
+    0 10px 30px rgba(0,0,0,.25),
+    0 0 0 1px rgba(255,255,255,.06) inset;
+  backdrop-filter: blur(16px);
 }
 
-.metric-grid{
-  display:grid;
-  grid-template-columns:repeat(2,minmax(0,1fr));
-  gap:10px;
+/* header */
+.hero{
+  padding:16px;
+  border-radius:22px;
+  border:1px solid rgba(255,255,255,.20);
+  background:
+    linear-gradient(135deg, rgba(96,165,250,.18), rgba(52,211,153,.08) 55%, rgba(167,139,250,.10)),
+    rgba(255,255,255,.06);
+  box-shadow:
+    0 18px 40px rgba(0,0,0,.28),
+    0 0 0 1px rgba(255,255,255,.08) inset;
+  backdrop-filter: blur(18px);
 }
-.metric{
-  padding:12px;
-  border-radius:16px;
-  background:rgba(15,23,42,0.98);
-  border:1px solid var(--border);
-}
-.metric .m-title{font-size:11px;color:var(--muted);margin-bottom:6px;}
-.metric .m-val{
-  font-size:18px;font-weight:900;
-  font-variant-numeric:tabular-nums;
-}
-.metric .m-sub{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.45;}
-.m-pos{color:var(--ok);}
-.m-neg{color:var(--bad);}
-.m-mid{color:var(--accent);}
 
-.think-grid{display:grid;grid-template-columns:1fr;gap:10px;}
-.think{
-  padding:12px 14px;
-  border-radius:16px;
-  border:1px dashed var(--border);
-  background:var(--glass);
+.hero-title{
+  font-size:20px;
+  font-weight:800;
+  letter-spacing:.3px;
+  margin-bottom:4px;
 }
-.think .label{font-size:11px;color:var(--muted);margin-bottom:4px;}
-.think .value{font-size:13px;font-weight:650;line-height:1.75;}
-
-.map{display:flex;flex-direction:column;gap:8px;}
-.map-row{
-  display:flex;
-  justify-content:space-between;
-  gap:10px;
+.hero-sub{
   font-size:12px;
-  border-bottom:1px dashed var(--line);
-  padding-bottom:6px;
+  color:var(--sub);
+  line-height:1.6;
+  opacity:.95;
 }
-.map-row:last-child{border-bottom:none;padding-bottom:0;}
-.map-name{color:#e5e7eb;white-space:nowrap;}
-.map-val{color:var(--muted);text-align:right;}
 
-.list{margin:8px 0 0 0;padding-left:18px;color:var(--muted);font-size:13px;line-height:1.75;}
-
-.badge{
-  display:inline-block;
-  padding:2px 8px;
-  border-radius:999px;
-  font-size:11px;
-  border:1px solid var(--border);
-  background:rgba(15,23,42,0.70);
-}
-.b-ok{border-color:rgba(34,197,94,0.42);}
-.b-bad{border-color:rgba(239,68,68,0.42);}
-.b-warn{border-color:rgba(245,158,11,0.42);}
-
-.seq{
+/* chips */
+.chips{
   display:flex;
   flex-wrap:wrap;
+  gap:8px;
+  margin-top:12px;
+}
+.chip{
+  display:inline-flex;
+  align-items:center;
   gap:6px;
-  margin-top:6px;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.18);
+  background:rgba(255,255,255,.08);
+  color:var(--fg);
+  font-size:12px;
+  line-height:1;
+  white-space:nowrap;
+}
+.chip.ok{
+  border-color: rgba(34,197,94,.35);
+  box-shadow: 0 0 0 1px rgba(34,197,94,.10) inset;
+}
+.chip.mid{
+  border-color: rgba(96,165,250,.35);
+  box-shadow: 0 0 0 1px rgba(96,165,250,.10) inset;
+}
+.chip.warn{
+  border-color: rgba(251,113,133,.35);
+  box-shadow: 0 0 0 1px rgba(251,113,133,.08) inset;
 }
 .dot{
-  width:auto;
-  padding:4px 8px;
-  border-radius:999px;
-  border:1px solid var(--border);
-  background:rgba(15,23,42,0.75);
-  font-size:11px;
-  font-variant-numeric:tabular-nums;
+  width:8px;height:8px;border-radius:99px;
+  background: rgba(255,255,255,.65);
 }
-.dot.win{border-color:rgba(34,197,94,0.45);}
-.dot.lose{border-color:rgba(239,68,68,0.45);}
-.dot.flat{border-color:rgba(148,163,184,0.35);}
-.dot.meta{border-style:dashed;}
+.dot.ok{ background: rgba(34,197,94,.95); }
+.dot.mid{ background: rgba(96,165,250,.95); }
+.dot.warn{ background: rgba(251,113,133,.95); }
 
-.trade-row{
+/* =========================================================
+   Ticker (telop)
+   - iPhone speed via --ticker-sec
+   - pause via JS class "is-paused"
+   ========================================================= */
+
+.ticker{
+  margin-top: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.07);
+  overflow: hidden;
+  position: relative;
+}
+
+.ticker-head{
   display:flex;
+  align-items:center;
   justify-content:space-between;
   gap:10px;
-  padding:10px 10px;
-  border-radius:14px;
-  border:1px solid var(--border);
-  background:rgba(15,23,42,0.98);
-  margin-top:8px;
+  padding:10px 12px 6px;
+  font-size:12px;
+  color: var(--sub);
 }
-.trade-left{min-width:0;}
-.trade-code{font-size:13px;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.trade-sub{font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.trade-right{text-align:right;white-space:nowrap;}
-.pl{font-size:13px;font-weight:900;font-variant-numeric:tabular-nums;}
-.pl.pos{color:var(--ok);}
-.pl.neg{color:var(--bad);}
-.r{font-size:11px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums;}
 
+.ticker-date{
+  font-weight:800;
+  letter-spacing:.2px;
+  color: var(--fg);
+}
+.ticker-hint{
+  font-size:11px;
+  color: var(--sub);
+  opacity:.9;
+  white-space:nowrap;
+}
+
+.ticker-body{
+  padding: 0 12px 10px;
+}
+
+.ticker-viewport{
+  width: 100%;
+  overflow: hidden;
+}
+
+.ticker-rail{
+  display: inline-flex;
+  gap: 28px;
+  white-space: nowrap;
+  animation: marquee var(--ticker-sec) linear infinite !important;
+  will-change: transform;
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.ticker.is-paused .ticker-rail{
+  animation-play-state: paused !important;
+}
+
+/* iOS :activeの暴発対策（CSSで止めない） */
+.ticker:active .ticker-rail{
+  animation-play-state: running !important;
+}
+
+.ticker-strong{
+  color: var(--accent);
+  font-weight: 800;
+}
+
+@keyframes marquee{
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-100%); }
+}
+
+/* KPI strip */
+.kpi-strip{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:10px;
+  margin-top: 12px;
+}
+.kpi-box{
+  border-radius: 16px;
+  border:1px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.07);
+  padding:10px 12px;
+}
+.kpi-label{
+  font-size: 11px;
+  color: var(--sub);
+  margin-bottom: 4px;
+  opacity:.95;
+}
+.kpi-value{
+  font-size: 16px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-mini{
+  margin-top:4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Lab blocks */
+.lab-title{
+  font-size: 15px;
+  font-weight: 850;
+  margin-bottom: 10px;
+}
+.card-grid{
+  display:grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.hypo{
+  border-radius: 18px;
+  border:1px dashed rgba(255,255,255,.18);
+  background: rgba(255,255,255,.06);
+  padding: 12px;
+}
+.hypo-top{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.hypo-tag{
+  font-size:12px;
+  color: var(--sub);
+  opacity:.9;
+}
+.hypo-badge{
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.07);
+}
+.hypo-text{
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--fg);
+}
+
+/* Stats list */
+.mini-kv{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin-top: 10px;
+}
+.kv-row{
+  display:flex;
+  justify-content:space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--fg);
+}
+.kv-key{
+  color: var(--sub);
+  opacity:.95;
+}
+.kv-val{
+  font-variant-numeric: tabular-nums;
+}
+
+/* top list */
+.trade-item{
+  border-radius: 16px;
+  border:1px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.07);
+  padding: 10px 12px;
+}
+.trade-title{
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+.trade-sub{
+  display:flex;
+  justify-content:space-between;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--sub);
+  opacity:.95;
+}
+.pl-pos{ color: var(--ok); font-weight: 900; }
+.pl-neg{ color: var(--bad); font-weight: 900; }
+
+/* empty */
 .empty{
-  margin-top:24px;
-  padding:18px;
-  border-radius:16px;
-  border:1px dashed var(--border);
-  background:rgba(15,23,42,0.9);
-  font-size:13px;
-  color:var(--muted);
-  line-height:1.7;
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px dashed rgba(255,255,255,.22);
+  background: rgba(255,255,255,.06);
+  color: var(--sub);
+  line-height: 1.7;
+  font-size: 13px;
 }
 </style>
+
+<script>
+/* iPhone向け：タップ/長押し中だけ停止（CSS :active の暴発を回避） */
+document.addEventListener("DOMContentLoaded", () => {
+  const ticker = document.querySelector(".ticker");
+  if (!ticker) return;
+
+  const pause = () => ticker.classList.add("is-paused");
+  const play  = () => ticker.classList.remove("is-paused");
+
+  ticker.addEventListener("touchstart", pause, {passive:true});
+  ticker.addEventListener("touchend", play, {passive:true});
+  ticker.addEventListener("touchcancel", play, {passive:true});
+});
+</script>
 {% endblock %}
 
 {% block content %}
 <div class="wrap">
 
-  <div class="hero">
-    <h1>AI Behavior Lab</h1>
-    <p>
-      成績表じゃない。<br>
-      「あなたの判断のクセ」を、AIが“仮説→検証”で増殖させる実験室。
-    </p>
-    <div class="meta">
-      <span class="pill">PRO仕様</span>
-      <span class="pill">today: {{ today_label }}</span>
-      <span class="pill">simulate files: {{ sim_files|default:0 }}</span>
-      {% if model.has_model %}
-        <span class="pill pill-ok">model: ready</span>
-      {% else %}
-        <span class="pill pill-warn">model: none</span>
-      {% endif %}
-      <span class="pill">understanding: {{ understanding_label }}</span>
-    </div>
-
-    {% if ticker_lines %}
-      <div class="ticker">
-        <div class="ticker-head">
-          <div class="ticker-date">本日 {{ ticker_date|default:today_label }}</div>
-          <div class="ticker-hint">（長押し/タップ中は停止）</div>
-        </div>
-        <div class="ticker-track">
-          <div class="ticker-rail">
-            {% for t in ticker_lines %}
-              <span class="ticker-item">{{ t }}</span>
-            {% endfor %}
-            {% for t in ticker_lines %}
-              <span class="ticker-item">{{ t }}</span>
-            {% endfor %}
-          </div>
-        </div>
-      </div>
-    {% endif %}
-  </div>
-
   {% if not has_data %}
-    <div class="empty">
-      まだ学習できるだけの行動データがありません。<br><br>
-      ▸ AI Picks → シミュレーション登録（qty_pro）<br>
-      ▸ 16:00 評価（ai_sim_eval → sync_simulate_pro_eval）<br>
-      ▸ 16:05 dataset → 16:15 model → 16:20 ticker<br><br>
-      “win/lose” が増えるほど、このページは気持ち悪く賢くなります。
+    <div class="hero">
+      <div class="hero-title">AI Behavior Lab</div>
+      <div class="hero-sub">
+        成績表じゃない。<br>
+        「あなたの判断のクセ」を、AIが“仮説→検証”で増殖させる実験室。
+      </div>
     </div>
+
+    <div class="empty">
+      まだ PRO 行動データ（評価付き）がありません。<br>
+      先に <span class="ticker-strong">ai_sim_eval → sync_simulate_pro_eval → build_behavior_dataset → train_behavior_model</span>
+      が揃うと、ここに “学習内容 / 傾向 / 改善の打ち手” が出ます。
+    </div>
+
   {% else %}
 
-  <div class="card">
-    <h3>AI の現在の仮説</h3>
-    <div class="think-grid">
-      {% for h in hypotheses %}
-        <div class="think">
-          <div class="label">仮説 {{ forloop.counter|add:"0"|stringformat:"02d" }}</div>
-          <div class="value">{{ h }}</div>
+    <!-- HERO -->
+    <div class="hero">
+      <div class="hero-title">AI Behavior Lab</div>
+      <div class="hero-sub">
+        成績表じゃない。<br>
+        「あなたの判断のクセ」を、AIが“仮説→検証”で増殖させる実験室。
+      </div>
+
+      <!-- CHIPS -->
+      <div class="chips">
+        <div class="chip"><span class="dot mid"></span> PRO仕様</div>
+        <div class="chip mid">today: {{ today }}</div>
+        <div class="chip">simulate files: {{ simulate_files|default:0 }}</div>
+
+        {% if model_ready %}
+          <div class="chip ok"><span class="dot ok"></span> model: ready</div>
+        {% else %}
+          <div class="chip warn"><span class="dot warn"></span> model: none</div>
+        {% endif %}
+
+        <div class="chip mid">understanding: {{ understanding|default:"MID" }}</div>
+      </div>
+
+      <!-- TICKER -->
+      <div class="ticker">
+        <div class="ticker-head">
+          <div class="ticker-date">本日 {{ today }}</div>
+          <div class="ticker-hint">（長押し/タップ中は停止）</div>
         </div>
-      {% empty %}
-        <div class="think">
-          <div class="label">仮説</div>
-          <div class="value">まだデータが少なく、強い仮説は作っていません。</div>
+        <div class="ticker-body">
+          <div class="ticker-viewport">
+            <div class="ticker-rail">
+              <span>学習: WL={{ wl_total }} 勝率={{ kpi_win_rate|floatformat:1 }}%（W{{ wl_win }}/L{{ wl_lose }}）</span>
+              <span class="ticker-strong">平均R: {{ kpi_avg_r|floatformat:3 }}</span>
+              <span>平均PL: {{ behavior_model.avg_pl|floatformat:0|intcomma }}円</span>
+              <span>相性TOP: {{ best_sector_name|default:"-" }}</span>
+
+              <!-- 同じ文をもう一回（-100%移動で切れないように） -->
+              <span>学習: WL={{ wl_total }} 勝率={{ kpi_win_rate|floatformat:1 }}%（W{{ wl_win }}/L{{ wl_lose }}）</span>
+              <span class="ticker-strong">平均R: {{ kpi_avg_r|floatformat:3 }}</span>
+              <span>平均PL: {{ behavior_model.avg_pl|floatformat:0|intcomma }}円</span>
+              <span>相性TOP: {{ best_sector_name|default:"-" }}</span>
+            </div>
+          </div>
         </div>
-      {% endfor %}
+      </div>
+
+      <!-- KPI STRIP -->
+      <div class="kpi-strip">
+        <div class="kpi-box">
+          <div class="kpi-label">学習（win/lose）</div>
+          <div class="kpi-value">WL={{ wl_total }} 勝率={{ kpi_win_rate|floatformat:1 }}%（W{{ wl_win }}/L{{ wl_lose }}）</div>
+          <div class="kpi-mini">PROのみ（carry/skipは除外）</div>
+        </div>
+        <div class="kpi-box">
+          <div class="kpi-label">平均R</div>
+          <div class="kpi-value">{{ kpi_avg_r|floatformat:3 }}</div>
+          <div class="kpi-mini">Rが取れている分だけで計算</div>
+        </div>
+      </div>
     </div>
 
-    {% if notes %}
-      <hr class="sep">
-      <div class="small">
-        {% for n in notes %}
-          • {{ n }}<br>
+    <!-- Hypotheses -->
+    <div class="section">
+      <div class="lab-title">AI の現在の仮説</div>
+
+      <div class="card-grid">
+        {% for h in hypotheses %}
+          <div class="hypo">
+            <div class="hypo-top">
+              <div class="hypo-tag">仮説 {{ forloop.counter|stringformat:"02d" }}</div>
+              <div class="hypo-badge">{{ h.level }}</div>
+            </div>
+            <div class="hypo-text">{{ h.text }}</div>
+          </div>
+        {% empty %}
+          <div class="hypo">
+            <div class="hypo-text">
+              まだ仮説を作るにはデータが足りません。もう少し PRO 評価付きログが増えると、
+              “勝ち筋/負け筋” を切り分けた仮説が増殖します。
+            </div>
+          </div>
         {% endfor %}
       </div>
-    {% endif %}
 
-    {% if sequence %}
-      <hr class="sep">
-      <div class="small">直近の勝ち負けの並び（古→新）</div>
-      <div class="seq">
-        {% for s in sequence %}
-          <span class="dot {{ s.label }}">{{ s.text }}</span>
+      <div class="mini-kv">
+        <div class="kv-row"><div class="kv-key">総レコード（表示対象）</div><div class="kv-val">{{ total|intcomma }}</div></div>
+        <div class="kv-row"><div class="kv-key">WL対象</div><div class="kv-val">{{ wl_total }}</div></div>
+        <div class="kv-row"><div class="kv-key">DEMO</div><div class="kv-val">{{ mode_counts.demo|default:0 }}</div></div>
+        <div class="kv-row"><div class="kv-key">LIVE</div><div class="kv-val">{{ mode_counts.live|default:0 }}</div></div>
+      </div>
+    </div>
+
+    <!-- Model summary -->
+    <div class="section">
+      <div class="lab-title">学習サマリ（behavior model）</div>
+
+      {% if behavior_model.has_model %}
+        <div class="mini-kv">
+          <div class="kv-row"><div class="kv-key">学習トレード数</div><div class="kv-val">{{ behavior_model.total_trades|default:0 }}</div></div>
+          <div class="kv-row"><div class="kv-key">勝ち</div><div class="kv-val">{{ behavior_model.wins|default:0 }}</div></div>
+          <div class="kv-row"><div class="kv-key">勝率</div><div class="kv-val">{{ behavior_model.win_rate|floatformat:1 }}%</div></div>
+          <div class="kv-row"><div class="kv-key">平均PL</div><div class="kv-val">{{ behavior_model.avg_pl|floatformat:0|intcomma }}円</div></div>
+          <div class="kv-row"><div class="kv-key">平均R</div><div class="kv-val">{{ behavior_model.avg_r|floatformat:3 }}</div></div>
+          <div class="kv-row"><div class="kv-key">更新時刻</div><div class="kv-val">{{ behavior_model.updated_at|default:"-" }}</div></div>
+        </div>
+      {% else %}
+        <div class="empty" style="margin-top:8px;">
+          まだ学習モデルがありません。<br>
+          <span class="ticker-strong">train_behavior_model</span> 実行後にここが埋まります。
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- TOP win / lose -->
+    <div class="section">
+      <div class="lab-title">TOP 勝ち（PRO）</div>
+      {% if top_win %}
+        {% for r in top_win %}
+          <div class="trade-item">
+            <div class="trade-title">{{ r.code }} {{ r.name }}</div>
+            <div class="trade-sub">
+              <div class="pl-pos">+{{ r.pl|floatformat:0|intcomma }} 円</div>
+              <div>{{ r.mode }} ／ {{ r.ts_label }}</div>
+            </div>
+          </div>
         {% endfor %}
-        <span class="dot meta">streak: {{ streak_label }}</span>
-      </div>
-    {% endif %}
-  </div>
-
-  <div class="card">
-    <h3>学習の進み具合</h3>
-    <div class="metric-grid">
-      <div class="metric">
-        <div class="m-title">simulate 総レコード（qty_proあり）</div>
-        <div class="m-val m-mid">{{ sim_total|default:"-" }}</div>
-        <div class="m-sub">carry/skip も含む（行動量）</div>
-      </div>
-
-      <div class="metric">
-        <div class="m-title">勝敗が付いたレコード（win/lose）</div>
-        <div class="m-val m-mid">{{ wl_total|default:"-" }}</div>
-        <div class="m-sub">学習に効くコアデータ</div>
-      </div>
-
-      <div class="metric">
-        <div class="m-title">勝率（win/lose）</div>
-        <div class="m-val {% if win_rate and win_rate >= 50 %}m-pos{% elif win_rate is not None %}m-neg{% else %}m-mid{% endif %}">
-          {% if win_rate is not None %}{{ win_rate|floatformat:1 }}%{% else %}-{% endif %}
-        </div>
-        <div class="m-sub">PRO評価ベース</div>
-      </div>
-
-      <div class="metric">
-        <div class="m-title">平均R</div>
-        <div class="m-val {% if avg_r and avg_r >= 0 %}m-pos{% elif avg_r is not None %}m-neg{% else %}m-mid{% endif %}">
-          {% if avg_r is not None %}{{ avg_r|floatformat:3 }}{% else %}-{% endif %}
-        </div>
-        <div class="m-sub">損益を“ルール距離”で正規化</div>
-      </div>
-
-      <div class="metric">
-        <div class="m-title">平均PL（円）</div>
-        <div class="m-val {% if avg_pl and avg_pl >= 0 %}m-pos{% elif avg_pl is not None %}m-neg{% else %}m-mid{% endif %}">
-          {% if avg_pl is not None %}{{ avg_pl|floatformat:0|intcomma }}{% else %}-{% endif %}
-        </div>
-        <div class="m-sub">carry/skip は 0 の扱い</div>
-      </div>
-
-      <div class="metric">
-        <div class="m-title">理解度（概算）</div>
-        <div class="m-val m-mid">{{ understanding_label }}</div>
-        <div class="m-sub">WL件数に応じて自動で変わる</div>
-      </div>
+      {% else %}
+        <div class="empty">勝ちトレードがまだありません。</div>
+      {% endif %}
     </div>
-  </div>
 
-  <div class="card">
-    <h3>行動バイアス・マップ</h3>
-    <div class="map">
-      {% for b in bias_map %}
-        <div class="map-row">
-          <div class="map-name">{{ b.name }}</div>
-          <div class="map-val">{{ b.value }}</div>
-        </div>
-      {% empty %}
-        <div class="map-row">
-          <div class="map-name">未解析</div>
-          <div class="map-val">データ不足</div>
-        </div>
-      {% endfor %}
+    <div class="section">
+      <div class="lab-title">TOP 負け（PRO）</div>
+      {% if top_lose %}
+        {% for r in top_lose %}
+          <div class="trade-item">
+            <div class="trade-title">{{ r.code }} {{ r.name }}</div>
+            <div class="trade-sub">
+              <div class="pl-neg">{{ r.pl|floatformat:0|intcomma }} 円</div>
+              <div>{{ r.mode }} ／ {{ r.ts_label }}</div>
+            </div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty">負けトレードがまだありません。</div>
+      {% endif %}
     </div>
-  </div>
 
-  {% if recent_trades %}
-  <div class="card">
-    <h3>直近のトレード（学習に入ったやつ）</h3>
-    <div class="small">latest_behavior_side.jsonl から抽出</div>
-    {% for t in recent_trades %}
-      <div class="trade-row">
-        <div class="trade-left">
-          <div class="trade-code">
-            {{ t.code }}
-            {% if t.label == "win" %}
-              <span class="badge b-ok">WIN</span>
-            {% elif t.label == "lose" %}
-              <span class="badge b-bad">LOSE</span>
-            {% else %}
-              <span class="badge">FLAT</span>
-            {% endif %}
-          </div>
-          <div class="trade-sub">{{ t.meta }}</div>
-        </div>
-        <div class="trade-right">
-          <div class="pl {% if t.pl >= 0 %}pos{% else %}neg{% endif %}">
-            {{ t.pl|floatformat:0|intcomma }}円
-          </div>
-          <div class="r">R: {% if t.r is not None %}{{ t.r|floatformat:3 }}{% else %}-{% endif %}</div>
-        </div>
-      </div>
-    {% endfor %}
-  </div>
   {% endif %}
 
-  <div class="card">
-    <h3>AI が次に欲しがっているデータ</h3>
-    <ul class="list">
-      {% for w in wanted %}
-        <li>{{ w }}</li>
-      {% empty %}
-        <li>継続してシミュレを増やして（特に同条件の連続トレード）</li>
-      {% endfor %}
-    </ul>
-  </div>
-
-  {% endif %}
 </div>
 {% endblock %}
