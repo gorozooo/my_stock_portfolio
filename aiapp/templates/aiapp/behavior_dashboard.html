@@ -1,496 +1,622 @@
 {% extends "base.html" %}
+{% load humanize %}
 
 {% block title %}AI 行動ダッシュボード{% endblock %}
 
 {% block head %}
 <style>
-  :root{
-    --bg:#fff;
-    --ink:#111827;
-    --sub:#6b7280;
-    --card:#ffffff;
-    --line:rgba(17,24,39,.12);
-    --shadow:0 10px 26px rgba(17,24,39,.10);
+:root{
+  /* 明るめ（でも目が痛くならない） */
+  --bg:#0b1220;
+  --bg2:#111c33;
+  --card:rgba(255,255,255,0.10);
+  --card2:rgba(255,255,255,0.14);
+  --fg:#0b1020;
+  --txt:#0b1020;
+  --txt2:rgba(11,16,32,0.70);
+  --line:rgba(11,16,32,0.12);
 
-    --pink:#ff4aa2;
-    --orange:#ff8a1f;
-    --yellow:#ffe14d;
-    --mint:#1ee6c1;
-    --sky:#31c2ff;
-    --grape:#7c4dff;
+  --ink:#0b1020;
+  --white:#ffffff;
 
-    --win:#16a34a;
-    --lose:#ef4444;
-    --flat:#64748b;
+  --accent:#2dd4bf;
+  --accent2:#60a5fa;
+  --accent3:#f472b6;
 
-    --r:22px;
-  }
+  --ok:#16a34a;
+  --bad:#ef4444;
+  --muted:#64748b;
 
-  body{
-    background:
-      radial-gradient(circle at 12% 10%, rgba(49,194,255,.18), transparent 55%),
-      radial-gradient(circle at 92% 0%, rgba(255,74,162,.18), transparent 60%),
-      radial-gradient(circle at 10% 98%, rgba(255,225,77,.22), transparent 58%),
-      #ffffff;
-    color:var(--ink);
-  }
+  --pill:rgba(255,255,255,0.70);
+  --shadow:0 12px 30px rgba(2,6,23,0.18);
 
-  .wrap{
-    max-width:940px;
-    margin:0 auto;
-    padding:14px 12px 92px;
-  }
+  /* テロップ速度（秒） */
+  --ticker-sec: 12;
+}
 
-  /* ===== Poster ===== */
-  .poster{
-    position:relative;
-    border-radius: calc(var(--r) + 10px);
-    border:1px solid var(--line);
-    background:var(--card);
-    box-shadow: var(--shadow);
-    padding:14px 14px 12px;
-    overflow:hidden;
-  }
-  .poster::before{
-    content:"";
-    position:absolute;
-    inset:-70px -70px auto auto;
-    width:280px;height:280px;border-radius:50%;
-    background:
-      radial-gradient(circle at 30% 30%, rgba(255,74,162,.55), transparent 60%),
-      radial-gradient(circle at 70% 70%, rgba(49,194,255,.45), transparent 62%),
-      radial-gradient(circle at 35% 78%, rgba(255,225,77,.42), transparent 66%);
-    transform: rotate(10deg);
-    pointer-events:none;
-  }
-  .poster::after{
-    content:"";
-    position:absolute;
-    inset:auto auto -120px -120px;
-    width:320px;height:320px;border-radius:80px;
-    background:
-      radial-gradient(circle at 30% 30%, rgba(30,230,193,.50), transparent 62%),
-      radial-gradient(circle at 70% 70%, rgba(255,138,31,.42), transparent 64%);
-    transform: rotate(-10deg);
-    pointer-events:none;
-  }
+body{
+  background:
+    radial-gradient(1200px 600px at 12% 12%, rgba(96,165,250,0.18), transparent 55%),
+    radial-gradient(900px 500px at 88% 18%, rgba(45,212,191,0.16), transparent 55%),
+    radial-gradient(800px 500px at 70% 88%, rgba(244,114,182,0.14), transparent 60%),
+    linear-gradient(180deg, var(--bg), var(--bg2));
+  color: var(--ink);
+}
 
-  .posterTop{
-    position:relative; z-index:1;
-    display:flex; align-items:flex-start; justify-content:space-between;
-    gap:10px;
-  }
+.wrap{
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 14px 12px 92px;
+}
 
-  .brand{
-    display:flex; align-items:center; gap:10px;
-    font-weight:1000;
-    letter-spacing:.2px;
-    font-size:18px;
-  }
-  .mark{
-    width:40px;height:40px;border-radius:14px;
-    display:grid;place-items:center;
-    color:#fff;
-    background: linear-gradient(135deg, var(--pink), var(--orange));
-    box-shadow: 0 0 0 6px rgba(255,74,162,.12);
-    font-size:18px;
-  }
+/* ===== 上部バー（今日 + テロップ） ===== */
+.topbar{
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  padding-top: 10px;
+  padding-bottom: 8px;
+  background: linear-gradient(180deg, rgba(11,18,32,0.92), rgba(11,18,32,0.75), rgba(11,18,32,0.00));
+  backdrop-filter: blur(10px);
+}
 
-  .desc{
-    position:relative; z-index:1;
-    margin-top:8px;
-    font-size:12px;
-    font-weight:900;
-    color: rgba(17,24,39,.70);
-    line-height:1.6;
-  }
+.topbar-inner{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
 
-  .chips{
-    position:relative; z-index:1;
-    margin-top:10px;
-    display:flex; flex-wrap:wrap; gap:8px;
-  }
-  .chip{
-    display:inline-flex; align-items:center; gap:8px;
-    padding:7px 10px;
-    border-radius:999px;
-    border:1px solid rgba(17,24,39,.12);
-    background:#fff;
-    font-size:12px;
-    font-weight:1000;
-    white-space:nowrap;
-  }
-  .chip b{ font-variant-numeric: tabular-nums; }
-  .chip.pink{ background:rgba(255,74,162,.10); border-color:rgba(255,74,162,.22); }
-  .chip.sky{ background:rgba(49,194,255,.12); border-color:rgba(49,194,255,.22); }
-  .chip.mint{ background:rgba(30,230,193,.14); border-color:rgba(30,230,193,.22); }
-  .chip.yellow{ background:rgba(255,225,77,.20); border-color:rgba(255,225,77,.28); }
-  .chip.grape{ background:rgba(124,77,255,.10); border-color:rgba(124,77,255,.20); }
+.today-pill{
+  flex: 0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.85);
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(11,16,32,0.08);
+  font-weight: 800;
+  font-size: 12px;
+  color: var(--ink);
+}
 
-  /* ===== Ticker ===== */
-  .ticker{
-    position:relative; z-index:1;
-    margin-top:12px;
-    border-radius:18px;
-    border:2px dashed rgba(17,24,39,.18);
-    background:
-      linear-gradient(90deg,
-        rgba(255,74,162,.14),
-        rgba(255,225,77,.14),
-        rgba(30,230,193,.14),
-        rgba(49,194,255,.14)
-      );
-    overflow:hidden;
-  }
+.today-pill .sub{
+  font-weight: 700;
+  color: rgba(11,16,32,0.55);
+}
 
-  .tickerHead{
-    display:flex; justify-content:space-between; align-items:center;
-    gap:10px;
-    padding:8px 10px 0 10px;
-    font-size:11px;
-    font-weight:1000;
-    color: rgba(17,24,39,.68);
-  }
+.ticker{
+  flex: 1 1 auto;
+  overflow:hidden;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.78);
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(11,16,32,0.08);
+  height: 36px;
+  display:flex;
+  align-items:center;
+  position: relative;
+}
 
-  .lane{
-    overflow:hidden;
-    padding:10px 10px 12px 10px;
-    touch-action:manipulation;
-  }
+.ticker::before{
+  content:"";
+  position:absolute;
+  left:0; top:0; bottom:0;
+  width:24px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.95), rgba(255,255,255,0.00));
+  pointer-events:none;
+}
+.ticker::after{
+  content:"";
+  position:absolute;
+  right:0; top:0; bottom:0;
+  width:24px;
+  background: linear-gradient(270deg, rgba(255,255,255,0.95), rgba(255,255,255,0.00));
+  pointer-events:none;
+}
 
-  .track{
-    display:inline-flex;
-    gap:10px;
-    white-space:nowrap;
-    will-change: transform;
-    transform: translate3d(0,0,0);
-    animation: move var(--dur, 10s) linear infinite;
-  }
-  .lane.pause .track{ animation-play-state: paused; }
+.ticker-track{
+  display:flex;
+  align-items:center;
+  gap: 18px;
+  padding-left: 18px;
+  will-change: transform;
+  transform: translate3d(0,0,0);
+}
 
-  .tag{
-    display:inline-flex; align-items:center; gap:7px;
-    padding:7px 11px;
-    border-radius:999px;
-    background:#fff;
-    border:1px solid rgba(17,24,39,.12);
-    box-shadow: 0 2px 8px rgba(17,24,39,.06);
-    font-size:12px;
-    font-weight:1000;
-  }
-  .dot{
-    width:10px;height:10px;border-radius:3px;
-    background: linear-gradient(135deg, var(--orange), var(--pink));
-  }
-  .sep{
-    width:6px;height:6px;border-radius:50%;
-    background: rgba(17,24,39,.22);
-    align-self:center;
-  }
+.ticker-item{
+  display:inline-flex;
+  align-items:center;
+  gap: 8px;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 800;
+  color: rgba(11,16,32,0.82);
+}
 
-  @keyframes move{
-    from{ transform: translate3d(var(--from, 0px),0,0); }
-    to{ transform: translate3d(var(--to, -600px),0,0); }
-  }
+.dot{
+  width:8px; height:8px;
+  border-radius: 50%;
+  background: var(--accent2);
+  box-shadow: 0 0 0 4px rgba(96,165,250,0.18);
+}
 
-  /* ===== Sections ===== */
-  .grid{
-    margin-top:12px;
-    display:grid;
-    grid-template-columns: repeat(2, minmax(0,1fr));
-    gap:10px;
-  }
-  @media (max-width: 560px){
-    .grid{ grid-template-columns: 1fr; }
-  }
+.ticker-date{
+  position:absolute;
+  right:10px;
+  font-size: 11px;
+  font-weight: 800;
+  color: rgba(11,16,32,0.48);
+}
 
-  .card{
-    border-radius: var(--r);
-    border:1px solid var(--line);
-    background:#fff;
-    box-shadow: 0 8px 18px rgba(17,24,39,.08);
-    padding:12px 12px;
-  }
+/* ===== セクション / カード ===== */
+.section{
+  margin-top: 14px;
+  border-radius: 18px;
+  padding: 14px;
+  background: rgba(255,255,255,0.72);
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(11,16,32,0.08);
+}
 
-  .title{
-    display:flex; align-items:center; justify-content:space-between; gap:10px;
-    font-size:13px; font-weight:1100;
-    margin-bottom:8px;
-  }
-  .badge{
-    font-size:11px; font-weight:1100;
-    padding:6px 10px;
-    border-radius:999px;
-    border:1px solid rgba(17,24,39,.12);
-    background: rgba(17,24,39,.04);
-    white-space:nowrap;
-  }
+.h-title{
+  font-size: 16px;
+  font-weight: 900;
+  margin-bottom: 6px;
+  letter-spacing: 0.2px;
+}
+.h-sub{
+  font-size: 12px;
+  font-weight: 800;
+  color: rgba(11,16,32,0.58);
+  line-height: 1.5;
+}
 
-  .empty{
-    font-size:12px;
-    font-weight:900;
-    color: rgba(17,24,39,.65);
-    line-height:1.7;
-  }
+.badges{
+  margin-top: 8px;
+  display:flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.badge{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 900;
+  background: rgba(255,255,255,0.82);
+  border: 1px solid rgba(11,16,32,0.10);
+  color: rgba(11,16,32,0.78);
+}
 
-  /* ===== Fun blocks ===== */
-  .bigBox{
-    border-radius:18px;
-    border:1px solid rgba(17,24,39,.10);
-    background:
-      radial-gradient(circle at 15% 10%, rgba(255,225,77,.18), transparent 55%),
-      #fff;
-    padding:10px 10px;
-  }
-  .bigNum{
-    font-size:22px;
-    font-weight:1200;
-    font-variant-numeric: tabular-nums;
-  }
-  .bigSub{
-    font-size:11px;
-    font-weight:900;
-    color: rgba(17,24,39,.68);
-    margin-top:2px;
-  }
+.badge .chip{
+  width:10px; height:10px;
+  border-radius: 4px;
+  background: var(--accent);
+}
 
-  .bar{
-    height:14px;
-    border-radius:999px;
-    background: rgba(17,24,39,.08);
-    overflow:hidden;
-    margin-top:8px;
-    border:1px solid rgba(17,24,39,.08);
-  }
-  .bar > i{
-    display:block; height:100%;
-    width: var(--p, 0%);
-    border-radius:999px;
-    background: linear-gradient(90deg, rgba(255,74,162,.95), rgba(255,225,77,.95), rgba(30,230,193,.95));
-  }
+.grid2{
+  display:grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+@media (max-width: 520px){
+  .grid2{ grid-template-columns: 1fr; }
+}
 
-  .kv{
-    display:grid;
-    grid-template-columns: 1fr 1fr;
-    gap:8px;
-    margin-top:10px;
-  }
-  @media (max-width: 560px){ .kv{ grid-template-columns:1fr; } }
+.kpi{
+  border-radius: 16px;
+  padding: 12px 12px;
+  background: rgba(255,255,255,0.78);
+  border: 1px solid rgba(11,16,32,0.08);
+}
+.kpi .lab{
+  font-size: 11px;
+  font-weight: 900;
+  color: rgba(11,16,32,0.52);
+  margin-bottom: 6px;
+}
+.kpi .val{
+  font-size: 22px;
+  font-weight: 1000;
+  color: rgba(11,16,32,0.92);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.kpi .sub{
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 900;
+  color: rgba(11,16,32,0.54);
+}
 
-  .kvRow{
-    border-radius:16px;
-    border:1px solid rgba(17,24,39,.10);
-    background:#fff;
-    padding:10px 10px;
-    display:flex; justify-content:space-between; gap:10px;
-  }
-  .k{ font-size:12px; font-weight:1100; color: rgba(17,24,39,.72); }
-  .v{ font-size:12px; font-weight:1200; text-align:right; font-variant-numeric: tabular-nums; }
+.hr{
+  height:1px;
+  background: rgba(11,16,32,0.08);
+  margin: 12px 0;
+}
 
-  .list{ display:flex; flex-direction:column; gap:8px; }
+.list{
+  display:flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+.card{
+  border-radius: 16px;
+  padding: 12px 12px;
+  background: rgba(255,255,255,0.80);
+  border: 1px solid rgba(11,16,32,0.08);
+}
 
-  .tile{
-    border-radius:18px;
-    border:1px dashed rgba(17,24,39,.20);
-    background:#fff;
-    padding:10px 10px;
-  }
-  .tileHead{
-    display:flex; align-items:center; gap:8px;
-    font-size:11px; font-weight:1200;
-    color: rgba(17,24,39,.70);
-    margin-bottom:6px;
-  }
-  .num{
-    width:24px;height:24px;border-radius:12px;
-    display:grid; place-items:center;
-    background: rgba(255,225,77,.28);
-    border:1px solid rgba(255,225,77,.35);
-    font-weight:1200;
-  }
-  .tileBody{
-    font-size:13px;
-    font-weight:1000;
-    line-height:1.55;
-  }
+.row{
+  display:flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+}
+.row .k{
+  font-size: 12px;
+  font-weight: 900;
+  color: rgba(11,16,32,0.54);
+}
+.row .v{
+  font-size: 12px;
+  font-weight: 1000;
+  color: rgba(11,16,32,0.88);
+  font-variant-numeric: tabular-nums;
+}
+
+.pills{
+  display:flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.pill{
+  display:inline-flex;
+  align-items:center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 1000;
+  border: 1px solid rgba(11,16,32,0.10);
+  background: rgba(255,255,255,0.85);
+  color: rgba(11,16,32,0.80);
+}
+.pill b{ font-weight: 1100; }
+
+.seq{
+  margin-top: 10px;
+  display:flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.seq-dot{
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight: 1000;
+  border: 1px solid rgba(11,16,32,0.10);
+  background: rgba(255,255,255,0.85);
+  color: rgba(11,16,32,0.78);
+}
+.seq-dot.win{ background: rgba(34,197,94,0.18); border-color: rgba(34,197,94,0.35); }
+.seq-dot.lose{ background: rgba(239,68,68,0.16); border-color: rgba(239,68,68,0.32); }
+.seq-dot.flat{ background: rgba(99,102,241,0.14); border-color: rgba(99,102,241,0.26); }
+
+.small{
+  font-size: 11px;
+  font-weight: 900;
+  color: rgba(11,16,32,0.56);
+}
+
+.pl-pos{ color: var(--ok); }
+.pl-neg{ color: var(--bad); }
+
+/* ===== 空状態 ===== */
+.empty{
+  margin-top: 16px;
+  border-radius: 18px;
+  padding: 16px;
+  background: rgba(255,255,255,0.70);
+  border: 1px dashed rgba(11,16,32,0.18);
+  box-shadow: var(--shadow);
+  color: rgba(11,16,32,0.78);
+  font-weight: 900;
+  line-height: 1.6;
+}
+
+/* iPhone向け：テロップはCSSアニメより JS（transform）で動かす */
+.no-js .ticker-track{
+  animation: tickerMove var(--ticker-sec) linear infinite;
+}
+@keyframes tickerMove{
+  0%{ transform: translate3d(0,0,0); }
+  100%{ transform: translate3d(-50%,0,0); }
+}
 </style>
-
-<script>
-  // ✅ 0テンプレでも動く “iPhoneで確実に速くなる” テロップ制御
-  document.addEventListener("DOMContentLoaded", () => {
-    const lane = document.querySelector("[data-lane]");
-    const track = document.querySelector("[data-track]");
-    if (!lane || !track) return;
-
-    // 速度(px/s)で管理：数値を上げたら必ず速くなる
-    const SPEED = 240;   // ★ さらに速くしたいなら 300 / 360
-    const MIN_DUR = 3;
-    const MAX_DUR = 30;
-
-    const apply = () => {
-      const laneW  = lane.clientWidth || 320;
-      const trackW = track.scrollWidth || 800;
-
-      const from = laneW;
-      const to   = -trackW;
-      const dist = from - to;
-
-      let dur = dist / SPEED;
-      dur = Math.max(MIN_DUR, Math.min(MAX_DUR, dur));
-
-      track.style.setProperty("--from", from + "px");
-      track.style.setProperty("--to", to + "px");
-      track.style.setProperty("--dur", dur + "s");
-    };
-
-    apply();
-    setTimeout(apply, 80);
-    setTimeout(apply, 220);
-    setTimeout(apply, 600);
-
-    window.addEventListener("resize", () => setTimeout(apply, 80));
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) setTimeout(apply, 120); });
-
-    const pauseOn = () => lane.classList.add("pause");
-    const pauseOff = () => lane.classList.remove("pause");
-
-    lane.addEventListener("touchstart", pauseOn, {passive:true});
-    lane.addEventListener("touchend", pauseOff, {passive:true});
-    lane.addEventListener("touchcancel", pauseOff, {passive:true});
-    lane.addEventListener("mousedown", pauseOn);
-    lane.addEventListener("mouseup", pauseOff);
-    lane.addEventListener("mouseleave", pauseOff);
-  });
-</script>
 {% endblock %}
 
 {% block content %}
-<div class="wrap">
+<div class="wrap no-js" id="behaviorRoot">
 
-  <div class="poster">
-    <div class="posterTop">
-      <div class="brand">
-        <div class="mark">🍭</div>
-        行動ダッシュボード（完全0テンプレ）
+  <!-- 上部：今日 + テロップ -->
+  <div class="topbar">
+    <div class="topbar-inner">
+      <div class="today-pill">
+        <span>本日</span>
+        <span class="sub">{{ today_label }}</span>
       </div>
-      <div class="chip grape">変数ゼロでも表示OK</div>
-    </div>
 
-    <div class="desc">
-      このテンプレは “何も渡されない状態” を前提に作ってある。<br>
-      データが来たら、その分だけ勝手に賑やかになる（来なければ説明モードで動く）。
-    </div>
-
-    <div class="chips">
-      <span class="chip pink">📅 今日 <b>{% now "Y-m-d" %}</b></span>
-      <span class="chip sky">📱 iPhone対応 <b>OK</b></span>
-      <span class="chip mint">🏃 テロップ <b>速度(px/s)</b></span>
-      <span class="chip yellow">🧪 データ <b>未接続</b></span>
-    </div>
-
-    <div class="ticker">
-      <div class="tickerHead">
-        <div>テロップ（長押しで停止）</div>
-        <div>速度は SPEED で制御</div>
-      </div>
-      <div class="lane" data-lane>
-        <div class="track" data-track>
-          <span class="tag"><span class="dot"></span>ここに “今日の一言” が流れる</span><span class="sep"></span>
-          <span class="tag"><span class="dot"></span>iPhoneで速度が変わらない問題を潰した</span><span class="sep"></span>
-          <span class="tag"><span class="dot"></span>duration固定じゃなく「距離÷速度」で決めてる</span><span class="sep"></span>
-          <span class="tag"><span class="dot"></span>必要データは後で1個だけ渡せばOK</span><span class="sep"></span>
-          <span class="tag"><span class="dot"></span>ここに “今日の一言” が流れる</span><span class="sep"></span>
-          <span class="tag"><span class="dot"></span>iPhoneで速度が変わらない問題を潰した</span><span class="sep"></span>
+      <div class="ticker" aria-label="ticker">
+        <div class="ticker-track" id="tickerTrack">
+          {% if ticker_lines %}
+            {% for line in ticker_lines %}
+              <div class="ticker-item"><span class="dot"></span>{{ line }}</div>
+            {% endfor %}
+            {% for line in ticker_lines %}
+              <div class="ticker-item"><span class="dot"></span>{{ line }}</div>
+            {% endfor %}
+          {% else %}
+            <div class="ticker-item"><span class="dot"></span>テロップ未生成（16:20の生成を待機）</div>
+            <div class="ticker-item"><span class="dot"></span>テロップ未生成（16:20の生成を待機）</div>
+          {% endif %}
         </div>
+        <div class="ticker-date">{% if ticker_date %}{{ ticker_date }}{% endif %}</div>
       </div>
     </div>
   </div>
 
-  <div class="grid">
-    <div class="card">
-      <div class="title">
-        <span>このページの使い方</span>
-        <span class="badge">0 → 1へ</span>
-      </div>
-      <div class="empty">
-        1) まず「表示したいデータ」を1つにまとめて渡す。<br>
-        2) このテンプレはその “1つ” だけ見て描画する。<br>
-        3) 未来感は不要なので、ポップに “刺さる要約” を最優先。
-      </div>
-
-      <div class="kv">
-        <div class="kvRow"><div class="k">推奨入力</div><div class="v">payload 1個</div></div>
-        <div class="kvRow"><div class="k">テロップ</div><div class="v">lines[]</div></div>
-        <div class="kvRow"><div class="k">勝率</div><div class="v">win_rate</div></div>
-        <div class="kvRow"><div class="k">直近</div><div class="v">recent[]</div></div>
+  {% if not has_data %}
+    <div class="empty">
+      まだ行動データがありません。<br>
+      <span class="small">simulate（PRO）にログが溜まり、さらに ai_sim_eval → sync_simulate_pro_eval が走ると分析が出ます。</span><br>
+      <div class="pills" style="margin-top:10px;">
+        <span class="pill"><b>simulate files</b> {{ sim_files }}</span>
+        <span class="pill"><b>理解度</b> {{ understanding_label }}</span>
       </div>
     </div>
+  {% else %}
 
-    <div class="card">
-      <div class="title">
-        <span>今はデータ未接続</span>
-        <span class="badge">表示崩れ0</span>
+    <!-- 概要 -->
+    <div class="section">
+      <div class="h-title">AI 行動ダッシュボード（PRO）</div>
+      <div class="h-sub">
+        「結果」だけじゃなく、これからは <b>入った理由（entry_reason）</b> を軸にクセを学習していく。
       </div>
 
-      <div class="bigBox" style="--p:0%;">
-        <div class="bigNum">-</div>
-        <div class="bigSub">勝率（データが来たら表示）</div>
-        <div class="bar"><i></i></div>
+      <div class="badges">
+        <span class="badge"><span class="chip" style="background:var(--accent2)"></span>simulate files: {{ sim_files }}</span>
+        <span class="badge"><span class="chip" style="background:var(--accent)"></span>qty_pro: {{ sim_total|intcomma }}</span>
+        <span class="badge"><span class="chip" style="background:var(--accent3)"></span>win/lose: {{ wl_total|intcomma }}</span>
+        <span class="badge"><span class="chip" style="background:#a78bfa"></span>理解度: {{ understanding_label }}</span>
+      </div>
 
-        <div class="kv">
-          <div class="kvRow"><div class="k">平均R</div><div class="v">-</div></div>
-          <div class="kvRow"><div class="k">平均PL</div><div class="v">-</div></div>
-          <div class="kvRow"><div class="k">WL件数</div><div class="v">-</div></div>
-          <div class="kvRow"><div class="k">理解度</div><div class="v">-</div></div>
+      <div class="grid2">
+        <div class="kpi">
+          <div class="lab">勝率（win/lose）</div>
+          <div class="val">{% if win_rate is not None %}{{ win_rate|floatformat:1 }}%{% else %}-{% endif %}</div>
+          <div class="sub">carry/skipは母数に含めない</div>
+        </div>
+        <div class="kpi">
+          <div class="lab">平均R</div>
+          <div class="val">{% if avg_r is not None %}{{ avg_r|floatformat:2 }}{% else %}-{% endif %}</div>
+          <div class="sub">Rが無い日は学習に弱めに反映</div>
+        </div>
+        <div class="kpi">
+          <div class="lab">平均PL</div>
+          <div class="val">{% if avg_pl is not None %}{{ avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}</div>
+          <div class="sub">PLは評価済みのみ</div>
+        </div>
+        <div class="kpi">
+          <div class="lab">学習対象トレード数（モデル）</div>
+          <div class="val">{% if model.has_model %}{{ model.total_trades|intcomma }}{% else %}-{% endif %}</div>
+          <div class="sub">latest_behavior_model_u*.json</div>
         </div>
       </div>
 
-      <div style="margin-top:10px;" class="empty">
-        次はここに “あなたの学習内容・傾向” を載せる。<br>
-        ただしテンプレは0からなので、どのデータを載せるかはこれから決める。
+      <div class="hr"></div>
+
+      <div class="row">
+        <div class="k">直近ストリーク</div>
+        <div class="v">{{ streak_label }}</div>
+      </div>
+
+      <div class="seq" aria-label="sequence">
+        {% for s in sequence %}
+          <div class="seq-dot {{ s.label }}">{{ s.text }}</div>
+        {% endfor %}
+        <div class="small">直近12個</div>
       </div>
     </div>
-  </div>
 
-  <div class="grid" style="margin-top:10px;">
-    <div class="card">
-      <div class="title">
-        <span>奇抜枠：刺さる一言（例）</span>
-        <span class="badge">テンプレ側ダミー</span>
-      </div>
+    <!-- 仮説 -->
+    <div class="section">
+      <div class="h-title">AIの仮説</div>
+      <div class="h-sub">今の少量データから “それっぽいクセ” を仮置き。データが増えるほど鋭くなる。</div>
 
       <div class="list">
-        <div class="tile">
-          <div class="tileHead"><div class="num">1</div><div>言い切り</div></div>
-          <div class="tileBody">「勝ち方より、負け方が目立つ。まず負けの形を潰す。」</div>
-        </div>
-        <div class="tile">
-          <div class="tileHead"><div class="num">2</div><div>観察</div></div>
-          <div class="tileBody">「連敗は“市場”じゃなく“入り方”の癖が原因になりやすい。」</div>
-        </div>
-        <div class="tile">
-          <div class="tileHead"><div class="num">3</div><div>命令</div></div>
-          <div class="tileBody">「次の3回は同じルールで。ブレた瞬間、学習が濁る。」</div>
-        </div>
+        {% for h in hypotheses %}
+          <div class="card">
+            <div style="font-weight:1000; color:rgba(11,16,32,0.84); font-size:13px;">{{ h }}</div>
+          </div>
+        {% endfor %}
       </div>
 
-      <div style="margin-top:10px;" class="empty">
-        ここは後で “実データから自動生成” に切り替えるだけ。
+      <div class="pills">
+        {% for n in notes %}
+          <span class="pill">{{ n }}</span>
+        {% endfor %}
       </div>
     </div>
 
-    <div class="card">
-      <div class="title">
-        <span>奇抜枠：ポップな注意書き</span>
-        <span class="badge">軽く刺す</span>
-      </div>
-      <div class="empty">
-        ・勝率は “気分” を上げるけど、改善は “平均R” が一番効く。<br>
-        ・carry / skip を別枠にするだけで、勝率が嘘をつかなくなる。<br>
-        ・テロップ速度は秒じゃない。px/sで決めるとiPhoneでもズレない。
+    <!-- バイアスマップ -->
+    <div class="section">
+      <div class="h-title">バイアスマップ</div>
+      <div class="h-sub">あなたの “癖の種類” を4軸で表示。</div>
+
+      <div class="grid2">
+        {% for b in bias_map %}
+          <div class="card">
+            <div class="row">
+              <div class="k">{{ b.name }}</div>
+              <div class="v">{{ b.value }}</div>
+            </div>
+          </div>
+        {% endfor %}
       </div>
     </div>
-  </div>
 
+    <!-- entry_reason別（ここが本命） -->
+    <div class="section">
+      <div class="h-title">entry_reason 別 成績</div>
+      <div class="h-sub">
+        ここからが本番。<b>「何で入ったか」</b>で勝率とRが変わるなら、あなたの型が見える。
+      </div>
+
+      {% if entry_reason_stats %}
+        <div class="list">
+          {% for r in entry_reason_stats %}
+            <div class="card">
+              <div class="row">
+                <div class="k">{{ r.reason }}</div>
+                <div class="v">{{ r.wins }}/{{ r.trials }}（{{ r.win_rate|floatformat:1 }}%）</div>
+              </div>
+              <div class="row" style="margin-top:6px;">
+                <div class="k">avgR</div>
+                <div class="v">{% if r.avg_r is not None %}{{ r.avg_r|floatformat:2 }}{% else %}-{% endif %}</div>
+              </div>
+              <div class="row" style="margin-top:6px;">
+                <div class="k">avgPL</div>
+                <div class="v">
+                  {% if r.avg_pl is not None %}
+                    {{ r.avg_pl|floatformat:0|intcomma }}円
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty" style="margin-top:12px;">
+          entry_reason のデータがまだありません。<br>
+          <span class="small">次に VirtualTrade に entry_reason を追加して、シミュレ登録時に保存します。</span>
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- 欲しいデータ -->
+    <div class="section">
+      <div class="h-title">次に欲しいデータ</div>
+      <div class="h-sub">これが揃うほど “言い当て精度” が上がる。</div>
+
+      <div class="list">
+        {% for w in wanted %}
+          <div class="card">
+            <div style="font-weight:1000; font-size:13px; color:rgba(11,16,32,0.86);">{{ w }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- 最近のトレード -->
+    <div class="section">
+      <div class="h-title">最近の評価（抜粋）</div>
+      <div class="h-sub">勝ち/負けだけじゃなく、理由とセットで見るための足場。</div>
+
+      <div class="list">
+        {% for t in recent_trades %}
+          <div class="card">
+            <div class="row">
+              <div class="k">{{ t.code }}</div>
+              <div class="v">
+                {% if t.label == "win" %}
+                  <span class="pl-pos">WIN</span>
+                {% elif t.label == "lose" %}
+                  <span class="pl-neg">LOSE</span>
+                {% else %}
+                  FLAT
+                {% endif %}
+              </div>
+            </div>
+            <div class="row" style="margin-top:6px;">
+              <div class="k">PL</div>
+              <div class="v {% if t.pl >= 0 %}pl-pos{% else %}pl-neg{% endif %}">
+                {{ t.pl|floatformat:0|intcomma }}円
+              </div>
+            </div>
+            <div class="row" style="margin-top:6px;">
+              <div class="k">R</div>
+              <div class="v">{% if t.r is not None %}{{ t.r|floatformat:2 }}{% else %}-{% endif %}</div>
+            </div>
+            <div class="row" style="margin-top:6px;">
+              <div class="k">meta</div>
+              <div class="v" style="font-weight:900;color:rgba(11,16,32,0.58);">{{ t.meta }}</div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+  {% endif %}
 </div>
+
+<script>
+(function(){
+  // JS動作の印
+  var root = document.getElementById("behaviorRoot");
+  if (root) root.classList.remove("no-js");
+
+  // iPhoneでCSS animationが「体感変わらない」問題に対処：
+  // requestAnimationFrame + translate3d で確実に動かす
+  var track = document.getElementById("tickerTrack");
+  if (!track) return;
+
+  // 速度：秒（短いほど速い）
+  // 「2秒でも変わらない」対策として、px/secベースで制御する
+  var pxPerSec = 110; // ← ここが体感スピード。もっと速くしたければ 140, 180 に。
+  var gap = 18;       // CSSのgapと同じイメージ
+  var x = 0;
+  var last = performance.now();
+
+  // ループ距離（半分で戻す：重複並べている前提）
+  function getLoopWidth(){
+    // 全幅の半分を目安にループ
+    return Math.max(1, track.scrollWidth / 2);
+  }
+  var loopW = getLoopWidth();
+
+  // リサイズで再計算
+  window.addEventListener("resize", function(){
+    loopW = getLoopWidth();
+  });
+
+  // iOSはバックグラウンド復帰時に時間差が大きくなるのでclamp
+  function step(now){
+    var dt = (now - last) / 1000;
+    last = now;
+    if (dt > 0.05) dt = 0.05;
+
+    x -= pxPerSec * dt;
+    if (-x >= loopW){
+      x = 0;
+    }
+    track.style.transform = "translate3d(" + x.toFixed(2) + "px,0,0)";
+    requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+})();
+</script>
 {% endblock %}
