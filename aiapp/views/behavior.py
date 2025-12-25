@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from collections import defaultdict
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
@@ -384,44 +385,52 @@ def _build_entry_reason_stats_from_side(side_rows: List[Dict[str, Any]]) -> List
     return out
 
 
-def _load_ml_meta(models_dir: Path) -> Dict[str, Any]:
+def _load_ml_latest_meta() -> Dict[str, Any]:
     """
-    media/aiapp/ml/models/latest/meta.json などを読んで、
-    “MLが何を学習しているか” を初心者向けに説明できる材料を作る。
+    media/aiapp/ml/models/latest/meta.json を読み込む
+    無ければ空 dict。
     """
-    meta = _read_json(models_dir / "meta.json") or {}
-    cols = _read_json(models_dir / "feature_cols.json") or []
-    label_maps = _read_json(models_dir / "label_maps.json") or {}
+    try:
+        base = Path(settings.MEDIA_ROOT) / "aiapp" / "ml" / "models" / "latest"
+        p = base / "meta.json"
+        j = _read_json(p) or {}
+        # テンプレで扱いやすいように metrics は dict 固定
+        m = j.get("metrics")
+        if not isinstance(m, dict):
+            j["metrics"] = {}
+        return j
+    except Exception:
+        return {"metrics": {}}
 
-    # feature_cols.json は list でも dict でも来る可能性があるので正規化
-    if isinstance(cols, dict):
-        cols2 = cols.get("feature_cols", [])
-    else:
-        cols2 = cols
 
-    feature_count = len(cols2) if isinstance(cols2, list) else 0
+def _ml_metrics_view(meta: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    テンプレ表示用に “初心者向けの要約” を整形して渡す。
+    """
+    metrics = meta.get("metrics") if isinstance(meta.get("metrics"), dict) else {}
+    pwin = metrics.get("p_win") if isinstance(metrics.get("p_win"), dict) else {}
+    ev = metrics.get("ev") if isinstance(metrics.get("ev"), dict) else {}
+    tp = metrics.get("tp_first") if isinstance(metrics.get("tp_first"), dict) else {}
+    hold = metrics.get("hold_days_pred") if isinstance(metrics.get("hold_days_pred"), dict) else {}
 
-    # meta 側のキー名は揺れるので、よくある候補を拾う
-    train_rows = meta.get("train_rows") or meta.get("n_train") or meta.get("rows") or None
-    test_rows = meta.get("test_rows") or meta.get("n_test") or None
-    created_at = meta.get("created_at") or meta.get("trained_at") or meta.get("built_at") or None
-
-    # 「何を当てようとしてるか」を表示するためのターゲット名（無ければ推定ラベル）
-    targets = meta.get("targets") or meta.get("target_names") or None
-
-    return {
-        "has_ml_dir": True,
-        "created_at": str(created_at) if created_at is not None else "",
-        "train_rows": train_rows,
-        "test_rows": test_rows,
-        "feature_count": int(feature_count),
-        "targets": targets if targets is not None else ["p_win", "ev", "hold_days_pred", "tp_first"],
-        "has_pwin": (models_dir / "model_pwin.txt").exists(),
-        "has_ev": (models_dir / "model_ev.txt").exists(),
-        "has_hold": (models_dir / "model_hold_days.txt").exists(),
-        "has_tp": (models_dir / "model_tp_first.txt").exists(),
-        "label_maps": label_maps if isinstance(label_maps, dict) else {},
+    out = {
+        "created_at": str(meta.get("created_at") or ""),
+        "rows": int(meta.get("rows") or 0),
+        "train_rows": int(meta.get("train_rows") or 0),
+        "valid_rows": int(meta.get("valid_rows") or metrics.get("valid_rows") or 0),
+        "best_iteration": meta.get("best_iteration") if isinstance(meta.get("best_iteration"), dict) else {},
+        "pwin_auc": _safe_float(pwin.get("auc")),
+        "pwin_logloss": _safe_float(pwin.get("logloss")),
+        "ev_rmse": _safe_float(ev.get("rmse")),
+        "ev_mae": _safe_float(ev.get("mae")),
+        "tp_acc": _safe_float(tp.get("accuracy")),
+        "tp_logloss": _safe_float(tp.get("logloss")),
+        "hold_mae": _safe_float(hold.get("mae")),
+        "has_metrics": bool(metrics) and int(metrics.get("valid_rows") or 0) > 0,
+        "has_tp_first": (_safe_float(tp.get("accuracy")) is not None) or (_safe_float(tp.get("logloss")) is not None),
+        "has_hold_days": (_safe_float(hold.get("mae")) is not None),
     }
+    return out
 
 
 # =========================
@@ -431,21 +440,21 @@ def _load_ml_meta(models_dir: Path) -> Dict[str, Any]:
 @login_required
 def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     """
-    ✅ PRO仕様の行動ダッシュボード（テロップ + entry_reason別 + ML説明）
+    ✅ PRO仕様の行動ダッシュボード（テロップ + entry_reason別 + MLメトリクス）
     - simulate/*.jsonl を集計
     - behavior/model/latest_behavior_model_u{user}.json を読む
-    - behavior/latest_behavior_side.jsonl を読む（まずはこれで entry_reason 別可視化）
+    - behavior/latest_behavior_side.jsonl を読む
     - behavior/ticker/latest_ticker_u{user}.json を読む
-    - ml/models/latest/meta.json などを読む（MLが何を学習してるかの説明用）
+    - ml/models/latest/meta.json を読む（AUC/RMSEなど）
     """
     user = request.user
     today = timezone.localdate()
     today_label = today.strftime("%Y-%m-%d")
 
-    media_root = Path("media")
+    media_root = Path(settings.MEDIA_ROOT)
+
     sim_dir = media_root / "aiapp" / "simulate"
     beh_dir = media_root / "aiapp" / "behavior"
-    ml_dir = media_root / "aiapp" / "ml" / "models" / "latest"
 
     model_path = beh_dir / "model" / f"latest_behavior_model_u{user.id}.json"
     side_path = beh_dir / "latest_behavior_side.jsonl"
@@ -482,15 +491,12 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
 
     ticker = _load_ticker(ticker_path)
 
-    # entry_reason 別（sideを元にまず成立させる）
+    # entry_reason 別
     entry_reason_stats = _build_entry_reason_stats_from_side(side_rows)
 
-    # ★ ML の説明用メタ（無ければ空でOK）
-    ml_info: Dict[str, Any]
-    if ml_dir.exists():
-        ml_info = _load_ml_meta(ml_dir)
-    else:
-        ml_info = {"has_ml_dir": False}
+    # ★ ML metrics（AUC/RMSEなど）
+    ml_meta = _load_ml_latest_meta()
+    ml_metrics = _ml_metrics_view(ml_meta)
 
     if not has_data:
         return render(
@@ -505,7 +511,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
                 "ticker_date": ticker.get("date", ""),
                 "ticker_lines": ticker.get("lines", []),
                 "entry_reason_stats": entry_reason_stats,
-                "ml_info": ml_info,
+                "ml": ml_metrics,
             },
         )
 
@@ -555,6 +561,6 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         "ticker_date": ticker.get("date", ""),
         "ticker_lines": ticker.get("lines", []),
         "entry_reason_stats": entry_reason_stats,
-        "ml_info": ml_info,
+        "ml": ml_metrics,
     }
     return render(request, "aiapp/behavior_dashboard.html", ctx)
