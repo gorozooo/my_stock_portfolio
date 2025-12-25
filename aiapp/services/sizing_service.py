@@ -15,32 +15,27 @@ AI Picks 用 ポジションサイズ計算サービス（短期×攻め・本�
     - R が低すぎる
   などの理由で「見送り」を返す
 
-ポリシーファイル（aiapp/policies/short_aggressive.yml）から読み込むもの：
+ポリシーファイル（aiapp/policies/short_aggressive.yml / .runtime.yml）から読み込むもの：
 - filters.min_net_profit_yen
 - filters.min_reward_risk
 - fees.commission_rate, fees.min_commission, fees.slippage_rate
 
 ★重要（今回の修正）:
-- ポリシーを import 時に固定しない。
-  compute_position_sizing() の呼び出し毎に YAML を読み直して “常に最新” を使う。
+- policy_loader を使い runtime 優先で読む（settings画面で変更した値と sizing を一致させる）
+- pro.learn_mode / profiles.* があれば「今の運用モードの値」を優先
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple, Optional
-from pathlib import Path
-
-try:
-    import yaml  # ポリシーファイル読み込み用
-except Exception:  # PyYAML が無くても落ちないように
-    yaml = None  # type: ignore
 
 from django.db import transaction
 from django.contrib.auth import get_user_model
 
 from portfolio.models import UserSetting
 from aiapp.services.broker_summary import compute_broker_summaries
+from aiapp.services.policy_loader import load_short_aggressive_policy
 
 
 # ------------------------------
@@ -54,15 +49,32 @@ DEFAULT_MIN_COMMISSION = 100.0    # 最低手数料
 DEFAULT_SLIPPAGE_RATE = 0.001     # 0.10%
 
 
-def _policy_path() -> Path:
-    return Path(__file__).resolve().parent.parent / "policies" / "short_aggressive.yml"
+def _f(x: Any, default: float) -> float:
+    try:
+        return float(x)
+    except Exception:
+        return float(default)
+
+
+def _get_in(d: Any, path: List[str]) -> Any:
+    cur = d
+    for k in path:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(k)
+    return cur
 
 
 def _load_policy_values() -> Tuple[float, float, float, float, float]:
     """
-    short_aggressive.yml を毎回読み直して、使う閾値を返す。
-    戻り値:
-      (min_net_profit_yen, min_reward_risk, commission_rate, min_commission, slippage_rate)
+    runtime 優先で short_aggressive policy を読み、
+    sizing で使う閾値を返す。
+
+    優先順位（強い順）:
+      1) pro.profiles.{learn_mode}.tighten.min_*（あれば）
+      2) filters.min_*（settings.py が同期している前提）
+      3) デフォルト
+    fees は fees.*（なければデフォルト）
     """
     min_net_profit_yen = float(DEFAULT_MIN_NET_PROFIT_YEN)
     min_reward_risk = float(DEFAULT_MIN_REWARD_RISK)
@@ -71,42 +83,61 @@ def _load_policy_values() -> Tuple[float, float, float, float, float]:
     slippage_rate = float(DEFAULT_SLIPPAGE_RATE)
 
     try:
-        if yaml is None:
-            return min_net_profit_yen, min_reward_risk, commission_rate, min_commission, slippage_rate
-        p = _policy_path()
-        if not p.exists():
-            return min_net_profit_yen, min_reward_risk, commission_rate, min_commission, slippage_rate
+        pdata = load_short_aggressive_policy() or {}
+        if not isinstance(pdata, dict):
+            pdata = {}
 
-        with p.open("r", encoding="utf-8") as f:
-            pdata = yaml.safe_load(f) or {}
-
-        filters = pdata.get("filters") or {}
+        # --- fees ---
         fees = pdata.get("fees") or {}
+        if isinstance(fees, dict):
+            commission_rate = _f(fees.get("commission_rate", commission_rate), commission_rate)
+            min_commission = _f(fees.get("min_commission", min_commission), min_commission)
+            slippage_rate = _f(fees.get("slippage_rate", slippage_rate), slippage_rate)
 
+        # --- min_* (tighten -> filters -> default) ---
+        learn_mode = None
         try:
-            min_net_profit_yen = float(filters.get("min_net_profit_yen", min_net_profit_yen))
+            learn_mode = str(_get_in(pdata, ["pro", "learn_mode"]) or "").strip().lower() or None
         except Exception:
-            pass
-        try:
-            min_reward_risk = float(filters.get("min_reward_risk", min_reward_risk))
-        except Exception:
-            pass
-        try:
-            commission_rate = float(fees.get("commission_rate", commission_rate))
-        except Exception:
-            pass
-        try:
-            min_commission = float(fees.get("min_commission", min_commission))
-        except Exception:
-            pass
-        try:
-            slippage_rate = float(fees.get("slippage_rate", slippage_rate))
-        except Exception:
-            pass
+            learn_mode = None
 
-        return min_net_profit_yen, min_reward_risk, commission_rate, min_commission, slippage_rate
+        # pro.profiles.{learn_mode}.tighten
+        tighten = None
+        if learn_mode:
+            tighten = _get_in(pdata, ["pro", "profiles", learn_mode, "tighten"])
+            if not isinstance(tighten, dict):
+                tighten = None
+
+        if tighten:
+            # strict側だけ入ってる想定でもOK（collectは無い場合もある）
+            if "min_net_profit_yen" in tighten:
+                min_net_profit_yen = _f(tighten.get("min_net_profit_yen"), min_net_profit_yen)
+            if "min_reward_risk" in tighten:
+                min_reward_risk = _f(tighten.get("min_reward_risk"), min_reward_risk)
+
+        # fallback: filters.*
+        filters = pdata.get("filters") or {}
+        if isinstance(filters, dict):
+            if tighten is None or "min_net_profit_yen" not in tighten:
+                min_net_profit_yen = _f(filters.get("min_net_profit_yen", min_net_profit_yen), min_net_profit_yen)
+            if tighten is None or "min_reward_risk" not in tighten:
+                min_reward_risk = _f(filters.get("min_reward_risk", min_reward_risk), min_reward_risk)
+
+        return (
+            float(min_net_profit_yen),
+            float(min_reward_risk),
+            float(commission_rate),
+            float(min_commission),
+            float(slippage_rate),
+        )
     except Exception:
-        return min_net_profit_yen, min_reward_risk, commission_rate, min_commission, slippage_rate
+        return (
+            float(min_net_profit_yen),
+            float(min_reward_risk),
+            float(commission_rate),
+            float(min_commission),
+            float(slippage_rate),
+        )
 
 
 @dataclass
@@ -356,7 +387,7 @@ def compute_position_sizing(
         sbi_haircut,
     ) = _load_user_setting(user)
 
-    # ★毎回ポリシーを読み直す（最新反映）
+    # ★runtime 優先でポリシーを読む（settings変更と一致）
     MIN_NET_PROFIT_YEN, MIN_REWARD_RISK, COMMISSION_RATE, MIN_COMMISSION, SLIPPAGE_RATE = _load_policy_values()
 
     lot = _lot_size_for(code)
@@ -433,6 +464,12 @@ def compute_position_sizing(
     result: Dict[str, Any] = {
         "risk_pct": risk_pct,
         "lot_size": lot,
+        # UI/ログ用：今使ってる閾値が分かるように返す（表示側で任意に使える）
+        "policy_min_net_profit_yen": float(MIN_NET_PROFIT_YEN),
+        "policy_min_reward_risk": float(MIN_REWARD_RISK),
+        "policy_fee_commission_rate": float(COMMISSION_RATE),
+        "policy_fee_min_commission": float(MIN_COMMISSION),
+        "policy_fee_slippage_rate": float(SLIPPAGE_RATE),
     }
 
     # 各証券会社ごとの計算
