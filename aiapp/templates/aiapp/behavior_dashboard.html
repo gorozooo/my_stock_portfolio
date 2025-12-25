@@ -20,6 +20,8 @@
   }
   body{background:var(--bg);color:var(--fg);}
   .wrap{max-width:980px;margin:0 auto;padding:14px 12px 96px;}
+
+  /* Topbar */
   .topbar{
     display:flex;gap:10px;align-items:center;justify-content:space-between;
     padding:10px 12px;border:1px solid var(--line);border-radius:16px;
@@ -31,14 +33,8 @@
   .pill strong{font-weight:800;font-size:13px;}
   .muted{color:var(--sub);}
   .kicker{font-size:12px;color:var(--sub);margin-top:10px;}
-  .h1{font-size:18px;font-weight:900;margin:12px 2px 10px;}
-  .grid{
-    display:grid;gap:12px;
-    grid-template-columns:1fr;
-  }
-  @media (min-width:820px){
-    .grid{grid-template-columns:1fr 1fr;}
-  }
+
+  /* Cards */
   .card{
     border:1px solid var(--line);
     border-radius:18px;
@@ -54,12 +50,14 @@
   .title{font-weight:900;font-size:14px;letter-spacing:.2px;}
   .sub{color:var(--sub);font-size:12px;margin-top:3px;line-height:1.35;}
   .body{padding:12px 14px;}
+
   .row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid rgba(148,163,184,.10);}
   .row:first-child{border-top:none;padding-top:0;}
   .label{color:var(--sub);font-size:12px;}
   .val{font-weight:900;font-size:14px;}
   .val.big{font-size:22px;}
   .hint{font-size:11px;color:var(--mut);margin-top:6px;line-height:1.35;}
+
   .badge{
     display:inline-flex;align-items:center;gap:6px;
     padding:6px 10px;border-radius:999px;border:1px solid var(--line);
@@ -70,10 +68,10 @@
   .dot.ok{background:var(--ok);}
   .dot.bad{background:var(--bad);}
   .dot.warn{background:var(--warn);}
+
   .hr{height:1px;background:rgba(148,163,184,.14);margin:10px 0;}
-  .seq{
-    display:flex;gap:6px;flex-wrap:wrap;
-  }
+
+  .seq{display:flex;gap:6px;flex-wrap:wrap;}
   .chip{
     width:24px;height:24px;border-radius:8px;
     display:flex;align-items:center;justify-content:center;
@@ -101,9 +99,7 @@
   .sumRight{color:var(--sub);font-size:12px;white-space:nowrap;}
   .detailsBody{padding:10px 12px;border-top:1px solid rgba(148,163,184,.12);}
 
-  .list{
-    display:flex;flex-direction:column;gap:10px;
-  }
+  .list{display:flex;flex-direction:column;gap:10px;}
   .mini{
     padding:10px 12px;border-radius:14px;border:1px solid rgba(148,163,184,.14);
     background:rgba(2,6,23,.25);
@@ -117,6 +113,7 @@
   .tag.win{border-color:rgba(34,197,94,.32);background:rgba(34,197,94,.10);color:#d1fae5;}
   .tag.lose{border-color:rgba(239,68,68,.30);background:rgba(239,68,68,.10);color:#fee2e2;}
   .tag.flat{border-color:rgba(148,163,184,.22);background:rgba(148,163,184,.10);color:#e5e7eb;}
+
   .miniMeta{margin-top:6px;color:var(--mut);font-size:11px;line-height:1.35;}
   .miniGrid{margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px;}
   .kv{padding:8px 10px;border-radius:12px;border:1px solid rgba(148,163,184,.12);background:rgba(2,6,23,.20);}
@@ -129,13 +126,84 @@
     padding:14px;border:1px dashed rgba(148,163,184,.22);border-radius:16px;color:var(--sub);
     background:rgba(2,6,23,.25);
   }
+
+  /* =========================
+     iPhone: セクション横スワイプ
+     ========================= */
+  .sectionTabs{
+    margin-top:10px;
+    display:flex;gap:8px;flex-wrap:nowrap;overflow:auto;
+    -webkit-overflow-scrolling:touch;
+    padding-bottom:2px;
+  }
+  .tabBtn{
+    flex:0 0 auto;
+    display:inline-flex;align-items:center;gap:8px;
+    padding:8px 10px;border-radius:999px;
+    border:1px solid rgba(148,163,184,.18);
+    background:rgba(2,6,23,.35);
+    color:var(--fg);
+    font-size:12px;font-weight:900;
+    cursor:pointer;
+    user-select:none;
+    white-space:nowrap;
+  }
+  .tabBtn .miniDot{width:7px;height:7px;border-radius:999px;background:rgba(96,165,250,.8);}
+  .tabBtn.active{
+    border-color:rgba(96,165,250,.55);
+    background:rgba(96,165,250,.14);
+  }
+
+  .swipeWrap{
+    margin-top:12px;
+  }
+  .swipe{
+    display:flex;
+    gap:12px;
+    overflow-x:auto;
+    overflow-y:hidden;
+    scroll-snap-type:x mandatory;
+    -webkit-overflow-scrolling:touch;
+    padding-bottom:6px;
+  }
+  .swipe::-webkit-scrollbar{height:0;}
+
+  .page{
+    flex:0 0 92%;
+    max-width:92%;
+    scroll-snap-align:start;
+  }
+
+  /* ページの高さが伸びすぎないよう、カード内の余白を少し締める（iPhone） */
+  @media (max-width:520px){
+    .wrap{padding:12px 10px 92px;}
+    .card .hd{padding:11px 12px;}
+    .body{padding:11px 12px;}
+    .page{flex-basis:94%;max-width:94%;}
+  }
+
+  /* PCは横スワイプを“普通の縦並び/2カラム”っぽく見せる */
+  @media (min-width:900px){
+    .sectionTabs{display:none;}
+    .swipeWrap{margin-top:12px;}
+    .swipe{
+      overflow:visible;
+      scroll-snap-type:none;
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:12px;
+      padding-bottom:0;
+    }
+    .page{flex:none;max-width:none;}
+    .page.full{grid-column:1/-1;}
+  }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="wrap">
 
-  <!-- Top summary / fixed explanation -->
+  <!-- Top summary -->
   <div class="topbar">
     <div style="display:flex;flex-direction:column;gap:6px;min-width:0;">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -157,272 +225,360 @@
     </div>
   </div>
 
-  {% if not has_data %}
-    <div class="kicker">まだ評価データが少ないので、ここは「説明のみ」の表示です。</div>
+  <!-- iPhone: セクション切替タブ（横） -->
+  <div class="sectionTabs" id="secTabs">
+    <div class="tabBtn active" data-target="sec0"><span class="miniDot"></span>学習</div>
+    <div class="tabBtn" data-target="sec1"><span class="miniDot"></span>今日の要点</div>
+    <div class="tabBtn" data-target="sec2"><span class="miniDot"></span>得意な入り方</div>
+    <div class="tabBtn" data-target="sec3"><span class="miniDot"></span>最近の評価</div>
+  </div>
 
-    <div class="grid" style="margin-top:12px;">
-      <div class="card">
-        <div class="hd">
-          <div>
-            <div class="title">あなたの成績（学習の結果）</div>
-            <div class="sub">あなたが実際にやった結果から、得意・不得意を統計で出します。</div>
-          </div>
-        </div>
-        <div class="body">
-          <div class="empty">WL（勝ち/負け）の記録が増えると、ここに勝率や平均Rが表示されます。</div>
-        </div>
-      </div>
+  <div class="swipeWrap">
+    <div class="swipe" id="secSwipe">
 
-      <div class="card">
-        <div class="hd">
-          <div>
-            <div class="title">テロップ（今日の要点）</div>
-            <div class="sub">毎朝の短いまとめ。日付の“薄い重ね表示”は出しません。</div>
-          </div>
-        </div>
-        <div class="body">
-          <div class="list">
-            {% for line in ticker_lines %}
-              <div class="mini">{{ line }}</div>
-            {% empty %}
-              <div class="empty">テロップはまだありません。</div>
-            {% endfor %}
-          </div>
-        </div>
-      </div>
-
-      <div class="card" style="grid-column:1/-1;">
-        <div class="hd">
-          <div>
-            <div class="title">あなたの得意な入り方（理由別）</div>
-            <div class="sub">entry_reason（入った理由）ごとの勝率・平均R・平均損益を並べます。</div>
-          </div>
-        </div>
-        <div class="body">
-          {% if entry_reason_stats %}
-            <div class="list">
-              {% for it in entry_reason_stats|slice:":8" %}
-                <div class="mini">
-                  <div class="miniTop">
-                    <div class="code">{{ it.reason }}</div>
-                    <div class="badge">
-                      <span class="dot"></span>
-                      <span>勝率 {{ it.win_rate|floatformat:1 }}%（{{ it.wins }}/{{ it.trials }}）</span>
-                    </div>
-                  </div>
-                  <div class="miniGrid">
-                    <div class="kv">
-                      <div class="k">平均R</div>
-                      <div class="v">{% if it.avg_r != None %}{{ it.avg_r|floatformat:2 }}{% else %}-{% endif %}</div>
-                      <div class="hint">プラスほど「ルール上の勝ち」が効いている</div>
-                    </div>
-                    <div class="kv">
-                      <div class="k">平均損益</div>
-                      <div class="v">{% if it.avg_pl != None %}{{ it.avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}</div>
-                      <div class="hint">あなたの“体感”に近い勝ち負け</div>
-                    </div>
-                  </div>
-                </div>
-              {% endfor %}
+      {% if not has_data %}
+        <!-- 0: Learning (empty) -->
+        <div class="page" id="sec0">
+          <div class="card">
+            <div class="hd">
+              <div>
+                <div class="title">あなたの成績（学習の結果）</div>
+                <div class="sub">あなたが実際にやった結果から、得意・不得意を統計で出します。</div>
+              </div>
             </div>
-          {% else %}
-            <div class="empty">まだ集計できるデータがありません。</div>
-          {% endif %}
-        </div>
-      </div>
-    </div>
-
-  {% else %}
-
-    <div class="grid" style="margin-top:12px;">
-
-      <!-- Learning -->
-      <div class="card">
-        <div class="hd">
-          <div>
-            <div class="title">あなたの成績（学習の結果）</div>
-            <div class="sub">
-              ⭐️は「あなたが過去に勝てた形かどうか（BehaviorStats）」で決まります。
-              ML（相場の形の予測）は⭐️を直接変えません。
+            <div class="body">
+              <div class="empty">WL（勝ち/負け）の記録が増えると、ここに勝率や平均Rが表示されます。</div>
             </div>
           </div>
-          <span class="badge"><span class="dot ok"></span>WL={{ wl_total }}</span>
         </div>
-        <div class="body">
-          <div class="row">
-            <div>
-              <div class="label">勝率（勝ち/負けのみ）</div>
-              <div class="hint">carry/skip は母数に入れません</div>
-            </div>
-            <div class="val big">{% if win_rate != None %}{{ win_rate|floatformat:1 }}%{% else %}-{% endif %}</div>
-          </div>
-          <div class="row">
-            <div>
-              <div class="label">平均R（ルール上の回収力）</div>
-              <div class="hint">プラス=期待通りの回収が効いている</div>
-            </div>
-            <div class="val">{% if avg_r != None %}{{ avg_r|floatformat:3 }}{% else %}-{% endif %}</div>
-          </div>
-          <div class="row">
-            <div>
-              <div class="label">平均損益（体感の勝ち負け）</div>
-              <div class="hint">carry/skip は 0 扱い（速報の簡易集計）</div>
-            </div>
-            <div class="val">{% if avg_pl != None %}{{ avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}</div>
-          </div>
 
-          <div class="hr"></div>
-
-          <div class="label" style="margin-bottom:8px;">直近の並び（古→新）</div>
-          <div class="seq">
-            {% for x in sequence %}
-              <div class="chip {{ x.label }}">{{ x.text }}</div>
-            {% empty %}
-              <div class="empty">まだ並びがありません。</div>
-            {% endfor %}
+        <!-- 1: Ticker -->
+        <div class="page" id="sec1">
+          <div class="card">
+            <div class="hd">
+              <div>
+                <div class="title">テロップ（今日の要点）</div>
+                <div class="sub">毎朝の短いまとめ。日付の“薄い重ね表示”は出しません。</div>
+              </div>
+            </div>
+            <div class="body">
+              <div class="list">
+                {% for line in ticker_lines %}
+                  <div class="mini">{{ line }}</div>
+                {% empty %}
+                  <div class="empty">テロップはまだありません。</div>
+                {% endfor %}
+              </div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <!-- Ticker -->
-      <div class="card">
-        <div class="hd">
-          <div>
-            <div class="title">テロップ（今日の要点）</div>
-            <div class="sub">毎朝の短いまとめ。日付が薄く重なる表示はしません（ここは文章だけ）。</div>
-          </div>
-          <span class="badge"><span class="dot"></span>{% if ticker_date %}{{ ticker_date }}{% else %}--{% endif %}</span>
-        </div>
-        <div class="body">
-          <div class="list">
-            {% for line in ticker_lines %}
-              <div class="mini">{{ line }}</div>
-            {% empty %}
-              <div class="empty">テロップはまだありません。</div>
-            {% endfor %}
-          </div>
-          {% if notes %}
-            <div class="hr"></div>
-            <details>
-              <summary>
-                <div class="sumLeft">
-                  <div class="title" style="font-size:13px;">集計メモ</div>
-                  <div class="sub">母数の扱い（carry/skip）など</div>
-                </div>
-                <div class="sumRight">開く</div>
-              </summary>
-              <div class="detailsBody">
+        <!-- 2: Entry reason -->
+        <div class="page" id="sec2">
+          <div class="card">
+            <div class="hd">
+              <div>
+                <div class="title">あなたの得意な入り方（理由別）</div>
+                <div class="sub">entry_reason（入った理由）ごとの勝率・平均R・平均損益を並べます。</div>
+              </div>
+            </div>
+            <div class="body">
+              {% if entry_reason_stats %}
                 <div class="list">
-                  {% for n in notes %}
-                    <div class="mini">{{ n }}</div>
+                  {% for it in entry_reason_stats|slice:":8" %}
+                    <div class="mini">
+                      <div class="miniTop">
+                        <div class="code">{{ it.reason }}</div>
+                        <div class="badge">
+                          <span class="dot"></span>
+                          <span>勝率 {{ it.win_rate|floatformat:1 }}%（{{ it.wins }}/{{ it.trials }}）</span>
+                        </div>
+                      </div>
+                      <div class="miniGrid">
+                        <div class="kv">
+                          <div class="k">平均R</div>
+                          <div class="v">{% if it.avg_r != None %}{{ it.avg_r|floatformat:2 }}{% else %}-{% endif %}</div>
+                          <div class="hint">プラスほど「ルール上の勝ち」が効いている</div>
+                        </div>
+                        <div class="kv">
+                          <div class="k">平均損益</div>
+                          <div class="v">{% if it.avg_pl != None %}{{ it.avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}</div>
+                          <div class="hint">あなたの“体感”に近い勝ち負け</div>
+                        </div>
+                      </div>
+                    </div>
                   {% endfor %}
                 </div>
+              {% else %}
+                <div class="empty">まだ集計できるデータがありません。</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <!-- 3: Recent -->
+        <div class="page" id="sec3">
+          <div class="card">
+            <div class="hd">
+              <div>
+                <div class="title">最近の評価（速報）</div>
+                <div class="sub">評価が増えるとここに並びます。</div>
               </div>
-            </details>
-          {% endif %}
-        </div>
-      </div>
-
-      <!-- Entry reason -->
-      <div class="card" style="grid-column:1/-1;">
-        <div class="hd">
-          <div>
-            <div class="title">あなたの得意な入り方（理由別）</div>
-            <div class="sub">entry_reason（入った理由）ごとの勝率・平均R・平均損益。まずは “型” が見えるところから。</div>
-          </div>
-          <span class="badge"><span class="dot ok"></span>上位8件</span>
-        </div>
-        <div class="body">
-          {% if entry_reason_stats %}
-            <div class="list">
-              {% for it in entry_reason_stats|slice:":8" %}
-                <div class="mini">
-                  <div class="miniTop">
-                    <div class="code">{{ it.reason }}</div>
-                    <div class="badge">
-                      <span class="dot"></span>
-                      <span>勝率 {{ it.win_rate|floatformat:1 }}%（{{ it.wins }}/{{ it.trials }}）</span>
-                    </div>
-                  </div>
-
-                  <div class="miniGrid">
-                    <div class="kv">
-                      <div class="k">平均R</div>
-                      <div class="v {% if it.avg_r != None and it.avg_r < 0 %}bad{% elif it.avg_r != None and it.avg_r > 0 %}ok{% endif %}">
-                        {% if it.avg_r != None %}{{ it.avg_r|floatformat:2 }}{% else %}-{% endif %}
-                      </div>
-                      <div class="hint">プラスほど「ルール上の勝ち」が効いている</div>
-                    </div>
-                    <div class="kv">
-                      <div class="k">平均損益</div>
-                      <div class="v {% if it.avg_pl != None and it.avg_pl < 0 %}bad{% elif it.avg_pl != None and it.avg_pl > 0 %}ok{% endif %}">
-                        {% if it.avg_pl != None %}{{ it.avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}
-                      </div>
-                      <div class="hint">あなたの“体感”に近い勝ち負け</div>
-                    </div>
-                  </div>
-                </div>
-              {% endfor %}
             </div>
-          {% else %}
-            <div class="empty">まだ集計できるデータがありません。</div>
-          {% endif %}
-        </div>
-      </div>
-
-      <!-- Recent trades -->
-      <div class="card" style="grid-column:1/-1;">
-        <div class="hd">
-          <div>
-            <div class="title">最近の評価（速報）</div>
-            <div class="sub">ふだんは“2行だけ”。詳細が見たくなったら meta を開く。</div>
-          </div>
-          <span class="badge"><span class="dot"></span>直近{{ recent_trades|length }}件</span>
-        </div>
-        <div class="body">
-          {% if recent_trades %}
-            <div class="list">
-              {% for t in recent_trades %}
-                <div class="mini">
-                  <div class="miniTop">
-                    <div class="code">{{ t.code }}</div>
-                    <div class="tag {{ t.label }}">{{ t.label|upper }}</div>
-                  </div>
-                  <div class="miniGrid">
-                    <div class="kv">
-                      <div class="k">損益</div>
-                      <div class="v {% if t.pl < 0 %}bad{% elif t.pl > 0 %}ok{% endif %}">{{ t.pl|floatformat:0|intcomma }}円</div>
-                    </div>
-                    <div class="kv">
-                      <div class="k">R</div>
-                      <div class="v {% if t.r != None and t.r < 0 %}bad{% elif t.r != None and t.r > 0 %}ok{% endif %}">
-                        {% if t.r != None %}{{ t.r|floatformat:2 }}{% else %}-{% endif %}
-                      </div>
-                    </div>
-                  </div>
-
-                  <details style="margin-top:10px;">
-                    <summary>
-                      <div class="sumLeft">
-                        <div class="title" style="font-size:13px;">詳細（meta）</div>
-                        <div class="sub">必要なときだけ開けばOK</div>
-                      </div>
-                      <div class="sumRight">開く</div>
-                    </summary>
-                    <div class="detailsBody">
-                      <div class="miniMeta">{{ t.meta }}</div>
-                    </div>
-                  </details>
-                </div>
-              {% endfor %}
+            <div class="body">
+              <div class="empty">最近の評価がまだありません。</div>
             </div>
-          {% else %}
-            <div class="empty">最近の評価がまだありません。</div>
-          {% endif %}
+          </div>
         </div>
-      </div>
 
+      {% else %}
+
+        <!-- 0: Learning -->
+        <div class="page" id="sec0">
+          <div class="card">
+            <div class="hd">
+              <div>
+                <div class="title">あなたの成績（学習の結果）</div>
+                <div class="sub">
+                  ⭐️は「あなたが過去に勝てた形かどうか（BehaviorStats）」で決まります。
+                  ML（相場の形の予測）は⭐️を直接変えません。
+                </div>
+              </div>
+              <span class="badge"><span class="dot ok"></span>WL={{ wl_total }}</span>
+            </div>
+            <div class="body">
+              <div class="row">
+                <div>
+                  <div class="label">勝率（勝ち/負けのみ）</div>
+                  <div class="hint">carry/skip は母数に入れません</div>
+                </div>
+                <div class="val big">{% if win_rate != None %}{{ win_rate|floatformat:1 }}%{% else %}-{% endif %}</div>
+              </div>
+              <div class="row">
+                <div>
+                  <div class="label">平均R（ルール上の回収力）</div>
+                  <div class="hint">プラス=期待通りの回収が効いている</div>
+                </div>
+                <div class="val">{% if avg_r != None %}{{ avg_r|floatformat:3 }}{% else %}-{% endif %}</div>
+              </div>
+              <div class="row">
+                <div>
+                  <div class="label">平均損益（体感の勝ち負け）</div>
+                  <div class="hint">carry/skip は 0 扱い（速報の簡易集計）</div>
+                </div>
+                <div class="val">{% if avg_pl != None %}{{ avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}</div>
+              </div>
+
+              <div class="hr"></div>
+
+              <div class="label" style="margin-bottom:8px;">直近の並び（古→新）</div>
+              <div class="seq">
+                {% for x in sequence %}
+                  <div class="chip {{ x.label }}">{{ x.text }}</div>
+                {% empty %}
+                  <div class="empty">まだ並びがありません。</div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 1: Ticker -->
+        <div class="page" id="sec1">
+          <div class="card">
+            <div class="hd">
+              <div>
+                <div class="title">テロップ（今日の要点）</div>
+                <div class="sub">毎朝の短いまとめ。日付が薄く重なる表示はしません（文章だけ）。</div>
+              </div>
+              <span class="badge"><span class="dot"></span>{% if ticker_date %}{{ ticker_date }}{% else %}--{% endif %}</span>
+            </div>
+            <div class="body">
+              <div class="list">
+                {% for line in ticker_lines %}
+                  <div class="mini">{{ line }}</div>
+                {% empty %}
+                  <div class="empty">テロップはまだありません。</div>
+                {% endfor %}
+              </div>
+
+              {% if notes %}
+                <div class="hr"></div>
+                <details>
+                  <summary>
+                    <div class="sumLeft">
+                      <div class="title" style="font-size:13px;">集計メモ</div>
+                      <div class="sub">母数の扱い（carry/skip）など</div>
+                    </div>
+                    <div class="sumRight">開く</div>
+                  </summary>
+                  <div class="detailsBody">
+                    <div class="list">
+                      {% for n in notes %}
+                        <div class="mini">{{ n }}</div>
+                      {% endfor %}
+                    </div>
+                  </div>
+                </details>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <!-- 2: Entry reason -->
+        <div class="page" id="sec2">
+          <div class="card">
+            <div class="hd">
+              <div>
+                <div class="title">あなたの得意な入り方（理由別）</div>
+                <div class="sub">entry_reason（入った理由）ごとの勝率・平均R・平均損益。</div>
+              </div>
+              <span class="badge"><span class="dot ok"></span>上位8件</span>
+            </div>
+            <div class="body">
+              {% if entry_reason_stats %}
+                <div class="list">
+                  {% for it in entry_reason_stats|slice:":8" %}
+                    <div class="mini">
+                      <div class="miniTop">
+                        <div class="code">{{ it.reason }}</div>
+                        <div class="badge">
+                          <span class="dot"></span>
+                          <span>勝率 {{ it.win_rate|floatformat:1 }}%（{{ it.wins }}/{{ it.trials }}）</span>
+                        </div>
+                      </div>
+
+                      <div class="miniGrid">
+                        <div class="kv">
+                          <div class="k">平均R</div>
+                          <div class="v {% if it.avg_r != None and it.avg_r < 0 %}bad{% elif it.avg_r != None and it.avg_r > 0 %}ok{% endif %}">
+                            {% if it.avg_r != None %}{{ it.avg_r|floatformat:2 }}{% else %}-{% endif %}
+                          </div>
+                          <div class="hint">プラスほど「ルール上の勝ち」が効いている</div>
+                        </div>
+                        <div class="kv">
+                          <div class="k">平均損益</div>
+                          <div class="v {% if it.avg_pl != None and it.avg_pl < 0 %}bad{% elif it.avg_pl != None and it.avg_pl > 0 %}ok{% endif %}">
+                            {% if it.avg_pl != None %}{{ it.avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}
+                          </div>
+                          <div class="hint">あなたの“体感”に近い勝ち負け</div>
+                        </div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="empty">まだ集計できるデータがありません。</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <!-- 3: Recent -->
+        <div class="page full" id="sec3">
+          <div class="card">
+            <div class="hd">
+              <div>
+                <div class="title">最近の評価（速報）</div>
+                <div class="sub">普段は“2行だけ”。必要なときだけ詳細（meta）を開けばOK。</div>
+              </div>
+              <span class="badge"><span class="dot"></span>直近{{ recent_trades|length }}件</span>
+            </div>
+            <div class="body">
+              {% if recent_trades %}
+                <div class="list">
+                  {% for t in recent_trades %}
+                    <div class="mini">
+                      <div class="miniTop">
+                        <div class="code">{{ t.code }}</div>
+                        <div class="tag {{ t.label }}">{{ t.label|upper }}</div>
+                      </div>
+                      <div class="miniGrid">
+                        <div class="kv">
+                          <div class="k">損益</div>
+                          <div class="v {% if t.pl < 0 %}bad{% elif t.pl > 0 %}ok{% endif %}">
+                            {{ t.pl|floatformat:0|intcomma }}円
+                          </div>
+                        </div>
+                        <div class="kv">
+                          <div class="k">R</div>
+                          <div class="v {% if t.r != None and t.r < 0 %}bad{% elif t.r != None and t.r > 0 %}ok{% endif %}">
+                            {% if t.r != None %}{{ t.r|floatformat:2 }}{% else %}-{% endif %}
+                          </div>
+                        </div>
+                      </div>
+
+                      <details style="margin-top:10px;">
+                        <summary>
+                          <div class="sumLeft">
+                            <div class="title" style="font-size:13px;">詳細（meta）</div>
+                            <div class="sub">必要なときだけ開けばOK</div>
+                          </div>
+                          <div class="sumRight">開く</div>
+                        </summary>
+                        <div class="detailsBody">
+                          <div class="miniMeta">{{ t.meta }}</div>
+                        </div>
+                      </details>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="empty">最近の評価がまだありません。</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+      {% endif %}
     </div>
-  {% endif %}
+  </div>
+
 </div>
+
+<script>
+(function(){
+  const swipe = document.getElementById("secSwipe");
+  const tabs = Array.from(document.querySelectorAll("#secTabs .tabBtn"));
+  if(!swipe || tabs.length === 0) return;
+
+  const pages = tabs.map(t => document.getElementById(t.dataset.target)).filter(Boolean);
+
+  function setActive(idx){
+    tabs.forEach((t,i)=> t.classList.toggle("active", i===idx));
+  }
+
+  // タップで移動
+  tabs.forEach((t, i) => {
+    t.addEventListener("click", () => {
+      const p = pages[i];
+      if(!p) return;
+      p.scrollIntoView({behavior:"smooth", inline:"start", block:"nearest"});
+      setActive(i);
+    });
+  });
+
+  // スワイプで自動追従（最も左に近いページを active に）
+  let ticking = false;
+  swipe.addEventListener("scroll", () => {
+    if(ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      ticking = false;
+      const left = swipe.getBoundingClientRect().left;
+      let best = 0;
+      let bestDist = Infinity;
+      pages.forEach((p, i) => {
+        const r = p.getBoundingClientRect();
+        const d = Math.abs(r.left - left);
+        if(d < bestDist){
+          bestDist = d;
+          best = i;
+        }
+      });
+      setActive(best);
+    });
+  }, {passive:true});
+})();
+</script>
 {% endblock %}
