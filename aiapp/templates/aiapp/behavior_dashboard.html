@@ -461,10 +461,14 @@ body{
         </div>
 
         <div style="margin-top:10px;" class="seq" aria-label="sequence">
-          {% for s in sequence %}
-            <div class="seq-dot {{ s.label }}">{{ s.text }}</div>
-          {% endfor %}
-          <div class="small">直近12個</div>
+          {% if sequence %}
+            {% for s in sequence %}
+              <div class="seq-dot {{ s.label }}">{{ s.text }}</div>
+            {% endfor %}
+            <div class="small">直近12個</div>
+          {% else %}
+            <div class="small">まだ勝敗の並びがありません。</div>
+          {% endif %}
         </div>
       </section>
 
@@ -537,38 +541,45 @@ body{
         <div class="h" style="font-size:13px;">最近の評価（抜粋）</div>
         <div class="hsub">理由とセットで見る</div>
 
-        <div class="list" style="margin-top:10px;">
-          {% for t in recent_trades %}
-            <div class="card">
-              <div class="row">
-                <div class="k">{{ t.code }}</div>
-                <div class="v">
-                  {% if t.label == "win" %}
-                    <span class="pl-pos">WIN</span>
-                  {% elif t.label == "lose" %}
-                    <span class="pl-neg">LOSE</span>
-                  {% else %}
-                    FLAT
-                  {% endif %}
+        {% if recent_trades %}
+          <div class="list" style="margin-top:10px;">
+            {% for t in recent_trades %}
+              <div class="card">
+                <div class="row">
+                  <div class="k">{{ t.code }}</div>
+                  <div class="v">
+                    {% if t.label == "win" %}
+                      <span class="pl-pos">WIN</span>
+                    {% elif t.label == "lose" %}
+                      <span class="pl-neg">LOSE</span>
+                    {% else %}
+                      FLAT
+                    {% endif %}
+                  </div>
+                </div>
+                <div class="row" style="margin-top:6px;">
+                  <div class="k">PL</div>
+                  <div class="v {% if t.pl >= 0 %}pl-pos{% else %}pl-neg{% endif %}">
+                    {{ t.pl|floatformat:0|intcomma }}円
+                  </div>
+                </div>
+                <div class="row" style="margin-top:6px;">
+                  <div class="k">R</div>
+                  <div class="v">{% if t.r is not None %}{{ t.r|floatformat:2 }}{% else %}-{% endif %}</div>
+                </div>
+                <div class="row" style="margin-top:6px;">
+                  <div class="k">meta</div>
+                  <div class="v" style="font-weight:900;color:rgba(148,163,184,.88);">{{ t.meta }}</div>
                 </div>
               </div>
-              <div class="row" style="margin-top:6px;">
-                <div class="k">PL</div>
-                <div class="v {% if t.pl >= 0 %}pl-pos{% else %}pl-neg{% endif %}">
-                  {{ t.pl|floatformat:0|intcomma }}円
-                </div>
-              </div>
-              <div class="row" style="margin-top:6px;">
-                <div class="k">R</div>
-                <div class="v">{% if t.r is not None %}{{ t.r|floatformat:2 }}{% else %}-{% endif %}</div>
-              </div>
-              <div class="row" style="margin-top:6px;">
-                <div class="k">meta</div>
-                <div class="v" style="font-weight:900;color:rgba(148,163,184,.88);">{{ t.meta }}</div>
-              </div>
-            </div>
-          {% endfor %}
-        </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty" style="margin-top:10px;">
+            最近の評価がまだありません。<br>
+            <span class="small">sync_simulate_pro_eval の評価が溜まるとここに出ます。</span>
+          </div>
+        {% endif %}
       </section>
 
       <!-- Page 4: Policy / Filters -->
@@ -599,16 +610,23 @@ body{
         <div class="h" style="font-size:13px;">AIの仮説（レバー表示）</div>
         <div class="hsub">“どの数字がボトルネックか”</div>
 
-        <div class="list" style="margin-top:10px;">
-          {% for h in hypotheses %}
-            <div class="card">
-              <div style="font-weight:1000; font-size:12px; color:rgba(229,237,255,.88);">{{ h }}</div>
-              <div class="small" style="margin-top:6px;">
-                → ここは次で「閾値/係数/ゲート」に自動変換して表示します（view側で構造化）。
+        {% if hypotheses %}
+          <div class="list" style="margin-top:10px;">
+            {% for h in hypotheses %}
+              <div class="card">
+                <div style="font-weight:1000; font-size:12px; color:rgba(229,237,255,.88);">{{ h }}</div>
+                <div class="small" style="margin-top:6px;">
+                  → ここは次で「閾値/係数/ゲート」に自動変換して表示します（view側で構造化）。
+                </div>
               </div>
-            </div>
-          {% endfor %}
-        </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty" style="margin-top:10px;">
+            まだ仮説を出すだけの材料が少ないです。<br>
+            <span class="small">WLとRが増えると、ここが“レバー化”されていきます。</span>
+          </div>
+        {% endif %}
 
         {% if notes %}
           <div class="hr"></div>
