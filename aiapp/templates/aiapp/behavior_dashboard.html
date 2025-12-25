@@ -619,6 +619,70 @@ body{
           </div>
         {% endif %}
 
+                <div class="hr"></div>
+
+        <div class="h" style="font-size:13px;">最新の ML推論（実数値）</div>
+        <div class="hsub">“何を出して、どこを変えたか”</div>
+
+        {% if ml_latest %}
+          <div class="card" style="margin-top:10px;">
+            <div class="row">
+              <div class="k">code</div>
+              <div class="v">{{ ml_latest.code }}</div>
+            </div>
+
+            <div class="row" style="margin-top:6px;">
+              <div class="k">p_win（勝つ確率）</div>
+              <div class="v">{% if ml_latest.p_win is not None %}{{ ml_latest.p_win|floatformat:3 }}{% else %}-{% endif %}</div>
+            </div>
+
+            <div class="row" style="margin-top:6px;">
+              <div class="k">p_tp_first（TP先）</div>
+              <div class="v">{% if ml_latest.p_tp_first is not None %}{{ ml_latest.p_tp_first|floatformat:3 }}{% else %}-{% endif %}</div>
+            </div>
+
+            <div class="row" style="margin-top:6px;">
+              <div class="k">EV_pred（予測EV）</div>
+              <div class="v">{% if ml_latest.ev_pred is not None %}{{ ml_latest.ev_pred|floatformat:3 }}{% else %}-{% endif %}</div>
+            </div>
+
+            <div class="row" style="margin-top:6px;">
+              <div class="k">EV_true（形に反映後）</div>
+              <div class="v">{% if ml_latest.ev_true is not None %}{{ ml_latest.ev_true|floatformat:3 }}{% else %}-{% endif %}</div>
+            </div>
+
+            <div class="hr"></div>
+
+            <div class="row">
+              <div class="k">Entry補正（ATR係数）</div>
+              <div class="v">{% if ml_latest.shape_entry_k is not None %}{{ ml_latest.shape_entry_k|floatformat:2 }}{% else %}-{% endif %}</div>
+            </div>
+
+            <div class="row" style="margin-top:6px;">
+              <div class="k">RRターゲット</div>
+              <div class="v">{% if ml_latest.shape_rr_target is not None %}{{ ml_latest.shape_rr_target|floatformat:2 }}{% else %}-{% endif %}</div>
+            </div>
+
+            <div class="row" style="margin-top:6px;">
+              <div class="k">TP係数 / SL係数</div>
+              <div class="v">
+                {% if ml_latest.shape_tp_k is not None %}{{ ml_latest.shape_tp_k|floatformat:2 }}{% else %}-{% endif %}
+                /
+                {% if ml_latest.shape_sl_k is not None %}{{ ml_latest.shape_sl_k|floatformat:2 }}{% else %}-{% endif %}
+              </div>
+            </div>
+
+            <div class="small" style="margin-top:8px;">
+              ※ 「-」はログにその値が入ってないだけ（表示側は受け取れる準備OK）。<br>
+              次に “ログ保存側” を整えると、このカードがフルで埋まる。
+            </div>
+          </div>
+        {% else %}
+          <div class="empty" style="margin-top:10px;">
+            まだ評価ログがありません。
+          </div>
+        {% endif %}
+
         <div class="hr"></div>
 
         <div class="h" style="font-size:13px;">最近の評価（抜粋）</div>
@@ -652,6 +716,25 @@ body{
               <div class="row" style="margin-top:6px;">
                 <div class="k">meta</div>
                 <div class="v" style="font-weight:900;color:rgba(148,163,184,.88);">{{ t.meta }}</div>
+              </div>
+                            <div class="hr"></div>
+              <div class="small" style="font-weight:1000; color:rgba(229,237,255,.82);">ML推論（実数値）</div>
+
+              <div class="row" style="margin-top:6px;">
+                <div class="k">p_win</div>
+                <div class="v">{% if t.p_win is not None %}{{ t.p_win|floatformat:3 }}{% else %}-{% endif %}</div>
+              </div>
+              <div class="row" style="margin-top:6px;">
+                <div class="k">p_tp_first</div>
+                <div class="v">{% if t.p_tp_first is not None %}{{ t.p_tp_first|floatformat:3 }}{% else %}-{% endif %}</div>
+              </div>
+              <div class="row" style="margin-top:6px;">
+                <div class="k">EV_pred / EV_true</div>
+                <div class="v">
+                  {% if t.ev_pred is not None %}{{ t.ev_pred|floatformat:3 }}{% else %}-{% endif %}
+                  /
+                  {% if t.ev_true is not None %}{{ t.ev_true|floatformat:3 }}{% else %}-{% endif %}
+                </div>
               </div>
             </div>
           {% endfor %}
