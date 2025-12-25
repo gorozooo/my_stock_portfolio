@@ -273,6 +273,15 @@ def _make_wanted(
     return wanted[:6]
 
 
+def _pick_any_float(r: Dict[str, Any], keys: List[str]) -> Optional[float]:
+    for k in keys:
+        if k in r:
+            v = _safe_float(r.get(k))
+            if v is not None:
+                return v
+    return None
+
+
 def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for r in side_rows[-limit:]:
@@ -283,6 +292,18 @@ def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> L
         mode = str(r.get("mode") or "").strip().lower()
         broker = str(r.get("broker") or "pro").strip().lower()
         ts = str(r.get("ts") or r.get("trade_date") or "")
+
+        # --- ML 推論（拾えるだけ拾う） ---
+        p_win = _pick_any_float(r, ["p_win", "ml_pwin", "ml_p_win"])
+        p_tp_first = _pick_any_float(r, ["p_tp_first", "ml_p_tp_first", "ml_tp_first"])
+        ev_pred = _pick_any_float(r, ["ev_pred", "ml_ev_pred", "ev_ml", "pred_ev"])
+        ev_true = _pick_any_float(r, ["ev_true", "ml_ev_true"])
+
+        # --- Shape（Entry/TP/SLの係数など。無ければNone） ---
+        shape_entry_k = _pick_any_float(r, ["shape_entry_k", "entry_k"])
+        shape_rr_target = _pick_any_float(r, ["shape_rr_target", "rr_target"])
+        shape_tp_k = _pick_any_float(r, ["shape_tp_k", "tp_k"])
+        shape_sl_k = _pick_any_float(r, ["shape_sl_k", "sl_k"])
 
         meta_bits: List[str] = []
         if broker:
@@ -300,6 +321,18 @@ def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> L
                 "pl": float(pl),
                 "r": rv,
                 "meta": meta,
+
+                # ML numbers
+                "p_win": p_win,
+                "p_tp_first": p_tp_first,
+                "ev_pred": ev_pred,
+                "ev_true": ev_true,
+
+                # Shape numbers
+                "shape_entry_k": shape_entry_k,
+                "shape_rr_target": shape_rr_target,
+                "shape_tp_k": shape_tp_k,
+                "shape_sl_k": shape_sl_k,
             }
         )
     out.reverse()
