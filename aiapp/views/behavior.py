@@ -14,6 +14,9 @@ from django.utils import timezone
 # NOTE: VirtualTrade を import（既存通り）
 from aiapp.models.vtrade import VirtualTrade
 
+# ★ policy_loader を使って runtime 優先で読む（Cのレバー表示用）
+from aiapp.services.policy_loader import load_short_aggressive_policy
+
 
 # =========================
 # helpers
@@ -132,61 +135,6 @@ def _make_sequence(wl_labels: List[str]) -> List[Dict[str, str]]:
         txt = "W" if lab2 == "win" else ("L" if lab2 == "lose" else "F")
         seq.append({"label": lab2, "text": txt})
     return seq[-12:]
-
-
-def _make_hypotheses(
-    wl_total: int,
-    win_rate: Optional[float],
-    avg_r: Optional[float],
-    avg_pl: Optional[float],
-    labels: Dict[str, int],
-    streak_label: str,
-    streak_len: int,
-) -> List[str]:
-    hyps: List[str] = []
-
-    carry = int(labels.get("carry", 0))
-    skip = int(labels.get("skip", 0))
-    win = int(labels.get("win", 0))
-    lose = int(labels.get("lose", 0))
-
-    if wl_total < 5:
-        hyps.append("私はまだ“あなたの型”を確定できない。いまは《クセの芽》だけを保存している。")
-    else:
-        hyps.append("私は“あなたの型”を作り始めた。次は《再現できる勝ち方》だけを残していく。")
-
-    if win_rate is not None:
-        if win_rate >= 60:
-            hyps.append("命中は高い。問題が起きるなら《勝ちを小さく》《負けを大きく》する癖の方。")
-        elif win_rate >= 45:
-            hyps.append("命中は平均帯。改善は《入り方》より《撤退の形》に寄る。")
-        else:
-            hyps.append("命中がまだ低い。選別ロジックが強すぎるか、刺さる条件がズレている。")
-
-    if avg_r is not None:
-        if avg_r >= 0.3:
-            hyps.append("平均Rはプラス。私は《利確の形》を真似し始めていい段階。")
-        elif avg_r >= 0:
-            hyps.append("平均Rはゼロ付近。ルール順守はできているが、“伸ばす学習”が不足している。")
-        else:
-            hyps.append("平均Rがマイナス。負けがルール想定より深い。ロット/滑り/我慢のどれかが混ざっている。")
-
-    if avg_pl is not None:
-        if avg_pl >= 0:
-            hyps.append("平均PLはプラス。次の敵は《大負け》ではなく《取りこぼし》の方に移る。")
-        else:
-            hyps.append("平均PLはマイナス。勝率より先に《負けの平均サイズ》を潰すと立て直しが速い。")
-
-    if (carry + skip) >= (win + lose) and (carry + skip) >= 3:
-        hyps.append("carry/skip が多い。あなたは“撃つ”より“様子を見る”で世界を制御している。条件が厳しすぎる可能性。")
-
-    if streak_len >= 2 and streak_label in ("win", "lose"):
-        if streak_label == "win":
-            hyps.append(f"直近は WIN が {streak_len} 連続。私は“勝てる条件”を固定し、同条件だけを増殖させたい。")
-        else:
-            hyps.append(f"直近は LOSE が {streak_len} 連続。私は“負けの型”を逆に固定して、そこだけ入らないようにしたい。")
-
-    return hyps[:6]
 
 
 def _make_notes(wl_total: int, sim_total: int, eval_done: int, labels: Dict[str, int]) -> List[str]:
@@ -330,31 +278,6 @@ def _normalize_reason(s: str) -> str:
     return s
 
 
-def _get_entry_reason_from_vtrade(v: VirtualTrade) -> str:
-    """
-    entry_reason を VirtualTrade から拾う（まだ無い場合は replay.meta.entry_reason を拾う）
-    """
-    # 1) まず v.entry_reason があればそれ
-    try:
-        val = getattr(v, "entry_reason", None)
-        if val:
-            return _normalize_reason(str(val))
-    except Exception:
-        pass
-
-    # 2) なければ replay.meta.entry_reason
-    try:
-        replay = v.replay if isinstance(v.replay, dict) else {}
-        meta = replay.get("meta") if isinstance(replay.get("meta"), dict) else {}
-        val2 = meta.get("entry_reason")
-        if val2:
-            return _normalize_reason(str(val2))
-    except Exception:
-        pass
-
-    return "(未設定)"
-
-
 def _build_entry_reason_stats_from_side(side_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     behavior/latest_behavior_side.jsonl を元に entry_reason 別の集計を作る。
@@ -372,11 +295,7 @@ def _build_entry_reason_stats_from_side(side_rows: List[Dict[str, Any]]) -> List
         if lab not in ("win", "lose", "flat"):
             continue
 
-        # entry_reason の拾い方：sideに入っていればそれ、無ければ "(未設定)"
-        reason = _normalize_reason(str(r.get("entry_reason") or r.get("entry_reason_pro") or ""))  # 将来拡張も想定
-        if reason == "(未設定)":
-            # sideに無いなら、replay.meta なども入っていない可能性が高い
-            pass
+        reason = _normalize_reason(str(r.get("entry_reason") or r.get("entry_reason_pro") or ""))
 
         agg_trials[reason] += 1
         if lab == "win":
@@ -409,9 +328,230 @@ def _build_entry_reason_stats_from_side(side_rows: List[Dict[str, Any]]) -> List
             }
         )
 
-    # 表示：試行回数が多い順 → 勝率
     out.sort(key=lambda x: (-int(x["trials"]), -float(x["win_rate"])))
     return out
+
+
+# =========================
+# ★ policy helpers（C: レバー化）
+# =========================
+
+def _get_in(d: Any, path: List[str]) -> Any:
+    cur = d
+    for k in path:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(k)
+    return cur
+
+
+def _f(x: Any, default: float) -> float:
+    try:
+        return float(x)
+    except Exception:
+        return float(default)
+
+
+def _load_policy_snapshot() -> Dict[str, Any]:
+    """
+    runtime 優先の policy を読み、画面に出したい“現在値”を整形して返す。
+    """
+    try:
+        pdata = load_short_aggressive_policy() or {}
+        if not isinstance(pdata, dict):
+            pdata = {}
+    except Exception:
+        pdata = {}
+
+    learn_mode = None
+    try:
+        learn_mode = str(_get_in(pdata, ["pro", "learn_mode"]) or "").strip().lower() or None
+    except Exception:
+        learn_mode = None
+
+    # tighten は learn_mode があればそこ優先（無ければ None）
+    tighten = None
+    if learn_mode:
+        t = _get_in(pdata, ["pro", "profiles", learn_mode, "tighten"])
+        if isinstance(t, dict):
+            tighten = t
+
+    filters = pdata.get("filters") if isinstance(pdata.get("filters"), dict) else {}
+    fees = pdata.get("fees") if isinstance(pdata.get("fees"), dict) else {}
+
+    # min_* は tighten -> filters -> default
+    min_net_profit_yen = _f((tighten or {}).get("min_net_profit_yen", filters.get("min_net_profit_yen", 1000.0)), 1000.0)
+    min_reward_risk = _f((tighten or {}).get("min_reward_risk", filters.get("min_reward_risk", 1.0)), 1.0)
+
+    commission_rate = _f(fees.get("commission_rate", 0.0005), 0.0005)
+    min_commission = _f(fees.get("min_commission", 100.0), 100.0)
+    slippage_rate = _f(fees.get("slippage_rate", 0.001), 0.001)
+
+    return {
+        "learn_mode": learn_mode or "",
+        "min_net_profit_yen": float(min_net_profit_yen),
+        "min_reward_risk": float(min_reward_risk),
+        "commission_rate": float(commission_rate),
+        "min_commission": float(min_commission),
+        "slippage_rate": float(slippage_rate),
+    }
+
+
+def _make_hypothesis_levers(
+    *,
+    wl_total: int,
+    win_rate: Optional[float],
+    avg_r: Optional[float],
+    avg_pl: Optional[float],
+    labels: Dict[str, int],
+    streak_label: str,
+    streak_len: int,
+    policy: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """
+    “仮説”を文章で終わらせず、
+    - どの数値（レバー）が原因っぽいか
+    - 今の値
+    - どう動かすと何が変わるか
+    を dict で返す。
+    """
+    out: List[Dict[str, Any]] = []
+
+    carry = int(labels.get("carry", 0))
+    skip = int(labels.get("skip", 0))
+    win = int(labels.get("win", 0))
+    lose = int(labels.get("lose", 0))
+
+    min_net = float(policy.get("min_net_profit_yen") or 1000.0)
+    min_rr = float(policy.get("min_reward_risk") or 1.0)
+    slip = float(policy.get("slippage_rate") or 0.001)
+    comm_rate = float(policy.get("commission_rate") or 0.0005)
+    min_comm = float(policy.get("min_commission") or 100.0)
+
+    # ① データ不足
+    if wl_total < 5:
+        out.append(
+            {
+                "title": "WLが少なく“型”を確定できない",
+                "why": f"win/lose の母数が {wl_total} 件。統計がブレる段階。",
+                "lever": "data.wl_total",
+                "current": wl_total,
+                "action": "同一モード・同一ルールで WL を 8件以上に増やす",
+                "effect": "勝率/平均Rが安定し、entry_reason別の差が見え始める",
+            }
+        )
+
+    # ② 命中が低い
+    if win_rate is not None and wl_total >= 5 and win_rate < 45:
+        out.append(
+            {
+                "title": "命中が弱い → “入らない条件”が先",
+                "why": f"勝率={win_rate:.1f}%（WL={wl_total}）。入り方の選別がズレている可能性。",
+                "lever": "entry.filters / NG_conditions",
+                "current": "—",
+                "action": "LOSE連続の entry_reason / 条件を固定してNG化（同条件は入らない）",
+                "effect": "勝率の底上げ（まず“負け筋”を潰す）",
+            }
+        )
+
+    # ③ 平均Rがマイナス（撤退が深い/滑り/ロット）
+    if avg_r is not None and wl_total >= 5 and avg_r < 0:
+        out.append(
+            {
+                "title": "平均Rがマイナス → 負けが想定より深い",
+                "why": f"平均R={avg_r:+.3f}。滑り/我慢/ロットのどれかが混ざる典型。",
+                "lever": "policy.fees.slippage_rate",
+                "current": slip,
+                "action": "（検証）slippage_rate を現実に寄せる + LOSEの実滑りを side に保存して見える化",
+                "effect": "“見かけ勝ち”を排除し、EV_true が現実と一致する",
+            }
+        )
+        out.append(
+            {
+                "title": "損切りの効きが弱い可能性（RR以前の問題）",
+                "why": "Rが崩れてる時は、TP/SLより“SLの守り方”が原因になりやすい。",
+                "lever": "execution.discipline (SL obey)",
+                "current": "—",
+                "action": "LOSEだけ抽出して、予定SL→実際の損失R の乖離を記録",
+                "effect": "“ルール通りに切れてない”が数値で確定する",
+            }
+        )
+
+    # ④ skip/carry 多すぎ → フィルター厳しすぎ or 利益が薄い
+    if (carry + skip) >= (win + lose) and (carry + skip) >= 3:
+        out.append(
+            {
+                "title": "見送り/継続が多い → フィルターが硬すぎる可能性",
+                "why": f"carry+skip={carry+skip} / win+lose={win+lose}。採用条件が通りにくい。",
+                "lever": "policy.filters.min_net_profit_yen",
+                "current": int(min_net),
+                "action": "（一時検証）min_net_profit_yen を 20〜30%下げた場合の採用数/勝率変化を見る",
+                "effect": "“厳しすぎて機会損失”か、“厳しいほど良い”かが判定できる",
+            }
+        )
+        out.append(
+            {
+                "title": "RRフィルターが厳しすぎる可能性",
+                "why": f"min_reward_risk={min_rr:.2f}。p_tp_firstが低い銘柄は RR を上げにいくので弾かれやすい。",
+                "lever": "policy.filters.min_reward_risk",
+                "current": float(min_rr),
+                "action": "（検証）min_reward_risk を少しだけ下げ、採用銘柄の“実R”が改善するかを見る",
+                "effect": "“理想RR”より“実際の勝ち筋”を優先できる",
+            }
+        )
+
+    # ⑤ 勝率は高いのに平均Rが弱い → 利確が早い/伸ばせてない
+    if win_rate is not None and avg_r is not None and wl_total >= 8:
+        if win_rate >= 60 and avg_r < 0.2:
+            out.append(
+                {
+                    "title": "命中は高いがRが伸びない → 利確が早い",
+                    "why": f"勝率={win_rate:.1f}% / 平均R={avg_r:+.3f}",
+                    "lever": "entry_service.tp_k (RR target)",
+                    "current": "—",
+                    "action": "p_tp_firstが高い局面だけ RR_target を下げ、早利確の癖を抑える（=伸ばす枠を作る）",
+                    "effect": "勝率を落とさず平均Rを上げる方向に寄る",
+                }
+            )
+
+    # ⑥ 直近の連続
+    if streak_len >= 2 and streak_label in ("win", "lose"):
+        if streak_label == "win":
+            out.append(
+                {
+                    "title": f"WINが {streak_len} 連続 → 勝ち条件を固定するチャンス",
+                    "why": "連続時は“同条件の再現”が最も効く局面。",
+                    "lever": "pattern.freeze (entry_reason / regime)",
+                    "current": "—",
+                    "action": "WINの entry_reason 上位2つを“優先ルール”として固定し、同条件だけ増殖",
+                    "effect": "再現性スコアが上がり、⭐️も安定しやすい",
+                }
+            )
+        else:
+            out.append(
+                {
+                    "title": f"LOSEが {streak_len} 連続 → NG条件を固定するチャンス",
+                    "why": "連続時は“同じ負け筋”が繰り返されている可能性が高い。",
+                    "lever": "ng.freeze (entry_reason / zone)",
+                    "current": "—",
+                    "action": "LOSEの entry_reason と直前条件を固定し、同条件は入らない（まず被弾停止）",
+                    "effect": "負けの連鎖を止めて、学習の前提が整う",
+                }
+            )
+
+    # 手数料も明示で1つ入れておく（見える化）
+    out.append(
+        {
+            "title": "コスト前提（Policy）",
+            "why": "採用/見送りの“純利益”に直撃するので固定表示しておく。",
+            "lever": "policy.fees",
+            "current": f"commission_rate={comm_rate} / min_commission={int(min_comm)} / slippage_rate={slip}",
+            "action": "現実とズレてたら修正（見かけのEVを排除）",
+            "effect": "EV_true と実運用の差が減る",
+        }
+    )
+
+    return out[:8]
 
 
 # =========================
@@ -473,6 +613,9 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     # entry_reason 別（sideを元にまず成立させる）
     entry_reason_stats = _build_entry_reason_stats_from_side(side_rows)
 
+    # ★ policy snapshot（runtime 優先）
+    policy_snapshot = _load_policy_snapshot()
+
     if not has_data:
         return render(
             request,
@@ -486,20 +629,12 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
                 "ticker_date": ticker.get("date", ""),
                 "ticker_lines": ticker.get("lines", []),
                 "entry_reason_stats": entry_reason_stats,
+                "policy": policy_snapshot,
             },
         )
 
     understanding_label = _understanding_label(wl_total)
 
-    hypotheses = _make_hypotheses(
-        wl_total=wl_total,
-        win_rate=win_rate,
-        avg_r=avg_r,
-        avg_pl=avg_pl,
-        labels=labels,
-        streak_label=streak_label,
-        streak_len=streak_len,
-    )
     notes = _make_notes(wl_total=wl_total, sim_total=sim_total, eval_done=eval_done, labels=labels)
     bias_map = _make_bias_map(win_rate=win_rate, avg_r=avg_r, labels=labels)
     wanted = _make_wanted(
@@ -510,6 +645,18 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         streak_len=streak_len,
     )
     recent_trades = _extract_recent_trades(side_rows, limit=8)
+
+    # ★ C：仮説をレバーに変換
+    hypotheses = _make_hypothesis_levers(
+        wl_total=wl_total,
+        win_rate=win_rate,
+        avg_r=avg_r,
+        avg_pl=avg_pl,
+        labels=labels,
+        streak_label=streak_label,
+        streak_len=streak_len,
+        policy=policy_snapshot,
+    )
 
     ctx = {
         "has_data": True,
@@ -535,5 +682,6 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         "ticker_date": ticker.get("date", ""),
         "ticker_lines": ticker.get("lines", []),
         "entry_reason_stats": entry_reason_stats,
+        "policy": policy_snapshot,
     }
     return render(request, "aiapp/behavior_dashboard.html", ctx)
