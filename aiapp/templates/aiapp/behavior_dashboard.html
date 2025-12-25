@@ -6,7 +6,6 @@
 {% block head %}
 <style>
 :root{
-  /* 既存の“いつもの”暗めガラス方向へ戻す（iPhone読みやすさ優先） */
   --bg:#020617;
   --card:rgba(15,23,42,.92);
   --card2:rgba(15,23,42,.72);
@@ -38,14 +37,12 @@ body{
   color: var(--fg);
 }
 
-/* iPhone専用の読みやすい幅 */
 .wrap{
   max-width: 420px;
   margin: 0 auto;
   padding: 12px 12px calc(84px + var(--safe-b));
 }
 
-/* ===== 上部：今日 + テロップ（軽く） ===== */
 .topbar{
   position: sticky;
   top: 0;
@@ -129,14 +126,10 @@ body{
   box-shadow: 0 0 0 4px rgba(96,165,250,0.16);
 }
 
-/* ★邪魔な“薄い日付”は完全削除（ticker-date無し） */
-
-/* ===== 横スワイプ：ページング ===== */
 .pager{
   margin-top: 12px;
 }
 
-/* スクロールスナップで“自然に横切替” */
 .pages{
   display:flex;
   gap: 10px;
@@ -157,7 +150,6 @@ body{
   padding: 12px;
 }
 
-/* タイトル行 */
 .hrow{
   display:flex;
   justify-content: space-between;
@@ -176,7 +168,6 @@ body{
   color: var(--muted);
 }
 
-/* 小さなナビ（ドット） */
 .dots{
   display:flex;
   justify-content:center;
@@ -195,7 +186,6 @@ body{
   border-color: rgba(96,165,250,.55);
 }
 
-/* KPI：縦に強いiPhone向け */
 .kpis{
   display:grid;
   grid-template-columns: 1fr 1fr;
@@ -278,7 +268,6 @@ body{
 .seq-dot.lose{ background: rgba(239,68,68,.16); border-color: rgba(239,68,68,.32); }
 .seq-dot.flat{ background: rgba(96,165,250,.14); border-color: rgba(96,165,250,.26); }
 
-/* リスト（コンパクト） */
 .list{
   display:flex;
   flex-direction: column;
@@ -318,7 +307,6 @@ body{
 .pl-pos{ color: var(--ok); }
 .pl-neg{ color: var(--bad); }
 
-/* “仮説”は文章カードじゃなく「レバー」カードへ */
 .lever{
   border-radius: var(--r);
   border: 1px solid rgba(148,163,184,.18);
@@ -357,7 +345,6 @@ body{
 }
 .lever .line .k{ color: rgba(148,163,184,.92); }
 
-/* 空状態 */
 .empty{
   border-radius: calc(var(--r) + 2px);
   border: 1px dashed rgba(148,163,184,.22);
@@ -407,6 +394,18 @@ body{
         <span class="badge"><span class="chip" style="background:var(--accent)"></span>simulate files: {{ sim_files }}</span>
         <span class="badge"><span class="chip" style="background:var(--accent2)"></span>理解度: {{ understanding_label }}</span>
       </div>
+
+      <div class="hr"></div>
+
+      <div class="lever">
+        <div class="title"><span class="pill">初心者ガイド</span><span>ここでやってること</span></div>
+        <div class="grid">
+          {% for line in ml_beginner %}
+            <div class="line"><span class="k">・</span><span>{{ line }}</span></div>
+          {% endfor %}
+        </div>
+      </div>
+
     </div>
   {% else %}
 
@@ -472,22 +471,66 @@ body{
         </div>
       </section>
 
-      <!-- Page 2: Learning (BehaviorStats / entry_reason) -->
+      <!-- Page 2: Learning -->
       <section class="page" data-page="1">
         <div class="hrow">
           <div class="h">Learning</div>
-          <div class="hsub">何が学習できてる？</div>
+          <div class="hsub">初心者向け：何が起きてる？</div>
         </div>
 
-        <div class="small">
-          ⭐️は BehaviorStats（あなたの過去成績）だけで決まる。<br>
-          MLは⭐️に触らず、Entry/TP/SL と EV_true に効く。
+        <div class="lever">
+          <div class="title"><span class="pill">ML</span><span>何を学習してる？</span></div>
+          <div class="grid">
+            {% for line in ml_beginner %}
+              <div class="line"><span class="k">・</span><span>{{ line }}</span></div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="hr"></div>
+
+        <div class="lever">
+          <div class="title"><span class="pill">数値</span><span>出せるものだけ表示</span></div>
+          <div class="grid">
+            {% if ml_numbers %}
+              {% for n in ml_numbers %}
+                <div class="line"><span class="k">{{ n.k }}</span><span>{{ n.v }}{% if n.unit %}{{ n.unit }}{% endif %}</span></div>
+              {% endfor %}
+            {% else %}
+              <div class="line"><span class="k">-</span><span>model json に評価指標がまだ入っていない（または未生成）</span></div>
+            {% endif %}
+          </div>
+          <div class="small" style="margin-top:8px;">
+            ※ ここは “ファイルに入ってる数値” しか出しません（嘘を出さない設計）。
+          </div>
+        </div>
+
+        <div class="hr"></div>
+
+        <div class="lever">
+          <div class="title"><span class="pill">反映先</span><span>どこに効いてる？</span></div>
+          <div class="grid">
+            {% for it in ml_where_used %}
+              <div class="line"><span class="k">{{ it.k }}</span><span>{{ it.v }}</span></div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="hr"></div>
+
+        <div class="lever">
+          <div class="title"><span class="pill">⭐️</span><span>BehaviorStatsは“学習”ではない</span></div>
+          <div class="grid">
+            <div class="line"><span class="k">結論</span><span>統計評価（実績スコア）だけ。MLとは別。</span></div>
+            <div class="line"><span class="k">材料</span><span>VirtualTrade.result_r_pro（勝敗とR）</span></div>
+            <div class="line"><span class="k">出力</span><span>score_0_1 → stars（1〜5）</span></div>
+          </div>
         </div>
 
         <div class="hr"></div>
 
         <div class="h" style="font-size:13px;">entry_reason 別 成績</div>
-        <div class="hsub">型が見える“本命”</div>
+        <div class="hsub">あなたの“型”が一番見える場所</div>
 
         {% if entry_reason_stats %}
           <div class="list" style="margin-top:10px;">
@@ -520,7 +563,7 @@ body{
       <section class="page" data-page="2">
         <div class="hrow">
           <div class="h">ML / Shape</div>
-          <div class="hsub">何が反映されてる？</div>
+          <div class="hsub">“形”をどう変えてる？</div>
         </div>
 
         <div class="lever">
@@ -529,12 +572,34 @@ body{
             <span>推論 → “形” を変える</span>
           </div>
           <div class="grid">
-            <div class="line"><span class="k">p_tp_first</span><span>低いほど厳しく補正</span></div>
-            <div class="line"><span class="k">Entry補正</span><span>押し目寄せ（飛びつき抑制）</span></div>
-            <div class="line"><span class="k">RRターゲット</span><span>pが低いほど上げる</span></div>
-            <div class="line"><span class="k">EV_true</span><span>pTP*RR_net − pSL*1</span></div>
+            <div class="line"><span class="k">p_tp_first</span><span>0〜1（TPがSLより先の確率）</span></div>
+            <div class="line"><span class="k">低いと</span><span>押し目寄せ＋RR引き上げ（危険回避）</span></div>
+            <div class="line"><span class="k">反映</span><span>Entry/TP/SL と EV_true</span></div>
           </div>
         </div>
+
+        <div class="hr"></div>
+
+        <div class="h" style="font-size:13px;">モデルが見てる要素（上位）</div>
+        <div class="hsub">※モデルjsonに入ってる時だけ表示</div>
+
+        {% if ml_top_features %}
+          <div class="list" style="margin-top:10px;">
+            {% for f in ml_top_features %}
+              <div class="card">
+                <div class="row">
+                  <div class="k">{{ f.name }}</div>
+                  <div class="v">{{ f.importance|floatformat:4 }}</div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty" style="margin-top:10px;">
+            feature importance がまだ保存されていません。<br>
+            <span class="small">（保存する設計にしたら、ここが“学習の中身”として一気にわかりやすくなります）</span>
+          </div>
+        {% endif %}
 
         <div class="hr"></div>
 
@@ -616,7 +681,7 @@ body{
               <div class="card">
                 <div style="font-weight:1000; font-size:12px; color:rgba(229,237,255,.88);">{{ h }}</div>
                 <div class="small" style="margin-top:6px;">
-                  → ここは次で「閾値/係数/ゲート」に自動変換して表示します（view側で構造化）。
+                  → 次はここを「閾値/係数/ゲート」に分解して“操作レバー化”します。
                 </div>
               </div>
             {% endfor %}
