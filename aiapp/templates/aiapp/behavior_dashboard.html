@@ -5,701 +5,424 @@
 
 {% block head %}
 <style>
-:root{
-  --bg:#020617;
-  --card:rgba(15,23,42,.92);
-  --card2:rgba(15,23,42,.72);
-  --fg:#e5edff;
-  --sub:rgba(229,237,255,.72);
-  --muted:rgba(148,163,184,.75);
-  --line:rgba(148,163,184,.22);
+  :root{
+    --bg:#020617;
+    --card:rgba(15,23,42,.92);
+    --card2:rgba(15,23,42,.72);
+    --fg:#e5edff;
+    --sub:#9ca3af;
+    --mut:#64748b;
+    --line:rgba(148,163,184,.28);
+    --accent:#60a5fa;
+    --ok:#22c55e;
+    --bad:#ef4444;
+    --warn:#f59e0b;
+  }
+  body{background:var(--bg);color:var(--fg);}
+  .wrap{max-width:980px;margin:0 auto;padding:14px 12px 96px;}
+  .topbar{
+    display:flex;gap:10px;align-items:center;justify-content:space-between;
+    padding:10px 12px;border:1px solid var(--line);border-radius:16px;
+    background:radial-gradient(circle at 15% 0%, rgba(96,165,250,.18), transparent 55%), var(--card);
+    backdrop-filter:blur(10px);
+  }
+  .pill{display:inline-flex;align-items:center;gap:8px;padding:8px 10px;border-radius:999px;
+    border:1px solid var(--line);background:rgba(2,6,23,.45);color:var(--fg);font-size:12px;line-height:1;}
+  .pill strong{font-weight:800;font-size:13px;}
+  .muted{color:var(--sub);}
+  .kicker{font-size:12px;color:var(--sub);margin-top:10px;}
+  .h1{font-size:18px;font-weight:900;margin:12px 2px 10px;}
+  .grid{
+    display:grid;gap:12px;
+    grid-template-columns:1fr;
+  }
+  @media (min-width:820px){
+    .grid{grid-template-columns:1fr 1fr;}
+  }
+  .card{
+    border:1px solid var(--line);
+    border-radius:18px;
+    background:linear-gradient(180deg, rgba(15,23,42,.95), rgba(15,23,42,.72));
+    backdrop-filter:blur(10px);
+    overflow:hidden;
+  }
+  .card .hd{
+    padding:12px 14px;
+    border-bottom:1px solid rgba(148,163,184,.14);
+    display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+  }
+  .title{font-weight:900;font-size:14px;letter-spacing:.2px;}
+  .sub{color:var(--sub);font-size:12px;margin-top:3px;line-height:1.35;}
+  .body{padding:12px 14px;}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid rgba(148,163,184,.10);}
+  .row:first-child{border-top:none;padding-top:0;}
+  .label{color:var(--sub);font-size:12px;}
+  .val{font-weight:900;font-size:14px;}
+  .val.big{font-size:22px;}
+  .hint{font-size:11px;color:var(--mut);margin-top:6px;line-height:1.35;}
+  .badge{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:6px 10px;border-radius:999px;border:1px solid var(--line);
+    background:rgba(2,6,23,.35);font-size:12px;color:var(--fg);
+    white-space:nowrap;
+  }
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);display:inline-block;}
+  .dot.ok{background:var(--ok);}
+  .dot.bad{background:var(--bad);}
+  .dot.warn{background:var(--warn);}
+  .hr{height:1px;background:rgba(148,163,184,.14);margin:10px 0;}
+  .seq{
+    display:flex;gap:6px;flex-wrap:wrap;
+  }
+  .chip{
+    width:24px;height:24px;border-radius:8px;
+    display:flex;align-items:center;justify-content:center;
+    font-weight:900;font-size:12px;border:1px solid rgba(148,163,184,.18);
+    background:rgba(2,6,23,.35);color:var(--sub);
+  }
+  .chip.win{background:rgba(34,197,94,.14);color:#d1fae5;border-color:rgba(34,197,94,.30);}
+  .chip.lose{background:rgba(239,68,68,.12);color:#fee2e2;border-color:rgba(239,68,68,.28);}
+  .chip.flat{background:rgba(148,163,184,.10);color:#e5e7eb;border-color:rgba(148,163,184,.22);}
 
-  --accent:#60a5fa;
-  --accent2:#2dd4bf;
-  --accent3:#f472b6;
+  details{
+    border:1px solid rgba(148,163,184,.14);
+    border-radius:14px;
+    background:rgba(2,6,23,.25);
+    overflow:hidden;
+  }
+  details summary{
+    list-style:none;cursor:pointer;
+    padding:12px 12px;
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    user-select:none;
+  }
+  details summary::-webkit-details-marker{display:none;}
+  .sumLeft{display:flex;flex-direction:column;gap:3px;}
+  .sumRight{color:var(--sub);font-size:12px;white-space:nowrap;}
+  .detailsBody{padding:10px 12px;border-top:1px solid rgba(148,163,184,.12);}
 
-  --ok:#22c55e;
-  --bad:#ef4444;
-  --warn:#f59e0b;
+  .list{
+    display:flex;flex-direction:column;gap:10px;
+  }
+  .mini{
+    padding:10px 12px;border-radius:14px;border:1px solid rgba(148,163,184,.14);
+    background:rgba(2,6,23,.25);
+  }
+  .miniTop{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .code{font-weight:900;}
+  .tag{
+    font-weight:900;font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid rgba(148,163,184,.16);
+    background:rgba(2,6,23,.25);
+  }
+  .tag.win{border-color:rgba(34,197,94,.32);background:rgba(34,197,94,.10);color:#d1fae5;}
+  .tag.lose{border-color:rgba(239,68,68,.30);background:rgba(239,68,68,.10);color:#fee2e2;}
+  .tag.flat{border-color:rgba(148,163,184,.22);background:rgba(148,163,184,.10);color:#e5e7eb;}
+  .miniMeta{margin-top:6px;color:var(--mut);font-size:11px;line-height:1.35;}
+  .miniGrid{margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .kv{padding:8px 10px;border-radius:12px;border:1px solid rgba(148,163,184,.12);background:rgba(2,6,23,.20);}
+  .kv .k{color:var(--sub);font-size:11px;}
+  .kv .v{font-weight:900;margin-top:2px;}
+  .v.ok{color:var(--ok);}
+  .v.bad{color:var(--bad);}
 
-  --shadow:0 18px 50px rgba(0,0,0,.35);
-  --r:16px;
-
-  --safe-b: env(safe-area-inset-bottom, 0px);
-}
-
-body{
-  background:
-    radial-gradient(900px 520px at 15% 18%, rgba(96,165,250,0.14), transparent 55%),
-    radial-gradient(760px 520px at 82% 18%, rgba(45,212,191,0.10), transparent 55%),
-    radial-gradient(740px 520px at 70% 88%, rgba(244,114,182,0.10), transparent 60%),
-    linear-gradient(180deg, #020617, #050b18 55%, #020617);
-  color: var(--fg);
-}
-
-.wrap{
-  max-width: 420px;
-  margin: 0 auto;
-  padding: 12px 12px calc(84px + var(--safe-b));
-}
-
-.topbar{
-  position: sticky;
-  top: 0;
-  z-index: 30;
-  padding: 10px 0 8px;
-  background: linear-gradient(180deg, rgba(2,6,23,.92), rgba(2,6,23,.70), rgba(2,6,23,0));
-  backdrop-filter: blur(10px);
-}
-
-.topline{
-  display:flex;
-  align-items:center;
-  gap:10px;
-}
-
-.today{
-  flex:0 0 auto;
-  display:flex;
-  align-items:baseline;
-  gap:8px;
-  padding:8px 10px;
-  border-radius: 999px;
-  border:1px solid var(--line);
-  background: rgba(15,23,42,.85);
-  box-shadow: var(--shadow);
-}
-.today .k{ font-size:11px; font-weight:900; color:rgba(229,237,255,.72); }
-.today .v{ font-size:12px; font-weight:1000; }
-
-.ticker{
-  flex:1 1 auto;
-  overflow:hidden;
-  border-radius: 999px;
-  border:1px solid var(--line);
-  background: rgba(15,23,42,.70);
-  box-shadow: var(--shadow);
-  height: 36px;
-  display:flex;
-  align-items:center;
-  position: relative;
-}
-
-.ticker::before{
-  content:"";
-  position:absolute; left:0; top:0; bottom:0;
-  width:22px;
-  background: linear-gradient(90deg, rgba(2,6,23,.95), rgba(2,6,23,0));
-  pointer-events:none;
-}
-.ticker::after{
-  content:"";
-  position:absolute; right:0; top:0; bottom:0;
-  width:22px;
-  background: linear-gradient(270deg, rgba(2,6,23,.95), rgba(2,6,23,0));
-  pointer-events:none;
-}
-
-.ticker-track{
-  display:flex;
-  align-items:center;
-  gap: 14px;
-  padding-left: 14px;
-  will-change: transform;
-  transform: translate3d(0,0,0);
-}
-
-.ticker-item{
-  display:inline-flex;
-  align-items:center;
-  gap: 8px;
-  white-space: nowrap;
-  font-size: 12px;
-  font-weight: 900;
-  color: rgba(229,237,255,.82);
-}
-
-.dot{
-  width:7px; height:7px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 4px rgba(96,165,250,0.16);
-}
-
-.pager{ margin-top: 12px; }
-
-.pages{
-  display:flex;
-  gap: 10px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 8px;
-}
-.pages::-webkit-scrollbar{ display:none; }
-
-.page{
-  scroll-snap-align: start;
-  flex: 0 0 100%;
-  border-radius: calc(var(--r) + 2px);
-  border: 1px solid var(--line);
-  background: rgba(15,23,42,.75);
-  box-shadow: var(--shadow);
-  padding: 12px;
-}
-
-.hrow{
-  display:flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-.h{
-  font-size: 14px;
-  font-weight: 1000;
-  letter-spacing: .2px;
-}
-.hsub{
-  font-size: 11px;
-  font-weight: 900;
-  color: var(--muted);
-}
-
-.dots{
-  display:flex;
-  justify-content:center;
-  gap: 6px;
-  margin-top: 8px;
-}
-.dots button{
-  width: 26px;
-  height: 6px;
-  border-radius: 999px;
-  border: 1px solid rgba(148,163,184,.22);
-  background: rgba(148,163,184,.12);
-}
-.dots button.active{
-  background: rgba(96,165,250,.65);
-  border-color: rgba(96,165,250,.55);
-}
-
-.kpis{
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.kpi{
-  border-radius: var(--r);
-  border: 1px solid rgba(148,163,184,.18);
-  background: rgba(2,6,23,.35);
-  padding: 10px 10px;
-}
-.kpi .lab{
-  font-size: 10px;
-  font-weight: 900;
-  color: rgba(229,237,255,.65);
-  margin-bottom: 6px;
-}
-.kpi .val{
-  font-size: 18px;
-  font-weight: 1000;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.1;
-}
-.kpi .sub{
-  margin-top: 6px;
-  font-size: 10px;
-  font-weight: 900;
-  color: rgba(148,163,184,.85);
-}
-
-.hr{
-  height: 1px;
-  background: rgba(148,163,184,.18);
-  margin: 10px 0;
-}
-
-.badges{
-  display:flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.badge{
-  display:inline-flex;
-  align-items:center;
-  gap:6px;
-  border-radius: 999px;
-  padding: 5px 9px;
-  font-size: 10px;
-  font-weight: 1000;
-  border: 1px solid rgba(148,163,184,.18);
-  background: rgba(2,6,23,.25);
-  color: rgba(229,237,255,.82);
-}
-.chip{
-  width:10px; height:10px;
-  border-radius: 4px;
-  background: var(--accent2);
-}
-
-.seq{
-  display:flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  align-items:center;
-}
-.seq-dot{
-  width: 26px;
-  height: 26px;
-  border-radius: 9px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  font-weight: 1000;
-  font-size: 11px;
-  border: 1px solid rgba(148,163,184,.18);
-  background: rgba(2,6,23,.25);
-  color: rgba(229,237,255,.82);
-}
-.seq-dot.win{ background: rgba(34,197,94,.18); border-color: rgba(34,197,94,.35); }
-.seq-dot.lose{ background: rgba(239,68,68,.16); border-color: rgba(239,68,68,.32); }
-.seq-dot.flat{ background: rgba(96,165,250,.14); border-color: rgba(96,165,250,.26); }
-
-.list{
-  display:flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.card{
-  border-radius: var(--r);
-  border: 1px solid rgba(148,163,184,.18);
-  background: rgba(2,6,23,.28);
-  padding: 10px 10px;
-}
-.row{
-  display:flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: baseline;
-}
-.row .k{
-  font-size: 11px;
-  font-weight: 900;
-  color: rgba(148,163,184,.90);
-}
-.row .v{
-  font-size: 12px;
-  font-weight: 1000;
-  color: rgba(229,237,255,.90);
-  font-variant-numeric: tabular-nums;
-}
-
-.small{
-  font-size: 10px;
-  font-weight: 900;
-  color: rgba(148,163,184,.88);
-  line-height: 1.4;
-}
-
-.pl-pos{ color: var(--ok); }
-.pl-neg{ color: var(--bad); }
-
-.lever{
-  border-radius: var(--r);
-  border: 1px solid rgba(148,163,184,.18);
-  background: rgba(2,6,23,.28);
-  padding: 10px 10px;
-}
-.lever .title{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  font-size: 12px;
-  font-weight: 1000;
-  margin-bottom: 8px;
-}
-.lever .pill{
-  font-size: 10px;
-  font-weight: 1000;
-  padding: 4px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(148,163,184,.18);
-  background: rgba(2,6,23,.25);
-  color: rgba(229,237,255,.82);
-}
-.lever .grid{
-  display:grid;
-  grid-template-columns: 1fr;
-  gap: 6px;
-}
-.lever .line{
-  display:flex;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 11px;
-  font-weight: 900;
-  color: rgba(229,237,255,.88);
-}
-.lever .line .k{ color: rgba(148,163,184,.92); }
-
-.empty{
-  border-radius: calc(var(--r) + 2px);
-  border: 1px dashed rgba(148,163,184,.22);
-  background: rgba(15,23,42,.55);
-  padding: 12px;
-  color: rgba(229,237,255,.82);
-  font-weight: 900;
-  line-height: 1.6;
-}
+  .empty{
+    padding:14px;border:1px dashed rgba(148,163,184,.22);border-radius:16px;color:var(--sub);
+    background:rgba(2,6,23,.25);
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="wrap" id="behaviorRoot">
+<div class="wrap">
 
+  <!-- Top summary / fixed explanation -->
   <div class="topbar">
-    <div class="topline">
-      <div class="today">
-        <span class="k">本日</span>
-        <span class="v">{{ today_label }}</span>
+    <div style="display:flex;flex-direction:column;gap:6px;min-width:0;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <span class="pill"><strong>本日</strong> {{ today_label }}</span>
+        {% if has_data %}
+          <span class="pill"><strong>直近</strong> {{ streak_label }}</span>
+          <span class="pill"><strong>理解度</strong> {{ understanding_label }}</span>
+        {% else %}
+          <span class="pill"><strong>状態</strong> データ待ち</span>
+        {% endif %}
       </div>
-
-      <div class="ticker" aria-label="ticker">
-        <div class="ticker-track" id="tickerTrack">
-          {% if ticker_lines %}
-            {% for line in ticker_lines %}
-              <div class="ticker-item"><span class="dot"></span>{{ line }}</div>
-            {% endfor %}
-            {% for line in ticker_lines %}
-              <div class="ticker-item"><span class="dot"></span>{{ line }}</div>
-            {% endfor %}
-          {% else %}
-            <div class="ticker-item"><span class="dot"></span>テロップ未生成（生成待ち）</div>
-            <div class="ticker-item"><span class="dot"></span>テロップ未生成（生成待ち）</div>
-          {% endif %}
-        </div>
+      <div class="muted" style="font-size:12px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+        学習の見える化：<strong>あなたの過去成績</strong>＋<strong>相場の形（ML）</strong>＋<strong>ルール（Policy）</strong>で判断しています。
       </div>
+    </div>
+    <div class="badge">
+      <span class="dot {% if has_data %}ok{% else %}warn{% endif %}"></span>
+      <span>simulate files: {{ sim_files|default:0 }}</span>
     </div>
   </div>
 
   {% if not has_data %}
-    <div class="empty">
-      まだ行動データがありません。<br>
-      <span class="small">simulate（PRO）→ ai_sim_eval → sync_simulate_pro_eval の流れで分析が出ます。</span><br>
-      <div style="margin-top:10px;" class="badges">
-        <span class="badge"><span class="chip" style="background:var(--accent)"></span>simulate files: {{ sim_files }}</span>
-        <span class="badge"><span class="chip" style="background:var(--accent2)"></span>理解度: {{ understanding_label }}</span>
+    <div class="kicker">まだ評価データが少ないので、ここは「説明のみ」の表示です。</div>
+
+    <div class="grid" style="margin-top:12px;">
+      <div class="card">
+        <div class="hd">
+          <div>
+            <div class="title">あなたの成績（学習の結果）</div>
+            <div class="sub">あなたが実際にやった結果から、得意・不得意を統計で出します。</div>
+          </div>
+        </div>
+        <div class="body">
+          <div class="empty">WL（勝ち/負け）の記録が増えると、ここに勝率や平均Rが表示されます。</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="hd">
+          <div>
+            <div class="title">テロップ（今日の要点）</div>
+            <div class="sub">毎朝の短いまとめ。日付の“薄い重ね表示”は出しません。</div>
+          </div>
+        </div>
+        <div class="body">
+          <div class="list">
+            {% for line in ticker_lines %}
+              <div class="mini">{{ line }}</div>
+            {% empty %}
+              <div class="empty">テロップはまだありません。</div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="grid-column:1/-1;">
+        <div class="hd">
+          <div>
+            <div class="title">あなたの得意な入り方（理由別）</div>
+            <div class="sub">entry_reason（入った理由）ごとの勝率・平均R・平均損益を並べます。</div>
+          </div>
+        </div>
+        <div class="body">
+          {% if entry_reason_stats %}
+            <div class="list">
+              {% for it in entry_reason_stats|slice:":8" %}
+                <div class="mini">
+                  <div class="miniTop">
+                    <div class="code">{{ it.reason }}</div>
+                    <div class="badge">
+                      <span class="dot"></span>
+                      <span>勝率 {{ it.win_rate|floatformat:1 }}%（{{ it.wins }}/{{ it.trials }}）</span>
+                    </div>
+                  </div>
+                  <div class="miniGrid">
+                    <div class="kv">
+                      <div class="k">平均R</div>
+                      <div class="v">{% if it.avg_r != None %}{{ it.avg_r|floatformat:2 }}{% else %}-{% endif %}</div>
+                      <div class="hint">プラスほど「ルール上の勝ち」が効いている</div>
+                    </div>
+                    <div class="kv">
+                      <div class="k">平均損益</div>
+                      <div class="v">{% if it.avg_pl != None %}{{ it.avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}</div>
+                      <div class="hint">あなたの“体感”に近い勝ち負け</div>
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty">まだ集計できるデータがありません。</div>
+          {% endif %}
+        </div>
       </div>
     </div>
+
   {% else %}
 
-  <div class="pager">
-    <div class="pages" id="pages">
+    <div class="grid" style="margin-top:12px;">
 
-      <!-- Page 1: Overview -->
-      <section class="page" data-page="0">
-        <div class="hrow">
-          <div class="h">Overview</div>
-          <div class="hsub">今日の要点</div>
-        </div>
-
-        <div class="badges">
-          <span class="badge"><span class="chip" style="background:var(--accent)"></span>simulate: {{ sim_files }}</span>
-          <span class="badge"><span class="chip" style="background:var(--accent2)"></span>qty_pro: {{ sim_total|intcomma }}</span>
-          <span class="badge"><span class="chip" style="background:var(--accent3)"></span>win/lose: {{ wl_total|intcomma }}</span>
-          <span class="badge"><span class="chip" style="background:#a78bfa"></span>理解度: {{ understanding_label }}</span>
-        </div>
-
-        <div class="hr"></div>
-
-        <div class="kpis">
-          <div class="kpi">
-            <div class="lab">勝率（win/lose）</div>
-            <div class="val">{% if win_rate is not None %}{{ win_rate|floatformat:1 }}%{% else %}-{% endif %}</div>
-            <div class="sub">carry/skipは母数外</div>
-          </div>
-          <div class="kpi">
-            <div class="lab">平均R</div>
-            <div class="val">{% if avg_r is not None %}{{ avg_r|floatformat:2 }}{% else %}-{% endif %}</div>
-            <div class="sub">R無し日は弱反映</div>
-          </div>
-          <div class="kpi">
-            <div class="lab">平均PL</div>
-            <div class="val">{% if avg_pl is not None %}{{ avg_pl|floatformat:0|intcomma }}{% else %}-{% endif %}円</div>
-            <div class="sub">評価済みのみ</div>
-          </div>
-          <div class="kpi">
-            <div class="lab">ML学習トレード数</div>
-            <div class="val">{% if model.has_model %}{{ model.total_trades|intcomma }}{% else %}-{% endif %}</div>
-            <div class="sub">latest_behavior_model_u*.json</div>
-          </div>
-        </div>
-
-        <div class="hr"></div>
-
-        <div class="row">
-          <div class="k">直近ストリーク</div>
-          <div class="v">{{ streak_label }}</div>
-        </div>
-
-        <div style="margin-top:10px;" class="seq" aria-label="sequence">
-          {% for s in sequence %}
-            <div class="seq-dot {{ s.label }}">{{ s.text }}</div>
-          {% endfor %}
-          <div class="small">直近12個</div>
-        </div>
-      </section>
-
-      <!-- Page 2: Learning -->
-      <section class="page" data-page="1">
-        <div class="hrow">
-          <div class="h">Learning</div>
-          <div class="hsub">何が学習できてる？</div>
-        </div>
-
-        <div class="small">
-          ⭐️は BehaviorStats（あなたの過去成績）だけで決まる。<br>
-          MLは⭐️に触らず、Entry/TP/SL と EV_true に効く。
-        </div>
-
-        <div class="hr"></div>
-
-        <div class="h" style="font-size:13px;">entry_reason 別 成績</div>
-        <div class="hsub">型が見える“本命”</div>
-
-        {% if entry_reason_stats %}
-          <div class="list" style="margin-top:10px;">
-            {% for r in entry_reason_stats %}
-              <div class="card">
-                <div class="row">
-                  <div class="k">{{ r.reason }}</div>
-                  <div class="v">{{ r.wins }}/{{ r.trials }}（{{ r.win_rate|floatformat:1 }}%）</div>
-                </div>
-                <div class="row" style="margin-top:6px;">
-                  <div class="k">avgR</div>
-                  <div class="v">{% if r.avg_r is not None %}{{ r.avg_r|floatformat:2 }}{% else %}-{% endif %}</div>
-                </div>
-                <div class="row" style="margin-top:6px;">
-                  <div class="k">avgPL</div>
-                  <div class="v">{% if r.avg_pl is not None %}{{ r.avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}</div>
-                </div>
-              </div>
-            {% endfor %}
-          </div>
-        {% else %}
-          <div class="empty" style="margin-top:10px;">
-            entry_reason のデータがまだありません。<br>
-            <span class="small">VirtualTrade に entry_reason を保存して増やすと精度が上がります。</span>
-          </div>
-        {% endif %}
-      </section>
-
-      <!-- Page 3: ML -->
-      <section class="page" data-page="2">
-        <div class="hrow">
-          <div class="h">ML / Shape</div>
-          <div class="hsub">何が反映されてる？</div>
-        </div>
-
-        <div class="lever">
-          <div class="title">
-            <span class="pill">ML</span>
-            <span>推論 → “形” を変える</span>
-          </div>
-          <div class="grid">
-            <div class="line"><span class="k">p_tp_first</span><span>低いほど厳しく補正</span></div>
-            <div class="line"><span class="k">Entry補正</span><span>押し目寄せ（飛びつき抑制）</span></div>
-            <div class="line"><span class="k">RRターゲット</span><span>pが低いほど上げる</span></div>
-            <div class="line"><span class="k">EV_true</span><span>pTP*RR_net − pSL*1</span></div>
-          </div>
-        </div>
-
-        <div class="hr"></div>
-
-        <div class="h" style="font-size:13px;">最近の評価（抜粋）</div>
-        <div class="hsub">理由とセットで見る</div>
-
-        <div class="list" style="margin-top:10px;">
-          {% for t in recent_trades %}
-            <div class="card">
-              <div class="row">
-                <div class="k">{{ t.code }}</div>
-                <div class="v">
-                  {% if t.label == "win" %}
-                    <span class="pl-pos">WIN</span>
-                  {% elif t.label == "lose" %}
-                    <span class="pl-neg">LOSE</span>
-                  {% else %}
-                    FLAT
-                  {% endif %}
-                </div>
-              </div>
-              <div class="row" style="margin-top:6px;">
-                <div class="k">PL</div>
-                <div class="v {% if t.pl >= 0 %}pl-pos{% else %}pl-neg{% endif %}">
-                  {{ t.pl|floatformat:0|intcomma }}円
-                </div>
-              </div>
-              <div class="row" style="margin-top:6px;">
-                <div class="k">R</div>
-                <div class="v">{% if t.r is not None %}{{ t.r|floatformat:2 }}{% else %}-{% endif %}</div>
-              </div>
-              <div class="row" style="margin-top:6px;">
-                <div class="k">meta</div>
-                <div class="v" style="font-weight:900;color:rgba(148,163,184,.88);">{{ t.meta }}</div>
-              </div>
+      <!-- Learning -->
+      <div class="card">
+        <div class="hd">
+          <div>
+            <div class="title">あなたの成績（学習の結果）</div>
+            <div class="sub">
+              ⭐️は「あなたが過去に勝てた形かどうか（BehaviorStats）」で決まります。
+              ML（相場の形の予測）は⭐️を直接変えません。
             </div>
-          {% endfor %}
-        </div>
-      </section>
-
-      <!-- Page 4: Policy -->
-      <section class="page" data-page="3">
-        <div class="hrow">
-          <div class="h">Policy / Filters</div>
-          <div class="hsub">“見送り”の原因</div>
-        </div>
-
-        <div class="lever">
-          <div class="title">
-            <span class="pill">Policy</span>
-            <span>現在の“効いてる値”</span>
           </div>
-          <div class="grid">
-            <div class="line"><span class="k">learn_mode</span><span>{{ policy.learn_mode }}</span></div>
-            <div class="line"><span class="k">min_net_profit_yen</span><span>{{ policy.min_net_profit_yen|floatformat:0|intcomma }}</span></div>
-            <div class="line"><span class="k">min_reward_risk</span><span>{{ policy.min_reward_risk|floatformat:2 }}</span></div>
-            <div class="line"><span class="k">commission_rate</span><span>{{ policy.commission_rate }}</span></div>
-            <div class="line"><span class="k">min_commission</span><span>{{ policy.min_commission|floatformat:0|intcomma }}</span></div>
-            <div class="line"><span class="k">slippage_rate</span><span>{{ policy.slippage_rate }}</span></div>
-          </div>
-          <div class="small" style="margin-top:8px;">
-            ※ runtime 優先で読み込み（settingsで変更した値と一致）
-          </div>
+          <span class="badge"><span class="dot ok"></span>WL={{ wl_total }}</span>
         </div>
-
-        <div class="hr"></div>
-
-        <div class="h" style="font-size:13px;">AIの仮説（レバー）</div>
-        <div class="hsub">“どの数値が詰まりか”</div>
-
-        <div class="list" style="margin-top:10px;">
-          {% for h in hypotheses %}
-            <div class="card">
-              {% if h.title %}
-                <div style="font-weight:1000; font-size:12px; color:rgba(229,237,255,.92);">{{ h.title }}</div>
-                <div class="small" style="margin-top:6px;">{{ h.why }}</div>
-
-                <div class="hr"></div>
-
-                <div class="row">
-                  <div class="k">LEVER</div>
-                  <div class="v">{{ h.lever }}</div>
-                </div>
-                <div class="row" style="margin-top:6px;">
-                  <div class="k">現在値</div>
-                  <div class="v">{{ h.current }}</div>
-                </div>
-                <div class="row" style="margin-top:6px;">
-                  <div class="k">提案</div>
-                  <div class="v">{{ h.action }}</div>
-                </div>
-                <div class="small" style="margin-top:6px;">→ {{ h.effect }}</div>
-              {% else %}
-                <div style="font-weight:1000; font-size:12px; color:rgba(229,237,255,.88);">{{ h }}</div>
-              {% endif %}
+        <div class="body">
+          <div class="row">
+            <div>
+              <div class="label">勝率（勝ち/負けのみ）</div>
+              <div class="hint">carry/skip は母数に入れません</div>
             </div>
-          {% endfor %}
-        </div>
+            <div class="val big">{% if win_rate != None %}{{ win_rate|floatformat:1 }}%{% else %}-{% endif %}</div>
+          </div>
+          <div class="row">
+            <div>
+              <div class="label">平均R（ルール上の回収力）</div>
+              <div class="hint">プラス=期待通りの回収が効いている</div>
+            </div>
+            <div class="val">{% if avg_r != None %}{{ avg_r|floatformat:3 }}{% else %}-{% endif %}</div>
+          </div>
+          <div class="row">
+            <div>
+              <div class="label">平均損益（体感の勝ち負け）</div>
+              <div class="hint">carry/skip は 0 扱い（速報の簡易集計）</div>
+            </div>
+            <div class="val">{% if avg_pl != None %}{{ avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}</div>
+          </div>
 
-        {% if notes %}
           <div class="hr"></div>
-          <div class="badges">
-            {% for n in notes %}
-              <span class="badge"><span class="chip" style="background:rgba(148,163,184,.65)"></span>{{ n }}</span>
+
+          <div class="label" style="margin-bottom:8px;">直近の並び（古→新）</div>
+          <div class="seq">
+            {% for x in sequence %}
+              <div class="chip {{ x.label }}">{{ x.text }}</div>
+            {% empty %}
+              <div class="empty">まだ並びがありません。</div>
             {% endfor %}
           </div>
-        {% endif %}
-      </section>
+        </div>
+      </div>
+
+      <!-- Ticker -->
+      <div class="card">
+        <div class="hd">
+          <div>
+            <div class="title">テロップ（今日の要点）</div>
+            <div class="sub">毎朝の短いまとめ。日付が薄く重なる表示はしません（ここは文章だけ）。</div>
+          </div>
+          <span class="badge"><span class="dot"></span>{% if ticker_date %}{{ ticker_date }}{% else %}--{% endif %}</span>
+        </div>
+        <div class="body">
+          <div class="list">
+            {% for line in ticker_lines %}
+              <div class="mini">{{ line }}</div>
+            {% empty %}
+              <div class="empty">テロップはまだありません。</div>
+            {% endfor %}
+          </div>
+          {% if notes %}
+            <div class="hr"></div>
+            <details>
+              <summary>
+                <div class="sumLeft">
+                  <div class="title" style="font-size:13px;">集計メモ</div>
+                  <div class="sub">母数の扱い（carry/skip）など</div>
+                </div>
+                <div class="sumRight">開く</div>
+              </summary>
+              <div class="detailsBody">
+                <div class="list">
+                  {% for n in notes %}
+                    <div class="mini">{{ n }}</div>
+                  {% endfor %}
+                </div>
+              </div>
+            </details>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Entry reason -->
+      <div class="card" style="grid-column:1/-1;">
+        <div class="hd">
+          <div>
+            <div class="title">あなたの得意な入り方（理由別）</div>
+            <div class="sub">entry_reason（入った理由）ごとの勝率・平均R・平均損益。まずは “型” が見えるところから。</div>
+          </div>
+          <span class="badge"><span class="dot ok"></span>上位8件</span>
+        </div>
+        <div class="body">
+          {% if entry_reason_stats %}
+            <div class="list">
+              {% for it in entry_reason_stats|slice:":8" %}
+                <div class="mini">
+                  <div class="miniTop">
+                    <div class="code">{{ it.reason }}</div>
+                    <div class="badge">
+                      <span class="dot"></span>
+                      <span>勝率 {{ it.win_rate|floatformat:1 }}%（{{ it.wins }}/{{ it.trials }}）</span>
+                    </div>
+                  </div>
+
+                  <div class="miniGrid">
+                    <div class="kv">
+                      <div class="k">平均R</div>
+                      <div class="v {% if it.avg_r != None and it.avg_r < 0 %}bad{% elif it.avg_r != None and it.avg_r > 0 %}ok{% endif %}">
+                        {% if it.avg_r != None %}{{ it.avg_r|floatformat:2 }}{% else %}-{% endif %}
+                      </div>
+                      <div class="hint">プラスほど「ルール上の勝ち」が効いている</div>
+                    </div>
+                    <div class="kv">
+                      <div class="k">平均損益</div>
+                      <div class="v {% if it.avg_pl != None and it.avg_pl < 0 %}bad{% elif it.avg_pl != None and it.avg_pl > 0 %}ok{% endif %}">
+                        {% if it.avg_pl != None %}{{ it.avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}
+                      </div>
+                      <div class="hint">あなたの“体感”に近い勝ち負け</div>
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty">まだ集計できるデータがありません。</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Recent trades -->
+      <div class="card" style="grid-column:1/-1;">
+        <div class="hd">
+          <div>
+            <div class="title">最近の評価（速報）</div>
+            <div class="sub">ふだんは“2行だけ”。詳細が見たくなったら meta を開く。</div>
+          </div>
+          <span class="badge"><span class="dot"></span>直近{{ recent_trades|length }}件</span>
+        </div>
+        <div class="body">
+          {% if recent_trades %}
+            <div class="list">
+              {% for t in recent_trades %}
+                <div class="mini">
+                  <div class="miniTop">
+                    <div class="code">{{ t.code }}</div>
+                    <div class="tag {{ t.label }}">{{ t.label|upper }}</div>
+                  </div>
+                  <div class="miniGrid">
+                    <div class="kv">
+                      <div class="k">損益</div>
+                      <div class="v {% if t.pl < 0 %}bad{% elif t.pl > 0 %}ok{% endif %}">{{ t.pl|floatformat:0|intcomma }}円</div>
+                    </div>
+                    <div class="kv">
+                      <div class="k">R</div>
+                      <div class="v {% if t.r != None and t.r < 0 %}bad{% elif t.r != None and t.r > 0 %}ok{% endif %}">
+                        {% if t.r != None %}{{ t.r|floatformat:2 }}{% else %}-{% endif %}
+                      </div>
+                    </div>
+                  </div>
+
+                  <details style="margin-top:10px;">
+                    <summary>
+                      <div class="sumLeft">
+                        <div class="title" style="font-size:13px;">詳細（meta）</div>
+                        <div class="sub">必要なときだけ開けばOK</div>
+                      </div>
+                      <div class="sumRight">開く</div>
+                    </summary>
+                    <div class="detailsBody">
+                      <div class="miniMeta">{{ t.meta }}</div>
+                    </div>
+                  </details>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty">最近の評価がまだありません。</div>
+          {% endif %}
+        </div>
+      </div>
 
     </div>
-
-    <div class="dots" id="dotNav" aria-label="page-nav">
-      <button type="button" data-to="0" class="active"></button>
-      <button type="button" data-to="1"></button>
-      <button type="button" data-to="2"></button>
-      <button type="button" data-to="3"></button>
-    </div>
-  </div>
-
   {% endif %}
 </div>
-
-<script>
-(function(){
-  var track = document.getElementById("tickerTrack");
-  if (track){
-    var pxPerSec = 105;
-    var x = 0;
-    var last = performance.now();
-
-    function getLoopWidth(){
-      return Math.max(1, track.scrollWidth / 2);
-    }
-    var loopW = getLoopWidth();
-    window.addEventListener("resize", function(){ loopW = getLoopWidth(); });
-
-    function step(now){
-      var dt = (now - last) / 1000;
-      last = now;
-      if (dt > 0.05) dt = 0.05;
-      x -= pxPerSec * dt;
-      if (-x >= loopW) x = 0;
-      track.style.transform = "translate3d(" + x.toFixed(2) + "px,0,0)";
-      requestAnimationFrame(step);
-    }
-    requestAnimationFrame(step);
-  }
-
-  var pages = document.getElementById("pages");
-  var nav = document.getElementById("dotNav");
-  if (!pages || !nav) return;
-
-  var btns = nav.querySelectorAll("button");
-  function setActive(i){
-    btns.forEach(function(b, idx){
-      if (idx === i) b.classList.add("active");
-      else b.classList.remove("active");
-    });
-  }
-
-  function scrollToPage(i){
-    var w = pages.clientWidth;
-    pages.scrollTo({ left: w * i, behavior: "smooth" });
-    setActive(i);
-  }
-
-  btns.forEach(function(b){
-    b.addEventListener("click", function(){
-      var i = parseInt(b.getAttribute("data-to") || "0", 10) || 0;
-      scrollToPage(i);
-    });
-  });
-
-  var ticking = false;
-  pages.addEventListener("scroll", function(){
-    if (ticking) return;
-    ticking = true;
-    requestAnimationFrame(function(){
-      var w = pages.clientWidth || 1;
-      var i = Math.round(pages.scrollLeft / w);
-      if (i < 0) i = 0;
-      if (i > 3) i = 3;
-      setActive(i);
-      ticking = false;
-    });
-  }, { passive:true });
-})();
-</script>
 {% endblock %}
