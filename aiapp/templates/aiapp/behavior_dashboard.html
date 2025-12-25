@@ -316,7 +316,7 @@ body{
 .pl-pos{ color: var(--ok); }
 .pl-neg{ color: var(--bad); }
 
-/* “説明カード” */
+/* “仮説”は文章カードじゃなく「レバー」カードへ */
 .lever{
   border-radius: var(--r);
   border: 1px solid rgba(148,163,184,.18);
@@ -354,6 +354,39 @@ body{
   color: rgba(229,237,255,.88);
 }
 .lever .line .k{ color: rgba(148,163,184,.92); }
+
+/* ★追加：MLメトリクス小カード */
+.metrics{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.mcard{
+  border-radius: var(--r);
+  border: 1px solid rgba(148,163,184,.18);
+  background: rgba(2,6,23,.28);
+  padding: 10px 10px;
+}
+.mcard .t{
+  font-size: 10px;
+  font-weight: 1000;
+  color: rgba(229,237,255,.72);
+  margin-bottom: 6px;
+}
+.mcard .big{
+  font-size: 16px;
+  font-weight: 1100;
+  color: rgba(229,237,255,.92);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.mcard .cap{
+  margin-top: 6px;
+  font-size: 10px;
+  font-weight: 900;
+  color: rgba(148,163,184,.88);
+  line-height: 1.35;
+}
 
 /* 空状態 */
 .empty{
@@ -430,31 +463,31 @@ body{
 
         <div class="kpis">
           <div class="kpi">
-            <div class="lab">勝率（勝ち/負け）</div>
+            <div class="lab">勝率（win/lose）</div>
             <div class="val">{% if win_rate is not None %}{{ win_rate|floatformat:1 }}%{% else %}-{% endif %}</div>
-            <div class="sub">継続/見送りは母数外</div>
+            <div class="sub">carry/skipは母数外</div>
           </div>
           <div class="kpi">
-            <div class="lab">平均R（ルール回収）</div>
+            <div class="lab">平均R</div>
             <div class="val">{% if avg_r is not None %}{{ avg_r|floatformat:2 }}{% else %}-{% endif %}</div>
-            <div class="sub">0より上が理想</div>
+            <div class="sub">R無し日は弱反映</div>
           </div>
           <div class="kpi">
-            <div class="lab">平均PL（円）</div>
+            <div class="lab">平均PL</div>
             <div class="val">{% if avg_pl is not None %}{{ avg_pl|floatformat:0|intcomma }}{% else %}-{% endif %}円</div>
             <div class="sub">評価済みのみ</div>
           </div>
           <div class="kpi">
             <div class="lab">ML学習トレード数</div>
             <div class="val">{% if model.has_model %}{{ model.total_trades|intcomma }}{% else %}-{% endif %}</div>
-            <div class="sub">behavior/model/latest_*.json</div>
+            <div class="sub">latest_behavior_model_u*.json</div>
           </div>
         </div>
 
         <div class="hr"></div>
 
         <div class="row">
-          <div class="k">直近の流れ</div>
+          <div class="k">直近ストリーク</div>
           <div class="v">{{ streak_label }}</div>
         </div>
 
@@ -466,83 +499,22 @@ body{
         </div>
       </section>
 
-      <!-- Page 2: Learning (初心者向け) -->
+      <!-- Page 2: Learning (BehaviorStats / entry_reason) -->
       <section class="page" data-page="1">
         <div class="hrow">
-          <div class="h">学習の内訳</div>
-          <div class="hsub">何が覚えられてる？</div>
+          <div class="h">Learning</div>
+          <div class="hsub">何が学習できてる？</div>
         </div>
 
-        <div class="lever">
-          <div class="title">
-            <span class="pill">結論</span>
-            <span>⭐️とMLは役割が別</span>
-          </div>
-          <div class="grid">
-            <div class="line"><span class="k">⭐️（信頼度）</span><span>BehaviorStats（成績表）</span></div>
-            <div class="line"><span class="k">ML（確率/期待値）</span><span>Entry/TP/SL と EV_true</span></div>
-          </div>
-          <div class="small" style="margin-top:8px;">
-            ⭐️は「あなたの過去成績を集計した評価」。MLは「次の形を調整するための推論」です。
-          </div>
+        <div class="small">
+          ⭐️は BehaviorStats（あなたの過去成績）だけで決まる。<br>
+          MLは⭐️に触らず、Entry/TP/SL と EV_true に効く。
         </div>
 
         <div class="hr"></div>
 
-        <div class="h" style="font-size:13px;">MLは何を学習してる？（出せる数字）</div>
-        <div class="hsub">models/latest を読む</div>
-
-        {% if ml_info and ml_info.has_ml_dir %}
-          <div class="list" style="margin-top:10px;">
-            <div class="card">
-              <div class="row">
-                <div class="k">特徴量の数</div>
-                <div class="v">{{ ml_info.feature_count|intcomma }} 個</div>
-              </div>
-              <div class="row" style="margin-top:6px;">
-                <div class="k">学習データ量（meta）</div>
-                <div class="v">
-                  {% if ml_info.train_rows %}train={{ ml_info.train_rows|intcomma }}{% else %}train=-{% endif %}
-                  /
-                  {% if ml_info.test_rows %}test={{ ml_info.test_rows|intcomma }}{% else %}test=-{% endif %}
-                </div>
-              </div>
-              <div class="row" style="margin-top:6px;">
-                <div class="k">モデルの更新</div>
-                <div class="v">{% if ml_info.created_at %}{{ ml_info.created_at }}{% else %}-{% endif %}</div>
-              </div>
-            </div>
-
-            <div class="card">
-              <div class="row">
-                <div class="k">推論で出すもの</div>
-                <div class="v">p_win / ev / hold_days / tp_first</div>
-              </div>
-              <div class="row" style="margin-top:6px;">
-                <div class="k">モデル有無</div>
-                <div class="v">
-                  pwin:{% if ml_info.has_pwin %}◯{% else %}-{% endif %}
-                  / ev:{% if ml_info.has_ev %}◯{% else %}-{% endif %}
-                  / hold:{% if ml_info.has_hold %}◯{% else %}-{% endif %}
-                  / tp:{% if ml_info.has_tp %}◯{% else %}-{% endif %}
-                </div>
-              </div>
-              <div class="small" style="margin-top:6px;">
-                p_win=勝つ確率、ev=期待値、hold_days=決着日数、tp_first=TP先/SL先の確率。
-              </div>
-            </div>
-          </div>
-        {% else %}
-          <div class="empty" style="margin-top:10px;">
-            MLモデル（media/aiapp/ml/models/latest）が見つかりません。<br>
-            <span class="small">train_lgbm_models 実行後に数字が出ます。</span>
-          </div>
-        {% endif %}
-
-        <div class="hr"></div>
-
-        <div class="h" style="font-size:13px;">あなたの型（entry_reason別）</div>
-        <div class="hsub">勝てる理由/負ける理由が見える</div>
+        <div class="h" style="font-size:13px;">entry_reason 別 成績</div>
+        <div class="hsub">型が見える“本命”</div>
 
         {% if entry_reason_stats %}
           <div class="list" style="margin-top:10px;">
@@ -553,11 +525,11 @@ body{
                   <div class="v">{{ r.wins }}/{{ r.trials }}（{{ r.win_rate|floatformat:1 }}%）</div>
                 </div>
                 <div class="row" style="margin-top:6px;">
-                  <div class="k">平均R</div>
+                  <div class="k">avgR</div>
                   <div class="v">{% if r.avg_r is not None %}{{ r.avg_r|floatformat:2 }}{% else %}-{% endif %}</div>
                 </div>
                 <div class="row" style="margin-top:6px;">
-                  <div class="k">平均PL</div>
+                  <div class="k">avgPL</div>
                   <div class="v">{% if r.avg_pl is not None %}{{ r.avg_pl|floatformat:0|intcomma }}円{% else %}-{% endif %}</div>
                 </div>
               </div>
@@ -571,47 +543,86 @@ body{
         {% endif %}
       </section>
 
-      <!-- Page 3: 反映先（どこに効くか） -->
+      <!-- Page 3: ML & Shape -->
       <section class="page" data-page="2">
         <div class="hrow">
-          <div class="h">反映先</div>
-          <div class="hsub">どこが変わる？</div>
+          <div class="h">ML / Shape</div>
+          <div class="hsub">何が反映されてる？</div>
         </div>
 
         <div class="lever">
           <div class="title">
             <span class="pill">ML</span>
-            <span>「形」を調整する</span>
+            <span>推論 → “形” を変える</span>
           </div>
           <div class="grid">
-            <div class="line"><span class="k">p_tp_first</span><span>低いほど厳しく</span></div>
+            <div class="line"><span class="k">p_tp_first</span><span>低いほど厳しく補正</span></div>
             <div class="line"><span class="k">Entry補正</span><span>押し目寄せ（飛びつき抑制）</span></div>
             <div class="line"><span class="k">RRターゲット</span><span>pが低いほど上げる</span></div>
-            <div class="line"><span class="k">EV_true</span><span>pTP×RR_net − pSL×1</span></div>
-          </div>
-          <div class="small" style="margin-top:8px;">
-            MLは「価格を当てる」ではなく、ATR枠の中で係数を変えて“勝てる形”に寄せます。
+            <div class="line"><span class="k">EV_true</span><span>pTP*RR_net − pSL*1</span></div>
           </div>
         </div>
 
         <div class="hr"></div>
 
-        <div class="lever">
-          <div class="title">
-            <span class="pill">⭐️</span>
-            <span>信頼度（BehaviorStats）</span>
+        <div class="h" style="font-size:13px;">MLの学習精度（valid）</div>
+        <div class="hsub">“どれくらい当たってるか” を数字で確認</div>
+
+        {% if ml and ml.has_metrics %}
+          <div class="metrics" style="margin-top:10px;">
+            <div class="mcard">
+              <div class="t">p_win（勝つ確率）</div>
+              <div class="big">
+                AUC {% if ml.pwin_auc is not None %}{{ ml.pwin_auc|floatformat:3 }}{% else %}-{% endif %}
+              </div>
+              <div class="cap">
+                0.50=ほぼ運。0.60〜で効き始め。<br>
+                logloss {% if ml.pwin_logloss is not None %}{{ ml.pwin_logloss|floatformat:3 }}{% else %}-{% endif %}
+              </div>
+            </div>
+
+            <div class="mcard">
+              <div class="t">EV（期待値の推定）</div>
+              <div class="big">
+                MAE {% if ml.ev_mae is not None %}{{ ml.ev_mae|floatformat:3 }}{% else %}-{% endif %}
+              </div>
+              <div class="cap">
+                小さいほど良い（予測ブレが小さい）<br>
+                RMSE {% if ml.ev_rmse is not None %}{{ ml.ev_rmse|floatformat:3 }}{% else %}-{% endif %}
+              </div>
+            </div>
+
+            <div class="mcard">
+              <div class="t">tp_first（TP先/SL先）</div>
+              <div class="big">
+                ACC {% if ml.tp_acc is not None %}{{ ml.tp_acc|floatformat:3 }}{% else %}-{% endif %}
+              </div>
+              <div class="cap">
+                p_tp_first の元になる推論<br>
+                logloss {% if ml.tp_logloss is not None %}{{ ml.tp_logloss|floatformat:3 }}{% else %}-{% endif %}
+              </div>
+            </div>
+
+            <div class="mcard">
+              <div class="t">学習データ量</div>
+              <div class="big">{{ ml.rows|intcomma }}</div>
+              <div class="cap">
+                train {{ ml.train_rows|intcomma }} / valid {{ ml.valid_rows|intcomma }}<br>
+                created {{ ml.created_at|default:"-" }}
+              </div>
+            </div>
           </div>
-          <div class="grid">
-            <div class="line"><span class="k">元データ</span><span>VirtualTrade.result_r_pro</span></div>
-            <div class="line"><span class="k">やってる事</span><span>勝率/平均Rを集計して⭐️</span></div>
-            <div class="line"><span class="k">注意</span><span>nが少ないと過信しない</span></div>
+        {% else %}
+          <div class="empty" style="margin-top:10px;">
+            まだ MLメトリクスがありません。<br>
+            <span class="small">train_lgbm_models を実行して、ml/models/latest/meta.json を作ると表示されます。</span>
           </div>
-        </div>
+        {% endif %}
 
         <div class="hr"></div>
 
         <div class="h" style="font-size:13px;">最近の評価（抜粋）</div>
-        <div class="hsub">結果だけシンプルに見る</div>
+        <div class="hsub">理由とセットで見る</div>
 
         <div class="list" style="margin-top:10px;">
           {% for t in recent_trades %}
@@ -639,7 +650,7 @@ body{
                 <div class="v">{% if t.r is not None %}{{ t.r|floatformat:2 }}{% else %}-{% endif %}</div>
               </div>
               <div class="row" style="margin-top:6px;">
-                <div class="k">メモ</div>
+                <div class="k">meta</div>
                 <div class="v" style="font-weight:900;color:rgba(148,163,184,.88);">{{ t.meta }}</div>
               </div>
             </div>
@@ -650,14 +661,14 @@ body{
       <!-- Page 4: Policy / Filters -->
       <section class="page" data-page="3">
         <div class="hrow">
-          <div class="h">見送り判定</div>
-          <div class="hsub">0株になる理由</div>
+          <div class="h">Policy / Filters</div>
+          <div class="hsub">“見送り”の原因</div>
         </div>
 
         <div class="lever">
           <div class="title">
             <span class="pill">Policy</span>
-            <span>フィルター閾値</span>
+            <span>0株にする閾値</span>
           </div>
           <div class="grid">
             <div class="line"><span class="k">min_net_profit_yen</span><span>小さい利益を弾く</span></div>
@@ -665,21 +676,22 @@ body{
             <div class="line"><span class="k">fees（手数料/滑り）</span><span>純利益を削る</span></div>
           </div>
           <div class="small" style="margin-top:8px;">
-            sizing_service は YAML を毎回読み直すので、settingsで変えた値が即反映されます。
+            ※ sizing_service は runtime 優先で読み込み（今回修正済）。<br>
+            settingsで変えた値が、そのまま採用可否に反映されます。
           </div>
         </div>
 
         <div class="hr"></div>
 
-        <div class="h" style="font-size:13px;">AIの仮説（現状）</div>
-        <div class="hsub">次はここを“数字のレバー”に変える</div>
+        <div class="h" style="font-size:13px;">AIの仮説（レバー表示）</div>
+        <div class="hsub">“どの数字がボトルネックか”</div>
 
         <div class="list" style="margin-top:10px;">
           {% for h in hypotheses %}
             <div class="card">
               <div style="font-weight:1000; font-size:12px; color:rgba(229,237,255,.88);">{{ h }}</div>
               <div class="small" style="margin-top:6px;">
-                → 次段で「閾値/係数/ゲート」に自動変換して表示します。
+                → ここは次で「閾値/係数/ゲート」に自動変換して表示します（view側で構造化）。
               </div>
             </div>
           {% endfor %}
