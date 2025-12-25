@@ -384,145 +384,44 @@ def _build_entry_reason_stats_from_side(side_rows: List[Dict[str, Any]]) -> List
     return out
 
 
-def _extract_feature_importance(model_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _load_ml_meta(models_dir: Path) -> Dict[str, Any]:
     """
-    モデルJSONの中に feature importance があれば上位だけ表示用に抜く。
-    対応パターン（どれかに当たればOK）:
-    - {"feature_importance": {"featA":0.12, ...}}
-    - {"feature_importance": [{"feature":"featA","importance":0.12}, ...]}
-    - {"features": [{"name":"featA","importance":0.12}, ...]}
+    media/aiapp/ml/models/latest/meta.json などを読んで、
+    “MLが何を学習しているか” を初心者向けに説明できる材料を作る。
     """
-    if not isinstance(model_json, dict):
-        return []
+    meta = _read_json(models_dir / "meta.json") or {}
+    cols = _read_json(models_dir / "feature_cols.json") or []
+    label_maps = _read_json(models_dir / "label_maps.json") or {}
 
-    cand = model_json.get("feature_importance")
-    out: List[Tuple[str, float]] = []
+    # feature_cols.json は list でも dict でも来る可能性があるので正規化
+    if isinstance(cols, dict):
+        cols2 = cols.get("feature_cols", [])
+    else:
+        cols2 = cols
 
-    if isinstance(cand, dict):
-        for k, v in cand.items():
-            fv = _safe_float(v)
-            if fv is None:
-                continue
-            out.append((str(k), float(fv)))
+    feature_count = len(cols2) if isinstance(cols2, list) else 0
 
-    if isinstance(cand, list):
-        for it in cand:
-            if not isinstance(it, dict):
-                continue
-            name = it.get("feature") or it.get("name")
-            imp = it.get("importance") or it.get("gain") or it.get("weight")
-            if not name:
-                continue
-            fv = _safe_float(imp)
-            if fv is None:
-                continue
-            out.append((str(name), float(fv)))
+    # meta 側のキー名は揺れるので、よくある候補を拾う
+    train_rows = meta.get("train_rows") or meta.get("n_train") or meta.get("rows") or None
+    test_rows = meta.get("test_rows") or meta.get("n_test") or None
+    created_at = meta.get("created_at") or meta.get("trained_at") or meta.get("built_at") or None
 
-    cand2 = model_json.get("features")
-    if isinstance(cand2, list) and not out:
-        for it in cand2:
-            if not isinstance(it, dict):
-                continue
-            name = it.get("name") or it.get("feature")
-            imp = it.get("importance") or it.get("gain") or it.get("weight")
-            if not name:
-                continue
-            fv = _safe_float(imp)
-            if fv is None:
-                continue
-            out.append((str(name), float(fv)))
+    # 「何を当てようとしてるか」を表示するためのターゲット名（無ければ推定ラベル）
+    targets = meta.get("targets") or meta.get("target_names") or None
 
-    out.sort(key=lambda x: x[1], reverse=True)
-    top = out[:6]
-    return [{"name": n, "importance": imp} for n, imp in top]
-
-
-def _extract_ml_numbers(model_json: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """
-    初心者向けに「数値で説明できるもの」を拾う（無いキーは無視）。
-    """
-    if not isinstance(model_json, dict):
-        return []
-
-    def pick(*keys: str) -> Optional[float]:
-        for k in keys:
-            if k in model_json:
-                v = _safe_float(model_json.get(k))
-                if v is not None:
-                    return v
-        return None
-
-    def pick_str(*keys: str) -> Optional[str]:
-        for k in keys:
-            if k in model_json:
-                s = model_json.get(k)
-                if s is None:
-                    continue
-                ss = str(s).strip()
-                if ss:
-                    return ss
-        return None
-
-    nums: List[Dict[str, Any]] = []
-
-    total = model_json.get("total_trades")
-    try:
-        total_i = int(total) if total is not None else None
-    except Exception:
-        total_i = None
-
-    if total_i is not None:
-        nums.append({"k": "学習データ数（trades）", "v": total_i, "unit": "件"})
-
-    # 例: あるなら拾う（無くてもOK）
-    auc = pick("auc", "AUC")
-    if auc is not None:
-        nums.append({"k": "モデル評価（AUC）", "v": auc, "unit": ""})
-
-    logloss = pick("logloss", "log_loss")
-    if logloss is not None:
-        nums.append({"k": "モデル評価（logloss）", "v": logloss, "unit": ""})
-
-    acc = pick("accuracy", "acc")
-    if acc is not None:
-        nums.append({"k": "モデル評価（accuracy）", "v": acc * 100.0 if acc <= 1.0 else acc, "unit": "%"})
-
-    # 何を当ててるか（あれば）
-    target = pick_str("target", "label", "task", "objective")
-    if target:
-        nums.append({"k": "学習ターゲット", "v": target, "unit": ""})
-
-    trained_at = pick_str("trained_at", "trainedAt", "updated_at", "model_updated_at")
-    if trained_at:
-        nums.append({"k": "最終学習時刻", "v": trained_at, "unit": ""})
-
-    ver = pick_str("model_version", "version", "commit")
-    if ver:
-        nums.append({"k": "モデル版", "v": ver, "unit": ""})
-
-    return nums[:8]
-
-
-def _ml_beginner_text() -> List[str]:
-    """
-    画面に出す “初心者向け説明” を固定文で用意（ここが一番大事）。
-    """
-    return [
-        "ML（機械学習）が学習しているのは「この形（Entry/TP/SL）だと、TPが先に当たりやすい？それともSLが先？」という“順番の確率”。",
-        "出力は p_tp_first（TPがSLより先になる確率 0〜1）。低いほど危険なので、エントリーを押し目寄せ＆RR（利幅/損幅）を上げて“勝てる形”に寄せる。",
-        "重要：MLは「あなたの⭐️（BehaviorStats）」を直接いじらない。⭐️は過去成績の統計（勝率×平均R×試行数）で決まる。",
-    ]
-
-
-def _ml_where_used_text() -> List[Dict[str, str]]:
-    """
-    “どこに反映してる？” を画面に出すための固定リスト。
-    """
-    return [
-        {"k": "Entry/TP/SL の補正", "v": "aiapp/services/entry_service.py：p_tp_first が低いほど、飛びつきを抑えて押し目寄せ＋RRを引き上げ"},
-        {"k": "EV_true（本命期待値）", "v": "aiapp/services/sizing_service.py：EV_true = pTP*RR_net − pSL*1（pSLは 1−pTP−pNone の推定も可）"},
-        {"k": "⭐️（評価）", "v": "BehaviorStats（統計）：VirtualTrade.result_r_pro の実績から勝率/平均R/試行数→score→⭐️"},
-    ]
+    return {
+        "has_ml_dir": True,
+        "created_at": str(created_at) if created_at is not None else "",
+        "train_rows": train_rows,
+        "test_rows": test_rows,
+        "feature_count": int(feature_count),
+        "targets": targets if targets is not None else ["p_win", "ev", "hold_days_pred", "tp_first"],
+        "has_pwin": (models_dir / "model_pwin.txt").exists(),
+        "has_ev": (models_dir / "model_ev.txt").exists(),
+        "has_hold": (models_dir / "model_hold_days.txt").exists(),
+        "has_tp": (models_dir / "model_tp_first.txt").exists(),
+        "label_maps": label_maps if isinstance(label_maps, dict) else {},
+    }
 
 
 # =========================
@@ -532,11 +431,12 @@ def _ml_where_used_text() -> List[Dict[str, str]]:
 @login_required
 def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     """
-    ✅ PRO仕様の行動ダッシュボード（テロップ + entry_reason別）
+    ✅ PRO仕様の行動ダッシュボード（テロップ + entry_reason別 + ML説明）
     - simulate/*.jsonl を集計
     - behavior/model/latest_behavior_model_u{user}.json を読む
     - behavior/latest_behavior_side.jsonl を読む（まずはこれで entry_reason 別可視化）
     - behavior/ticker/latest_ticker_u{user}.json を読む
+    - ml/models/latest/meta.json などを読む（MLが何を学習してるかの説明用）
     """
     user = request.user
     today = timezone.localdate()
@@ -545,6 +445,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     media_root = Path("media")
     sim_dir = media_root / "aiapp" / "simulate"
     beh_dir = media_root / "aiapp" / "behavior"
+    ml_dir = media_root / "aiapp" / "ml" / "models" / "latest"
 
     model_path = beh_dir / "model" / f"latest_behavior_model_u{user.id}.json"
     side_path = beh_dir / "latest_behavior_side.jsonl"
@@ -584,11 +485,12 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     # entry_reason 別（sideを元にまず成立させる）
     entry_reason_stats = _build_entry_reason_stats_from_side(side_rows)
 
-    # ★初心者向け：MLの説明と数値を抽出（model_jsonが薄くても落ちない）
-    ml_beginner = _ml_beginner_text()
-    ml_numbers = _extract_ml_numbers(model_json if isinstance(model_json, dict) else {})
-    ml_top_features = _extract_feature_importance(model_json if isinstance(model_json, dict) else {})
-    ml_where_used = _ml_where_used_text()
+    # ★ ML の説明用メタ（無ければ空でOK）
+    ml_info: Dict[str, Any]
+    if ml_dir.exists():
+        ml_info = _load_ml_meta(ml_dir)
+    else:
+        ml_info = {"has_ml_dir": False}
 
     if not has_data:
         return render(
@@ -599,16 +501,11 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
                 "today_label": today_label,
                 "sim_files": sim_sum.get("files", 0),
                 "understanding_label": _understanding_label(0),
-                "model": {"has_model": has_model, "total_trades": total_trades},
+                "model": {"has_model": has_model},
                 "ticker_date": ticker.get("date", ""),
                 "ticker_lines": ticker.get("lines", []),
                 "entry_reason_stats": entry_reason_stats,
-
-                # beginner/ml
-                "ml_beginner": ml_beginner,
-                "ml_numbers": ml_numbers,
-                "ml_top_features": ml_top_features,
-                "ml_where_used": ml_where_used,
+                "ml_info": ml_info,
             },
         )
 
@@ -658,11 +555,6 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         "ticker_date": ticker.get("date", ""),
         "ticker_lines": ticker.get("lines", []),
         "entry_reason_stats": entry_reason_stats,
-
-        # beginner/ml
-        "ml_beginner": ml_beginner,
-        "ml_numbers": ml_numbers,
-        "ml_top_features": ml_top_features,
-        "ml_where_used": ml_where_used,
+        "ml_info": ml_info,
     }
     return render(request, "aiapp/behavior_dashboard.html", ctx)
