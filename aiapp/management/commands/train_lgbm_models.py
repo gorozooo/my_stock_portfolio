@@ -15,12 +15,18 @@ train_lgbm_models.py
     - model_tp_first.txt    (任意)
     - feature_cols.json
     - label_maps.json       (tp_first用)
+
+追加（今回）:
+  meta.json に評価指標 metrics を保存
+    - p_win: auc, logloss
+    - ev: rmse, mae
+    - hold_days_pred: mae
+    - tp_first: accuracy, logloss
 """
 
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone as dt_timezone
 from pathlib import Path
@@ -62,7 +68,7 @@ def _clean_df(df: pd.DataFrame) -> pd.DataFrame:
         if c not in d.columns:
             raise ValueError(f"missing required column: {c}")
 
-    # label 정규화
+    # label 正規化
     d["y_label"] = d["y_label"].astype(str).str.lower().str.strip()
     d = d[d["y_label"].isin(["win", "lose", "flat"])].copy()
 
@@ -140,6 +146,106 @@ def _tp_first_map() -> Dict[str, int]:
     # 3クラス固定（再現性）
     return {"none": 0, "tp_first": 1, "sl_first": 2}
 
+
+# =========================
+# metrics (numpy only)
+# =========================
+
+def _sigmoid_clip(p: np.ndarray) -> np.ndarray:
+    p2 = np.asarray(p, dtype=float)
+    # LightGBMは0..1を返すが念のため
+    p2 = np.clip(p2, 1e-12, 1 - 1e-12)
+    return p2
+
+
+def _binary_logloss(y_true: np.ndarray, p_pred: np.ndarray) -> float:
+    y = np.asarray(y_true, dtype=float)
+    p = _sigmoid_clip(p_pred)
+    loss = -(y * np.log(p) + (1.0 - y) * np.log(1.0 - p))
+    return float(np.mean(loss)) if len(loss) else 0.0
+
+
+def _auc_roc(y_true: np.ndarray, p_pred: np.ndarray) -> Optional[float]:
+    """
+    軽量AUC（順位和ベース）。
+    validに win/lose が偏りすぎると None。
+    """
+    y = np.asarray(y_true, dtype=int)
+    p = np.asarray(p_pred, dtype=float)
+    n_pos = int(np.sum(y == 1))
+    n_neg = int(np.sum(y == 0))
+    if n_pos == 0 or n_neg == 0:
+        return None
+
+    # ranks with ties: average ranks
+    order = np.argsort(p)
+    ranks = np.empty_like(order, dtype=float)
+    ranks[order] = np.arange(1, len(p) + 1, dtype=float)
+
+    # tie handling
+    # 同値の範囲は平均順位にする
+    sorted_p = p[order]
+    i = 0
+    while i < len(sorted_p):
+        j = i
+        while j + 1 < len(sorted_p) and sorted_p[j + 1] == sorted_p[i]:
+            j += 1
+        if j > i:
+            avg_rank = (i + 1 + j + 1) / 2.0
+            ranks[order[i:j + 1]] = avg_rank
+        i = j + 1
+
+    sum_ranks_pos = float(np.sum(ranks[y == 1]))
+    auc = (sum_ranks_pos - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
+    return float(auc)
+
+
+def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    y = np.asarray(y_true, dtype=float)
+    p = np.asarray(y_pred, dtype=float)
+    if len(y) == 0:
+        return 0.0
+    return float(np.sqrt(np.mean((p - y) ** 2)))
+
+
+def _mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    y = np.asarray(y_true, dtype=float)
+    p = np.asarray(y_pred, dtype=float)
+    if len(y) == 0:
+        return 0.0
+    return float(np.mean(np.abs(p - y)))
+
+
+def _multiclass_logloss(y_true: np.ndarray, proba: np.ndarray, num_class: int = 3) -> float:
+    """
+    y_true: (n,)
+    proba: (n, num_class)
+    """
+    y = np.asarray(y_true, dtype=int)
+    P = np.asarray(proba, dtype=float)
+    if len(y) == 0:
+        return 0.0
+    if P.ndim != 2 or P.shape[1] != num_class:
+        return 0.0
+
+    P = np.clip(P, 1e-12, 1 - 1e-12)
+    # normalize
+    P = P / np.sum(P, axis=1, keepdims=True)
+    ll = -np.log(P[np.arange(len(y)), y])
+    return float(np.mean(ll))
+
+
+def _accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    y = np.asarray(y_true, dtype=int)
+    p = np.asarray(y_pred, dtype=int)
+    if len(y) == 0:
+        return 0.0
+    return float(np.mean(y == p))
+
+
+# =========================
+# train functions
+# =========================
 
 def _train_classifier_pwin(Xtr, ytr, Xva=None, yva=None, seed: int = 42) -> lgb.Booster:
     params = {
@@ -340,6 +446,61 @@ class Command(BaseCommand):
             yt_va = valid_df["y_touch_tp_first"].astype(str).str.lower().str.strip().map(lambda x: tp_map.get(x, 0)).astype(int).to_numpy() if Xva is not None else None
             model_tp = _train_multiclass_tp_first(Xtr, yt_tr, Xva, yt_va, seed=seed)
 
+        # --------------------
+        # metrics (valid)
+        # --------------------
+        metrics: Dict[str, Any] = {
+            "valid_rows": int(len(valid_df)),
+            "p_win": {},
+            "ev": {},
+            "hold_days_pred": {},
+            "tp_first": {},
+        }
+
+        if Xva is not None and len(valid_df) > 0:
+            # p_win
+            pwin_pred = model_pwin.predict(Xva, num_iteration=getattr(model_pwin, "best_iteration", None))
+            pwin_pred = np.asarray(pwin_pred, dtype=float)
+            auc = _auc_roc(yva_win, pwin_pred) if yva_win is not None else None
+            logloss = _binary_logloss(yva_win, pwin_pred) if yva_win is not None else None
+            metrics["p_win"] = {
+                "auc": float(auc) if auc is not None else None,
+                "logloss": float(logloss) if logloss is not None else None,
+            }
+
+            # EV
+            ev_pred = model_ev.predict(Xva, num_iteration=getattr(model_ev, "best_iteration", None))
+            ev_pred = np.asarray(ev_pred, dtype=float)
+            metrics["ev"] = {
+                "rmse": _rmse(yva_ev, ev_pred) if yva_ev is not None else None,
+                "mae": _mae(yva_ev, ev_pred) if yva_ev is not None else None,
+                "target": "y_r if available else y_pl",
+            }
+
+            # hold_days_pred
+            if model_hold is not None:
+                yd_va = pd.to_numeric(valid_df["y_hold_days"], errors="coerce").fillna(0).to_numpy(dtype=float)
+                hold_pred = model_hold.predict(Xva, num_iteration=getattr(model_hold, "best_iteration", None))
+                hold_pred = np.asarray(hold_pred, dtype=float)
+                metrics["hold_days_pred"] = {
+                    "mae": _mae(yd_va, hold_pred),
+                }
+
+            # tp_first
+            if model_tp is not None:
+                yt_va = valid_df["y_touch_tp_first"].astype(str).str.lower().str.strip().map(lambda x: tp_map.get(x, 0)).astype(int).to_numpy()
+                proba = model_tp.predict(Xva, num_iteration=getattr(model_tp, "best_iteration", None))
+                proba = np.asarray(proba, dtype=float)
+                pred_cls = np.argmax(proba, axis=1).astype(int) if proba.ndim == 2 else np.zeros(len(yt_va), dtype=int)
+                metrics["tp_first"] = {
+                    "accuracy": _accuracy(yt_va, pred_cls),
+                    "logloss": _multiclass_logloss(yt_va, proba, num_class=3),
+                    "label_map": tp_map,
+                }
+        else:
+            # valid が無い場合
+            metrics["note"] = "valid split is empty -> metrics skipped"
+
         # save
         out_opt = str(opts.get("out") or "").strip()
         if out_opt:
@@ -373,6 +534,7 @@ class Command(BaseCommand):
                 "hold_days": int(getattr(model_hold, "best_iteration", 0) or 0) if model_hold is not None else 0,
                 "tp_first": int(getattr(model_tp, "best_iteration", 0) or 0) if model_tp is not None else 0,
             },
+            "metrics": metrics,
         }
         (out_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
@@ -393,3 +555,5 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"[train_lgbm_models] saved: {out_dir}"))
         self.stdout.write(self.style.SUCCESS(f"[train_lgbm_models] latest: {latest_dir}"))
+        if metrics.get("valid_rows", 0) > 0:
+            self.stdout.write(self.style.SUCCESS("[train_lgbm_models] metrics(valid): " + json.dumps(metrics, ensure_ascii=False)))
