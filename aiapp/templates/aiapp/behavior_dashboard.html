@@ -6,7 +6,6 @@
 {% block head %}
 <style>
 :root{
-  /* 既存の“いつもの”暗めガラス方向へ戻す（iPhone読みやすさ優先） */
   --bg:#020617;
   --card:rgba(15,23,42,.92);
   --card2:rgba(15,23,42,.72);
@@ -38,14 +37,12 @@ body{
   color: var(--fg);
 }
 
-/* iPhone専用の読みやすい幅 */
 .wrap{
   max-width: 420px;
   margin: 0 auto;
   padding: 12px 12px calc(84px + var(--safe-b));
 }
 
-/* ===== 上部：今日 + テロップ（軽く） ===== */
 .topbar{
   position: sticky;
   top: 0;
@@ -129,14 +126,8 @@ body{
   box-shadow: 0 0 0 4px rgba(96,165,250,0.16);
 }
 
-/* ★邪魔な“薄い日付”は完全削除（ticker-date無し） */
+.pager{ margin-top: 12px; }
 
-/* ===== 横スワイプ：ページング ===== */
-.pager{
-  margin-top: 12px;
-}
-
-/* スクロールスナップで“自然に横切替” */
 .pages{
   display:flex;
   gap: 10px;
@@ -157,7 +148,6 @@ body{
   padding: 12px;
 }
 
-/* タイトル行 */
 .hrow{
   display:flex;
   justify-content: space-between;
@@ -176,7 +166,6 @@ body{
   color: var(--muted);
 }
 
-/* 小さなナビ（ドット） */
 .dots{
   display:flex;
   justify-content:center;
@@ -195,7 +184,6 @@ body{
   border-color: rgba(96,165,250,.55);
 }
 
-/* KPI：縦に強いiPhone向け */
 .kpis{
   display:grid;
   grid-template-columns: 1fr 1fr;
@@ -278,7 +266,6 @@ body{
 .seq-dot.lose{ background: rgba(239,68,68,.16); border-color: rgba(239,68,68,.32); }
 .seq-dot.flat{ background: rgba(96,165,250,.14); border-color: rgba(96,165,250,.26); }
 
-/* リスト（コンパクト） */
 .list{
   display:flex;
   flex-direction: column;
@@ -318,7 +305,6 @@ body{
 .pl-pos{ color: var(--ok); }
 .pl-neg{ color: var(--bad); }
 
-/* “仮説”は文章カードじゃなく「レバー」カードへ */
 .lever{
   border-radius: var(--r);
   border: 1px solid rgba(148,163,184,.18);
@@ -357,7 +343,6 @@ body{
 }
 .lever .line .k{ color: rgba(148,163,184,.92); }
 
-/* 空状態 */
 .empty{
   border-radius: calc(var(--r) + 2px);
   border: 1px dashed rgba(148,163,184,.22);
@@ -373,7 +358,6 @@ body{
 {% block content %}
 <div class="wrap" id="behaviorRoot">
 
-  <!-- 上部：今日 + テロップ -->
   <div class="topbar">
     <div class="topline">
       <div class="today">
@@ -410,7 +394,6 @@ body{
     </div>
   {% else %}
 
-  <!-- 横スワイプ本体 -->
   <div class="pager">
     <div class="pages" id="pages">
 
@@ -468,7 +451,7 @@ body{
         </div>
       </section>
 
-      <!-- Page 2: Learning (BehaviorStats / entry_reason) -->
+      <!-- Page 2: Learning -->
       <section class="page" data-page="1">
         <div class="hrow">
           <div class="h">Learning</div>
@@ -512,7 +495,7 @@ body{
         {% endif %}
       </section>
 
-      <!-- Page 3: ML & Shape -->
+      <!-- Page 3: ML -->
       <section class="page" data-page="2">
         <div class="hrow">
           <div class="h">ML / Shape</div>
@@ -571,7 +554,7 @@ body{
         </div>
       </section>
 
-      <!-- Page 4: Policy / Filters -->
+      <!-- Page 4: Policy -->
       <section class="page" data-page="3">
         <div class="hrow">
           <div class="h">Policy / Filters</div>
@@ -581,31 +564,51 @@ body{
         <div class="lever">
           <div class="title">
             <span class="pill">Policy</span>
-            <span>0株にする閾値</span>
+            <span>現在の“効いてる値”</span>
           </div>
           <div class="grid">
-            <div class="line"><span class="k">min_net_profit_yen</span><span>小さい利益を弾く</span></div>
-            <div class="line"><span class="k">min_reward_risk</span><span>RR不足を弾く</span></div>
-            <div class="line"><span class="k">fees（手数料/滑り）</span><span>純利益を削る</span></div>
+            <div class="line"><span class="k">learn_mode</span><span>{{ policy.learn_mode }}</span></div>
+            <div class="line"><span class="k">min_net_profit_yen</span><span>{{ policy.min_net_profit_yen|floatformat:0|intcomma }}</span></div>
+            <div class="line"><span class="k">min_reward_risk</span><span>{{ policy.min_reward_risk|floatformat:2 }}</span></div>
+            <div class="line"><span class="k">commission_rate</span><span>{{ policy.commission_rate }}</span></div>
+            <div class="line"><span class="k">min_commission</span><span>{{ policy.min_commission|floatformat:0|intcomma }}</span></div>
+            <div class="line"><span class="k">slippage_rate</span><span>{{ policy.slippage_rate }}</span></div>
           </div>
           <div class="small" style="margin-top:8px;">
-            ※ sizing_service は runtime 優先で読み込み（今回修正済）。<br>
-            settingsで変えた値が、そのまま採用可否に反映されます。
+            ※ runtime 優先で読み込み（settingsで変更した値と一致）
           </div>
         </div>
 
         <div class="hr"></div>
 
-        <div class="h" style="font-size:13px;">AIの仮説（レバー表示）</div>
-        <div class="hsub">“どの数字がボトルネックか”</div>
+        <div class="h" style="font-size:13px;">AIの仮説（レバー）</div>
+        <div class="hsub">“どの数値が詰まりか”</div>
 
         <div class="list" style="margin-top:10px;">
           {% for h in hypotheses %}
             <div class="card">
-              <div style="font-weight:1000; font-size:12px; color:rgba(229,237,255,.88);">{{ h }}</div>
-              <div class="small" style="margin-top:6px;">
-                → ここは次で「閾値/係数/ゲート」に自動変換して表示します（view側で構造化）。
-              </div>
+              {% if h.title %}
+                <div style="font-weight:1000; font-size:12px; color:rgba(229,237,255,.92);">{{ h.title }}</div>
+                <div class="small" style="margin-top:6px;">{{ h.why }}</div>
+
+                <div class="hr"></div>
+
+                <div class="row">
+                  <div class="k">LEVER</div>
+                  <div class="v">{{ h.lever }}</div>
+                </div>
+                <div class="row" style="margin-top:6px;">
+                  <div class="k">現在値</div>
+                  <div class="v">{{ h.current }}</div>
+                </div>
+                <div class="row" style="margin-top:6px;">
+                  <div class="k">提案</div>
+                  <div class="v">{{ h.action }}</div>
+                </div>
+                <div class="small" style="margin-top:6px;">→ {{ h.effect }}</div>
+              {% else %}
+                <div style="font-weight:1000; font-size:12px; color:rgba(229,237,255,.88);">{{ h }}</div>
+              {% endif %}
             </div>
           {% endfor %}
         </div>
@@ -635,7 +638,6 @@ body{
 
 <script>
 (function(){
-  // --- ticker (iPhone確実) ---
   var track = document.getElementById("tickerTrack");
   if (track){
     var pxPerSec = 105;
@@ -660,7 +662,6 @@ body{
     requestAnimationFrame(step);
   }
 
-  // --- swipe pager dot sync ---
   var pages = document.getElementById("pages");
   var nav = document.getElementById("dotNav");
   if (!pages || !nav) return;
