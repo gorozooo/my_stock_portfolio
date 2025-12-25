@@ -569,7 +569,9 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         streak_len=streak_len,
     )
     recent_trades = _extract_recent_trades(side_rows, limit=8)
-
+    
+    ml_latest = recent_trades[0] if recent_trades else None
+    
     ctx = {
         "has_data": True,
         "today_label": today_label,
@@ -595,5 +597,6 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         "ticker_lines": ticker.get("lines", []),
         "entry_reason_stats": entry_reason_stats,
         "ml": ml_metrics,
+        "ml_latest": ml_latest,
     }
     return render(request, "aiapp/behavior_dashboard.html", ctx)
