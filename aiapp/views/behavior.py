@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from collections import defaultdict
+from datetime import datetime
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
@@ -283,6 +284,10 @@ def _pick_any_float(r: Dict[str, Any], keys: List[str]) -> Optional[float]:
 
 
 def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> List[Dict[str, Any]]:
+    """
+    評価済み（side）を表示する部分。
+    ※ ここは「最近の評価（抜粋）」用なので、MLが入ってない古い行でもOK。
+    """
     out: List[Dict[str, Any]] = []
     for r in side_rows[-limit:]:
         code = str(r.get("code") or "")
@@ -335,6 +340,8 @@ def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> L
                 "shape_sl_k": shape_sl_k,
             }
         )
+
+    # 新しいものを上に
     out.reverse()
     return out
 
@@ -367,7 +374,6 @@ def _normalize_reason(s: str) -> str:
 def _build_entry_reason_stats_from_side(side_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     behavior/latest_behavior_side.jsonl を元に entry_reason 別の集計を作る。
-    side側は「評価が確定している」前提なので、まずここで可視化を成立させる。
     """
     agg_trials: Dict[str, int] = defaultdict(int)
     agg_wins: Dict[str, int] = defaultdict(int)
@@ -427,7 +433,6 @@ def _load_ml_latest_meta() -> Dict[str, Any]:
         base = Path(settings.MEDIA_ROOT) / "aiapp" / "ml" / "models" / "latest"
         p = base / "meta.json"
         j = _read_json(p) or {}
-        # テンプレで扱いやすいように metrics は dict 固定
         m = j.get("metrics")
         if not isinstance(m, dict):
             j["metrics"] = {}
@@ -436,15 +441,34 @@ def _load_ml_latest_meta() -> Dict[str, Any]:
         return {"metrics": {}}
 
 
+def _get_metrics_block(metrics: Dict[str, Any], keys: List[str]) -> Dict[str, Any]:
+    """
+    metrics の中のブロック名が揺れても拾う。
+    例: tp_first / p_tp_first / tp など
+    """
+    for k in keys:
+        v = metrics.get(k)
+        if isinstance(v, dict) and v:
+            return v
+    return {}
+
+
 def _ml_metrics_view(meta: Dict[str, Any]) -> Dict[str, Any]:
     """
-    テンプレ表示用に “初心者向けの要約” を整形して渡す。
+    テンプレ表示用に要約して渡す。
+    ※ tp_first が “-” になる問題は、meta.json のキー揺れを吸収して解決する。
     """
     metrics = meta.get("metrics") if isinstance(meta.get("metrics"), dict) else {}
-    pwin = metrics.get("p_win") if isinstance(metrics.get("p_win"), dict) else {}
-    ev = metrics.get("ev") if isinstance(metrics.get("ev"), dict) else {}
-    tp = metrics.get("tp_first") if isinstance(metrics.get("tp_first"), dict) else {}
-    hold = metrics.get("hold_days_pred") if isinstance(metrics.get("hold_days_pred"), dict) else {}
+
+    pwin = _get_metrics_block(metrics, ["p_win", "pwin", "win"])
+    ev = _get_metrics_block(metrics, ["ev", "expected_value"])
+    tp = _get_metrics_block(metrics, ["tp_first", "p_tp_first", "tp"])
+    hold = _get_metrics_block(metrics, ["hold_days_pred", "hold_days", "hold"])
+
+    # accuracy のキーも揺れがちなので吸収
+    tp_acc = _safe_float(tp.get("accuracy"))
+    if tp_acc is None:
+        tp_acc = _safe_float(tp.get("acc"))
 
     out = {
         "created_at": str(meta.get("created_at") or ""),
@@ -452,18 +476,115 @@ def _ml_metrics_view(meta: Dict[str, Any]) -> Dict[str, Any]:
         "train_rows": int(meta.get("train_rows") or 0),
         "valid_rows": int(meta.get("valid_rows") or metrics.get("valid_rows") or 0),
         "best_iteration": meta.get("best_iteration") if isinstance(meta.get("best_iteration"), dict) else {},
+
         "pwin_auc": _safe_float(pwin.get("auc")),
         "pwin_logloss": _safe_float(pwin.get("logloss")),
+
         "ev_rmse": _safe_float(ev.get("rmse")),
         "ev_mae": _safe_float(ev.get("mae")),
-        "tp_acc": _safe_float(tp.get("accuracy")),
+
+        "tp_acc": tp_acc,
         "tp_logloss": _safe_float(tp.get("logloss")),
+
         "hold_mae": _safe_float(hold.get("mae")),
-        "has_metrics": bool(metrics) and int(metrics.get("valid_rows") or 0) > 0,
-        "has_tp_first": (_safe_float(tp.get("accuracy")) is not None) or (_safe_float(tp.get("logloss")) is not None),
+
+        # 表示分岐
+        "has_metrics": bool(metrics) and (int(metrics.get("valid_rows") or 0) > 0 or int(meta.get("valid_rows") or 0) > 0),
+        "has_tp_first": (tp_acc is not None) or (_safe_float(tp.get("logloss")) is not None),
         "has_hold_days": (_safe_float(hold.get("mae")) is not None),
     }
     return out
+
+
+def _parse_ts_any(s: str) -> Optional[datetime]:
+    """
+    ts の ISO文字列をできる範囲で datetime にする（失敗しても落とさない）
+    """
+    if not s:
+        return None
+    try:
+        # "2025-12-26T17:56:40.770568+09:00"
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
+def _select_latest_ml_inference(
+    dataset_rows: List[Dict[str, Any]],
+    user_id: int,
+) -> Optional[Dict[str, Any]]:
+    """
+    latest_behavior.jsonl（= raw simulate ログ）から
+    「ML実数値が入っている最新の1件」を選ぶ。
+
+    優先:
+      1) ml_ok == True の中で最新
+      2) p_win / ev_pred / p_tp_first のどれかが入ってる中で最新
+      3) それも無ければ None
+    """
+    cand: List[Dict[str, Any]] = []
+    for r in dataset_rows:
+        if int(r.get("user_id") or 0) != int(user_id):
+            continue
+        # ここは raw なので PRO前提でなくても拾えるが、念のため pro のみ優先
+        # （pro_cash_before などがあれば PRO想定とみなす）
+        cand.append(r)
+
+    if not cand:
+        return None
+
+    def has_any_ml(x: Dict[str, Any]) -> bool:
+        return (
+            x.get("ml_ok") is True
+            or _safe_float(x.get("p_win")) is not None
+            or _safe_float(x.get("ev_pred")) is not None
+            or _safe_float(x.get("p_tp_first")) is not None
+        )
+
+    # ts でソート（無ければ run_date + code で妥協）
+    def sort_key(x: Dict[str, Any]) -> Tuple[int, str]:
+        ts = str(x.get("ts") or "")
+        dt = _parse_ts_any(ts)
+        if dt is not None:
+            return (int(dt.timestamp()), ts)
+        # fallback
+        rd = str(x.get("run_date") or "")
+        return (0, rd)
+
+    # 1) ml_ok True
+    ok = [x for x in cand if x.get("ml_ok") is True]
+    ok = [x for x in ok if has_any_ml(x)]
+    ok.sort(key=sort_key, reverse=True)
+    if ok:
+        return ok[0]
+
+    # 2) any ml fields
+    anyml = [x for x in cand if has_any_ml(x)]
+    anyml.sort(key=sort_key, reverse=True)
+    if anyml:
+        return anyml[0]
+
+    return None
+
+
+def _ml_latest_view_from_raw(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    テンプレ（ml_latest.*）に合わせてキーを整形して返す。
+    """
+    return {
+        "code": str(raw.get("code") or ""),
+
+        "p_win": _safe_float(raw.get("p_win")),
+        "p_tp_first": _safe_float(raw.get("p_tp_first")),
+        "ev_pred": _safe_float(raw.get("ev_pred")),
+        "ev_true": _safe_float(raw.get("ev_true")),
+
+        # Shape（raw側のキー名は entry_k / rr_target / tp_k / sl_k が本命）
+        "shape_entry_k": _safe_float(raw.get("entry_k")),
+        "shape_rr_target": _safe_float(raw.get("rr_target")),
+        "shape_tp_k": _safe_float(raw.get("tp_k")),
+        "shape_sl_k": _safe_float(raw.get("sl_k")),
+    }
 
 
 # =========================
@@ -477,6 +598,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     - simulate/*.jsonl を集計
     - behavior/model/latest_behavior_model_u{user}.json を読む
     - behavior/latest_behavior_side.jsonl を読む
+    - behavior/latest_behavior.jsonl を読む（← 追加：最新ML推論の実数値用）
     - behavior/ticker/latest_ticker_u{user}.json を読む
     - ml/models/latest/meta.json を読む（AUC/RMSEなど）
     """
@@ -491,6 +613,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
 
     model_path = beh_dir / "model" / f"latest_behavior_model_u{user.id}.json"
     side_path = beh_dir / "latest_behavior_side.jsonl"
+    dataset_path = beh_dir / "latest_behavior.jsonl"
     ticker_path = beh_dir / "ticker" / f"latest_ticker_u{user.id}.json"
 
     sim_sum = _summarize_simulate_dir(sim_dir)
@@ -531,6 +654,11 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     ml_meta = _load_ml_latest_meta()
     ml_metrics = _ml_metrics_view(ml_meta)
 
+    # ★ 最新ML推論（実数値）は raw dataset から拾う（- 地獄を終わらせる）
+    dataset_rows = _read_jsonl(dataset_path)
+    raw_latest = _select_latest_ml_inference(dataset_rows, user_id=user.id)
+    ml_latest = _ml_latest_view_from_raw(raw_latest) if raw_latest else None
+
     if not has_data:
         return render(
             request,
@@ -545,6 +673,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
                 "ticker_lines": ticker.get("lines", []),
                 "entry_reason_stats": entry_reason_stats,
                 "ml": ml_metrics,
+                "ml_latest": ml_latest,
             },
         )
 
@@ -568,10 +697,10 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         streak_label=streak_label,
         streak_len=streak_len,
     )
+
+    # 最近の評価（side）
     recent_trades = _extract_recent_trades(side_rows, limit=8)
-    
-    ml_latest = recent_trades[0] if recent_trades else None
-    
+
     ctx = {
         "has_data": True,
         "today_label": today_label,
