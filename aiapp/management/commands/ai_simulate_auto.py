@@ -80,6 +80,12 @@ except Exception:  # pragma: no cover
     LimitConfig = None  # type: ignore
     PositionLimitManager = None  # type: ignore
 
+# ★②ML推論（LightGBM latest）
+try:
+    from aiapp.services.ml_predict import predict_latest
+except Exception:  # pragma: no cover
+    predict_latest = None  # type: ignore
+
 
 # ========= パス定義（MEDIA_ROOT ベース） =========
 PICKS_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "picks"
@@ -898,6 +904,35 @@ class Command(BaseCommand):
                     atr_pick=_safe_float(atr_pick),
                 )
 
+                # ---------- ★② ML predict（latest） ----------
+                ml_ok = False
+                ml_reason = "ml_not_available"
+                p_win = None
+                ev_pred = None
+                p_tp_first = None
+                p_sl_first = None
+
+                if predict_latest is not None:
+                    try:
+                        feat_last = payload_extra.get("feat_last") if isinstance(payload_extra, dict) else None
+                        res = predict_latest(
+                            feat_last=feat_last if isinstance(feat_last, dict) else None,
+                            score_100=score_100,
+                            entry=entry,
+                            tp=tp,
+                            sl=sl,
+                        )
+                        ml_ok = bool(getattr(res, "ok", False))
+                        ml_reason = str(getattr(res, "reason", ""))
+                        if ml_ok:
+                            p_win = getattr(res, "p_win", None)
+                            ev_pred = getattr(res, "ev_pred", None)
+                            p_tp_first = getattr(res, "p_tp_first", None)
+                            p_sl_first = getattr(res, "p_sl_first", None)
+                    except Exception as e:
+                        ml_ok = False
+                        ml_reason = f"ml_exception({type(e).__name__})"
+
                 # ここで使う run 共通メタ（各レコードに入れて監査できるようにする）
                 run_common_pro_meta = {
                     "policy": str(policy_path),
@@ -963,6 +998,15 @@ class Command(BaseCommand):
 
                     # ★NEW
                     "entry_reason": entry_reason,
+
+                    # ★② ML（監査用：全分岐で持つ）
+                    "ml_ok": bool(ml_ok),
+                    "ml_reason": str(ml_reason),
+                    "p_win": (float(p_win) if (p_win is not None and ml_ok) else None),
+                    "ev_pred": (float(ev_pred) if (ev_pred is not None and ml_ok) else None),
+                    "p_tp_first": (float(p_tp_first) if (p_tp_first is not None and ml_ok) else None),
+                    "p_sl_first": (float(p_sl_first) if (p_sl_first is not None and ml_ok) else None),
+                    "ev_true": float(_ev_true_from_behavior(code)),
                 }
 
                 if pro_res is None:
@@ -1001,6 +1045,17 @@ class Command(BaseCommand):
                             **run_common_pro_meta,
                             "status": "skipped_by_pro_filter",
                             "reason": str(pro_reason),
+
+                            # ★② ML監査
+                            "ml": {
+                                "ok": bool(ml_ok),
+                                "reason": str(ml_reason),
+                                "p_win": (float(p_win) if (p_win is not None and ml_ok) else None),
+                                "ev_pred": (float(ev_pred) if (ev_pred is not None and ml_ok) else None),
+                                "p_tp_first": (float(p_tp_first) if (p_tp_first is not None and ml_ok) else None),
+                                "p_sl_first": (float(p_sl_first) if (p_sl_first is not None and ml_ok) else None),
+                                "ev_true": float(_ev_true_from_behavior(code)),
+                            },
                         },
                         **payload_extra,
                     }
@@ -1083,6 +1138,18 @@ class Command(BaseCommand):
                             **run_common_pro_meta,
                             "status": "rejected_by_cash",
                             "reason": f"cap_reject:{cap_reason}",
+
+                            # ★② ML監査
+                            "ml": {
+                                "ok": bool(ml_ok),
+                                "reason": str(ml_reason),
+                                "p_win": (float(p_win) if (p_win is not None and ml_ok) else None),
+                                "ev_pred": (float(ev_pred) if (ev_pred is not None and ml_ok) else None),
+                                "p_tp_first": (float(p_tp_first) if (p_tp_first is not None and ml_ok) else None),
+                                "p_sl_first": (float(p_sl_first) if (p_sl_first is not None and ml_ok) else None),
+                                "ev_true": float(_ev_true_from_behavior(code)),
+                            },
+
                             "cap": {
                                 "remaining_slots": int(remaining_slots),
                                 "target_per_trade_yen": float(target_per_trade_yen),
@@ -1171,6 +1238,18 @@ class Command(BaseCommand):
                             **run_common_pro_meta,
                             "status": "rejected_by_cash",
                             "reason": reason,
+
+                            # ★② ML監査
+                            "ml": {
+                                "ok": bool(ml_ok),
+                                "reason": str(ml_reason),
+                                "p_win": (float(p_win) if (p_win is not None and ml_ok) else None),
+                                "ev_pred": (float(ev_pred) if (ev_pred is not None and ml_ok) else None),
+                                "p_tp_first": (float(p_tp_first) if (p_tp_first is not None and ml_ok) else None),
+                                "p_sl_first": (float(p_sl_first) if (p_sl_first is not None and ml_ok) else None),
+                                "ev_true": float(_ev_true_from_behavior(code)),
+                            },
+
                             "cap": {
                                 "remaining_slots": int(max(1, max_positions - mgr.count_open())),
                                 "target_per_trade_yen": float(target_per_trade_yen),
@@ -1253,6 +1332,18 @@ class Command(BaseCommand):
                         "pro": {
                             **run_common_pro_meta,
                             "status": "skipped_by_limits",
+
+                            # ★② ML監査
+                            "ml": {
+                                "ok": bool(ml_ok),
+                                "reason": str(ml_reason),
+                                "p_win": (float(p_win) if (p_win is not None and ml_ok) else None),
+                                "ev_pred": (float(ev_pred) if (ev_pred is not None and ml_ok) else None),
+                                "p_tp_first": (float(p_tp_first) if (p_tp_first is not None and ml_ok) else None),
+                                "p_sl_first": (float(p_sl_first) if (p_sl_first is not None and ml_ok) else None),
+                                "ev_true": float(_ev_true_from_behavior(code)),
+                            },
+
                             "skip": {
                                 "reason_code": getattr(skip_info, "reason_code", "unknown") if skip_info else "unknown",
                                 "reason_msg": getattr(skip_info, "reason_msg", "") if skip_info else "",
@@ -1397,6 +1488,18 @@ class Command(BaseCommand):
                     "pro": {
                         **run_common_pro_meta,
                         "status": "accepted",
+
+                        # ★② ML監査（acceptedでも残す）
+                        "ml": {
+                            "ok": bool(ml_ok),
+                            "reason": str(ml_reason),
+                            "p_win": (float(p_win) if (p_win is not None and ml_ok) else None),
+                            "ev_pred": (float(ev_pred) if (ev_pred is not None and ml_ok) else None),
+                            "p_tp_first": (float(p_tp_first) if (p_tp_first is not None and ml_ok) else None),
+                            "p_sl_first": (float(p_sl_first) if (p_sl_first is not None and ml_ok) else None),
+                            "ev_true": float(_ev_true_from_behavior(code)),
+                        },
+
                         "cap": {
                             "remaining_slots": int(max(1, max_positions - (mgr.count_open() - 1))),
                             "target_per_trade_yen": float(target_per_trade_yen),
@@ -1433,7 +1536,7 @@ class Command(BaseCommand):
                         f"qty_pro={int(getattr(pro_res,'qty_pro',0) or 0)} req={req_cash:.0f} "
                         f"cap={cap_yen:.0f} cash_before={cash_before:.0f} cash_after={cash_after:.0f} "
                         f"open_now={mgr.count_open()} risk={mgr.total_risk_r:.2f} mode={learn_mode} cap_reason={cap_reason or '-'} "
-                        f"entry_reason={entry_reason}"
+                        f"entry_reason={entry_reason} ml_ok={ml_ok} ml_reason={ml_reason}"
                     )
                     continue
 
