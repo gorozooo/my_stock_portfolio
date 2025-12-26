@@ -46,6 +46,20 @@ class SideRow:
     slope_20: Optional[float]
     trend_daily: Optional[str]
 
+    # ---- 追加：表示＆学習の“原因” ----
+    entry_reason: Optional[str]
+
+    # ---- 追加：ML実数値（ログが入っていれば表示できる）----
+    p_win: Optional[float]
+    p_tp_first: Optional[float]
+    ev_pred: Optional[float]
+    ev_true: Optional[float]
+
+    entry_k: Optional[float]
+    rr_target: Optional[float]
+    tp_k: Optional[float]
+    sl_k: Optional[float]
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "user_id": self.user_id,
@@ -69,6 +83,19 @@ class SideRow:
             "atr_14": self.atr_14,
             "slope_20": self.slope_20,
             "trend_daily": self.trend_daily,
+
+            # 追加
+            "entry_reason": self.entry_reason,
+
+            # 追加（ML）
+            "p_win": self.p_win,
+            "p_tp_first": self.p_tp_first,
+            "ev_pred": self.ev_pred,
+            "ev_true": self.ev_true,
+            "entry_k": self.entry_k,
+            "rr_target": self.rr_target,
+            "tp_k": self.tp_k,
+            "sl_k": self.sl_k,
         }
 
 
@@ -88,6 +115,36 @@ def _safe_int(v: Any) -> Optional[int]:
         return int(v)
     except Exception:
         return None
+
+
+def _safe_str(v: Any) -> Optional[str]:
+    if v in (None, "", "null"):
+        return None
+    s = str(v).strip()
+    return s if s else None
+
+
+def _get_nested(d: Dict[str, Any], path: str) -> Any:
+    """
+    path例: "replay.meta.entry_reason"
+    """
+    cur: Any = d
+    for k in path.split("."):
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(k)
+    return cur
+
+
+def _pick_first(d: Dict[str, Any], keys: List[str], nested_paths: List[str] = []) -> Any:
+    for k in keys:
+        if k in d and d.get(k) not in (None, "", "null"):
+            return d.get(k)
+    for p in nested_paths:
+        v = _get_nested(d, p)
+        if v not in (None, "", "null"):
+            return v
+    return None
 
 
 def _atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
@@ -313,6 +370,69 @@ class Command(BaseCommand):
         est_pl = _safe_float(r.get("est_pl_pro"))
         est_loss = _safe_float(r.get("est_loss_pro"))
 
+        # ---------------------------
+        # entry_reason（できるだけ拾う）
+        # ---------------------------
+        entry_reason = _pick_first(
+            r,
+            keys=[
+                "entry_reason",
+                "entry_reason_pro",
+            ],
+            nested_paths=[
+                "replay.meta.entry_reason",
+                "replay.entry_reason",
+                "meta.entry_reason",
+            ],
+        )
+        entry_reason = _safe_str(entry_reason)
+
+        # ---------------------------
+        # ML 実数値（ログが入っていれば拾う）
+        # ※ どのキー名でも拾えるように “候補を多重化”
+        # ---------------------------
+        p_win = _pick_first(
+            r,
+            keys=["p_win", "p_win_pro", "ml_p_win", "pwin"],
+            nested_paths=["ml.p_win", "ml.pwin", "replay.ml.p_win", "replay.meta.p_win"],
+        )
+        p_tp_first = _pick_first(
+            r,
+            keys=["p_tp_first", "p_tp_first_pro", "ml_p_tp_first", "ptp_first"],
+            nested_paths=["ml.p_tp_first", "replay.ml.p_tp_first", "replay.meta.p_tp_first"],
+        )
+        ev_pred = _pick_first(
+            r,
+            keys=["ev_pred", "ev_pred_pro", "ml_ev_pred", "EV_pred"],
+            nested_paths=["ml.ev_pred", "replay.ml.ev_pred", "replay.meta.ev_pred"],
+        )
+        ev_true = _pick_first(
+            r,
+            keys=["ev_true", "ev_true_pro", "ml_ev_true", "EV_true"],
+            nested_paths=["ml.ev_true", "replay.ml.ev_true", "replay.meta.ev_true"],
+        )
+
+        entry_k = _pick_first(
+            r,
+            keys=["entry_k", "entry_k_pro", "ml_entry_k"],
+            nested_paths=["ml.entry_k", "replay.ml.entry_k", "replay.meta.entry_k"],
+        )
+        rr_target = _pick_first(
+            r,
+            keys=["rr_target", "rr_target_pro", "ml_rr_target", "rr"],
+            nested_paths=["ml.rr_target", "replay.ml.rr_target", "replay.meta.rr_target"],
+        )
+        tp_k = _pick_first(
+            r,
+            keys=["tp_k", "tp_k_pro", "ml_tp_k"],
+            nested_paths=["ml.tp_k", "replay.ml.tp_k", "replay.meta.tp_k"],
+        )
+        sl_k = _pick_first(
+            r,
+            keys=["sl_k", "sl_k_pro", "ml_sl_k"],
+            nested_paths=["ml.sl_k", "replay.ml.sl_k", "replay.meta.sl_k"],
+        )
+
         return SideRow(
             broker="pro",
             qty=float(qty),
@@ -321,5 +441,17 @@ class Command(BaseCommand):
             eval_pl=float(eval_pl),
             eval_r=eval_r,
             eval_label=eval_label,
+
+            entry_reason=entry_reason,
+
+            p_win=_safe_float(p_win),
+            p_tp_first=_safe_float(p_tp_first),
+            ev_pred=_safe_float(ev_pred),
+            ev_true=_safe_float(ev_true),
+            entry_k=_safe_float(entry_k),
+            rr_target=_safe_float(rr_target),
+            tp_k=_safe_float(tp_k),
+            sl_k=_safe_float(sl_k),
+
             **base_kwargs,
         )
