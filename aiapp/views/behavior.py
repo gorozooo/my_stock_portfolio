@@ -1,3 +1,4 @@
+# behavior.py
 from __future__ import annotations
 
 import glob
@@ -305,6 +306,7 @@ def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> L
         ev_true = _pick_any_float(r, ["ev_true", "ml_ev_true"])
 
         # --- Shape（Entry/TP/SLの係数など。無ければNone） ---
+        # ここは side_rows 側なので「shape_*」優先にしておく
         shape_entry_k = _pick_any_float(r, ["shape_entry_k", "entry_k"])
         shape_rr_target = _pick_any_float(r, ["shape_rr_target", "rr_target"])
         shape_tp_k = _pick_any_float(r, ["shape_tp_k", "tp_k"])
@@ -474,7 +476,7 @@ def _ml_metrics_view(meta: Dict[str, Any]) -> Dict[str, Any]:
         "created_at": str(meta.get("created_at") or ""),
         "rows": int(meta.get("rows") or 0),
         "train_rows": int(meta.get("train_rows") or 0),
-        "valid_rows": int(meta.get("valid_rows") or metrics.get("valid_rows") or 0),
+        "valid_rows": int(meta.get("valid_rows") or 0),
         "best_iteration": meta.get("best_iteration") if isinstance(meta.get("best_iteration"), dict) else {},
 
         "pwin_auc": _safe_float(pwin.get("auc")),
@@ -489,7 +491,7 @@ def _ml_metrics_view(meta: Dict[str, Any]) -> Dict[str, Any]:
         "hold_mae": _safe_float(hold.get("mae")),
 
         # 表示分岐
-        "has_metrics": bool(metrics) and (int(metrics.get("valid_rows") or 0) > 0 or int(meta.get("valid_rows") or 0) > 0),
+        "has_metrics": bool(metrics) and (int(meta.get("valid_rows") or 0) > 0),
         "has_tp_first": (tp_acc is not None) or (_safe_float(tp.get("logloss")) is not None),
         "has_hold_days": (_safe_float(hold.get("mae")) is not None),
     }
@@ -526,19 +528,28 @@ def _select_latest_ml_inference(
     for r in dataset_rows:
         if int(r.get("user_id") or 0) != int(user_id):
             continue
-        # ここは raw なので PRO前提でなくても拾えるが、念のため pro のみ優先
-        # （pro_cash_before などがあれば PRO想定とみなす）
         cand.append(r)
 
     if not cand:
         return None
 
     def has_any_ml(x: Dict[str, Any]) -> bool:
+        # 直下だけじゃなく sim_order などに入ってる場合もあるので拾う
+        x2 = x
+        so = x.get("sim_order")
+        if isinstance(so, dict) and so:
+            x2 = {**x2, **so}
+        rp = x.get("replay")
+        if isinstance(rp, dict) and rp:
+            so2 = rp.get("sim_order")
+            if isinstance(so2, dict) and so2:
+                x2 = {**x2, **so2}
+
         return (
             x.get("ml_ok") is True
-            or _safe_float(x.get("p_win")) is not None
-            or _safe_float(x.get("ev_pred")) is not None
-            or _safe_float(x.get("p_tp_first")) is not None
+            or _safe_float(x2.get("p_win")) is not None
+            or _safe_float(x2.get("ev_pred")) is not None
+            or _safe_float(x2.get("p_tp_first")) is not None
         )
 
     # ts でソート（無ければ run_date + code で妥協）
@@ -567,23 +578,65 @@ def _select_latest_ml_inference(
     return None
 
 
+def _merge_sim_order_sources(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    shape/係数がどこに入ってても拾えるように、候補をマージする。
+    優先順:
+      1) raw 直下
+      2) raw["sim_order"]
+      3) raw["replay"]["sim_order"]
+    ※ 後勝ち（後のdictで上書き）だと優先が逆になるので、手動で順序を作る。
+    """
+    merged: Dict[str, Any] = {}
+    if isinstance(raw, dict):
+        merged.update(raw)
+
+        so = raw.get("sim_order")
+        if isinstance(so, dict) and so:
+            # sim_order の方が “本命”になりがちなので上書きOK
+            merged.update(so)
+
+        rp = raw.get("replay")
+        if isinstance(rp, dict) and rp:
+            so2 = rp.get("sim_order")
+            if isinstance(so2, dict) and so2:
+                merged.update(so2)
+
+    return merged
+
+
 def _ml_latest_view_from_raw(raw: Dict[str, Any]) -> Dict[str, Any]:
     """
     テンプレ（ml_latest.*）に合わせてキーを整形して返す。
+    - ML数値は直下/ネストをまとめて拾う
+    - Shapeは shape_* を最優先で拾う（無ければ entry_k 等）
     """
+    merged = _merge_sim_order_sources(raw or {})
+
+    # ML numbers（キー揺れも吸収）
+    p_win = _pick_any_float(merged, ["p_win", "ml_pwin", "ml_p_win"])
+    p_tp_first = _pick_any_float(merged, ["p_tp_first", "ml_p_tp_first", "ml_tp_first"])
+    ev_pred = _pick_any_float(merged, ["ev_pred", "ml_ev_pred", "ev_ml", "pred_ev"])
+    ev_true = _pick_any_float(merged, ["ev_true", "ml_ev_true"])
+
+    # Shape（ここが白枠の本体）
+    shape_entry_k = _pick_any_float(merged, ["shape_entry_k", "entry_k"])
+    shape_rr_target = _pick_any_float(merged, ["shape_rr_target", "rr_target"])
+    shape_tp_k = _pick_any_float(merged, ["shape_tp_k", "tp_k"])
+    shape_sl_k = _pick_any_float(merged, ["shape_sl_k", "sl_k"])
+
     return {
-        "code": str(raw.get("code") or ""),
+        "code": str(merged.get("code") or raw.get("code") or ""),
 
-        "p_win": _safe_float(raw.get("p_win")),
-        "p_tp_first": _safe_float(raw.get("p_tp_first")),
-        "ev_pred": _safe_float(raw.get("ev_pred")),
-        "ev_true": _safe_float(raw.get("ev_true")),
+        "p_win": p_win,
+        "p_tp_first": p_tp_first,
+        "ev_pred": ev_pred,
+        "ev_true": ev_true,
 
-        # Shape（raw側のキー名は entry_k / rr_target / tp_k / sl_k が本命）
-        "shape_entry_k": _safe_float(raw.get("entry_k")),
-        "shape_rr_target": _safe_float(raw.get("rr_target")),
-        "shape_tp_k": _safe_float(raw.get("tp_k")),
-        "shape_sl_k": _safe_float(raw.get("sl_k")),
+        "shape_entry_k": shape_entry_k,
+        "shape_rr_target": shape_rr_target,
+        "shape_tp_k": shape_tp_k,
+        "shape_sl_k": shape_sl_k,
     }
 
 
