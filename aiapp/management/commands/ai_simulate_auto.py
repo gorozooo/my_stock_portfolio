@@ -38,6 +38,10 @@ ai_simulate_auto
 ★A案（詰まり解消）：
 - 同時ポジション制限で “OPEN扱い” に数えるのは、PROで accepted になったものだけ
   → 過去の carry（PRO移行前の残骸）は枠を食わない
+
+★B（今回の実装）：
+- shape（entry_k/rr_target/tp_k/sl_k）を simulate 側が必ず吐く
+  → ml_ok=False でも shape はデフォルト形で数値を埋める（UIが毎日安定）
 """
 
 from __future__ import annotations
@@ -85,6 +89,12 @@ try:
     from aiapp.services.ml_predict import predict_latest
 except Exception:  # pragma: no cover
     predict_latest = None  # type: ignore
+
+# ★B: shape係数（simulate側で必ず吐く）
+try:
+    from aiapp.services.entry_service import compute_shape_coeffs
+except Exception:  # pragma: no cover
+    compute_shape_coeffs = None  # type: ignore
 
 
 # ========= パス定義（MEDIA_ROOT ベース） =========
@@ -933,6 +943,44 @@ class Command(BaseCommand):
                         ml_ok = False
                         ml_reason = f"ml_exception({type(e).__name__})"
 
+                # =========================================================
+                # ★B: shape を simulate 側で必ず吐く（ml_ok=Falseでも）
+                # =========================================================
+                shape_entry_k = None
+                shape_rr_target = None
+                shape_tp_k = None
+                shape_sl_k = None
+
+                if compute_shape_coeffs is not None:
+                    try:
+                        # last/atr は「形」用に last_close を優先（無ければ entry からでも）
+                        last_for_shape = _safe_float(last_close)
+                        if last_for_shape is None:
+                            last_for_shape = _safe_float(entry)
+                        atr_for_shape = _safe_float(atr_pick)
+
+                        # B仕様：ml_ok=Falseなら p_tp_first を渡さない（= None）
+                        p_for_shape = _safe_float(p_tp_first) if ml_ok else None
+
+                        # mode/horizon は meta に合わせる（style は aggressive 等）
+                        sh = compute_shape_coeffs(
+                            last=float(last_for_shape) if last_for_shape is not None else 0.0,
+                            atr=float(atr_for_shape) if atr_for_shape is not None else 0.0,
+                            mode=str(style or "aggressive"),
+                            horizon=str(horizon or "short"),
+                            p_tp_first=p_for_shape,
+                        )
+                        if isinstance(sh, dict):
+                            shape_entry_k = sh.get("entry_k")
+                            shape_rr_target = sh.get("rr_target")
+                            shape_tp_k = sh.get("tp_k")
+                            shape_sl_k = sh.get("sl_k")
+                    except Exception:
+                        shape_entry_k = None
+                        shape_rr_target = None
+                        shape_tp_k = None
+                        shape_sl_k = None
+
                 # ここで使う run 共通メタ（各レコードに入れて監査できるようにする）
                 run_common_pro_meta = {
                     "policy": str(policy_path),
@@ -951,6 +999,16 @@ class Command(BaseCommand):
                         if (it.get("entry_reason") or it.get("reason") or it.get("setup") or it.get("scenario"))
                         else ("tags" if it.get("tags") else "default")
                     ),
+
+                    # ★B: shape 監査（常に埋める想定）
+                    "shape": {
+                        "entry_k": (float(shape_entry_k) if shape_entry_k is not None else None),
+                        "rr_target": (float(shape_rr_target) if shape_rr_target is not None else None),
+                        "tp_k": (float(shape_tp_k) if shape_tp_k is not None else None),
+                        "sl_k": (float(shape_sl_k) if shape_sl_k is not None else None),
+                        "src": "entry_service.compute_shape_coeffs" if compute_shape_coeffs is not None else "not_available",
+                        "p_tp_first_used": (float(_safe_float(p_tp_first)) if (ml_ok and _safe_float(p_tp_first) is not None) else None),
+                    },
                 }
 
                 # ---------- PRO sizing + filters（合成済 policy を渡す） ----------
@@ -1007,6 +1065,18 @@ class Command(BaseCommand):
                     "p_tp_first": (float(p_tp_first) if (p_tp_first is not None and ml_ok) else None),
                     "p_sl_first": (float(p_sl_first) if (p_sl_first is not None and ml_ok) else None),
                     "ev_true": float(_ev_true_from_behavior(code)),
+
+                    # ★B: shape（simulate側が吐く本体）
+                    "entry_k": (float(shape_entry_k) if shape_entry_k is not None else None),
+                    "rr_target": (float(shape_rr_target) if shape_rr_target is not None else None),
+                    "tp_k": (float(shape_tp_k) if shape_tp_k is not None else None),
+                    "sl_k": (float(shape_sl_k) if shape_sl_k is not None else None),
+
+                    # ★互換キー（UI/調査用に “shape_*” も同値で入れる）
+                    "shape_entry_k": (float(shape_entry_k) if shape_entry_k is not None else None),
+                    "shape_rr_target": (float(shape_rr_target) if shape_rr_target is not None else None),
+                    "shape_tp_k": (float(shape_tp_k) if shape_tp_k is not None else None),
+                    "shape_sl_k": (float(shape_sl_k) if shape_sl_k is not None else None),
                 }
 
                 if pro_res is None:
@@ -1536,7 +1606,8 @@ class Command(BaseCommand):
                         f"qty_pro={int(getattr(pro_res,'qty_pro',0) or 0)} req={req_cash:.0f} "
                         f"cap={cap_yen:.0f} cash_before={cash_before:.0f} cash_after={cash_after:.0f} "
                         f"open_now={mgr.count_open()} risk={mgr.total_risk_r:.2f} mode={learn_mode} cap_reason={cap_reason or '-'} "
-                        f"entry_reason={entry_reason} ml_ok={ml_ok} ml_reason={ml_reason}"
+                        f"entry_reason={entry_reason} ml_ok={ml_ok} ml_reason={ml_reason} "
+                        f"shape(entry_k={shape_entry_k}, rr={shape_rr_target}, tp_k={shape_tp_k}, sl_k={shape_sl_k})"
                     )
                     continue
 
