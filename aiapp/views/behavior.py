@@ -306,7 +306,6 @@ def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> L
         ev_true = _pick_any_float(r, ["ev_true", "ml_ev_true"])
 
         # --- Shape（Entry/TP/SLの係数など。無ければNone） ---
-        # ここは side_rows 側なので「shape_*」優先にしておく
         shape_entry_k = _pick_any_float(r, ["shape_entry_k", "entry_k"])
         shape_rr_target = _pick_any_float(r, ["shape_rr_target", "rr_target"])
         shape_tp_k = _pick_any_float(r, ["shape_tp_k", "tp_k"])
@@ -505,7 +504,6 @@ def _parse_ts_any(s: str) -> Optional[datetime]:
     if not s:
         return None
     try:
-        # "2025-12-26T17:56:40.770568+09:00"
         return datetime.fromisoformat(s)
     except Exception:
         return None
@@ -534,42 +532,39 @@ def _select_latest_ml_inference(
         return None
 
     def has_any_ml(x: Dict[str, Any]) -> bool:
-        # 直下だけじゃなく sim_order などに入ってる場合もあるので拾う
-        x2 = x
+        # 直下だけじゃなく sim_order / replay.sim_order を展開して拾う
+        x2 = dict(x)
+
         so = x.get("sim_order")
         if isinstance(so, dict) and so:
-            x2 = {**x2, **so}
+            x2.update(so)
+
         rp = x.get("replay")
         if isinstance(rp, dict) and rp:
             so2 = rp.get("sim_order")
             if isinstance(so2, dict) and so2:
-                x2 = {**x2, **so2}
+                x2.update(so2)
 
         return (
-            x.get("ml_ok") is True
+            x2.get("ml_ok") is True
             or _safe_float(x2.get("p_win")) is not None
             or _safe_float(x2.get("ev_pred")) is not None
             or _safe_float(x2.get("p_tp_first")) is not None
         )
 
-    # ts でソート（無ければ run_date + code で妥協）
     def sort_key(x: Dict[str, Any]) -> Tuple[int, str]:
         ts = str(x.get("ts") or "")
         dt = _parse_ts_any(ts)
         if dt is not None:
             return (int(dt.timestamp()), ts)
-        # fallback
         rd = str(x.get("run_date") or "")
         return (0, rd)
 
-    # 1) ml_ok True
-    ok = [x for x in cand if x.get("ml_ok") is True]
-    ok = [x for x in ok if has_any_ml(x)]
+    ok = [x for x in cand if has_any_ml(x) and (x.get("ml_ok") is True)]
     ok.sort(key=sort_key, reverse=True)
     if ok:
         return ok[0]
 
-    # 2) any ml fields
     anyml = [x for x in cand if has_any_ml(x)]
     anyml.sort(key=sort_key, reverse=True)
     if anyml:
@@ -580,27 +575,40 @@ def _select_latest_ml_inference(
 
 def _merge_sim_order_sources(raw: Dict[str, Any]) -> Dict[str, Any]:
     """
-    shape/係数がどこに入ってても拾えるように、候補をマージする。
-    優先順:
+    shape/係数がどこに入ってても拾えるように候補をマージする。
+
+    ✅ 優先順位（強い順）:
       1) raw 直下
       2) raw["sim_order"]
       3) raw["replay"]["sim_order"]
-    ※ 後勝ち（後のdictで上書き）だと優先が逆になるので、手動で順序を作る。
+
+    ✅ 重要:
+      - None / "" / "null" で “良い値” を上書きしない（白枠の '-' 地獄を防ぐ）
     """
+    def put_non_null(dst: Dict[str, Any], src: Dict[str, Any]) -> None:
+        for k, v in (src or {}).items():
+            if v in (None, "", "null"):
+                continue
+            dst[k] = v
+
     merged: Dict[str, Any] = {}
-    if isinstance(raw, dict):
-        merged.update(raw)
 
-        so = raw.get("sim_order")
-        if isinstance(so, dict) and so:
-            # sim_order の方が “本命”になりがちなので上書きOK
-            merged.update(so)
+    if not isinstance(raw, dict):
+        return merged
 
-        rp = raw.get("replay")
-        if isinstance(rp, dict) and rp:
-            so2 = rp.get("sim_order")
-            if isinstance(so2, dict) and so2:
-                merged.update(so2)
+    # まず弱い順に積む（replay -> sim_order -> raw）
+    rp = raw.get("replay")
+    if isinstance(rp, dict) and rp:
+        so2 = rp.get("sim_order")
+        if isinstance(so2, dict) and so2:
+            put_non_null(merged, so2)
+
+    so = raw.get("sim_order")
+    if isinstance(so, dict) and so:
+        put_non_null(merged, so)
+
+    # 最強：raw直下（最後に上書き）
+    put_non_null(merged, raw)
 
     return merged
 
@@ -619,7 +627,7 @@ def _ml_latest_view_from_raw(raw: Dict[str, Any]) -> Dict[str, Any]:
     ev_pred = _pick_any_float(merged, ["ev_pred", "ml_ev_pred", "ev_ml", "pred_ev"])
     ev_true = _pick_any_float(merged, ["ev_true", "ml_ev_true"])
 
-    # Shape（ここが白枠の本体）
+    # Shape（白枠の本体）
     shape_entry_k = _pick_any_float(merged, ["shape_entry_k", "entry_k"])
     shape_rr_target = _pick_any_float(merged, ["shape_rr_target", "rr_target"])
     shape_tp_k = _pick_any_float(merged, ["shape_tp_k", "tp_k"])
@@ -651,7 +659,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     - simulate/*.jsonl を集計
     - behavior/model/latest_behavior_model_u{user}.json を読む
     - behavior/latest_behavior_side.jsonl を読む
-    - behavior/latest_behavior.jsonl を読む（← 追加：最新ML推論の実数値用）
+    - behavior/latest_behavior.jsonl を読む（← 最新ML推論の実数値用）
     - behavior/ticker/latest_ticker_u{user}.json を読む
     - ml/models/latest/meta.json を読む（AUC/RMSEなど）
     """
@@ -703,11 +711,11 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     # entry_reason 別
     entry_reason_stats = _build_entry_reason_stats_from_side(side_rows)
 
-    # ★ ML metrics（AUC/RMSEなど）
+    # ML metrics（AUC/RMSEなど）
     ml_meta = _load_ml_latest_meta()
     ml_metrics = _ml_metrics_view(ml_meta)
 
-    # ★ 最新ML推論（実数値）は raw dataset から拾う（- 地獄を終わらせる）
+    # 最新ML推論（実数値）: raw dataset から拾う
     dataset_rows = _read_jsonl(dataset_path)
     raw_latest = _select_latest_ml_inference(dataset_rows, user_id=user.id)
     ml_latest = _ml_latest_view_from_raw(raw_latest) if raw_latest else None
