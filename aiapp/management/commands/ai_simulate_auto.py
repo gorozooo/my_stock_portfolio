@@ -101,6 +101,10 @@ except Exception:  # pragma: no cover
 PICKS_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "picks"
 SIM_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "simulate"
 
+# ★NEW: behavior latest（UIが末尾1行を見る）
+BEHAVIOR_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "behavior"
+BEHAVIOR_LATEST = BEHAVIOR_DIR / "latest_behavior.jsonl"
+
 
 # ========= 時刻ユーティリティ（JST固定） =========
 def _now_jst():
@@ -718,6 +722,78 @@ def _make_vtrade_defaults_base(
     )
 
 
+# =========================================================
+# ★NEW: behavior/latest_behavior.jsonl へ追記（UIが末尾1行を見る）
+# =========================================================
+def _append_latest_behavior_jsonl(row: Dict[str, Any]) -> None:
+    """
+    media/aiapp/behavior/latest_behavior.jsonl に 1行JSON を追記する。
+    - 既存コマンド(build_behavior_dataset 等)が作る形式に「寄せる」ため、
+      UIで参照されるキーは必ずトップレベルに置く（entry_k/rr_target/tp_k/sl_k 等）。
+    """
+    try:
+        BEHAVIOR_DIR.mkdir(parents=True, exist_ok=True)
+        with BEHAVIOR_LATEST.open("a", encoding="utf-8") as fw:
+            fw.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except Exception:
+        # ここで落ちるとシミュレ全体が止まるので黙って握る（ログはDB側に残る）
+        return
+
+
+def _make_behavior_row_for_ui(
+    *,
+    code: str,
+    ts_iso: str,
+    sim_order: Optional[Dict[str, Any]],
+    replay: Optional[Dict[str, Any]],
+    ml_ok: bool,
+    p_win: Any,
+    ev_pred: Any,
+    p_tp_first: Any,
+    p_sl_first: Any,
+    ev_true: float,
+    shape_entry_k: Any,
+    shape_rr_target: Any,
+    shape_tp_k: Any,
+    shape_sl_k: Any,
+) -> Dict[str, Any]:
+    """
+    UIが末尾1行だけ読んでも安定して表示できるように、必要キーをトップレベルに整形する。
+    """
+    def f3(x):
+        v = _safe_float(x)
+        return float(v) if v is not None else None
+
+    return {
+        "code": str(code),
+        "ts": str(ts_iso),
+
+        # ML
+        "ml_ok": bool(ml_ok),
+        "p_win": f3(p_win) if ml_ok else None,
+        "ev_pred": f3(ev_pred) if ml_ok else None,
+        "p_tp_first": f3(p_tp_first) if ml_ok else None,
+        "p_sl_first": f3(p_sl_first) if ml_ok else None,
+        "ev_true": float(ev_true),
+
+        # shape（★B：simulate側が必ず吐く本体）
+        "entry_k": f3(shape_entry_k),
+        "rr_target": f3(shape_rr_target),
+        "tp_k": f3(shape_tp_k),
+        "sl_k": f3(shape_sl_k),
+
+        # 互換キー（UI/調査用）
+        "shape_entry_k": f3(shape_entry_k),
+        "shape_rr_target": f3(shape_rr_target),
+        "shape_tp_k": f3(shape_tp_k),
+        "shape_sl_k": f3(shape_sl_k),
+
+        # 原本（調査用）
+        "sim_order": sim_order if isinstance(sim_order, dict) else None,
+        "replay": replay if isinstance(replay, dict) else None,
+    }
+
+
 class Command(BaseCommand):
     help = "AIフル自動シミュレ用：DEMO紙トレ注文を JSONL に起票 + VirtualTrade同期（PRO仕様）"
 
@@ -864,6 +940,10 @@ class Command(BaseCommand):
         rejected_by_cash = 0
         skipped_pro_filter = 0
         skipped_limits = 0
+
+        # ★NEW: behavior latest に書く候補（accepted優先）
+        last_behavior_any: Optional[Dict[str, Any]] = None
+        last_behavior_accepted: Optional[Dict[str, Any]] = None
 
         # ---------- header log ----------
         if dry_run:
@@ -1130,6 +1210,24 @@ class Command(BaseCommand):
                         **payload_extra,
                     }
 
+                    # ★NEW: behavior候補（acceptedが無いrunの保険）
+                    last_behavior_any = _make_behavior_row_for_ui(
+                        code=code,
+                        ts_iso=ts_iso,
+                        sim_order=sim_order_base,
+                        replay=defaults.get("replay"),
+                        ml_ok=ml_ok,
+                        p_win=p_win,
+                        ev_pred=ev_pred,
+                        p_tp_first=p_tp_first,
+                        p_sl_first=p_sl_first,
+                        ev_true=float(_ev_true_from_behavior(code)),
+                        shape_entry_k=shape_entry_k,
+                        shape_rr_target=shape_rr_target,
+                        shape_tp_k=shape_tp_k,
+                        shape_sl_k=shape_sl_k,
+                    )
+
                     if not dry_run:
                         VirtualTrade.objects.update_or_create(
                             user=user,
@@ -1243,6 +1341,24 @@ class Command(BaseCommand):
                         **payload_extra,
                     }
 
+                    # ★NEW: behavior候補（acceptedが無いrunの保険）
+                    last_behavior_any = _make_behavior_row_for_ui(
+                        code=code,
+                        ts_iso=ts_iso,
+                        sim_order=sim_order_base,
+                        replay=defaults.get("replay"),
+                        ml_ok=ml_ok,
+                        p_win=p_win,
+                        ev_pred=ev_pred,
+                        p_tp_first=p_tp_first,
+                        p_sl_first=p_sl_first,
+                        ev_true=float(_ev_true_from_behavior(code)),
+                        shape_entry_k=shape_entry_k,
+                        shape_rr_target=shape_rr_target,
+                        shape_tp_k=shape_tp_k,
+                        shape_sl_k=shape_sl_k,
+                    )
+
                     if dry_run:
                         self.stdout.write(
                             f"  reject_cap code={code} cap_reason={cap_reason} cap={cap_yen:.0f} cash_left={cash_left:.0f} entry_reason={entry_reason}"
@@ -1344,6 +1460,24 @@ class Command(BaseCommand):
                         **payload_extra,
                     }
 
+                    # ★NEW: behavior候補（acceptedが無いrunの保険）
+                    last_behavior_any = _make_behavior_row_for_ui(
+                        code=code,
+                        ts_iso=ts_iso,
+                        sim_order=sim_order_base,
+                        replay=defaults.get("replay"),
+                        ml_ok=ml_ok,
+                        p_win=p_win,
+                        ev_pred=ev_pred,
+                        p_tp_first=p_tp_first,
+                        p_sl_first=p_sl_first,
+                        ev_true=float(_ev_true_from_behavior(code)),
+                        shape_entry_k=shape_entry_k,
+                        shape_rr_target=shape_rr_target,
+                        shape_tp_k=shape_tp_k,
+                        shape_sl_k=shape_sl_k,
+                    )
+
                     if dry_run:
                         self.stdout.write(
                             f"  reject_cash code={code} req={req_cash:.0f} cash_left={cash_before:.0f} entry_reason={entry_reason}"
@@ -1443,6 +1577,24 @@ class Command(BaseCommand):
                         },
                         **payload_extra,
                     }
+
+                    # ★NEW: behavior候補（acceptedが無いrunの保険）
+                    last_behavior_any = _make_behavior_row_for_ui(
+                        code=code,
+                        ts_iso=ts_iso,
+                        sim_order=sim_order_base,
+                        replay=defaults.get("replay"),
+                        ml_ok=ml_ok,
+                        p_win=p_win,
+                        ev_pred=ev_pred,
+                        p_tp_first=p_tp_first,
+                        p_sl_first=p_sl_first,
+                        ev_true=float(_ev_true_from_behavior(code)),
+                        shape_entry_k=shape_entry_k,
+                        shape_rr_target=shape_rr_target,
+                        shape_tp_k=shape_tp_k,
+                        shape_sl_k=shape_sl_k,
+                    )
 
                     if dry_run:
                         self.stdout.write(
@@ -1600,6 +1752,25 @@ class Command(BaseCommand):
                     **payload_extra,
                 }
 
+                # ★NEW: behavior候補（accepted優先で末尾1行を確実に更新）
+                last_behavior_any = _make_behavior_row_for_ui(
+                    code=code,
+                    ts_iso=ts_iso,
+                    sim_order=rec,
+                    replay=defaults.get("replay"),
+                    ml_ok=ml_ok,
+                    p_win=p_win,
+                    ev_pred=ev_pred,
+                    p_tp_first=p_tp_first,
+                    p_sl_first=p_sl_first,
+                    ev_true=float(_ev_true_from_behavior(code)),
+                    shape_entry_k=shape_entry_k,
+                    shape_rr_target=shape_rr_target,
+                    shape_tp_k=shape_tp_k,
+                    shape_sl_k=shape_sl_k,
+                )
+                last_behavior_accepted = last_behavior_any
+
                 if dry_run:
                     self.stdout.write(
                         f"  accept code={code} ev={_ev_true_from_behavior(code):.3f} "
@@ -1628,6 +1799,12 @@ class Command(BaseCommand):
         finally:
             if fw is not None:
                 fw.close()
+
+        # ★NEW: runの最後に behavior/latest_behavior.jsonl を必ず更新（accepted優先）
+        if not dry_run:
+            row_to_write = last_behavior_accepted or last_behavior_any
+            if isinstance(row_to_write, dict) and row_to_write:
+                _append_latest_behavior_jsonl(row_to_write)
 
         if dry_run:
             self.stdout.write(
