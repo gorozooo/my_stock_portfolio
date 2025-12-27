@@ -1,4 +1,4 @@
-# behavior.py
+# aiapp/views/behavior.py
 from __future__ import annotations
 
 import glob
@@ -29,6 +29,23 @@ def _safe_float(v: Any) -> Optional[float]:
         return float(v)
     except Exception:
         return None
+
+
+def _as_raw_str(v: Any) -> str:
+    """
+    ✅ 表示用 value は「丸めない」方針
+    - None は "-"
+    - 数値は str() でそのまま（丸めない）
+    """
+    if v is None:
+        return "-"
+    # bool は数値と混ざるので明示
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    try:
+        return str(v)
+    except Exception:
+        return "-"
 
 
 def _read_json(path: Path) -> Optional[Dict[str, Any]]:
@@ -306,7 +323,6 @@ def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> L
         ev_true = _pick_any_float(r, ["ev_true", "ml_ev_true"])
 
         # --- Shape（Entry/TP/SLの係数など。無ければNone） ---
-        # ここは side_rows 側なので「shape_*」優先にしておく
         shape_entry_k = _pick_any_float(r, ["shape_entry_k", "entry_k"])
         shape_rr_target = _pick_any_float(r, ["shape_rr_target", "rr_target"])
         shape_tp_k = _pick_any_float(r, ["shape_tp_k", "tp_k"])
@@ -458,14 +474,12 @@ def _get_metrics_block(metrics: Dict[str, Any], keys: List[str]) -> Dict[str, An
 def _ml_metrics_view(meta: Dict[str, Any]) -> Dict[str, Any]:
     """
     テンプレ表示用に要約して渡す。
-    ※ tp_first が “-” になる問題は、meta.json のキー揺れを吸収して解決する。
     """
     metrics = meta.get("metrics") if isinstance(meta.get("metrics"), dict) else {}
 
     pwin = _get_metrics_block(metrics, ["p_win", "pwin", "win"])
     ev = _get_metrics_block(metrics, ["ev", "expected_value"])
     tp = _get_metrics_block(metrics, ["tp_first", "p_tp_first", "tp"])
-    hold = _get_metrics_block(metrics, ["hold_days_pred", "hold_days", "hold"])
 
     # accuracy のキーも揺れがちなので吸収
     tp_acc = _safe_float(tp.get("accuracy"))
@@ -477,7 +491,6 @@ def _ml_metrics_view(meta: Dict[str, Any]) -> Dict[str, Any]:
         "rows": int(meta.get("rows") or 0),
         "train_rows": int(meta.get("train_rows") or 0),
         "valid_rows": int(meta.get("valid_rows") or 0),
-        "best_iteration": meta.get("best_iteration") if isinstance(meta.get("best_iteration"), dict) else {},
 
         "pwin_auc": _safe_float(pwin.get("auc")),
         "pwin_logloss": _safe_float(pwin.get("logloss")),
@@ -488,24 +501,201 @@ def _ml_metrics_view(meta: Dict[str, Any]) -> Dict[str, Any]:
         "tp_acc": tp_acc,
         "tp_logloss": _safe_float(tp.get("logloss")),
 
-        "hold_mae": _safe_float(hold.get("mae")),
-
         # 表示分岐
         "has_metrics": bool(metrics) and (int(meta.get("valid_rows") or 0) > 0),
-        "has_tp_first": (tp_acc is not None) or (_safe_float(tp.get("logloss")) is not None),
-        "has_hold_days": (_safe_float(hold.get("mae")) is not None),
     }
     return out
 
 
+# =========================
+# ✅ 信号機UI用：説明/判定
+# =========================
+
+def _signal_for_metric(name: str, v: Optional[float]) -> str:
+    """
+    return: "red" | "yellow" | "green" | "na"
+    初心者用の“ざっくり”基準（あとで調整しやすい）
+    """
+    if v is None:
+        return "na"
+
+    # AUC: 0.5=運 / 0.6〜効き始め / 0.7〜強い
+    if name == "auc":
+        if v < 0.55:
+            return "red"
+        if v < 0.65:
+            return "yellow"
+        return "green"
+
+    # logloss: 小さいほど良い（分類）
+    # 目安: ~0.55 good / 0.55-0.70 ok / >0.70 rough
+    if name == "logloss":
+        if v <= 0.60:
+            return "green"
+        if v <= 0.70:
+            return "yellow"
+        return "red"
+
+    # ACC: 0.5=運 / 0.55〜効き / 0.6〜強い
+    if name == "acc":
+        if v < 0.53:
+            return "red"
+        if v < 0.60:
+            return "yellow"
+        return "green"
+
+    # MAE/RMSE: 小さいほど良い（ただしスケール依存）
+    # ここは “固定の絶対評価” をしないで「相対」っぽく扱う。
+    # 初期は常に yellow を返して、学習の進み具合を“比較”で見る前提。
+    if name in ("mae", "rmse"):
+        return "yellow"
+
+    return "yellow"
+
+
+def _metric_card(
+    title: str,
+    value_raw: Any,
+    direction: str,
+    explain_lines: List[str],
+    signal_key: str,
+    units_hint: str = "",
+) -> Dict[str, Any]:
+    """
+    ✅ テンプレに渡す 1枚のメトリクスカード
+    - value: 丸めない（str(v)）
+    - direction: "up" or "down"
+    - signal: "red/yellow/green/na"
+    - explain_lines: 初心者向け説明（箇条書き）
+    """
+    v = _safe_float(value_raw)
+    sig = _signal_for_metric(signal_key, v)
+    return {
+        "title": title,
+        "value": _as_raw_str(value_raw),   # ✅ 丸めない
+        "direction": direction,            # "up" or "down"
+        "signal": sig,                     # red/yellow/green/na
+        "explain_lines": explain_lines[:6],
+        "units_hint": units_hint,
+    }
+
+
+def _build_ml_metric_cards(ml: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    ML学習精度（valid）を「信号機＋初心者説明」に変換して返す
+    """
+    if not ml or not ml.get("has_metrics"):
+        return []
+
+    cards: List[Dict[str, Any]] = []
+
+    # p_win: AUC / logloss
+    cards.append(
+        _metric_card(
+            title="p_win（勝つ確率）AUC",
+            value_raw=ml.get("pwin_auc"),
+            direction="up",
+            signal_key="auc",
+            explain_lines=[
+                "AUC：勝つ/負けるの“順番付け”がどれくらい上手いか（0.5=運、1.0=神）",
+                "0.55前後：運よりはマシ / 0.60〜：効き始め / 0.70〜：強い",
+                "これは“当たる確率そのもの”ではなく“並べ方の上手さ”",
+            ],
+        )
+    )
+    cards.append(
+        _metric_card(
+            title="p_win（勝つ確率）logloss",
+            value_raw=ml.get("pwin_logloss"),
+            direction="down",
+            signal_key="logloss",
+            explain_lines=[
+                "logloss：出した“確率”がどれくらい正確か（小さいほど良い）",
+                "0に近いほど『確率が当たりやすい』＝自信の出し方が上手い",
+                "0.70超：まだ荒い（確率がブレやすい）",
+            ],
+        )
+    )
+
+    # EV: MAE / RMSE（スケール依存）
+    cards.append(
+        _metric_card(
+            title="EV（期待値）MAE",
+            value_raw=ml.get("ev_mae"),
+            direction="down",
+            signal_key="mae",
+            units_hint="（単位はEV定義に依存）",
+            explain_lines=[
+                "MAE：予測EVと実際EVの“平均ズレ量”（小さいほど良い）",
+                "0.0なら“ズレが無い”が、現実はそうならない",
+                "ここは絶対評価より『昨日より良いか』で見るのが正解",
+            ],
+        )
+    )
+    cards.append(
+        _metric_card(
+            title="EV（期待値）RMSE",
+            value_raw=ml.get("ev_rmse"),
+            direction="down",
+            signal_key="rmse",
+            units_hint="（単位はEV定義に依存）",
+            explain_lines=[
+                "RMSE：大きく外した時に、より強くペナルティを与えるズレ指標（小さいほど良い）",
+                "MAEより“やらかし”に敏感（外れが多いとRMSEが上がる）",
+                "MAEとRMSEの両方が下がっていくと改善が本物",
+            ],
+        )
+    )
+
+    # tp_first: ACC / logloss
+    cards.append(
+        _metric_card(
+            title="tp_first（TP先/SL先）ACC",
+            value_raw=ml.get("tp_acc"),
+            direction="up",
+            signal_key="acc",
+            explain_lines=[
+                "ACC：TP先かSL先かを当てる“的中率”（0.5=運）",
+                "0.55〜：効き始め / 0.60〜：強い",
+                "これは“利確か損切りか”の方向感の学習",
+            ],
+        )
+    )
+    cards.append(
+        _metric_card(
+            title="tp_first（TP先/SL先）logloss",
+            value_raw=ml.get("tp_logloss"),
+            direction="down",
+            signal_key="logloss",
+            explain_lines=[
+                "logloss：tp_first の“確率”の出し方がどれくらい正確か（小さいほど良い）",
+                "ACCが同じでも、loglossが低い方が“確率の自信”が上手い",
+            ],
+        )
+    )
+
+    # 学習データ量
+    cards.append(
+        {
+            "title": "学習データ量（valid）",
+            "value": _as_raw_str(ml.get("rows")),
+            "direction": "up",
+            "signal": "yellow",
+            "explain_lines": [
+                "学習が進むほど“型”が安定する（ただし質が最優先）",
+                "train/valid の内訳も一緒に見るのが安全",
+            ],
+            "units_hint": f"train {ml.get('train_rows')} / valid {ml.get('valid_rows')} / created {ml.get('created_at')}",
+        }
+    )
+
+    return cards
+
+
 def _parse_ts_any(s: str) -> Optional[datetime]:
-    """
-    ts の ISO文字列をできる範囲で datetime にする（失敗しても落とさない）
-    """
     if not s:
         return None
     try:
-        # "2025-12-26T17:56:40.770568+09:00"
         return datetime.fromisoformat(s)
     except Exception:
         return None
@@ -517,16 +707,13 @@ def _select_latest_ml_inference(
 ) -> Optional[Dict[str, Any]]:
     """
     latest_behavior.jsonl（= raw simulate ログ）から
-    「形（shape）が入っている最新の1件」を最優先で選ぶ。
+    「ML実数値が入っている最新の1件」を選ぶ。
 
-    ✅ 重要：dataset の行によっては user_id が無い（今回の 5246 がそれ）
-       その場合は「単一ユーザー運用」とみなして user_id チェックで弾かない。
-
+    ✅ “確実に最新を拾う” ために末尾（最新）から走査する。
     優先:
-      1) shape/係数が1つでも入っている最新行
-      2) ml_ok == True かつ ML数値が1つでも入ってる最新行
-      3) ML数値が1つでも入ってる最新行
-      4) それも無ければ None
+      1) ml_ok == True かつ ML数値が1つでも入ってる行（最新から最初に見つかったもの）
+      2) ML数値が1つでも入ってる行（最新から最初に見つかったもの）
+      3) それも無ければ None
     """
     if not dataset_rows:
         return None
@@ -543,19 +730,6 @@ def _select_latest_ml_inference(
                 out.update(so2)
         return out
 
-    def match_user(x: Dict[str, Any]) -> bool:
-        m = merged_view(x)
-        uid = m.get("user_id")
-        if uid is None:
-            uid = x.get("user_id")
-        if uid is None:
-            # user_id が無いログは「単一ユーザー前提」で許可
-            return True
-        try:
-            return int(uid) == int(user_id)
-        except Exception:
-            return True
-
     def has_any_ml(x: Dict[str, Any]) -> bool:
         m = merged_view(x)
         return (
@@ -563,45 +737,16 @@ def _select_latest_ml_inference(
             or _safe_float(m.get("p_win")) is not None
             or _safe_float(m.get("ev_pred")) is not None
             or _safe_float(m.get("p_tp_first")) is not None
-            or _safe_float(m.get("ev_true")) is not None
         )
 
-    def has_any_shape(x: Dict[str, Any]) -> bool:
-        m = merged_view(x)
-        keys = [
-            "shape_entry_k", "entry_k",
-            "shape_rr_target", "rr_target",
-            "shape_tp_k", "tp_k",
-            "shape_sl_k", "sl_k",
-        ]
-        for k in keys:
-            if k in m:
-                v = _safe_float(m.get(k))
-                if v is not None:
-                    return True
-        # 数値じゃなくても入ってたら “形が入ってる” とみなす（0.0 もOK）
-        for k in keys:
-            if k in m and m.get(k) is not None:
-                return True
-        return False
-
-    # 1) shape がある最新行
     for r in reversed(dataset_rows):
-        if not match_user(r):
-            continue
-        if has_any_shape(r):
-            return r
-
-    # 2) ml_ok True を最新から
-    for r in reversed(dataset_rows):
-        if not match_user(r):
+        if int(r.get("user_id") or 0) != int(user_id):
             continue
         if r.get("ml_ok") is True and has_any_ml(r):
             return r
 
-    # 3) any ml fields を最新から
     for r in reversed(dataset_rows):
-        if not match_user(r):
+        if int(r.get("user_id") or 0) != int(user_id):
             continue
         if has_any_ml(r):
             return r
@@ -648,7 +793,7 @@ def _ml_latest_view_from_raw(raw: Dict[str, Any]) -> Dict[str, Any]:
     ev_pred = _pick_any_float(merged, ["ev_pred", "ml_ev_pred", "ev_ml", "pred_ev"])
     ev_true = _pick_any_float(merged, ["ev_true", "ml_ev_true"])
 
-    # Shape（ここが白枠の本体）
+    # Shape（白枠の本体）
     shape_entry_k = _pick_any_float(merged, ["shape_entry_k", "entry_k"])
     shape_rr_target = _pick_any_float(merged, ["shape_rr_target", "rr_target"])
     shape_tp_k = _pick_any_float(merged, ["shape_tp_k", "tp_k"])
@@ -669,6 +814,161 @@ def _ml_latest_view_from_raw(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _signal_for_prob(v: Optional[float]) -> str:
+    """
+    推論値（確率/EV）に対する初心者用の目安
+    - ここは “参考” なので雑に
+    """
+    if v is None:
+        return "na"
+    # 0.5を超えるほど良い、ただし過信禁止
+    if v < 0.45:
+        return "red"
+    if v < 0.55:
+        return "yellow"
+    return "green"
+
+
+def _signal_for_ev(v: Optional[float]) -> str:
+    if v is None:
+        return "na"
+    if v <= 0:
+        return "red"
+    if v < 0.15:
+        return "yellow"
+    return "green"
+
+
+def _build_ml_latest_cards(ml_latest: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    最新のML推論（実数値）を、信号機＋説明つきカードに変換
+    ✅ value は丸めない
+    """
+    if not ml_latest:
+        return []
+
+    p_win = _safe_float(ml_latest.get("p_win"))
+    p_tp_first = _safe_float(ml_latest.get("p_tp_first"))
+    ev_pred = _safe_float(ml_latest.get("ev_pred"))
+    ev_true = _safe_float(ml_latest.get("ev_true"))
+
+    shape_entry_k = _safe_float(ml_latest.get("shape_entry_k"))
+    shape_rr_target = _safe_float(ml_latest.get("shape_rr_target"))
+    shape_tp_k = _safe_float(ml_latest.get("shape_tp_k"))
+    shape_sl_k = _safe_float(ml_latest.get("shape_sl_k"))
+
+    # shape の説明（初心者向け：一発で分かる）
+    # entry_k: 0.0=補正なし / 大きいほど押し目寄せ（今回の設計）
+    shape_entry_comment = [
+        "Entry補正（ATR係数）：エントリー価格を“押し目寄せ”する強さ",
+        "0.0 = 補正なし（素のEntry）",
+        "大きいほど“飛びつき”を抑えて、有利な位置に寄せる方向",
+    ]
+    rr_comment = [
+        "RRターゲット：狙うリスクリワード（大きいほど利確が遠い）",
+        "大きいほど『当たりにくいが当たると大きい』方向",
+        "p_tp_first が低いとRRを上げて“無理に撃たない”設計",
+    ]
+    tp_sl_comment = [
+        "TP係数/SL係数：ATRに対する利確幅/損切幅の倍率",
+        "TPが大きいほど利確は遠く、SLが大きいほど損切は広い",
+        "この2つの比で“実質RR”が決まる",
+    ]
+
+    cards: List[Dict[str, Any]] = []
+
+    cards.append(
+        {
+            "title": "p_win（勝つ確率）",
+            "value": _as_raw_str(ml_latest.get("p_win")),
+            "direction": "up",
+            "signal": _signal_for_prob(p_win),
+            "explain_lines": [
+                "この1回の“勝ちやすさ”の推定（0〜1）",
+                "0.50は五分。0.55超でも“過信禁止”（参考）",
+                "勝率そのものではなく『勝ちやすい条件っぽさ』",
+            ],
+            "units_hint": "",
+        }
+    )
+    cards.append(
+        {
+            "title": "p_tp_first（TP先）",
+            "value": _as_raw_str(ml_latest.get("p_tp_first")),
+            "direction": "up",
+            "signal": _signal_for_prob(p_tp_first),
+            "explain_lines": [
+                "この1回が『先に利確に届きそうか』の推定（0〜1）",
+                "高いほど“利確先行”の読み。低いほど“損切先行”寄り",
+                "Shape（Entry/RR/TP/SL）補正の材料になる",
+            ],
+            "units_hint": "",
+        }
+    )
+    cards.append(
+        {
+            "title": "EV_pred（予測EV）",
+            "value": _as_raw_str(ml_latest.get("ev_pred")),
+            "direction": "up",
+            "signal": _signal_for_ev(ev_pred),
+            "explain_lines": [
+                "MLが見積もった“期待値”のスコア（単位は内部定義）",
+                "プラスなら期待値あり。マイナスなら基本は見送り寄り",
+                "これは“形に反映前”の値",
+            ],
+            "units_hint": "",
+        }
+    )
+    cards.append(
+        {
+            "title": "EV_true（形に反映後）",
+            "value": _as_raw_str(ml_latest.get("ev_true")),
+            "direction": "up",
+            "signal": _signal_for_ev(ev_true),
+            "explain_lines": [
+                "Shape補正（Entry/RR/TP/SL）を入れた後の“最終期待値”",
+                "0以下なら『この形だと旨味が薄い』→ qtyが0寄りになることもある",
+                "ここが“最終判断”に近い",
+            ],
+            "units_hint": "",
+        }
+    )
+
+    # shape cards（表示はそのまま、丸めない）
+    cards.append(
+        {
+            "title": "Entry補正（ATR係数）",
+            "value": _as_raw_str(ml_latest.get("shape_entry_k")),
+            "direction": "up",
+            "signal": "yellow" if shape_entry_k is not None else "na",
+            "explain_lines": shape_entry_comment,
+            "units_hint": "",
+        }
+    )
+    cards.append(
+        {
+            "title": "RRターゲット",
+            "value": _as_raw_str(ml_latest.get("shape_rr_target")),
+            "direction": "up",
+            "signal": "yellow" if shape_rr_target is not None else "na",
+            "explain_lines": rr_comment,
+            "units_hint": "",
+        }
+    )
+    cards.append(
+        {
+            "title": "TP係数 / SL係数",
+            "value": f"{_as_raw_str(ml_latest.get('shape_tp_k'))} / {_as_raw_str(ml_latest.get('shape_sl_k'))}",
+            "direction": "up",
+            "signal": "yellow" if (shape_tp_k is not None or shape_sl_k is not None) else "na",
+            "explain_lines": tp_sl_comment,
+            "units_hint": "",
+        }
+    )
+
+    return cards
+
+
 # =========================
 # view
 # =========================
@@ -683,6 +983,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     - behavior/latest_behavior.jsonl を読む（最新ML推論の実数値用）
     - behavior/ticker/latest_ticker_u{user}.json を読む
     - ml/models/latest/meta.json を読む（AUC/RMSEなど）
+    - ✅ 初心者用：信号機＋説明カードに変換（丸めない）
     """
     user = request.user
     today = timezone.localdate()
@@ -736,10 +1037,16 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     ml_meta = _load_ml_latest_meta()
     ml_metrics = _ml_metrics_view(ml_meta)
 
-    # ★ 最新ML推論（実数値）は raw dataset から拾う（shape最優先）
+    # ✅ 初心者用：信号機＋説明カード
+    ml_metric_cards = _build_ml_metric_cards(ml_metrics)
+
+    # ★ 最新ML推論（実数値）
     dataset_rows = _read_jsonl(dataset_path)
     raw_latest = _select_latest_ml_inference(dataset_rows, user_id=user.id)
     ml_latest = _ml_latest_view_from_raw(raw_latest) if raw_latest else None
+
+    # ✅ 初心者用：最新推論カード（信号機＋説明）
+    ml_latest_cards = _build_ml_latest_cards(ml_latest)
 
     if not has_data:
         return render(
@@ -754,8 +1061,12 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
                 "ticker_date": ticker.get("date", ""),
                 "ticker_lines": ticker.get("lines", []),
                 "entry_reason_stats": entry_reason_stats,
+
                 "ml": ml_metrics,
+                "ml_metric_cards": ml_metric_cards,
+
                 "ml_latest": ml_latest,
+                "ml_latest_cards": ml_latest_cards,
             },
         )
 
@@ -807,7 +1118,11 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         "ticker_date": ticker.get("date", ""),
         "ticker_lines": ticker.get("lines", []),
         "entry_reason_stats": entry_reason_stats,
+
         "ml": ml_metrics,
+        "ml_metric_cards": ml_metric_cards,
+
         "ml_latest": ml_latest,
+        "ml_latest_cards": ml_latest_cards,
     }
     return render(request, "aiapp/behavior_dashboard.html", ctx)
