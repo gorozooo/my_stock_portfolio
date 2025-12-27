@@ -805,12 +805,17 @@ def _select_latest_ml_inference(
       1) ml_ok == True かつ ML数値が1つでも入ってる行（最新から最初に見つかったもの）
       2) ML数値が1つでも入ってる行（最新から最初に見つかったもの）
       3) それも無ければ None
+
+    ★重要：user_id / ml_ok が「直下に無い」ログでも拾えるようにする
+      - raw 直下
+      - sim_order
+      - replay.sim_order
+    をマージして判定する。
     """
     if not dataset_rows:
         return None
 
     def merged_view(x: Dict[str, Any]) -> Dict[str, Any]:
-        # 直下だけじゃなく sim_order / replay.sim_order も混ぜて判定できるようにする
         out = dict(x or {})
         so = x.get("sim_order")
         if isinstance(so, dict) and so:
@@ -822,25 +827,37 @@ def _select_latest_ml_inference(
                 out.update(so2)
         return out
 
+    def user_match(x: Dict[str, Any]) -> bool:
+        m = merged_view(x)
+        uid = m.get("user_id", None)
+        if uid is None:
+            # user_id が無い行は “現ユーザー扱い” で拾う（今回のshape消失の根本対策）
+            return True
+        try:
+            return int(uid) == int(user_id)
+        except Exception:
+            return True
+
     def has_any_ml(x: Dict[str, Any]) -> bool:
         m = merged_view(x)
         return (
-            x.get("ml_ok") is True
-            or _safe_float(m.get("p_win")) is not None
-            or _safe_float(m.get("ev_pred")) is not None
-            or _safe_float(m.get("p_tp_first")) is not None
+            (m.get("ml_ok") is True)
+            or (_safe_float(m.get("p_win")) is not None)
+            or (_safe_float(m.get("ev_pred")) is not None)
+            or (_safe_float(m.get("p_tp_first")) is not None)
         )
 
     # 1) ml_ok True を最新から
     for r in reversed(dataset_rows):
-        if int(r.get("user_id") or 0) != int(user_id):
+        if not user_match(r):
             continue
-        if r.get("ml_ok") is True and has_any_ml(r):
+        m = merged_view(r)
+        if m.get("ml_ok") is True and has_any_ml(r):
             return r
 
     # 2) any ml fields を最新から
     for r in reversed(dataset_rows):
-        if int(r.get("user_id") or 0) != int(user_id):
+        if not user_match(r):
             continue
         if has_any_ml(r):
             return r
@@ -978,7 +995,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     ml_metrics = _ml_metrics_view(ml_meta)
     ml_explain = _ml_explain_pack(ml_metrics)
 
-    # ★ 最新ML推論（実数値）は raw dataset から拾う（- 地獄を終わらせる）
+    # ★ 最新ML推論（実数値）は raw dataset から拾う
     dataset_rows = _read_jsonl(dataset_path)
     raw_latest = _select_latest_ml_inference(dataset_rows, user_id=user.id)
     ml_latest = _ml_latest_view_from_raw(raw_latest) if raw_latest else None
