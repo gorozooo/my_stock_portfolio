@@ -31,23 +31,6 @@ def _safe_float(v: Any) -> Optional[float]:
         return None
 
 
-def _as_raw_str(v: Any) -> str:
-    """
-    ✅ 表示用 value は「丸めない」方針
-    - None は "-"
-    - 数値は str() でそのまま（丸めない）
-    """
-    if v is None:
-        return "-"
-    # bool は数値と混ざるので明示
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    try:
-        return str(v)
-    except Exception:
-        return "-"
-
-
 def _read_json(path: Path) -> Optional[Dict[str, Any]]:
     try:
         if not path.exists():
@@ -323,6 +306,7 @@ def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> L
         ev_true = _pick_any_float(r, ["ev_true", "ml_ev_true"])
 
         # --- Shape（Entry/TP/SLの係数など。無ければNone） ---
+        # ここは side_rows 側なので「shape_*」優先にしておく
         shape_entry_k = _pick_any_float(r, ["shape_entry_k", "entry_k"])
         shape_rr_target = _pick_any_float(r, ["shape_rr_target", "rr_target"])
         shape_tp_k = _pick_any_float(r, ["shape_tp_k", "tp_k"])
@@ -471,15 +455,298 @@ def _get_metrics_block(metrics: Dict[str, Any], keys: List[str]) -> Dict[str, An
     return {}
 
 
+# =========================
+# ★ 信号機 + 初心者向け説明（辞書化）
+# =========================
+
+def _sig(level: str) -> Dict[str, str]:
+    """
+    level: "green" | "yellow" | "red"
+    """
+    if level == "green":
+        return {"level": "green", "label": "GO", "desc": "だいたい信じていい（効いてる）"}
+    if level == "yellow":
+        return {"level": "yellow", "label": "CAUTION", "desc": "効いてるが過信は禁物（条件次第）"}
+    return {"level": "red", "label": "STOP", "desc": "まだ荒い/運寄り（単体で判断しない）"}
+
+
+def _rate_auc(v: Optional[float]) -> Dict[str, Any]:
+    if v is None:
+        return {"signal": _sig("red"), "comment": "未計測"}
+    if v < 0.55:
+        return {"signal": _sig("red"), "comment": "ほぼ運に近い"}
+    if v < 0.60:
+        return {"signal": _sig("yellow"), "comment": "ちょいマシ（運よりはマシ）"}
+    return {"signal": _sig("green"), "comment": "効いてる（順番付けが上手い）"}
+
+
+def _rate_acc(v: Optional[float]) -> Dict[str, Any]:
+    if v is None:
+        return {"signal": _sig("red"), "comment": "未計測"}
+    if v < 0.55:
+        return {"signal": _sig("red"), "comment": "まだ弱い"}
+    if v < 0.60:
+        return {"signal": _sig("yellow"), "comment": "そこそこ（過信は禁物）"}
+    return {"signal": _sig("green"), "comment": "良い（判断に使える）"}
+
+
+def _rate_logloss(v: Optional[float]) -> Dict[str, Any]:
+    # 0.693 付近は“運”ラインとして扱う
+    if v is None:
+        return {"signal": _sig("red"), "comment": "未計測"}
+    if v <= 0.60:
+        return {"signal": _sig("green"), "comment": "確率がかなり安定"}
+    if v <= 0.69:
+        return {"signal": _sig("yellow"), "comment": "まあまあ（揺れはある）"}
+    return {"signal": _sig("red"), "comment": "まだ荒い（確率がブレやすい）"}
+
+
+def _rate_mae_rmse(v: Optional[float]) -> Dict[str, Any]:
+    # EV誤差を“R感覚”で初心者向けに割り切り分類
+    if v is None:
+        return {"signal": _sig("red"), "comment": "未計測"}
+    if v <= 0.50:
+        return {"signal": _sig("green"), "comment": "ズレ小さめ"}
+    if v <= 1.00:
+        return {"signal": _sig("yellow"), "comment": "ズレあり（参考程度）"}
+    return {"signal": _sig("red"), "comment": "ズレ大きい（信じすぎ注意）"}
+
+
+def _rate_valid_rows(v: Optional[int]) -> Dict[str, Any]:
+    if v is None:
+        return {"signal": _sig("red"), "comment": "未計測"}
+    if v < 50:
+        return {"signal": _sig("red"), "comment": "少ない（数字が揺れる）"}
+    if v < 150:
+        return {"signal": _sig("yellow"), "comment": "育成中（揺れは残る）"}
+    return {"signal": _sig("green"), "comment": "安定し始め（信頼度UP）"}
+
+
+def _ml_explain_pack(ml_metrics: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    テンプレでそのまま出せる“説明つき”辞書を返す。
+    """
+    # 値
+    pwin_auc = _safe_float(ml_metrics.get("pwin_auc"))
+    pwin_logloss = _safe_float(ml_metrics.get("pwin_logloss"))
+    ev_mae = _safe_float(ml_metrics.get("ev_mae"))
+    ev_rmse = _safe_float(ml_metrics.get("ev_rmse"))
+    tp_acc = _safe_float(ml_metrics.get("tp_acc"))
+    tp_logloss = _safe_float(ml_metrics.get("tp_logloss"))
+    rows = int(ml_metrics.get("rows") or 0)
+    valid_rows = int(ml_metrics.get("valid_rows") or 0)
+    train_rows = int(ml_metrics.get("train_rows") or 0)
+
+    out: Dict[str, Any] = {}
+
+    # p_win
+    out["p_win_auc"] = {
+        "key": "p_win_auc",
+        "name": "p_win（勝つ確率）AUC",
+        "value": pwin_auc,
+        "direction": "up",
+        "signal": _rate_auc(pwin_auc)["signal"],
+        "comment": _rate_auc(pwin_auc)["comment"],
+        "bullets": [
+            "AUC：勝つ/負けるの“順番付け”がどれくらい上手いか（0.5=運、1.0=神）",
+            "0.60〜で効き始め。0.55〜0.60は「ちょい効く」ゾーン。",
+        ],
+    }
+    out["p_win_logloss"] = {
+        "key": "p_win_logloss",
+        "name": "p_win（勝つ確率）logloss",
+        "value": pwin_logloss,
+        "direction": "down",
+        "signal": _rate_logloss(pwin_logloss)["signal"],
+        "comment": _rate_logloss(pwin_logloss)["comment"],
+        "bullets": [
+            "logloss：確率の出し方がどれくらい正確か（小さいほど良い）",
+            "0.69付近は“運”ライン。0.60以下は安定し始め。",
+        ],
+    }
+
+    # EV
+    out["ev_mae"] = {
+        "key": "ev_mae",
+        "name": "EV（期待値推定）MAE",
+        "value": ev_mae,
+        "direction": "down",
+        "signal": _rate_mae_rmse(ev_mae)["signal"],
+        "comment": _rate_mae_rmse(ev_mae)["comment"],
+        "bullets": [
+            "MAE：予測の平均ズレ（小さいほど良い）",
+            "0.5以下=ズレ小、1.0超=ズレ大（信じすぎ注意）",
+        ],
+    }
+    out["ev_rmse"] = {
+        "key": "ev_rmse",
+        "name": "EV（期待値推定）RMSE",
+        "value": ev_rmse,
+        "direction": "down",
+        "signal": _rate_mae_rmse(ev_rmse)["signal"],
+        "comment": _rate_mae_rmse(ev_rmse)["comment"],
+        "bullets": [
+            "RMSE：大きく外した時により厳しく罰するズレ（小さいほど良い）",
+            "MAEより悪化してると『たまに大外し』があるサイン。",
+        ],
+    }
+
+    # tp_first
+    out["tp_acc"] = {
+        "key": "tp_acc",
+        "name": "tp_first（TP先/SL先）ACC",
+        "value": tp_acc,
+        "direction": "up",
+        "signal": _rate_acc(tp_acc)["signal"],
+        "comment": _rate_acc(tp_acc)["comment"],
+        "bullets": [
+            "ACC：当たった割合（大きいほど良い）",
+            "0.55〜0.60は“ちょい効く”。0.60以上で強くなってくる。",
+        ],
+    }
+    out["tp_logloss"] = {
+        "key": "tp_logloss",
+        "name": "tp_first（TP先/SL先）logloss",
+        "value": tp_logloss,
+        "direction": "down",
+        "signal": _rate_logloss(tp_logloss)["signal"],
+        "comment": _rate_logloss(tp_logloss)["comment"],
+        "bullets": [
+            "logloss：確率の荒さ（小さいほど良い）",
+            "ACCがそこそこでもloglossが悪いと『確率の自信がブレる』。",
+        ],
+    }
+
+    # data volume
+    out["rows"] = {
+        "key": "rows",
+        "name": "学習データ量（total rows）",
+        "value": float(rows) if rows else None,
+        "direction": "up",
+        "signal": _rate_valid_rows(rows)["signal"],
+        "comment": _rate_valid_rows(rows)["comment"],
+        "bullets": [
+            "データ量が少ないと、AUC/ACC/誤差が日ごとに揺れやすい。",
+            "まずはvalidを増やすと“数字が安定”し始める。",
+        ],
+    }
+    out["valid_rows"] = {
+        "key": "valid_rows",
+        "name": "検証データ量（valid）",
+        "value": float(valid_rows) if valid_rows else None,
+        "direction": "up",
+        "signal": _rate_valid_rows(valid_rows)["signal"],
+        "comment": _rate_valid_rows(valid_rows)["comment"],
+        "bullets": [
+            "validが少ないと『偶然当たった/外れた』の影響を強く受ける。",
+            "目安：<50は赤、50〜150は黄、150以上で緑に寄る。",
+        ],
+    }
+    out["train_rows"] = {
+        "key": "train_rows",
+        "name": "学習データ量（train）",
+        "value": float(train_rows) if train_rows else None,
+        "direction": "up",
+        "signal": _rate_valid_rows(train_rows)["signal"],
+        "comment": _rate_valid_rows(train_rows)["comment"],
+        "bullets": [
+            "trainが増えると学習の材料は増えるが、評価はvalidが重要。",
+            "trainだけ多くても、validが少ないと信号機は赤〜黄に寄る。",
+        ],
+    }
+
+    return out
+
+
+def _ml_latest_explain_pack(ml_latest: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    「最新のML推論（実数値）」の初心者向け説明（信号機付き）。
+    ここは “精度” ではなく “今回の出力の意味” を整理する。
+    """
+    if not ml_latest:
+        return {}
+
+    p_win = _safe_float(ml_latest.get("p_win"))
+    p_tp_first = _safe_float(ml_latest.get("p_tp_first"))
+    ev_pred = _safe_float(ml_latest.get("ev_pred"))
+    ev_true = _safe_float(ml_latest.get("ev_true"))
+
+    # ここは“当たり外れ”ではなく「読み方」の信号機にする（過信防止）
+    # p_win: 0.55以上なら緑寄り、0.45〜0.55黄、0.45未満赤
+    def rate_prob(v: Optional[float]) -> Dict[str, Any]:
+        if v is None:
+            return {"signal": _sig("red"), "comment": "未出力"}
+        if v >= 0.55:
+            return {"signal": _sig("green"), "comment": "勝ち寄り（ただし過信禁止）"}
+        if v >= 0.45:
+            return {"signal": _sig("yellow"), "comment": "五分〜やや不利（形の補正が重要）"}
+        return {"signal": _sig("red"), "comment": "不利寄り（形を厳しめにする）"}
+
+    # EVは符号が大事：プラスなら緑寄り、ゼロ付近黄、マイナス赤（ただし単体で決めない）
+    def rate_ev(v: Optional[float]) -> Dict[str, Any]:
+        if v is None:
+            return {"signal": _sig("red"), "comment": "未出力"}
+        if v > 0.10:
+            return {"signal": _sig("green"), "comment": "プラス寄り（期待値あり）"}
+        if v >= 0.0:
+            return {"signal": _sig("yellow"), "comment": "微妙（形補正後が勝負）"}
+        return {"signal": _sig("red"), "comment": "マイナス寄り（見送り候補）"}
+
+    return {
+        "p_win": {
+            "name": "p_win（勝つ確率）",
+            "value": p_win,
+            "signal": rate_prob(p_win)["signal"],
+            "comment": rate_prob(p_win)["comment"],
+            "bullets": [
+                "0〜1の確率。大きいほど“勝ち寄り”。",
+                "ただしこれ単体で売買を決めない（データ量/相場/形補正が絡む）。",
+            ],
+        },
+        "p_tp_first": {
+            "name": "p_tp_first（TP先になりやすさ）",
+            "value": p_tp_first,
+            "signal": rate_prob(p_tp_first)["signal"],
+            "comment": rate_prob(p_tp_first)["comment"],
+            "bullets": [
+                "TP先（利確先）になりやすい確率。大きいほど“利確に届きやすい”。",
+                "低いと『飛びつき抑制』『RR引き上げ』など、形が厳しくなる。",
+            ],
+        },
+        "ev_pred": {
+            "name": "EV_pred（予測EV）",
+            "value": ev_pred,
+            "signal": rate_ev(ev_pred)["signal"],
+            "comment": rate_ev(ev_pred)["comment"],
+            "bullets": [
+                "モデルが予測した期待値（プラスが望ましい）。",
+                "これは“予測段階”。次のEV_trueが“形補正後”。",
+            ],
+        },
+        "ev_true": {
+            "name": "EV_true（形に反映後）",
+            "value": ev_true,
+            "signal": rate_ev(ev_true)["signal"],
+            "comment": rate_ev(ev_true)["comment"],
+            "bullets": [
+                "形（Entry/TP/SL補正）を入れた後の期待値。",
+                "EV_trueが0付近なら『形の補正で無理をしない』判断が働いている可能性。",
+            ],
+        },
+    }
+
+
 def _ml_metrics_view(meta: Dict[str, Any]) -> Dict[str, Any]:
     """
     テンプレ表示用に要約して渡す。
+    ※ tp_first が “-” になる問題は、meta.json のキー揺れを吸収して解決する。
     """
     metrics = meta.get("metrics") if isinstance(meta.get("metrics"), dict) else {}
 
     pwin = _get_metrics_block(metrics, ["p_win", "pwin", "win"])
     ev = _get_metrics_block(metrics, ["ev", "expected_value"])
     tp = _get_metrics_block(metrics, ["tp_first", "p_tp_first", "tp"])
+    hold = _get_metrics_block(metrics, ["hold_days_pred", "hold_days", "hold"])
 
     # accuracy のキーも揺れがちなので吸収
     tp_acc = _safe_float(tp.get("accuracy"))
@@ -491,6 +758,7 @@ def _ml_metrics_view(meta: Dict[str, Any]) -> Dict[str, Any]:
         "rows": int(meta.get("rows") or 0),
         "train_rows": int(meta.get("train_rows") or 0),
         "valid_rows": int(meta.get("valid_rows") or 0),
+        "best_iteration": meta.get("best_iteration") if isinstance(meta.get("best_iteration"), dict) else {},
 
         "pwin_auc": _safe_float(pwin.get("auc")),
         "pwin_logloss": _safe_float(pwin.get("logloss")),
@@ -501,201 +769,24 @@ def _ml_metrics_view(meta: Dict[str, Any]) -> Dict[str, Any]:
         "tp_acc": tp_acc,
         "tp_logloss": _safe_float(tp.get("logloss")),
 
+        "hold_mae": _safe_float(hold.get("mae")),
+
         # 表示分岐
         "has_metrics": bool(metrics) and (int(meta.get("valid_rows") or 0) > 0),
+        "has_tp_first": (tp_acc is not None) or (_safe_float(tp.get("logloss")) is not None),
+        "has_hold_days": (_safe_float(hold.get("mae")) is not None),
     }
     return out
 
 
-# =========================
-# ✅ 信号機UI用：説明/判定
-# =========================
-
-def _signal_for_metric(name: str, v: Optional[float]) -> str:
-    """
-    return: "red" | "yellow" | "green" | "na"
-    初心者用の“ざっくり”基準（あとで調整しやすい）
-    """
-    if v is None:
-        return "na"
-
-    # AUC: 0.5=運 / 0.6〜効き始め / 0.7〜強い
-    if name == "auc":
-        if v < 0.55:
-            return "red"
-        if v < 0.65:
-            return "yellow"
-        return "green"
-
-    # logloss: 小さいほど良い（分類）
-    # 目安: ~0.55 good / 0.55-0.70 ok / >0.70 rough
-    if name == "logloss":
-        if v <= 0.60:
-            return "green"
-        if v <= 0.70:
-            return "yellow"
-        return "red"
-
-    # ACC: 0.5=運 / 0.55〜効き / 0.6〜強い
-    if name == "acc":
-        if v < 0.53:
-            return "red"
-        if v < 0.60:
-            return "yellow"
-        return "green"
-
-    # MAE/RMSE: 小さいほど良い（ただしスケール依存）
-    # ここは “固定の絶対評価” をしないで「相対」っぽく扱う。
-    # 初期は常に yellow を返して、学習の進み具合を“比較”で見る前提。
-    if name in ("mae", "rmse"):
-        return "yellow"
-
-    return "yellow"
-
-
-def _metric_card(
-    title: str,
-    value_raw: Any,
-    direction: str,
-    explain_lines: List[str],
-    signal_key: str,
-    units_hint: str = "",
-) -> Dict[str, Any]:
-    """
-    ✅ テンプレに渡す 1枚のメトリクスカード
-    - value: 丸めない（str(v)）
-    - direction: "up" or "down"
-    - signal: "red/yellow/green/na"
-    - explain_lines: 初心者向け説明（箇条書き）
-    """
-    v = _safe_float(value_raw)
-    sig = _signal_for_metric(signal_key, v)
-    return {
-        "title": title,
-        "value": _as_raw_str(value_raw),   # ✅ 丸めない
-        "direction": direction,            # "up" or "down"
-        "signal": sig,                     # red/yellow/green/na
-        "explain_lines": explain_lines[:6],
-        "units_hint": units_hint,
-    }
-
-
-def _build_ml_metric_cards(ml: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """
-    ML学習精度（valid）を「信号機＋初心者説明」に変換して返す
-    """
-    if not ml or not ml.get("has_metrics"):
-        return []
-
-    cards: List[Dict[str, Any]] = []
-
-    # p_win: AUC / logloss
-    cards.append(
-        _metric_card(
-            title="p_win（勝つ確率）AUC",
-            value_raw=ml.get("pwin_auc"),
-            direction="up",
-            signal_key="auc",
-            explain_lines=[
-                "AUC：勝つ/負けるの“順番付け”がどれくらい上手いか（0.5=運、1.0=神）",
-                "0.55前後：運よりはマシ / 0.60〜：効き始め / 0.70〜：強い",
-                "これは“当たる確率そのもの”ではなく“並べ方の上手さ”",
-            ],
-        )
-    )
-    cards.append(
-        _metric_card(
-            title="p_win（勝つ確率）logloss",
-            value_raw=ml.get("pwin_logloss"),
-            direction="down",
-            signal_key="logloss",
-            explain_lines=[
-                "logloss：出した“確率”がどれくらい正確か（小さいほど良い）",
-                "0に近いほど『確率が当たりやすい』＝自信の出し方が上手い",
-                "0.70超：まだ荒い（確率がブレやすい）",
-            ],
-        )
-    )
-
-    # EV: MAE / RMSE（スケール依存）
-    cards.append(
-        _metric_card(
-            title="EV（期待値）MAE",
-            value_raw=ml.get("ev_mae"),
-            direction="down",
-            signal_key="mae",
-            units_hint="（単位はEV定義に依存）",
-            explain_lines=[
-                "MAE：予測EVと実際EVの“平均ズレ量”（小さいほど良い）",
-                "0.0なら“ズレが無い”が、現実はそうならない",
-                "ここは絶対評価より『昨日より良いか』で見るのが正解",
-            ],
-        )
-    )
-    cards.append(
-        _metric_card(
-            title="EV（期待値）RMSE",
-            value_raw=ml.get("ev_rmse"),
-            direction="down",
-            signal_key="rmse",
-            units_hint="（単位はEV定義に依存）",
-            explain_lines=[
-                "RMSE：大きく外した時に、より強くペナルティを与えるズレ指標（小さいほど良い）",
-                "MAEより“やらかし”に敏感（外れが多いとRMSEが上がる）",
-                "MAEとRMSEの両方が下がっていくと改善が本物",
-            ],
-        )
-    )
-
-    # tp_first: ACC / logloss
-    cards.append(
-        _metric_card(
-            title="tp_first（TP先/SL先）ACC",
-            value_raw=ml.get("tp_acc"),
-            direction="up",
-            signal_key="acc",
-            explain_lines=[
-                "ACC：TP先かSL先かを当てる“的中率”（0.5=運）",
-                "0.55〜：効き始め / 0.60〜：強い",
-                "これは“利確か損切りか”の方向感の学習",
-            ],
-        )
-    )
-    cards.append(
-        _metric_card(
-            title="tp_first（TP先/SL先）logloss",
-            value_raw=ml.get("tp_logloss"),
-            direction="down",
-            signal_key="logloss",
-            explain_lines=[
-                "logloss：tp_first の“確率”の出し方がどれくらい正確か（小さいほど良い）",
-                "ACCが同じでも、loglossが低い方が“確率の自信”が上手い",
-            ],
-        )
-    )
-
-    # 学習データ量
-    cards.append(
-        {
-            "title": "学習データ量（valid）",
-            "value": _as_raw_str(ml.get("rows")),
-            "direction": "up",
-            "signal": "yellow",
-            "explain_lines": [
-                "学習が進むほど“型”が安定する（ただし質が最優先）",
-                "train/valid の内訳も一緒に見るのが安全",
-            ],
-            "units_hint": f"train {ml.get('train_rows')} / valid {ml.get('valid_rows')} / created {ml.get('created_at')}",
-        }
-    )
-
-    return cards
-
-
 def _parse_ts_any(s: str) -> Optional[datetime]:
+    """
+    ts の ISO文字列をできる範囲で datetime にする（失敗しても落とさない）
+    """
     if not s:
         return None
     try:
+        # "2025-12-26T17:56:40.770568+09:00"
         return datetime.fromisoformat(s)
     except Exception:
         return None
@@ -719,6 +810,7 @@ def _select_latest_ml_inference(
         return None
 
     def merged_view(x: Dict[str, Any]) -> Dict[str, Any]:
+        # 直下だけじゃなく sim_order / replay.sim_order も混ぜて判定できるようにする
         out = dict(x or {})
         so = x.get("sim_order")
         if isinstance(so, dict) and so:
@@ -739,12 +831,14 @@ def _select_latest_ml_inference(
             or _safe_float(m.get("p_tp_first")) is not None
         )
 
+    # 1) ml_ok True を最新から
     for r in reversed(dataset_rows):
         if int(r.get("user_id") or 0) != int(user_id):
             continue
         if r.get("ml_ok") is True and has_any_ml(r):
             return r
 
+    # 2) any ml fields を最新から
     for r in reversed(dataset_rows):
         if int(r.get("user_id") or 0) != int(user_id):
             continue
@@ -761,6 +855,7 @@ def _merge_sim_order_sources(raw: Dict[str, Any]) -> Dict[str, Any]:
       1) raw 直下
       2) raw["sim_order"]
       3) raw["replay"]["sim_order"]
+    ※ 後勝ち（後のdictで上書き）だと優先が逆になるので、手動で順序を作る。
     """
     merged: Dict[str, Any] = {}
     if isinstance(raw, dict):
@@ -768,6 +863,7 @@ def _merge_sim_order_sources(raw: Dict[str, Any]) -> Dict[str, Any]:
 
         so = raw.get("sim_order")
         if isinstance(so, dict) and so:
+            # sim_order の方が “本命”になりがちなので上書きOK
             merged.update(so)
 
         rp = raw.get("replay")
@@ -793,7 +889,7 @@ def _ml_latest_view_from_raw(raw: Dict[str, Any]) -> Dict[str, Any]:
     ev_pred = _pick_any_float(merged, ["ev_pred", "ml_ev_pred", "ev_ml", "pred_ev"])
     ev_true = _pick_any_float(merged, ["ev_true", "ml_ev_true"])
 
-    # Shape（白枠の本体）
+    # Shape（ここが白枠の本体）
     shape_entry_k = _pick_any_float(merged, ["shape_entry_k", "entry_k"])
     shape_rr_target = _pick_any_float(merged, ["shape_rr_target", "rr_target"])
     shape_tp_k = _pick_any_float(merged, ["shape_tp_k", "tp_k"])
@@ -814,161 +910,6 @@ def _ml_latest_view_from_raw(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _signal_for_prob(v: Optional[float]) -> str:
-    """
-    推論値（確率/EV）に対する初心者用の目安
-    - ここは “参考” なので雑に
-    """
-    if v is None:
-        return "na"
-    # 0.5を超えるほど良い、ただし過信禁止
-    if v < 0.45:
-        return "red"
-    if v < 0.55:
-        return "yellow"
-    return "green"
-
-
-def _signal_for_ev(v: Optional[float]) -> str:
-    if v is None:
-        return "na"
-    if v <= 0:
-        return "red"
-    if v < 0.15:
-        return "yellow"
-    return "green"
-
-
-def _build_ml_latest_cards(ml_latest: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    最新のML推論（実数値）を、信号機＋説明つきカードに変換
-    ✅ value は丸めない
-    """
-    if not ml_latest:
-        return []
-
-    p_win = _safe_float(ml_latest.get("p_win"))
-    p_tp_first = _safe_float(ml_latest.get("p_tp_first"))
-    ev_pred = _safe_float(ml_latest.get("ev_pred"))
-    ev_true = _safe_float(ml_latest.get("ev_true"))
-
-    shape_entry_k = _safe_float(ml_latest.get("shape_entry_k"))
-    shape_rr_target = _safe_float(ml_latest.get("shape_rr_target"))
-    shape_tp_k = _safe_float(ml_latest.get("shape_tp_k"))
-    shape_sl_k = _safe_float(ml_latest.get("shape_sl_k"))
-
-    # shape の説明（初心者向け：一発で分かる）
-    # entry_k: 0.0=補正なし / 大きいほど押し目寄せ（今回の設計）
-    shape_entry_comment = [
-        "Entry補正（ATR係数）：エントリー価格を“押し目寄せ”する強さ",
-        "0.0 = 補正なし（素のEntry）",
-        "大きいほど“飛びつき”を抑えて、有利な位置に寄せる方向",
-    ]
-    rr_comment = [
-        "RRターゲット：狙うリスクリワード（大きいほど利確が遠い）",
-        "大きいほど『当たりにくいが当たると大きい』方向",
-        "p_tp_first が低いとRRを上げて“無理に撃たない”設計",
-    ]
-    tp_sl_comment = [
-        "TP係数/SL係数：ATRに対する利確幅/損切幅の倍率",
-        "TPが大きいほど利確は遠く、SLが大きいほど損切は広い",
-        "この2つの比で“実質RR”が決まる",
-    ]
-
-    cards: List[Dict[str, Any]] = []
-
-    cards.append(
-        {
-            "title": "p_win（勝つ確率）",
-            "value": _as_raw_str(ml_latest.get("p_win")),
-            "direction": "up",
-            "signal": _signal_for_prob(p_win),
-            "explain_lines": [
-                "この1回の“勝ちやすさ”の推定（0〜1）",
-                "0.50は五分。0.55超でも“過信禁止”（参考）",
-                "勝率そのものではなく『勝ちやすい条件っぽさ』",
-            ],
-            "units_hint": "",
-        }
-    )
-    cards.append(
-        {
-            "title": "p_tp_first（TP先）",
-            "value": _as_raw_str(ml_latest.get("p_tp_first")),
-            "direction": "up",
-            "signal": _signal_for_prob(p_tp_first),
-            "explain_lines": [
-                "この1回が『先に利確に届きそうか』の推定（0〜1）",
-                "高いほど“利確先行”の読み。低いほど“損切先行”寄り",
-                "Shape（Entry/RR/TP/SL）補正の材料になる",
-            ],
-            "units_hint": "",
-        }
-    )
-    cards.append(
-        {
-            "title": "EV_pred（予測EV）",
-            "value": _as_raw_str(ml_latest.get("ev_pred")),
-            "direction": "up",
-            "signal": _signal_for_ev(ev_pred),
-            "explain_lines": [
-                "MLが見積もった“期待値”のスコア（単位は内部定義）",
-                "プラスなら期待値あり。マイナスなら基本は見送り寄り",
-                "これは“形に反映前”の値",
-            ],
-            "units_hint": "",
-        }
-    )
-    cards.append(
-        {
-            "title": "EV_true（形に反映後）",
-            "value": _as_raw_str(ml_latest.get("ev_true")),
-            "direction": "up",
-            "signal": _signal_for_ev(ev_true),
-            "explain_lines": [
-                "Shape補正（Entry/RR/TP/SL）を入れた後の“最終期待値”",
-                "0以下なら『この形だと旨味が薄い』→ qtyが0寄りになることもある",
-                "ここが“最終判断”に近い",
-            ],
-            "units_hint": "",
-        }
-    )
-
-    # shape cards（表示はそのまま、丸めない）
-    cards.append(
-        {
-            "title": "Entry補正（ATR係数）",
-            "value": _as_raw_str(ml_latest.get("shape_entry_k")),
-            "direction": "up",
-            "signal": "yellow" if shape_entry_k is not None else "na",
-            "explain_lines": shape_entry_comment,
-            "units_hint": "",
-        }
-    )
-    cards.append(
-        {
-            "title": "RRターゲット",
-            "value": _as_raw_str(ml_latest.get("shape_rr_target")),
-            "direction": "up",
-            "signal": "yellow" if shape_rr_target is not None else "na",
-            "explain_lines": rr_comment,
-            "units_hint": "",
-        }
-    )
-    cards.append(
-        {
-            "title": "TP係数 / SL係数",
-            "value": f"{_as_raw_str(ml_latest.get('shape_tp_k'))} / {_as_raw_str(ml_latest.get('shape_sl_k'))}",
-            "direction": "up",
-            "signal": "yellow" if (shape_tp_k is not None or shape_sl_k is not None) else "na",
-            "explain_lines": tp_sl_comment,
-            "units_hint": "",
-        }
-    )
-
-    return cards
-
-
 # =========================
 # view
 # =========================
@@ -980,10 +921,9 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     - simulate/*.jsonl を集計
     - behavior/model/latest_behavior_model_u{user}.json を読む
     - behavior/latest_behavior_side.jsonl を読む
-    - behavior/latest_behavior.jsonl を読む（最新ML推論の実数値用）
+    - behavior/latest_behavior.jsonl を読む（← 追加：最新ML推論の実数値用）
     - behavior/ticker/latest_ticker_u{user}.json を読む
     - ml/models/latest/meta.json を読む（AUC/RMSEなど）
-    - ✅ 初心者用：信号機＋説明カードに変換（丸めない）
     """
     user = request.user
     today = timezone.localdate()
@@ -1036,17 +976,13 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     # ★ ML metrics（AUC/RMSEなど）
     ml_meta = _load_ml_latest_meta()
     ml_metrics = _ml_metrics_view(ml_meta)
+    ml_explain = _ml_explain_pack(ml_metrics)
 
-    # ✅ 初心者用：信号機＋説明カード
-    ml_metric_cards = _build_ml_metric_cards(ml_metrics)
-
-    # ★ 最新ML推論（実数値）
+    # ★ 最新ML推論（実数値）は raw dataset から拾う（- 地獄を終わらせる）
     dataset_rows = _read_jsonl(dataset_path)
     raw_latest = _select_latest_ml_inference(dataset_rows, user_id=user.id)
     ml_latest = _ml_latest_view_from_raw(raw_latest) if raw_latest else None
-
-    # ✅ 初心者用：最新推論カード（信号機＋説明）
-    ml_latest_cards = _build_ml_latest_cards(ml_latest)
+    ml_latest_explain = _ml_latest_explain_pack(ml_latest)
 
     if not has_data:
         return render(
@@ -1061,12 +997,10 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
                 "ticker_date": ticker.get("date", ""),
                 "ticker_lines": ticker.get("lines", []),
                 "entry_reason_stats": entry_reason_stats,
-
                 "ml": ml_metrics,
-                "ml_metric_cards": ml_metric_cards,
-
+                "ml_explain": ml_explain,
                 "ml_latest": ml_latest,
-                "ml_latest_cards": ml_latest_cards,
+                "ml_latest_explain": ml_latest_explain,
             },
         )
 
@@ -1118,11 +1052,9 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         "ticker_date": ticker.get("date", ""),
         "ticker_lines": ticker.get("lines", []),
         "entry_reason_stats": entry_reason_stats,
-
         "ml": ml_metrics,
-        "ml_metric_cards": ml_metric_cards,
-
+        "ml_explain": ml_explain,
         "ml_latest": ml_latest,
-        "ml_latest_cards": ml_latest_cards,
+        "ml_latest_explain": ml_latest_explain,
     }
     return render(request, "aiapp/behavior_dashboard.html", ctx)
