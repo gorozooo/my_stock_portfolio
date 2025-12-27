@@ -655,20 +655,40 @@ body{
 
             <div class="row">
               <div class="k">Entry補正（ATR係数）</div>
-              <div class="v">{% if ml_latest.shape_entry_k is not None %}{{ ml_latest.shape_entry_k|floatformat:2 }}{% else %}-{% endif %}</div>
+              <div class="v">
+                {% if ml_latest.shape_entry_k is not None or ml_latest.shape_entry_k == 0 %}
+                  {{ ml_latest.shape_entry_k|floatformat:2 }}
+                {% else %}
+                  -
+                {% endif %}
+              </div>
             </div>
 
             <div class="row" style="margin-top:6px;">
               <div class="k">RRターゲット</div>
-              <div class="v">{% if ml_latest.shape_rr_target is not None %}{{ ml_latest.shape_rr_target|floatformat:2 }}{% else %}-{% endif %}</div>
+              <div class="v">
+                {% if ml_latest.shape_rr_target is not None or ml_latest.shape_rr_target == 0 %}
+                  {{ ml_latest.shape_rr_target|floatformat:2 }}
+                {% else %}
+                  -
+                {% endif %}
+              </div>
             </div>
 
             <div class="row" style="margin-top:6px;">
               <div class="k">TP係数 / SL係数</div>
               <div class="v">
-                {% if ml_latest.shape_tp_k is not None %}{{ ml_latest.shape_tp_k|floatformat:2 }}{% else %}-{% endif %}
+                {% if ml_latest.shape_tp_k is not None or ml_latest.shape_tp_k == 0 %}
+                  {{ ml_latest.shape_tp_k|floatformat:2 }}
+                {% else %}
+                  -
+                {% endif %}
                 /
-                {% if ml_latest.shape_sl_k is not None %}{{ ml_latest.shape_sl_k|floatformat:2 }}{% else %}-{% endif %}
+                {% if ml_latest.shape_sl_k is not None or ml_latest.shape_sl_k == 0 %}
+                  {{ ml_latest.shape_sl_k|floatformat:2 }}
+                {% else %}
+                  -
+                {% endif %}
               </div>
             </div>
 
