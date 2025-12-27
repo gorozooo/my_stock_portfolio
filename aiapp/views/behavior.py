@@ -517,19 +517,21 @@ def _select_latest_ml_inference(
 ) -> Optional[Dict[str, Any]]:
     """
     latest_behavior.jsonl（= raw simulate ログ）から
-    「ML実数値が入っている最新の1件」を選ぶ。
+    「形（shape）が入っている最新の1件」を最優先で選ぶ。
 
-    ✅ “確実に最新を拾う” ために末尾（最新）から走査する。
+    ✅ 重要：dataset の行によっては user_id が無い（今回の 5246 がそれ）
+       その場合は「単一ユーザー運用」とみなして user_id チェックで弾かない。
+
     優先:
-      1) ml_ok == True かつ ML数値が1つでも入ってる行（最新から最初に見つかったもの）
-      2) ML数値が1つでも入ってる行（最新から最初に見つかったもの）
-      3) それも無ければ None
+      1) shape/係数が1つでも入っている最新行
+      2) ml_ok == True かつ ML数値が1つでも入ってる最新行
+      3) ML数値が1つでも入ってる最新行
+      4) それも無ければ None
     """
     if not dataset_rows:
         return None
 
     def merged_view(x: Dict[str, Any]) -> Dict[str, Any]:
-        # 直下だけじゃなく sim_order / replay.sim_order も混ぜて判定できるようにする
         out = dict(x or {})
         so = x.get("sim_order")
         if isinstance(so, dict) and so:
@@ -541,6 +543,19 @@ def _select_latest_ml_inference(
                 out.update(so2)
         return out
 
+    def match_user(x: Dict[str, Any]) -> bool:
+        m = merged_view(x)
+        uid = m.get("user_id")
+        if uid is None:
+            uid = x.get("user_id")
+        if uid is None:
+            # user_id が無いログは「単一ユーザー前提」で許可
+            return True
+        try:
+            return int(uid) == int(user_id)
+        except Exception:
+            return True
+
     def has_any_ml(x: Dict[str, Any]) -> bool:
         m = merged_view(x)
         return (
@@ -548,18 +563,45 @@ def _select_latest_ml_inference(
             or _safe_float(m.get("p_win")) is not None
             or _safe_float(m.get("ev_pred")) is not None
             or _safe_float(m.get("p_tp_first")) is not None
+            or _safe_float(m.get("ev_true")) is not None
         )
 
-    # 1) ml_ok True を最新から
+    def has_any_shape(x: Dict[str, Any]) -> bool:
+        m = merged_view(x)
+        keys = [
+            "shape_entry_k", "entry_k",
+            "shape_rr_target", "rr_target",
+            "shape_tp_k", "tp_k",
+            "shape_sl_k", "sl_k",
+        ]
+        for k in keys:
+            if k in m:
+                v = _safe_float(m.get(k))
+                if v is not None:
+                    return True
+        # 数値じゃなくても入ってたら “形が入ってる” とみなす（0.0 もOK）
+        for k in keys:
+            if k in m and m.get(k) is not None:
+                return True
+        return False
+
+    # 1) shape がある最新行
     for r in reversed(dataset_rows):
-        if int(r.get("user_id") or 0) != int(user_id):
+        if not match_user(r):
+            continue
+        if has_any_shape(r):
+            return r
+
+    # 2) ml_ok True を最新から
+    for r in reversed(dataset_rows):
+        if not match_user(r):
             continue
         if r.get("ml_ok") is True and has_any_ml(r):
             return r
 
-    # 2) any ml fields を最新から
+    # 3) any ml fields を最新から
     for r in reversed(dataset_rows):
-        if int(r.get("user_id") or 0) != int(user_id):
+        if not match_user(r):
             continue
         if has_any_ml(r):
             return r
@@ -574,7 +616,6 @@ def _merge_sim_order_sources(raw: Dict[str, Any]) -> Dict[str, Any]:
       1) raw 直下
       2) raw["sim_order"]
       3) raw["replay"]["sim_order"]
-    ※ 後勝ち（後のdictで上書き）だと優先が逆になるので、手動で順序を作る。
     """
     merged: Dict[str, Any] = {}
     if isinstance(raw, dict):
@@ -582,7 +623,6 @@ def _merge_sim_order_sources(raw: Dict[str, Any]) -> Dict[str, Any]:
 
         so = raw.get("sim_order")
         if isinstance(so, dict) and so:
-            # sim_order の方が “本命”になりがちなので上書きOK
             merged.update(so)
 
         rp = raw.get("replay")
@@ -640,7 +680,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     - simulate/*.jsonl を集計
     - behavior/model/latest_behavior_model_u{user}.json を読む
     - behavior/latest_behavior_side.jsonl を読む
-    - behavior/latest_behavior.jsonl を読む（← 追加：最新ML推論の実数値用）
+    - behavior/latest_behavior.jsonl を読む（最新ML推論の実数値用）
     - behavior/ticker/latest_ticker_u{user}.json を読む
     - ml/models/latest/meta.json を読む（AUC/RMSEなど）
     """
@@ -696,7 +736,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     ml_meta = _load_ml_latest_meta()
     ml_metrics = _ml_metrics_view(ml_meta)
 
-    # ★ 最新ML推論（実数値）は raw dataset から拾う（- 地獄を終わらせる）
+    # ★ 最新ML推論（実数値）は raw dataset から拾う（shape最優先）
     dataset_rows = _read_jsonl(dataset_path)
     raw_latest = _select_latest_ml_inference(dataset_rows, user_id=user.id)
     ml_latest = _ml_latest_view_from_raw(raw_latest) if raw_latest else None
