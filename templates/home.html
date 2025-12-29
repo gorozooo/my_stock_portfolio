@@ -1,238 +1,756 @@
 {% extends "base.html" %}
-{% load static humanize %}
-
-{% block title %}ホーム | My株ポートフォリオ{% endblock %}
-
-{% block head %}
-<meta name="csrf-token" content="{{ csrf_token }}">
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=29">
-<script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script defer src="{% static 'js/home.js' %}?v=29"></script>
-{% endblock %}
+{% load humanize %}
+{% block title %}Home{% endblock %}
 
 {% block content %}
+<div class="home">
 
-<section class="ai-header glass" data-ab-variant="{{ ab_variant|default:'A' }}">
-  <div class="ai-title">AIアドバイザー（{{ ab_variant|default:'A' }}版）</div>
-  <p class="ai-note">{{ ai_note }}</p>
-
-  <!-- 提案リスト -->
-  <ul class="ai-actions" id="aiAdviceList"
-      data-session="{{ ai_session_id }}"
-      data-ab-variant="{{ ab_variant|default:'A' }}">
-    {% for it in ai_items %}
-      {% with p=it.score|default:0 %}
-      <li class="ai-item"
-          data-id="{{ it.id|default:0 }}"
-          data-taken="{{ it.taken|yesno:'1,0' }}"
-          style="--prio:{{ p|floatformat:2 }}">
-        <button type="button" class="ai-check" aria-pressed="{{ it.taken|yesno:'true,false' }}">
-          {% if it.taken %}✅{% else %}☑️{% endif %}
-        </button>
-        <div class="ai-text">
-          <div class="msg">{{ it.message }}</div>
-          <div class="meta-row">
-            <div class="bar" aria-hidden="true"><span></span></div>
-            <span class="prio-badge">優先度 {{ p|floatformat:2 }}</span>
-          </div>
-        </div>
-      </li>
-      {% endwith %}
-    {% empty %}
-      <li class="ai-empty">• 分析中です。</li>
-    {% endfor %}
-  </ul>
-
-  <div class="ai-tools">
-    <button class="btn ghost" id="btn-ai-weekly" type="button">週次レポート</button>
-    <button class="btn ghost" id="btn-ai-rebalance" type="button">次の一手</button>
-  </div>
-
-  <!-- 改善要因（AI推定） -->
-  <div class="ai-insights">
-    <div class="ins-title">
-      {{ ai_insights_title|default:"直近の改善要因（推定）" }}
+  <!-- Top Bar: 日付固定 + テロップ -->
+  <div class="topbar">
+    <div class="today">
+      <div class="today-label">本日</div>
+      <div class="today-date">{{ today_label }}</div>
     </div>
-    <ul class="ins-list">
-      {% if ai_insights_bullets and ai_insights_bullets|length > 0 %}
-        {% for t in ai_insights_bullets %}
-          <li>{{ t }}</li>
-        {% endfor %}
-      {% else %}
-        <li class="muted">十分な履歴がありません。</li>
-      {% endif %}
-    </ul>
-  </div>
-</section>
 
-<!-- KPI -->
-<section class="kpi-grid">
-  <div class="kpi-card">
-    <div class="kpi-label">総資産</div>
-    <div class="kpi-value">¥{{ kpis.total_assets|intcomma }}</div>
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-label">含み損益</div>
-    {% with v=kpis.unrealized_pnl %}
-      <div class="kpi-value {% if v > 0 %}pos{% elif v < 0 %}neg{% endif %}">¥{{ v|intcomma }}</div>
-    {% endwith %}
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-label">総実現損益</div>
-    {% with v=kpis.realized_cum_incl %}
-      <div class="kpi-value {% if v > 0 %}pos{% elif v < 0 %}neg{% endif %}">¥{{ v|intcomma }}</div>
-    {% endwith %}
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-label">今月の実現損益</div>
-    {% with v=kpis.realized_month_incl %}
-      <div class="kpi-value {% if v > 0 %}pos{% elif v < 0 %}neg{% endif %}">¥{{ v|intcomma }}</div>
-    {% endwith %}
-  </div>
-
-  <div class="kpi-card roi-card">
-    <div class="roi-row eval">
-      <div class="roi-label">ROI（評価ベース）</div>
-      <div class="roi-value {% if kpis.roi_eval_pct > 0 %}pos{% elif kpis.roi_eval_pct < 0 %}neg{% endif %}">
-        {% if kpis.roi_eval_pct != None %}{{ kpis.roi_eval_pct|floatformat:2 }}%{% else %}--{% endif %}
+    <div class="ticker">
+      <div class="ticker-track" id="tickerTrack">
+        <div class="ticker-item">Loading...</div>
       </div>
-    </div>
-    <div class="roi-row liquid">
-      <div class="roi-label">ROI（現金化ベース）</div>
-      <div class="roi-value">
-        {% if kpis.roi_liquid_pct != None %}{{ kpis.roi_liquid_pct|floatformat:2 }}%{% else %}--{% endif %}
-      </div>
-    </div>
-    <div class="roi-foot">
-      投下資金 ¥{{ kpis.invested|intcomma }}
-      {% if kpis.roi_gap_abs %}<span class="roi-gap">乖離 {{ kpis.roi_gap_abs|floatformat:1 }}pt</span>{% endif %}
-    </div>
-  </div>
-</section>
-
-<!-- 現金化シミュレーション -->
-<section class="liquidation glass">
-  <div class="liq-head">
-    <div class="title">今すぐ全て現金化したら</div>
-    <div class="chip">流動性 {{ kpis.liquidity_rate_pct|default:0 }}%</div>
-  </div>
-
-  <div class="liq-hero">
-    <div class="liq-total">¥{{ kpis.liquidation|intcomma }}</div>
-    <div class="kpi-sub">税・手数料は考慮なし</div>
-  </div>
-
-  <div class="li-sum-grid">
-    <div class="li-item">
-      <div class="li-ic spot"></div>
-      <div class="li-meta">
-        <div class="li-label">現物 評価額</div>
-        <div class="li-value">¥{{ breakdown.spot_mv|intcomma }}</div>
-      </div>
-    </div>
-    <div class="li-item">
-      <div class="li-ic margin"></div>
-      <div class="li-meta">
-        <div class="li-label">信用 含み損益</div>
-        <div class="li-value {% if kpis.margin_unrealized < 0 %}neg{% else %}pos{% endif %}">¥{{ kpis.margin_unrealized|intcomma }}</div>
-      </div>
-    </div>
-    <div class="li-item">
-      <div class="li-ic cash"></div>
-      <div class="li-meta">
-        <div class="li-label">現金残高</div>
-        <div class="li-value">¥{{ kpis.cash_total|intcomma }}</div>
-      </div>
+      <div class="ticker-fade left"></div>
+      <div class="ticker-fade right"></div>
     </div>
   </div>
 
-  {% if risk_flags and risk_flags|length > 0 %}
-    <div class="warn-list">
-      {% for m in risk_flags %}<div class="warn-item">⚠️ {{ m }}</div>{% endfor %}
-    </div>
-  {% endif %}
-</section>
+  <!-- Deck rail (横スワイプ) -->
+  <div class="rail" id="deckRail" aria-label="Home decks">
+    {% for d in decks %}
+      <section class="deck" data-key="{{ d.key }}">
+        <header class="deck-head">
+          <div class="deck-title">{{ d.title }}</div>
+          <div class="deck-meta" id="deckMeta-{{ d.key }}"></div>
+        </header>
 
-<!-- 現物/信用 内訳 -->
-<section class="glass breakdown">
-  <div class="strip-title">内訳（現物 / 信用）</div>
+        <div class="deck-body">
+          {% if d.key == "assets" %}
+            {% with a=d.payload %}
+              {% if a.status != "ok" %}
+                <div class="empty">
+                  <div class="empty-title">ASSETS 取得エラー</div>
+                  <div class="empty-sub">{{ a.error|default:"unknown error" }}</div>
+                </div>
+              {% else %}
+                <div class="grid2">
+                  <div class="kpi">
+                    <div class="kpi-label">実現損益 YTD</div>
+                    <div class="kpi-val">{{ a.realized.ytd.total|floatformat:0|intcomma }}<span class="yen">円</span></div>
+                    <div class="kpi-sub">件数 {{ a.realized.ytd.count }}</div>
+                  </div>
+                  <div class="kpi">
+                    <div class="kpi-label">今月 MTD</div>
+                    <div class="kpi-val">{{ a.realized.mtd.total|floatformat:0|intcomma }}<span class="yen">円</span></div>
+                    <div class="kpi-sub">件数 {{ a.realized.mtd.count }}</div>
+                  </div>
+                </div>
 
-  <div class="bd-gauge" role="img" aria-label="現物と信用の比率">
-    <div class="bd-gauge-spot"   style="width: {{ breakdown_pct.spot_pct }}%"></div>
-    <div class="bd-gauge-margin" style="width: {{ breakdown_pct.margin_pct }}%"></div>
-  </div>
-  <div class="bd-legend">
-    <span><i class="dot spot"></i>現物 {{ breakdown_pct.spot_pct }}%</span>
-    <span><i class="dot margin"></i>信用 {{ breakdown_pct.margin_pct }}%</span>
-  </div>
+                <div class="grid2">
+                  <div class="kpi">
+                    <div class="kpi-label">今週 WTD</div>
+                    <div class="kpi-val">{{ a.realized.wtd.total|floatformat:0|intcomma }}<span class="yen">円</span></div>
+                    <div class="kpi-sub">件数 {{ a.realized.wtd.count }}</div>
+                  </div>
+                  <div class="kpi">
+                    <div class="kpi-label">年間目標（全体）</div>
+                    <div class="kpi-val">{{ a.goals.year_total|intcomma }}<span class="yen">円</span></div>
+                    <div class="kpi-sub">残り月 {{ a.pace.remaining_months_including_current }} / 残り週 {{ a.pace.remaining_weeks_including_current }}</div>
+                  </div>
+                </div>
 
-  <div class="bd-donut-wrap">
-    <div class="bd-donut"
-         style="--spot: {{ breakdown_pct.spot_pct }}; --margin: {{ breakdown_pct.margin_pct }};"
-         role="img" aria-label="現物と信用のドーナツ構成">
-      <div class="bd-donut-hole">
-        <div class="bd-donut-total">¥{{ kpis.total_assets|intcomma }}</div>
-        <div class="bd-donut-caption">総資産（評価＋現金）</div>
-      </div>
-    </div>
-    <ul class="bd-legend-rows">
-      <li><span class="dot spot"></span><span>現物 評価額</span><strong>¥{{ breakdown.spot_mv|intcomma }}</strong></li>
-      <li class="sub"><span></span><span>取得額</span><span>¥{{ breakdown.spot_cost|intcomma }}</span></li>
-      <li><span class="dot margin"></span><span>信用 評価額</span><strong>¥{{ breakdown.margin_mv|intcomma }}</strong></li>
-      <li class="sub"><span></span><span>取得額</span><span>¥{{ breakdown.margin_cost|intcomma }}</span></li>
-    </ul>
-  </div>
-</section>
+                <div class="panel">
+                  <div class="panel-title">必要ペース（これから）</div>
+                  <div class="pace-row">
+                    <div class="pace-item">
+                      <div class="pace-label">月</div>
+                      <div class="pace-val">
+                        {{ a.pace.total_need_per_month.need_per_slot|floatformat:0|intcomma }}<span class="yen">円</span>
+                      </div>
+                      <div class="pace-sub">残り {{ a.pace.total_need_per_month.remaining|floatformat:0|intcomma }} 円</div>
+                    </div>
+                    <div class="pace-item">
+                      <div class="pace-label">週</div>
+                      <div class="pace-val">
+                        {{ a.pace.total_need_per_week.need_per_slot|floatformat:0|intcomma }}<span class="yen">円</span>
+                      </div>
+                      <div class="pace-sub">残り {{ a.pace.total_need_per_week.remaining|floatformat:0|intcomma }} 円</div>
+                    </div>
+                  </div>
+                </div>
 
-<!-- セクター配分 -->
-<section class="sector-strip glass">
-  <div class="strip-title">セクター別構成</div>
-  <div class="strip-scroll">
-    {% for s in sectors %}
-      <div class="sector-chip">
-        <div class="sec-name">{{ s.sector|default:"不明" }}</div>
-        <div class="sec-meta">
-          <span class="mv">¥{{ s.mv|default:0|intcomma }}</span>
-          <span class="share">{{ s.share_pct|default:0|floatformat:1 }}%</span>
-        </div>
-        <div class="sec-sub">
-          参考: 騰落
-          {% if s.perf_pct != None %}
-            <strong class="{% if s.perf_pct > 0 %}pos{% elif s.perf_pct < 0 %}neg{% endif %}">
-              {{ s.perf_pct|floatformat:2 }}%
-            </strong>
+                <div class="panel">
+                  <div class="panel-title">証券会社別（YTD / 目標 / 必要ペース）</div>
+                  <div class="table">
+                    {% for r in a.pace.by_broker_rows %}
+                      <div class="tr">
+                        <div class="td broker">{{ r.label }}</div>
+                        <div class="td num">{{ r.ytd|floatformat:0|intcomma }}</div>
+                        <div class="td num muted">{{ r.goal_year|intcomma }}</div>
+                        <div class="td num need">{{ r.pace_month.need_per_slot|floatformat:0|intcomma }}</div>
+                      </div>
+                    {% endfor %}
+                  </div>
+                  <div class="table-note">（列）YTD / 年目標 / 月ペース</div>
+                </div>
+              {% endif %}
+            {% endwith %}
+
+          {% elif d.key == "ai_brief" %}
+            {% with b=d.payload %}
+              <div class="empty">
+                <div class="empty-title">AI BRIEF</div>
+                <div class="empty-sub">ここは「自分で考えて自分で発言するAI」の表舞台。次に生成ロジックを繋ぐ。</div>
+              </div>
+              <div class="panel">
+                <div class="panel-title">今日の一言</div>
+                <div class="quote">「相場の正解を当てる」より、“やることを固定してブレない”が勝つ。</div>
+                <div class="quote-sub">（※仮。後であなたのAIコメント生成へ差し替える）</div>
+              </div>
+            {% endwith %}
+
+          {% elif d.key == "risk" %}
+            <div class="empty">
+              <div class="empty-title">RISK</div>
+              <div class="empty-sub">信用余力・拘束・レバ・ポリシー逸脱・想定DDなどを集約する枠。</div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">アイデア</div>
+              <ul class="bullets">
+                <li>「今日は攻める日か？」をレジーム＋ボラで判定</li>
+                <li>証券会社別：信用使用率（設定の credit_usage_pct と連動）</li>
+                <li>“やらないリスト” が点灯したら赤で警告</li>
+              </ul>
+            </div>
+
+          {% elif d.key == "market" %}
+            <div class="empty">
+              <div class="empty-title">MARKET</div>
+              <div class="empty-sub">指数・ブレッド・セクター地図・需給の総まとめ枠。</div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">表示候補</div>
+              <div class="chips">
+                <span class="chip">TOPIX / 日経</span>
+                <span class="chip">米金利 / ドル円</span>
+                <span class="chip">ブレッド</span>
+                <span class="chip">業種強弱</span>
+                <span class="chip">テーマ寄与</span>
+              </div>
+            </div>
+
+          {% elif d.key == "today_plan" %}
+            <div class="empty">
+              <div class="empty-title">TODAY PLAN</div>
+              <div class="empty-sub">ウォッチ条件・行動ログ・発注メモを“1枚の計画”にする枠。</div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">今日の型（仮）</div>
+              <ol class="steps">
+                <li>相場レジームを見る</li>
+                <li>やること/やらないことを確定</li>
+                <li>ウォッチ条件を2つだけセット</li>
+                <li>発注は“条件達成”のみ</li>
+              </ol>
+            </div>
+
+          {% elif d.key == "news_trends" %}
+            {% with n=d.payload %}
+              {% if n.status != "ok" and n.status != "stub" %}
+                <div class="empty">
+                  <div class="empty-title">NEWS & TRENDS 取得エラー</div>
+                  <div class="empty-sub">{{ n.error|default:"unknown error" }}</div>
+                </div>
+              {% else %}
+                <div class="panel">
+                  <div class="panel-title">注目セクター（ざっくり）</div>
+                  <div class="chips">
+                    {% for s in n.sectors %}
+                      <span class="chip">{{ s.sector }} <span class="chip-sub">×{{ s.count }}</span></span>
+                    {% empty %}
+                      <span class="chip muted">（まだデータなし）</span>
+                    {% endfor %}
+                  </div>
+                  <div class="panel-sub">更新: {{ n.as_of|default:"-" }}</div>
+                </div>
+
+                <div class="panel">
+                  <div class="panel-title">ニュース</div>
+                  <div class="list">
+                    {% for it in n.items|slice:":10" %}
+                      <div class="li">
+                        <div class="li-top">
+                          <span class="badge">{{ it.source }}</span>
+                          {% if it.published_at %}
+                            <span class="time" data-iso="{{ it.published_at }}">{{ it.published_at }}</span>
+                          {% endif %}
+                        </div>
+                        <div class="li-title">{{ it.title }}</div>
+                      </div>
+                    {% empty %}
+                      <div class="li muted">（ニュース取得待ち / 5分キャッシュ）</div>
+                    {% endfor %}
+                  </div>
+                </div>
+
+                <div class="panel">
+                  <div class="panel-title">トレンド（ネット）</div>
+                  <div class="list">
+                    {% for it in n.trends|slice:":10" %}
+                      <div class="li">
+                        <div class="li-top">
+                          <span class="badge">Trends</span>
+                        </div>
+                        <div class="li-title">{{ it.title }}</div>
+                      </div>
+                    {% empty %}
+                      <div class="li muted">（トレンド取得待ち）</div>
+                    {% endfor %}
+                  </div>
+                </div>
+              {% endif %}
+            {% endwith %}
           {% else %}
-            <span class="muted">—</span>
+            <div class="empty">
+              <div class="empty-title">{{ d.title }}</div>
+              <div class="empty-sub">（このデッキは未定義）</div>
+            </div>
           {% endif %}
         </div>
-      </div>
-    {% empty %}
-      <div class="empty">データがありません</div>
+
+        <footer class="deck-foot">
+          <div class="dots" aria-hidden="true"></div>
+        </footer>
+      </section>
     {% endfor %}
   </div>
-</section>
 
-<!-- ストレステスト -->
-<section class="stress glass" id="stressRoot" data-total-mv="{{ kpis.total_assets|default:0 }}">
-  <div class="stress-head">
-    <div>ストレステスト（株式β=0.9）</div>
-    <div class="stress-result"><span id="stressPct">-5</span>% → 推定総資産 <strong id="stressMV">¥0</strong></div>
+  <!-- Mini hud -->
+  <div class="hud">
+    <div class="hud-pill">
+      <span class="hud-dot"></span>
+      <span id="hudText">Swipe</span>
+    </div>
   </div>
-  <input type="range" min="-10" max="10" value="-5" step="1" id="stressSlider" />
-</section>
-
-<!-- キャッシュフロー（JSで空時はメッセージ） -->
-<section class="cash glass" id="cashRoot"
-         data-dividend="{{ kpis.dividend_month|default:0 }}"
-         data-realized="{{ kpis.realized_month|default:0 }}">
-  <div class="cash-head">今月のキャッシュフロー</div>
-  <canvas id="cashflowChart" height="140"></canvas>
-  <div class="empty-msg" style="display:none;opacity:.7">今月のデータがありません</div>
-</section>
+</div>
 
 <script>
-  window.weekly_draft = {{ weekly_draft|safe|escapejs }};
-  window.nextmove_draft = {{ nextmove_draft|safe|escapejs }};
+(function(){
+  // ----------------------------
+  // Deck HUD (現在のセクション名)
+  // ----------------------------
+  const rail = document.getElementById("deckRail");
+  const hudText = document.getElementById("hudText");
+  if (rail && hudText){
+    const decks = Array.from(rail.querySelectorAll(".deck"));
+    const obs = new IntersectionObserver((entries)=>{
+      let best = null;
+      for (const e of entries){
+        if (!e.isIntersecting) continue;
+        if (!best || e.intersectionRatio > best.intersectionRatio) best = e;
+      }
+      if (best){
+        const t = best.target.querySelector(".deck-title");
+        hudText.textContent = t ? t.textContent.trim() : "Swipe";
+      }
+    }, { root: rail, threshold: [0.35,0.5,0.65] });
+
+    decks.forEach(d => obs.observe(d));
+  }
+
+  // ----------------------------
+  // Ticker (テロップ生成)
+  // - AI BRIEF / 注目セクター / ニュース見出し / トレンド
+  // ----------------------------
+  const track = document.getElementById("tickerTrack");
+  function pickText(){
+    const out = [];
+
+    // サーバ描画済みのNEWS/TRNDSから拾う（リンク無し・見出しだけ）
+    const newsDeck = document.querySelector('.deck[data-key="news_trends"]');
+    if (newsDeck){
+      const sectorChips = Array.from(newsDeck.querySelectorAll(".chip"))
+        .slice(0, 4)
+        .map(x => x.textContent.replace(/\s+/g,' ').trim());
+      if (sectorChips.length) out.push("注目: " + sectorChips.join(" / "));
+
+      const newsTitles = Array.from(newsDeck.querySelectorAll(".panel:nth-of-type(2) .li-title"))
+        .slice(0, 4)
+        .map(x => x.textContent.trim());
+      newsTitles.forEach(t => out.push("NEWS: " + t));
+
+      const trendTitles = Array.from(newsDeck.querySelectorAll(".panel:nth-of-type(3) .li-title"))
+        .slice(0, 4)
+        .map(x => x.textContent.trim());
+      trendTitles.forEach(t => out.push("TREND: " + t));
+    }
+
+    // AI BRIEFの仮一言
+    const briefDeck = document.querySelector('.deck[data-key="ai_brief"] .quote');
+    if (briefDeck){
+      const q = briefDeck.textContent.trim();
+      if (q) out.unshift("AI: " + q);
+    }
+
+    // 空ならデフォルト
+    if (!out.length){
+      out.push("AI: 今日は“固定ルールで淡々と”。");
+      out.push("NEWS: 取得待ち（5分キャッシュ）");
+    }
+
+    return out;
+  }
+
+  function buildTicker(){
+    if (!track) return;
+    const texts = pickText();
+
+    // 2周分作って途切れを感じにくくする
+    const items = texts.concat(texts).map(t => {
+      const div = document.createElement("div");
+      div.className = "ticker-item";
+      div.textContent = t;
+      return div;
+    });
+
+    track.innerHTML = "";
+    items.forEach(i => track.appendChild(i));
+
+    // アニメ距離に応じて速度を合わせる（ざっくり）
+    requestAnimationFrame(()=>{
+      const w = track.scrollWidth;
+      const dur = Math.max(18, Math.min(45, w / 120)); // 120px/s 相当
+      track.style.setProperty("--dur", dur + "s");
+      track.classList.add("run");
+    });
+  }
+
+  buildTicker();
+
+  // ----------------------------
+  // 時刻表示の整形（ISO→短表示）
+  // ----------------------------
+  const times = document.querySelectorAll(".time[data-iso]");
+  times.forEach(el=>{
+    const iso = el.getAttribute("data-iso");
+    if (!iso) return;
+    try{
+      const dt = new Date(iso);
+      const hh = String(dt.getHours()).padStart(2,"0");
+      const mm = String(dt.getMinutes()).padStart(2,"0");
+      el.textContent = `${hh}:${mm}`;
+    }catch(e){}
+  });
+})();
 </script>
 
+<style>
+:root{
+  --bg:#020617;
+  --card:rgba(15,23,42,.92);
+  --card2:rgba(15,23,42,.72);
+  --fg:#e5edff;
+  --sub:rgba(229,237,255,.72);
+  --muted:rgba(148,163,184,.75);
+  --line:rgba(148,163,184,.22);
+
+  --accent:#60a5fa;
+  --accent2:#2dd4bf;
+  --accent3:#f472b6;
+
+  --ok:#22c55e;
+  --bad:#ef4444;
+  --warn:#f59e0b;
+
+  --r:18px;
+  --pad:12px;
+}
+
+.home{
+  background:var(--bg);
+  color:var(--fg);
+  min-height:100dvh;
+  padding: calc(10px + env(safe-area-inset-top)) 10px calc(90px + env(safe-area-inset-bottom));
+}
+
+/* Top bar */
+.topbar{
+  display:grid;
+  grid-template-columns: 150px 1fr;
+  gap:10px;
+  align-items:center;
+  margin-bottom:12px;
+}
+.today{
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:10px 10px;
+  background:linear-gradient(135deg, rgba(96,165,250,.18), rgba(45,212,191,.10)),
+             rgba(15,23,42,.85);
+  backdrop-filter: blur(10px);
+}
+.today-label{
+  font-size:11px;
+  color:var(--sub);
+  letter-spacing:.08em;
+}
+.today-date{
+  margin-top:4px;
+  font-size:13px;
+  font-weight:700;
+  line-height:1.2;
+}
+
+/* Ticker */
+.ticker{
+  position:relative;
+  overflow:hidden;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:rgba(15,23,42,.75);
+  backdrop-filter: blur(10px);
+  height:44px;
+}
+.ticker-track{
+  display:inline-flex;
+  align-items:center;
+  gap:18px;
+  white-space:nowrap;
+  padding:0 14px;
+  height:44px;
+  transform: translateX(0);
+}
+.ticker-track.run{
+  animation: tickerMove var(--dur, 24s) linear infinite;
+}
+@keyframes tickerMove{
+  from{ transform: translateX(0); }
+  to{ transform: translateX(-50%); }
+}
+.ticker-item{
+  font-size:12px;
+  color:var(--sub);
+}
+.ticker-fade{
+  position:absolute;
+  top:0; bottom:0;
+  width:26px;
+  pointer-events:none;
+}
+.ticker-fade.left{
+  left:0;
+  background:linear-gradient(90deg, rgba(2,6,23,1), rgba(2,6,23,0));
+}
+.ticker-fade.right{
+  right:0;
+  background:linear-gradient(270deg, rgba(2,6,23,1), rgba(2,6,23,0));
+}
+
+/* Rail (horizontal swipe) */
+.rail{
+  display:flex;
+  gap:12px;
+  overflow-x:auto;
+  overscroll-behavior-x:contain;
+  scroll-snap-type:x mandatory;
+  -webkit-overflow-scrolling:touch;
+  padding: 2px 2px 10px;
+}
+.rail::-webkit-scrollbar{ display:none; }
+
+.deck{
+  scroll-snap-align:center;
+  flex:0 0 calc(100vw - 24px);
+  border:1px solid var(--line);
+  border-radius: var(--r);
+  background:
+    radial-gradient(1000px 300px at 20% 0%, rgba(96,165,250,.16), transparent 60%),
+    radial-gradient(700px 240px at 80% 0%, rgba(244,114,182,.10), transparent 55%),
+    rgba(15,23,42,.86);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 12px 40px rgba(0,0,0,.35);
+  overflow:hidden;
+}
+@media (min-width: 900px){
+  .deck{ flex-basis: 760px; }
+}
+
+.deck-head{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  padding: 12px 14px;
+  border-bottom:1px solid rgba(148,163,184,.16);
+}
+.deck-title{
+  font-size:14px;
+  font-weight:900;
+  letter-spacing:.08em;
+}
+.deck-meta{
+  font-size:11px;
+  color:var(--muted);
+}
+
+.deck-body{
+  padding: 12px 14px 14px;
+}
+
+/* Common UI */
+.grid2{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:10px;
+  margin-bottom:10px;
+}
+.kpi{
+  border:1px solid rgba(148,163,184,.16);
+  background:rgba(15,23,42,.55);
+  border-radius:16px;
+  padding:10px 10px;
+}
+.kpi-label{
+  font-size:11px;
+  color:var(--sub);
+}
+.kpi-val{
+  margin-top:6px;
+  font-size:18px;
+  font-weight:900;
+  letter-spacing:.02em;
+}
+.kpi-sub{
+  margin-top:6px;
+  font-size:11px;
+  color:var(--muted);
+}
+.yen{ font-size:12px; color:var(--muted); margin-left:2px; }
+
+.panel{
+  border:1px solid rgba(148,163,184,.14);
+  background:rgba(15,23,42,.45);
+  border-radius:16px;
+  padding:12px 12px;
+  margin-top:10px;
+}
+.panel-title{
+  font-size:12px;
+  font-weight:800;
+  letter-spacing:.04em;
+  margin-bottom:10px;
+}
+.panel-sub{
+  margin-top:10px;
+  font-size:11px;
+  color:var(--muted);
+}
+
+.pace-row{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+.pace-item{
+  border:1px solid rgba(148,163,184,.14);
+  background:rgba(2,6,23,.25);
+  border-radius:14px;
+  padding:10px 10px;
+}
+.pace-label{
+  font-size:11px;
+  color:var(--sub);
+}
+.pace-val{
+  margin-top:6px;
+  font-size:16px;
+  font-weight:900;
+}
+.pace-sub{
+  margin-top:6px;
+  font-size:11px;
+  color:var(--muted);
+}
+
+.table{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.tr{
+  display:grid;
+  grid-template-columns: 1.1fr .9fr .9fr .9fr;
+  gap:8px;
+  align-items:center;
+  padding:8px 8px;
+  border-radius:12px;
+  background:rgba(2,6,23,.22);
+  border:1px solid rgba(148,163,184,.12);
+}
+.td{
+  font-size:12px;
+  color:var(--sub);
+}
+.td.broker{
+  font-weight:800;
+  color:var(--fg);
+}
+.td.num{
+  text-align:right;
+  font-variant-numeric: tabular-nums;
+}
+.td.muted{ color:var(--muted); }
+.td.need{
+  color: rgba(45,212,191,.92);
+  font-weight:800;
+}
+.table-note{
+  margin-top:8px;
+  font-size:11px;
+  color:var(--muted);
+}
+
+.chips{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.chip{
+  border:1px solid rgba(148,163,184,.18);
+  background:rgba(2,6,23,.18);
+  border-radius:999px;
+  padding:6px 10px;
+  font-size:12px;
+  color:var(--sub);
+}
+.chip-sub{ color:var(--muted); font-size:11px; margin-left:6px; }
+.chip.muted{ opacity:.65; }
+
+.list{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.li{
+  border:1px solid rgba(148,163,184,.12);
+  background:rgba(2,6,23,.20);
+  border-radius:14px;
+  padding:10px 10px;
+}
+.li-top{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:6px;
+}
+.badge{
+  font-size:10px;
+  letter-spacing:.06em;
+  color:rgba(2,6,23,1);
+  background:linear-gradient(90deg, rgba(96,165,250,.9), rgba(45,212,191,.85));
+  border-radius:999px;
+  padding:3px 8px;
+  font-weight:900;
+}
+.time{
+  font-size:11px;
+  color:var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.li-title{
+  font-size:12px;
+  color:var(--fg);
+  line-height:1.35;
+}
+
+.quote{
+  font-size:14px;
+  font-weight:900;
+  line-height:1.35;
+  color:rgba(229,237,255,.92);
+}
+.quote-sub{
+  margin-top:8px;
+  font-size:11px;
+  color:var(--muted);
+}
+
+.bullets{
+  margin:0;
+  padding-left:18px;
+  color:var(--sub);
+  font-size:12px;
+  line-height:1.5;
+}
+.steps{
+  margin:0;
+  padding-left:18px;
+  color:var(--sub);
+  font-size:12px;
+  line-height:1.6;
+}
+
+.empty{
+  border:1px dashed rgba(148,163,184,.22);
+  background:rgba(2,6,23,.16);
+  border-radius:16px;
+  padding:14px 12px;
+}
+.empty-title{
+  font-size:13px;
+  font-weight:900;
+}
+.empty-sub{
+  margin-top:8px;
+  font-size:12px;
+  color:var(--muted);
+  line-height:1.45;
+}
+
+/* Footer */
+.deck-foot{
+  padding:10px 14px 14px;
+  opacity:.35;
+}
+.dots{
+  height:6px;
+  border-radius:999px;
+  background:linear-gradient(90deg, rgba(96,165,250,.7), rgba(45,212,191,.55), rgba(244,114,182,.45));
+}
+
+/* HUD */
+.hud{
+  position:fixed;
+  left:0; right:0;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  display:flex;
+  justify-content:center;
+  pointer-events:none;
+}
+.hud-pill{
+  pointer-events:none;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 14px;
+  border-radius:999px;
+  border:1px solid rgba(148,163,184,.18);
+  background:rgba(15,23,42,.75);
+  backdrop-filter: blur(12px);
+  color:var(--sub);
+  font-size:12px;
+}
+.hud-dot{
+  width:8px; height:8px;
+  border-radius:999px;
+  background:rgba(45,212,191,.9);
+  box-shadow: 0 0 16px rgba(45,212,191,.45);
+}
+</style>
 {% endblock %}
