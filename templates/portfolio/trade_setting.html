@@ -34,7 +34,7 @@
       <input type="number" name="year_goal_total"
              value="{{ setting.year_goal_total }}"
              step="10000" min="0"
-             class="setting-input goal-input">
+             class="setting-input">
       <div class="hint">HomeのASSETSで「年残→残り月/週に割り直した必要ペース」を出すための目標（進捗は実現損益のみ）。</div>
     </div>
 
@@ -43,19 +43,19 @@
       <label>年間目標（証券会社別 / 円）</label>
 
       <div class="broker-grid">
-        {% for key,label in broker_choices %}
+        {% for b in broker_goals %}
           <div class="broker-item">
-            <div class="broker-name">{{ label }}</div>
+            <div class="broker-name">{{ b.label }}</div>
             <input type="number"
-                   name="year_goal_broker_{{ key }}"
-                   value="{{ broker_goal_map.key|default:'' }}"
+                   name="year_goal_broker_{{ b.key }}"
+                   value="{{ b.value }}"
                    step="10000" min="0"
-                   class="setting-input goal-input">
+                   class="setting-input">
           </div>
         {% endfor %}
       </div>
 
-      <div class="hint">未入力は0扱い。入力した分だけ保存（0は保存されません）。</div>
+      <div class="hint">未入力は0扱い。0は保存されません。</div>
     </div>
 
     <button type="submit" class="btn-save">保存</button>
@@ -63,21 +63,10 @@
 </div>
 
 <script>
-  // リスク表示連動
   const slider = document.getElementById('riskSlider');
   const valueLabel = document.getElementById('riskValue');
   slider.addEventListener('input', () => {
     valueLabel.textContent = slider.value + "%";
-  });
-
-  // 数字入力を “表示だけ” 読みやすく（フォーカス外れたら整形）
-  // ※ type=number はブラウザが勝手に整形することもあるので、ここは控えめ運用
-  const goalInputs = document.querySelectorAll('.goal-input');
-  goalInputs.forEach(inp => {
-    inp.addEventListener('blur', () => {
-      // 何もしない（type=numberのまま安全運用）
-      // 見た目のカンマ整形までやりたい場合は type=text に変えて別実装にする
-    });
   });
 </script>
 
