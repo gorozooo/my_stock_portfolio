@@ -28,9 +28,17 @@ class UserSetting(models.Model):
 
     leverage_matsui  = models.FloatField("松井 倍率", default=2.80)
     haircut_matsui   = models.FloatField("松井 ヘアカット率", default=0.00)
-    
+
     leverage_sbi  = models.FloatField("SBI 倍率", default=2.80)
     haircut_sbi   = models.FloatField("SBI ヘアカット率", default=0.00)
+
+    # =========================================================
+    # ★追加：実現損益 目標（年）
+    # - 全体：year_goal_total
+    # - 証券会社別：year_goal_by_broker（JSON: {"SBI": 600000, "RAKUTEN": 300000, ...}）
+    # =========================================================
+    year_goal_total = models.BigIntegerField("年間目標（全体・円）", default=0)
+    year_goal_by_broker = models.JSONField("年間目標（証券会社別）", default=dict, blank=True)
 
     def __str__(self):
         return f"{self.user.username} 設定"
@@ -109,7 +117,7 @@ class Holding(models.Model):
 
     def __str__(self):
         return f"{self.ticker} x{self.quantity}"
-            
+
 
 # ==== RealizedTrade ======================================================
 class RealizedTrade(models.Model):
@@ -163,7 +171,7 @@ class RealizedTrade(models.Model):
     fee       = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     tax       = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     sector33_code = models.CharField(max_length=16, blank=True, default="")
-    
+
     broker    = models.CharField(max_length=16, choices=BROKER_CHOICES, default="OTHER")
     account   = models.CharField(
         max_length=10,
@@ -320,7 +328,7 @@ class RealizedTrade(models.Model):
             self.currency = "JPY"
 
         super().save(*args, **kwargs)
-        
+
 
 # ==== Dividend ======================================================
 class Dividend(models.Model):
@@ -538,7 +546,8 @@ class DividendGoal(models.Model):
 
     def __str__(self):
         return f"{self.user} {self.year} → {self.amount}"
-        
+
+
 # =============================
 # ポジション管理（信用トレード専用）
 # =============================
@@ -574,4 +583,3 @@ class Position(models.Model):
 
     def __str__(self):
         return f"{self.ticker} ({self.side}) {self.state}"
-        
