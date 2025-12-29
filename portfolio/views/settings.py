@@ -35,25 +35,29 @@ def trade_setting(request):
         ("OTHER", "その他"),
     ))
 
-    # テンプレでそのまま value に使えるように dict を用意
-    broker_goal_map = setting.year_goal_by_broker or {}
+    # テンプレで使いやすいように list 化
+    by_broker = setting.year_goal_by_broker or {}
+    broker_goals_for_template = []
+    for key, label in broker_choices:
+        broker_goals_for_template.append({
+            "key": key,
+            "label": label,
+            "value": int(by_broker.get(key, 0) or 0),
+        })
 
     if request.method == "POST":
-        # 既存
         setting.account_equity = _to_int(request.POST.get("account_equity"), default=0)
         setting.risk_pct = _to_float(request.POST.get("risk_pct"), default=1.0)
 
-        # ★追加：年間目標（全体）
         setting.year_goal_total = _to_int(request.POST.get("year_goal_total"), default=0)
 
-        # ★追加：年間目標（証券会社別）→ JSONへ
-        by_broker = {}
+        new_by_broker = {}
         for key, _label in broker_choices:
             amt = _to_int(request.POST.get(f"year_goal_broker_{key}"), default=0)
             if amt != 0:
-                by_broker[key] = amt
+                new_by_broker[key] = amt
 
-        setting.year_goal_by_broker = by_broker
+        setting.year_goal_by_broker = new_by_broker
         setting.save()
 
         return redirect("trade_setting")
@@ -63,7 +67,6 @@ def trade_setting(request):
         "portfolio/trade_setting.html",
         {
             "setting": setting,
-            "broker_choices": broker_choices,
-            "broker_goal_map": broker_goal_map,
+            "broker_goals": broker_goals_for_template,
         },
     )
