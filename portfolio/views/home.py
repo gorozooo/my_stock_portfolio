@@ -152,4 +152,4 @@ def home(request):
         # テンプレ側の制御用（今は詳細リンク無し）
         "enable_detail_links": False,
     }
-    return render(request, "portfolio/home.html", context)
+    return render(request, "home.html", context)
