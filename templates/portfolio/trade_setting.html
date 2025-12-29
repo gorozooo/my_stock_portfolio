@@ -1,67 +1,69 @@
-{% extends "base.html" %}
-{% load static %}
-{% block content %}
-<div class="glass-card">
-  <h2>⚙️ トレード設定</h2>
-  <form method="post">
-    {% csrf_token %}
+from django.shortcuts import render, redirect
+from django.contrib.auth.decorators import login_required
 
-    <!-- 口座残高 -->
-    <div class="setting-item">
-      <label>口座残高</label>
-      <input type="number" name="account_equity"
-             value="{{ setting.account_equity }}"
-             step="10000" min="0"
-             class="setting-input">
-    </div>
+from ..models import UserSetting, Holding
 
-    <!-- リスク％（スライダー + 数字連動） -->
-    <div class="setting-item">
-      <label>リスク％</label>
-      <div class="slider-wrap">
-        <input id="riskSlider" type="range" name="risk_pct"
-               value="{{ setting.risk_pct }}"
-               min="0.1" max="5" step="0.1">
-        <span id="riskValue">{{ setting.risk_pct }}%</span>
-      </div>
-    </div>
 
-    <button type="submit" class="btn-save">保存</button>
-  </form>
-</div>
+def _to_int(v, default=0) -> int:
+    try:
+        s = str(v).replace(",", "").strip()
+        if s == "":
+            return default
+        return int(float(s))
+    except Exception:
+        return default
 
-<script>
-  const slider = document.getElementById('riskSlider');
-  const valueLabel = document.getElementById('riskValue');
-  slider.addEventListener('input', () => {
-    valueLabel.textContent = slider.value + "%";
-  });
-</script>
 
-<style>
-  .glass-card {
-    margin:20px auto; padding:20px;
-    border-radius:20px;
-    background:rgba(255,255,255,0.05);
-    backdrop-filter:blur(12px);
-    box-shadow:0 4px 20px rgba(0,0,0,0.2);
-    max-width:400px;
-  }
-  .glass-card h2 { margin:0 0 16px; font-size:20px; }
-  .setting-item { margin-bottom:20px; }
-  .setting-input {
-    width:100%; padding:10px; border-radius:12px;
-    border:1px solid rgba(255,255,255,0.2);
-    background:rgba(255,255,255,0.1);
-    color:#fff;
-  }
-  .slider-wrap { display:flex; align-items:center; gap:10px; }
-  input[type=range] { flex:1; }
-  .btn-save {
-    width:100%; padding:12px;
-    border:none; border-radius:12px;
-    background:#26d07c; color:#fff;
-    font-size:16px; font-weight:600;
-  }
-</style>
-{% endblock %}
+def _to_float(v, default=0.0) -> float:
+    try:
+        s = str(v).replace(",", "").strip()
+        if s == "":
+            return default
+        return float(s)
+    except Exception:
+        return default
+
+
+@login_required
+def trade_setting(request):
+    setting, _ = UserSetting.objects.get_or_create(user=request.user)
+
+    broker_choices = getattr(Holding, "BROKER_CHOICES", (
+        ("RAKUTEN", "楽天証券"),
+        ("SBI", "SBI証券"),
+        ("MATSUI", "松井証券"),
+        ("OTHER", "その他"),
+    ))
+
+    # テンプレでそのまま value に使えるように dict を用意
+    broker_goal_map = setting.year_goal_by_broker or {}
+
+    if request.method == "POST":
+        # 既存
+        setting.account_equity = _to_int(request.POST.get("account_equity"), default=0)
+        setting.risk_pct = _to_float(request.POST.get("risk_pct"), default=1.0)
+
+        # ★追加：年間目標（全体）
+        setting.year_goal_total = _to_int(request.POST.get("year_goal_total"), default=0)
+
+        # ★追加：年間目標（証券会社別）→ JSONへ
+        by_broker = {}
+        for key, _label in broker_choices:
+            amt = _to_int(request.POST.get(f"year_goal_broker_{key}"), default=0)
+            if amt != 0:
+                by_broker[key] = amt
+
+        setting.year_goal_by_broker = by_broker
+        setting.save()
+
+        return redirect("trade_setting")
+
+    return render(
+        request,
+        "portfolio/trade_setting.html",
+        {
+            "setting": setting,
+            "broker_choices": broker_choices,
+            "broker_goal_map": broker_goal_map,
+        },
+    )
