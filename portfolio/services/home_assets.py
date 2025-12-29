@@ -3,226 +3,178 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Dict, Any, Optional, Tuple, List
+from decimal import Decimal
+from typing import Any, Dict, List, Tuple
 
+from django.db.models import Sum, Count, Q
 from django.utils import timezone
 
-from ..models import RealizedTrade, UserSetting, Holding
+from ..models import RealizedTrade, UserSetting
 
 
-# =========================
-# helpers
-# =========================
-def _as_date(d: Optional[date] = None) -> date:
-    if d:
-        return d
-    # timezone aware な today を date に落とす
+BROKER_LABEL = {
+    "RAKUTEN": "楽天証券",
+    "SBI": "SBI証券",
+    "MATSUI": "松井証券",
+    "OTHER": "その他",
+}
+
+
+def _d0(x) -> Decimal:
+    try:
+        if x is None:
+            return Decimal("0")
+        return Decimal(str(x))
+    except Exception:
+        return Decimal("0")
+
+
+def _today() -> date:
     try:
         return timezone.localdate()
     except Exception:
-        return date.today()
+        return timezone.now().date()
 
 
-def _start_of_year(d: date) -> date:
+def _year_start(d: date) -> date:
     return date(d.year, 1, 1)
 
 
-def _start_of_month(d: date) -> date:
+def _month_start(d: date) -> date:
     return date(d.year, d.month, 1)
 
 
-def _start_of_week_monday(d: date) -> date:
-    # Monday=0 ... Sunday=6
+def _week_start_monday(d: date) -> date:
+    # Monday start
     return d - timedelta(days=d.weekday())
 
 
-def _end_of_year(d: date) -> date:
-    return date(d.year, 12, 31)
+def _remaining_months_including_current(d: date) -> int:
+    # 例: 12月なら1、1月なら12
+    return (12 - d.month) + 1
 
 
-def _clamp_int(v: int, min_v: int = 0) -> int:
-    return v if v >= min_v else min_v
+def _remaining_weeks_including_current(d: date) -> int:
+    # 雑に「今年の残り週数」を52週ベースで扱う
+    # 週の精密さより“運用の分かりやすさ”優先
+    iso_week = int(d.isocalendar().week)
+    return max(1, 52 - iso_week + 1)
 
 
-def _broker_choices() -> Tuple[Tuple[str, str], ...]:
-    return getattr(Holding, "BROKER_CHOICES", (
-        ("RAKUTEN", "楽天証券"),
-        ("SBI", "SBI証券"),
-        ("MATSUI", "松井証券"),
-        ("OTHER", "その他"),
-    ))
-
-
-def _broker_label_map() -> Dict[str, str]:
-    return {k: v for k, v in _broker_choices()}
-
-
-def _safe_int(x: Any, default: int = 0) -> int:
-    try:
-        if x is None:
-            return default
-        # Decimal / float / str 混在対策
-        return int(float(x))
-    except Exception:
-        return default
-
-
-def _calc_remaining_months(as_of: date) -> int:
-    # “今月を含めて”残り月数（例: 12/29なら 12月のみ→1）
-    return _clamp_int(12 - as_of.month + 1, 1)
-
-
-def _calc_remaining_weeks(as_of: date) -> int:
+def _sum_pnl_sell(user, start: date, end: date | None = None, broker: str | None = None) -> Tuple[Decimal, int]:
     """
-    “今日を含めて年末まで”の残り週ブロック数（7日単位）
-    - ISO週(52/53)の罠を避ける
-    - 体感に合う「残り何週」になる
+    ✅ 正解ロジック：
+    - RealizedTrade の SELL のみ
+    - pnl（fee/tax控除後）を合計
+    - trade_at で期間
     """
-    end = _end_of_year(as_of)
-    days = (end - as_of).days
-    # 今日を含めるので +1 してから 7日単位にする
-    return _clamp_int(((days + 1) + 6) // 7, 1)
+    qs = RealizedTrade.objects.filter(user=user, side="SELL", trade_at__gte=start)
+    if end is not None:
+        qs = qs.filter(trade_at__lte=end)
+    if broker:
+        qs = qs.filter(broker=broker)
 
-
-def _trade_pnl_jpy(t: RealizedTrade) -> float:
-    # プロパティ優先（US株なら pnl_jpy へ）
-    try:
-        return float(t.pnl_jpy)
-    except Exception:
-        try:
-            return float(t.pnl)
-        except Exception:
-            return 0.0
-
-
-def _sum_pnl_jpy(trades: List[RealizedTrade]) -> float:
-    total = 0.0
-    for t in trades:
-        total += _trade_pnl_jpy(t)
-    return total
-
-
-def _sum_by_broker(trades: List[RealizedTrade]) -> Dict[str, float]:
-    out: Dict[str, float] = {}
-    for t in trades:
-        b = (t.broker or "OTHER").upper()
-        out[b] = out.get(b, 0.0) + _trade_pnl_jpy(t)
-    return out
-
-
-def _goal_by_broker(setting: UserSetting) -> Dict[str, int]:
-    d = setting.year_goal_by_broker or {}
-    out: Dict[str, int] = {}
-    for k, _lbl in _broker_choices():
-        out[k] = _safe_int(d.get(k), 0)
-    return out
-
-
-def _pace_from_remaining(goal: int, achieved: float, remaining_slots: int) -> Dict[str, Any]:
-    """
-    goal: 年間目標
-    achieved: 既に達成した実現損益（YTD）
-    remaining_slots: 残り月数 or 残り週数（今を含む）
-    """
-    remaining = float(goal) - float(achieved)
-    pace = remaining / float(remaining_slots) if remaining_slots > 0 else remaining
-    return {
-        "goal": int(goal),
-        "achieved": float(achieved),
-        "remaining": float(remaining),
-        "need_per_slot": float(pace),
-    }
-
-
-# =========================
-# main
-# =========================
-def build_assets_snapshot(user, as_of: Optional[date] = None) -> Dict[str, Any]:
-    """
-    Home / ASSETS 用（リアルタイム）
-    - 実現損益（YTD/MTD/WTD）
-    - 年間目標（全体＋broker別）と、残り月/週の必要ペース
-    """
-    d = _as_date(as_of)
-
-    y0 = _start_of_year(d)
-    m0 = _start_of_month(d)
-    w0 = _start_of_week_monday(d)
-
-    # 対象：そのユーザーの実現トレード
-    # ※ pnl はDB列じゃないので、範囲を絞って Python で合算する（Home用に十分軽い）
-    qs_ytd = list(
-        RealizedTrade.objects.filter(user=user, trade_at__gte=y0, trade_at__lte=d).order_by("trade_at", "id")
+    agg = qs.aggregate(
+        total=Sum("fee"),  # dummy to keep structure stable
+        pnl_sum=Sum("fee"),  # overwritten below
+        cnt=Count("id"),
     )
-    qs_mtd = list(
-        RealizedTrade.objects.filter(user=user, trade_at__gte=m0, trade_at__lte=d).order_by("trade_at", "id")
+    # Djangoのaggregateで pnl はプロパティなので直接Sumできない → DB列に換算する必要がある
+    # あなたのモデルの pnl は (price-basis)*qty - fee - tax なので、DB上で式を再現する
+    from django.db.models import F, ExpressionWrapper, DecimalField
+
+    expr = ExpressionWrapper(
+        (F("price") - F("basis")) * F("qty") - F("fee") - F("tax"),
+        output_field=DecimalField(max_digits=18, decimal_places=2),
     )
-    qs_wtd = list(
-        RealizedTrade.objects.filter(user=user, trade_at__gte=w0, trade_at__lte=d).order_by("trade_at", "id")
-    )
+    agg2 = qs.aggregate(pnl_sum=Sum(expr), cnt=Count("id"))
+    total = _d0(agg2.get("pnl_sum"))
+    cnt = int(agg2.get("cnt") or 0)
+    return total, cnt
 
-    ytd_total = _sum_pnl_jpy(qs_ytd)
-    mtd_total = _sum_pnl_jpy(qs_mtd)
-    wtd_total = _sum_pnl_jpy(qs_wtd)
 
-    ytd_by_broker = _sum_by_broker(qs_ytd)
-    mtd_by_broker = _sum_by_broker(qs_mtd)
-    wtd_by_broker = _sum_by_broker(qs_wtd)
-
-    # UserSetting（年目標）
-    setting, _ = UserSetting.objects.get_or_create(user=user)
-    goal_total = int(getattr(setting, "year_goal_total", 0) or 0)
-    goal_broker = _goal_by_broker(setting)
-
-    # 残りスロット数
-    rem_months = _calc_remaining_months(d)
-    rem_weeks = _calc_remaining_weeks(d)
-
-    # 全体ペース
-    pace_total_month = _pace_from_remaining(goal_total, ytd_total, rem_months)
-    pace_total_week = _pace_from_remaining(goal_total, ytd_total, rem_weeks)
-
-    # broker別ペース
-    broker_labels = _broker_label_map()
-    broker_rows = []
-    for key, label in _broker_choices():
-        g = int(goal_broker.get(key, 0) or 0)
-        a = float(ytd_by_broker.get(key, 0.0))
-        broker_rows.append({
+def _broker_rows_ytd(user, start: date) -> List[Dict[str, Any]]:
+    rows = []
+    for key in ("RAKUTEN", "SBI", "MATSUI", "OTHER"):
+        total, cnt = _sum_pnl_sell(user, start=start, broker=key)
+        rows.append({
             "broker": key,
-            "label": label,
-            "ytd": a,
-            "goal_year": g,
-            "pace_month": _pace_from_remaining(g, a, rem_months),
-            "pace_week": _pace_from_remaining(g, a, rem_weeks),
+            "label": BROKER_LABEL.get(key, key),
+            "ytd": float(total),
+            "count": cnt,
+        })
+    return rows
+
+
+def _build_pace(goal_year: Decimal, ytd: Decimal, d: date, by_broker_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    remain = goal_year - ytd
+    rem_m = _remaining_months_including_current(d)
+    rem_w = _remaining_weeks_including_current(d)
+
+    need_m = remain / Decimal(str(rem_m)) if rem_m > 0 else remain
+    need_w = remain / Decimal(str(rem_w)) if rem_w > 0 else remain
+
+    # broker別：今年目標は “全体目標をytd比で按分” (暫定)
+    # ※あとで「証券会社別の年目標」を設定画面に作ったら置き換える
+    total_abs = sum(abs(r["ytd"]) for r in by_broker_rows) or 1.0
+
+    by_rows = []
+    for r in by_broker_rows:
+        weight = abs(r["ytd"]) / total_abs
+        goal_b = float(goal_year) * weight
+        remain_b = goal_b - float(r["ytd"])
+        need_m_b = remain_b / rem_m if rem_m > 0 else remain_b
+
+        by_rows.append({
+            "broker": r["broker"],
+            "label": r["label"],
+            "ytd": r["ytd"],
+            "goal_year": int(round(goal_b)),
+            "pace_month": {
+                "remaining": remain_b,
+                "need_per_slot": need_m_b,
+            }
         })
 
-    # 表示に使える“整形済み”まとめ
-    snapshot: Dict[str, Any] = {
-        "as_of": d.isoformat(),
-        "ranges": {
-            "ytd_start": y0.isoformat(),
-            "mtd_start": m0.isoformat(),
-            "wtd_start": w0.isoformat(),
-        },
+    return {
+        "remaining_months_including_current": rem_m,
+        "remaining_weeks_including_current": rem_w,
+        "total_need_per_month": {"remaining": float(remain), "need_per_slot": float(need_m)},
+        "total_need_per_week": {"remaining": float(remain), "need_per_slot": float(need_w)},
+        "by_broker_rows": by_rows,
+    }
+
+
+def build_assets_snapshot(user) -> Dict[str, Any]:
+    d = _today()
+
+    ytd_start = _year_start(d)
+    mtd_start = _month_start(d)
+    wtd_start = _week_start_monday(d)
+
+    ytd_total, ytd_cnt = _sum_pnl_sell(user, start=ytd_start)
+    mtd_total, mtd_cnt = _sum_pnl_sell(user, start=mtd_start)
+    wtd_total, wtd_cnt = _sum_pnl_sell(user, start=wtd_start)
+
+    # 年間目標（まだUserSettingにフィールドが無いので暫定0）
+    setting, _ = UserSetting.objects.get_or_create(user=user)
+    goal_year_total = Decimal("0")
+    # 将来フィールドを追加したらここを読む
+    # goal_year_total = _d0(getattr(setting, "realized_goal_year", 0))
+
+    by_broker = _broker_rows_ytd(user, start=ytd_start)
+    pace = _build_pace(goal_year_total, ytd_total, d, by_broker)
+
+    return {
+        "status": "ok",
+        "as_of": timezone.now().isoformat(),
         "realized": {
-            "ytd": {"total": ytd_total, "by_broker": ytd_by_broker, "count": len(qs_ytd)},
-            "mtd": {"total": mtd_total, "by_broker": mtd_by_broker, "count": len(qs_mtd)},
-            "wtd": {"total": wtd_total, "by_broker": wtd_by_broker, "count": len(qs_wtd)},
+            "ytd": {"total": float(ytd_total), "count": ytd_cnt},
+            "mtd": {"total": float(mtd_total), "count": mtd_cnt},
+            "wtd": {"total": float(wtd_total), "count": wtd_cnt},
         },
         "goals": {
-            "year_total": goal_total,
-            "year_by_broker": goal_broker,
+            "year_total": int(goal_year_total),
         },
-        "pace": {
-            "remaining_months_including_current": rem_months,
-            "remaining_weeks_including_current": rem_weeks,
-            "total_need_per_month": pace_total_month,  # goal/achieved/remaining/need_per_slot
-            "total_need_per_week": pace_total_week,
-            "by_broker_rows": broker_rows,
-        },
-        "meta": {
-            "broker_labels": broker_labels,
-        },
+        "pace": pace,
     }
-    return snapshot
