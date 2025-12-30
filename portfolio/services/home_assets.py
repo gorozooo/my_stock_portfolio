@@ -1,12 +1,12 @@
 # portfolio/services/home_assets.py
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Dict, List, Tuple
 
-from django.db.models import Sum, Count, Q
+from django.db.models import Sum, Count, F, ExpressionWrapper, DecimalField
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from ..models import RealizedTrade, UserSetting
@@ -56,14 +56,26 @@ def _remaining_months_including_current(d: date) -> int:
 
 def _remaining_weeks_including_current(d: date) -> int:
     # 雑に「今年の残り週数」を52週ベースで扱う
-    # 週の精密さより“運用の分かりやすさ”優先
     iso_week = int(d.isocalendar().week)
     return max(1, 52 - iso_week + 1)
 
 
+def _pnl_expr_db():
+    """
+    RealizedTrade.pnl と同じ定義をDB式で再現する。
+      pnl = (price - basis)*qty - fee - tax
+    ただし basis が NULL の場合は、破綻しないよう price を採用する（=差分0扱い）。
+    """
+    basis_eff = Coalesce(F("basis"), F("price"))
+    return ExpressionWrapper(
+        (F("price") - basis_eff) * F("qty") - F("fee") - F("tax"),
+        output_field=DecimalField(max_digits=18, decimal_places=2),
+    )
+
+
 def _sum_pnl_sell(user, start: date, end: date | None = None, broker: str | None = None) -> Tuple[Decimal, int]:
     """
-    ✅ 正解ロジック：
+    ✅ 正解ロジック（スクショ3〜5に合わせる）：
     - RealizedTrade の SELL のみ
     - pnl（fee/tax控除後）を合計
     - trade_at で期間
@@ -74,22 +86,10 @@ def _sum_pnl_sell(user, start: date, end: date | None = None, broker: str | None
     if broker:
         qs = qs.filter(broker=broker)
 
-    agg = qs.aggregate(
-        total=Sum("fee"),  # dummy to keep structure stable
-        pnl_sum=Sum("fee"),  # overwritten below
-        cnt=Count("id"),
-    )
-    # Djangoのaggregateで pnl はプロパティなので直接Sumできない → DB列に換算する必要がある
-    # あなたのモデルの pnl は (price-basis)*qty - fee - tax なので、DB上で式を再現する
-    from django.db.models import F, ExpressionWrapper, DecimalField
-
-    expr = ExpressionWrapper(
-        (F("price") - F("basis")) * F("qty") - F("fee") - F("tax"),
-        output_field=DecimalField(max_digits=18, decimal_places=2),
-    )
-    agg2 = qs.aggregate(pnl_sum=Sum(expr), cnt=Count("id"))
-    total = _d0(agg2.get("pnl_sum"))
-    cnt = int(agg2.get("cnt") or 0)
+    expr = _pnl_expr_db()
+    agg = qs.aggregate(pnl_sum=Sum(expr), cnt=Count("id"))
+    total = _d0(agg.get("pnl_sum"))
+    cnt = int(agg.get("cnt") or 0)
     return total, cnt
 
 
@@ -115,7 +115,6 @@ def _build_pace(goal_year: Decimal, ytd: Decimal, d: date, by_broker_rows: List[
     need_w = remain / Decimal(str(rem_w)) if rem_w > 0 else remain
 
     # broker別：今年目標は “全体目標をytd比で按分” (暫定)
-    # ※あとで「証券会社別の年目標」を設定画面に作ったら置き換える
     total_abs = sum(abs(r["ytd"]) for r in by_broker_rows) or 1.0
 
     by_rows = []
@@ -124,16 +123,15 @@ def _build_pace(goal_year: Decimal, ytd: Decimal, d: date, by_broker_rows: List[
         goal_b = float(goal_year) * weight
         remain_b = goal_b - float(r["ytd"])
         need_m_b = remain_b / rem_m if rem_m > 0 else remain_b
+        need_w_b = remain_b / rem_w if rem_w > 0 else remain_b
 
         by_rows.append({
             "broker": r["broker"],
             "label": r["label"],
             "ytd": r["ytd"],
             "goal_year": int(round(goal_b)),
-            "pace_month": {
-                "remaining": remain_b,
-                "need_per_slot": need_m_b,
-            }
+            "pace_month": {"remaining": remain_b, "need_per_slot": need_m_b},
+            "pace_week": {"remaining": remain_b, "need_per_slot": need_w_b},
         })
 
     return {
@@ -177,4 +175,5 @@ def build_assets_snapshot(user) -> Dict[str, Any]:
             "year_total": int(goal_year_total),
         },
         "pace": pace,
+        "by_broker": by_broker,
     }
