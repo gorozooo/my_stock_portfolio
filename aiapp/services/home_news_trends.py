@@ -25,17 +25,12 @@ CACHE_TTL_SEC = 300  # 5分
 # =========================
 # Sources (RSS)
 # =========================
-# なるべく “公式RSS” を優先。落ちてもHomeが落ちない設計。
 NEWS_RSS_SOURCES: Tuple[Tuple[str, str], ...] = (
-    # NHK 経済
     ("NHK 経済", "https://www.nhk.or.jp/rss/news/cat5.xml"),
-    # 東洋経済オンライン（ヘッダーRSS）
     ("東洋経済", "https://toyokeizai.net/list/feed/header"),
-    # livedoor（IT・経済）
     ("livedoor 経済", "http://news.livedoor.com/topics/rss/eco.xml"),
 )
 
-# Google Trends（日本）※URLが変わることがあるのでここだけ単独にしておく
 TRENDS_RSS_URL = "https://trends.google.co.jp/trending/rss?geo=JP"
 
 
@@ -58,13 +53,10 @@ def _safe_host(u: str) -> str:
 
 
 def _parse_dt(s: str) -> Optional[datetime]:
-    """
-    RSSの pubDate / published / updated にありがちな形式を雑に吸収。
-    """
     if not s:
         return None
     s = s.strip()
-    # RFC2822
+
     try:
         dt = parsedate_to_datetime(s)
         if dt.tzinfo is None:
@@ -73,7 +65,6 @@ def _parse_dt(s: str) -> Optional[datetime]:
     except Exception:
         pass
 
-    # ISO8601 っぽい
     try:
         dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
         if dt.tzinfo is None:
@@ -108,7 +99,12 @@ class FeedItem:
         }
 
 
-def _fetch_xml(url: str, timeout_sec: int = 6) -> Optional[str]:
+def _fetch_xml_bytes(url: str, timeout_sec: int = 6) -> Optional[bytes]:
+    """
+    文字化け対策の要：
+    - textではなく bytes を返す
+    - XMLパーサに encoding 解釈を任せる
+    """
     try:
         r = requests.get(
             url,
@@ -119,19 +115,18 @@ def _fetch_xml(url: str, timeout_sec: int = 6) -> Optional[str]:
         )
         if r.status_code != 200:
             return None
-        r.encoding = r.encoding or "utf-8"
-        return r.text
+        return r.content
     except Exception:
         return None
 
 
-def _parse_rss_items(xml_text: str, source_name: str, limit: int = 12) -> List[FeedItem]:
+def _parse_rss_items(xml_bytes: bytes, source_name: str, limit: int = 12) -> List[FeedItem]:
     """
     RSS2.0 / Atom を “それっぽく” パース
     """
     out: List[FeedItem] = []
     try:
-        root = ET.fromstring(xml_text)
+        root = ET.fromstring(xml_bytes)
     except Exception:
         return out
 
@@ -190,7 +185,6 @@ def _sort_recent(items: List[FeedItem]) -> List[FeedItem]:
 # =========================
 # Sector guess (lightweight)
 # =========================
-# ここは “雑に当てる” 用（後で33業種コードへ寄せる）
 SECTOR_RULES: Tuple[Tuple[str, str], ...] = (
     (r"(半導体|AI|データセンター|GPU|NVIDIA|TSMC|ASML)", "電気機器/半導体"),
     (r"(銀行|金利|利上げ|利下げ|国債|財務省|日銀|FRB)", "銀行/金融"),
@@ -235,10 +229,10 @@ def build_sector_ranking(items: List[FeedItem], top_n: int = 6) -> List[Dict[str
 def _collect_news(max_total: int = 18) -> List[FeedItem]:
     all_items: List[FeedItem] = []
     for name, url in NEWS_RSS_SOURCES:
-        xml = _fetch_xml(url)
-        if not xml:
+        xmlb = _fetch_xml_bytes(url)
+        if not xmlb:
             continue
-        items = _parse_rss_items(xml, source_name=name, limit=12)
+        items = _parse_rss_items(xmlb, source_name=name, limit=12)
         all_items.extend(items)
 
     all_items = _dedupe(all_items)
@@ -247,11 +241,10 @@ def _collect_news(max_total: int = 18) -> List[FeedItem]:
 
 
 def _collect_trends(max_total: int = 10) -> List[FeedItem]:
-    xml = _fetch_xml(TRENDS_RSS_URL)
-    if not xml:
+    xmlb = _fetch_xml_bytes(TRENDS_RSS_URL)
+    if not xmlb:
         return []
-    items = _parse_rss_items(xml, source_name="Google Trends (JP)", limit=max_total)
-    # Trendsは published が無い場合があるので、並びはそのままでもOKだが一応 recent sort
+    items = _parse_rss_items(xmlb, source_name="Google Trends (JP)", limit=max_total)
     items = _dedupe(items)
     items = _sort_recent(items)
     return items[:max_total]
@@ -261,16 +254,15 @@ def _build_snapshot_no_cache() -> Dict[str, Any]:
     news_items = _collect_news()
     trends_items = _collect_trends()
 
-    # sectors: newsから推定（トレンドも混ぜたいなら後で）
     sectors = build_sector_ranking(news_items, top_n=6)
 
     return {
         "status": "ok",
         "as_of": _now_iso(),
         "ttl_sec": CACHE_TTL_SEC,
-        "items": [it.to_dict() for it in news_items],       # ニュース
-        "trends": [it.to_dict() for it in trends_items],    # ネット/X相当の“話題”はここで代替
-        "sectors": sectors,                                 # 注目セクター（ざっくり）
+        "items": [it.to_dict() for it in news_items],
+        "trends": [it.to_dict() for it in trends_items],
+        "sectors": sectors,
         "sources": {
             "news": [{"name": n, "url": u} for (n, u) in NEWS_RSS_SOURCES],
             "trends": [{"name": "Google Trends (JP)", "url": TRENDS_RSS_URL}],
