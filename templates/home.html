@@ -6,252 +6,195 @@
 {% block content %}
 <link rel="stylesheet" href="{% static 'css/home.css' %}?v=100">
 
-<div class="home">
-  <!-- Top Bar: 日付固定 + テロップ -->
-  <div class="topbar">
-    <div class="today">
-      <div class="today-label">本日</div>
-      <div class="today-date">{{ today_label }}</div>
+<div class="home-shell">
+  <!-- Top: date pill + ticker -->
+  <div class="home-top">
+    <div class="pill pill-date">
+      <div class="pill-cap">本日</div>
+      <div class="pill-main">{{ today_label }}</div>
     </div>
 
-    <div class="ticker">
-      <div class="ticker-track" id="tickerTrack">
-        <div class="ticker-item">Loading...</div>
+    <div class="pill pill-ticker" id="newsTicker">
+      <div class="ticker-icon">📰</div>
+      <div class="ticker-track">
+        <div class="ticker-text" id="tickerText">
+          {% for d in decks %}
+            {% if d.key == "news_trends" %}
+              {% if d.payload.items %}
+                NEWS:
+                {% for it in d.payload.items|slice:":6" %}
+                  {{ it.source }}「{{ it.title }}」 /
+                {% endfor %}
+              {% else %}
+                NEWS: 準備中
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+        </div>
       </div>
-      <div class="ticker-fade left"></div>
-      <div class="ticker-fade right"></div>
     </div>
   </div>
 
-  <!-- Deck rail (横スワイプ) -->
-  <div class="rail" id="deckRail" aria-label="Home decks">
+  <!-- Deck rail -->
+  <div class="rail" id="rail">
     {% for d in decks %}
       <section class="deck" data-key="{{ d.key }}">
-        <header class="deck-head">
-          <div class="deck-title">{{ d.title }}</div>
-          <div class="deck-meta" id="deckMeta-{{ d.key }}"></div>
-        </header>
+        <div class="deck-card">
 
-        <div class="deck-body">
+          <div class="deck-head">
+            <div class="deck-title">{{ d.title }}</div>
+            {% if d.payload.as_of %}
+              <div class="deck-sub">更新: {{ d.payload.as_of }}</div>
+            {% endif %}
+          </div>
+
+          <!-- ASSETS -->
           {% if d.key == "assets" %}
             {% with a=d.payload %}
-              {% if a.status != "ok" %}
-                <div class="empty">
-                  <div class="empty-title">ASSETS 取得エラー</div>
-                  <div class="empty-sub">{{ a.error|default:"unknown error" }}</div>
+              <div class="grid2">
+                <div class="kpi">
+                  <div class="kpi-label">実現損益 YTD</div>
+                  <div class="kpi-val {% if a.realized.ytd.total >= 0 %}pos{% else %}neg{% endif %}">
+                    ¥{{ a.realized.ytd.total|floatformat:0|intcomma }}
+                  </div>
+                  <div class="kpi-sub">件数 {{ a.realized.ytd.count }}</div>
                 </div>
-              {% else %}
+                <div class="kpi">
+                  <div class="kpi-label">今月 MTD</div>
+                  <div class="kpi-val {% if a.realized.mtd.total >= 0 %}pos{% else %}neg{% endif %}">
+                    ¥{{ a.realized.mtd.total|floatformat:0|intcomma }}
+                  </div>
+                  <div class="kpi-sub">件数 {{ a.realized.mtd.count }}</div>
+                </div>
+                <div class="kpi">
+                  <div class="kpi-label">今週 WTD</div>
+                  <div class="kpi-val {% if a.realized.wtd.total >= 0 %}pos{% else %}neg{% endif %}">
+                    ¥{{ a.realized.wtd.total|floatformat:0|intcomma }}
+                  </div>
+                  <div class="kpi-sub">件数 {{ a.realized.wtd.count }}</div>
+                </div>
+                <div class="kpi">
+                  <div class="kpi-label">年間目標（全体）</div>
+                  <div class="kpi-val">
+                    ¥{{ a.goals.year_total|intcomma }}
+                  </div>
+                  <div class="kpi-sub">残り月{{ a.pace.remaining_months_including_current }} / 残り週{{ a.pace.remaining_weeks_including_current }}</div>
+                </div>
+              </div>
+
+              <div class="sec">
+                <div class="sec-title">必要ペース（これから）</div>
                 <div class="grid2">
                   <div class="kpi">
-                    <div class="kpi-label">実現損益 YTD</div>
-                    <div class="kpi-val {% if a.realized.ytd.total >= 0 %}pos{% else %}neg{% endif %}">
-                      {{ a.realized.ytd.total|floatformat:0|intcomma }}<span class="yen">円</span>
+                    <div class="kpi-label">月</div>
+                    <div class="kpi-val {% if a.pace.total_need_per_month.need_per_slot >= 0 %}pos{% else %}neg{% endif %}">
+                      ¥{{ a.pace.total_need_per_month.need_per_slot|floatformat:0|intcomma }}
                     </div>
-                    <div class="kpi-sub">件数 {{ a.realized.ytd.count }}</div>
+                    <div class="kpi-sub">残り ¥{{ a.pace.total_need_per_month.remaining|floatformat:0|intcomma }}</div>
                   </div>
                   <div class="kpi">
-                    <div class="kpi-label">今月 MTD</div>
-                    <div class="kpi-val {% if a.realized.mtd.total >= 0 %}pos{% else %}neg{% endif %}">
-                      {{ a.realized.mtd.total|floatformat:0|intcomma }}<span class="yen">円</span>
+                    <div class="kpi-label">週</div>
+                    <div class="kpi-val {% if a.pace.total_need_per_week.need_per_slot >= 0 %}pos{% else %}neg{% endif %}">
+                      ¥{{ a.pace.total_need_per_week.need_per_slot|floatformat:0|intcomma }}
                     </div>
-                    <div class="kpi-sub">件数 {{ a.realized.mtd.count }}</div>
+                    <div class="kpi-sub">残り ¥{{ a.pace.total_need_per_week.remaining|floatformat:0|intcomma }}</div>
                   </div>
                 </div>
-
-                <div class="grid2">
-                  <div class="kpi">
-                    <div class="kpi-label">今週 WTD</div>
-                    <div class="kpi-val {% if a.realized.wtd.total >= 0 %}pos{% else %}neg{% endif %}">
-                      {{ a.realized.wtd.total|floatformat:0|intcomma }}<span class="yen">円</span>
-                    </div>
-                    <div class="kpi-sub">件数 {{ a.realized.wtd.count }}</div>
-                  </div>
-                  <div class="kpi">
-                    <div class="kpi-label">年間目標（全体）</div>
-                    <div class="kpi-val">
-                      {{ a.goals.year_total|intcomma }}<span class="yen">円</span>
-                    </div>
-                    <div class="kpi-sub">残り月 {{ a.pace.remaining_months_including_current }} / 残り週 {{ a.pace.remaining_weeks_including_current }}</div>
-                  </div>
-                </div>
-
-                <div class="panel">
-                  <div class="panel-title">必要ペース（これから）</div>
-                  <div class="pace-row">
-                    <div class="pace-item">
-                      <div class="pace-label">月</div>
-                      <div class="pace-val {% if a.pace.total_need_per_month.need_per_slot >= 0 %}pos{% else %}neg{% endif %}">
-                        {{ a.pace.total_need_per_month.need_per_slot|floatformat:0|intcomma }}<span class="yen">円</span>
-                      </div>
-                      <div class="pace-sub">残り {{ a.pace.total_need_per_month.remaining|floatformat:0|intcomma }} 円</div>
-                    </div>
-                    <div class="pace-item">
-                      <div class="pace-label">週</div>
-                      <div class="pace-val {% if a.pace.total_need_per_week.need_per_slot >= 0 %}pos{% else %}neg{% endif %}">
-                        {{ a.pace.total_need_per_week.need_per_slot|floatformat:0|intcomma }}<span class="yen">円</span>
-                      </div>
-                      <div class="pace-sub">残り {{ a.pace.total_need_per_week.remaining|floatformat:0|intcomma }} 円</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="panel">
-                  <div class="panel-title">証券会社別（YTD / 目標 / 必要ペース）</div>
-                  <div class="table">
-                    {% for r in a.pace.by_broker_rows %}
-                      <div class="tr">
-                        <div class="td broker">{{ r.label }}</div>
-                        <div class="td num {% if r.ytd >= 0 %}pos{% else %}neg{% endif %}">
-                          {{ r.ytd|floatformat:0|intcomma }}
-                        </div>
-                        <div class="td num muted">{{ r.goal_year|intcomma }}</div>
-                        <div class="td num need {% if r.pace_month.need_per_slot >= 0 %}pos{% else %}neg{% endif %}">
-                          {{ r.pace_month.need_per_slot|floatformat:0|intcomma }}
-                        </div>
-                      </div>
-                    {% endfor %}
-                  </div>
-                  <div class="table-note">（列）YTD / 年目標 / 月ペース</div>
-                </div>
-              {% endif %}
-            {% endwith %}
-
-          {% elif d.key == "ai_brief" %}
-            {% with b=d.payload %}
-              <div class="empty">
-                <div class="empty-title">AI BRIEF</div>
-                <div class="empty-sub">ここは「自分で考えて自分で発言するAI」の表舞台。次に生成ロジックを繋ぐ。</div>
               </div>
-              <div class="panel">
-                <div class="panel-title">今日の一言</div>
-                <div class="quote">「相場の正解を当てる」より、“やることを固定してブレない”が勝つ。</div>
-                <div class="quote-sub">（※仮。後であなたのAIコメント生成へ差し替える）</div>
+
+              <div class="sec">
+                <div class="sec-title">証券会社別（YTD / 目標 / 必要ペース）</div>
+                <div class="table">
+                  <div class="tr th">
+                    <div>証券会社</div>
+                    <div class="r">YTD</div>
+                    <div class="r">目標</div>
+                    <div class="r">月ペース</div>
+                  </div>
+                  {% for r in a.pace.by_broker_rows %}
+                    <div class="tr">
+                      <div class="bname">{{ r.label }}</div>
+                      <div class="r {% if r.ytd >= 0 %}pos{% else %}neg{% endif %}">
+                        {{ r.ytd|floatformat:0|intcomma }}
+                      </div>
+                      <div class="r">{{ r.goal_year|intcomma }}</div>
+                      <div class="r {% if r.pace_month.need_per_slot >= 0 %}pos{% else %}neg{% endif %}">
+                        {{ r.pace_month.need_per_slot|floatformat:0|intcomma }}
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+                <div class="hint">（例）YTD / 年目標 / 月ペース</div>
               </div>
             {% endwith %}
+          {% endif %}
 
-          {% elif d.key == "risk" %}
-            <div class="empty">
-              <div class="empty-title">RISK</div>
-              <div class="empty-sub">信用余力・拘束・レバ・ポリシー逸脱・想定DDなどを集約する枠。</div>
-            </div>
-            <div class="panel">
-              <div class="panel-title">アイデア</div>
-              <ul class="bullets">
-                <li>「今日は攻める日か？」をレジーム＋ボラで判定</li>
-                <li>証券会社別：信用使用率（設定の credit_usage_pct と連動）</li>
-                <li>“やらないリスト” が点灯したら赤で警告</li>
-              </ul>
-            </div>
-
-          {% elif d.key == "market" %}
-            <div class="empty">
-              <div class="empty-title">MARKET</div>
-              <div class="empty-sub">指数・ブレッド・セクター地図・需給の総まとめ枠。</div>
-            </div>
-            <div class="panel">
-              <div class="panel-title">表示候補</div>
-              <div class="chips">
-                <span class="chip">TOPIX / 日経</span>
-                <span class="chip">米金利 / ドル円</span>
-                <span class="chip">ブレッド</span>
-                <span class="chip">業種強弱</span>
-                <span class="chip">テーマ寄与</span>
-              </div>
-            </div>
-
-          {% elif d.key == "today_plan" %}
-            <div class="empty">
-              <div class="empty-title">TODAY PLAN</div>
-              <div class="empty-sub">ウォッチ条件・行動ログ・発注メモを“1枚の計画”にする枠。</div>
-            </div>
-            <div class="panel">
-              <div class="panel-title">今日の型（仮）</div>
-              <ol class="steps">
-                <li>相場レジームを見る</li>
-                <li>やること/やらないことを確定</li>
-                <li>ウォッチ条件を2つだけセット</li>
-                <li>発注は“条件達成”のみ</li>
-              </ol>
-            </div>
-
-          {% elif d.key == "news_trends" %}
+          <!-- NEWS & TRENDS -->
+          {% if d.key == "news_trends" %}
             {% with n=d.payload %}
-              {% if n.status != "ok" and n.status != "stub" %}
-                <div class="empty">
-                  <div class="empty-title">NEWS & TRENDS 取得エラー</div>
-                  <div class="empty-sub">{{ n.error|default:"unknown error" }}</div>
+              <div class="sec">
+                <div class="sec-title">注目セクター（ざっくり）</div>
+                <div class="chips">
+                  {% for s in n.sectors %}
+                    <div class="chip">{{ s.sector }} ×{{ s.count }}</div>
+                  {% empty %}
+                    <div class="chip">その他 ×0</div>
+                  {% endfor %}
                 </div>
-              {% else %}
-                <div class="panel">
-                  <div class="panel-title">注目セクター（ざっくり）</div>
-                  <div class="chips">
-                    {% for s in n.sectors %}
-                      <span class="chip">{{ s.sector }} <span class="chip-sub">×{{ s.count }}</span></span>
-                    {% empty %}
-                      <span class="chip muted">（まだデータなし）</span>
-                    {% endfor %}
-                  </div>
-                  <div class="panel-sub">更新: {{ n.as_of|default:"-" }}</div>
-                </div>
+                <div class="deck-sub" style="margin-top:10px;">更新: {{ n.as_of }}</div>
+              </div>
 
-                <div class="panel">
-                  <div class="panel-title">ニュース</div>
-                  <div class="list">
-                    {% for it in n.items|slice:":10" %}
-                      <div class="li">
-                        <div class="li-top">
-                          <span class="badge">{{ it.source }}</span>
-                          {% if it.published_at %}
-                            <span class="time" data-iso="{{ it.published_at }}">{{ it.published_at }}</span>
-                          {% endif %}
-                        </div>
-                        <div class="li-title">{{ it.title }}</div>
+              <div class="sec">
+                <div class="sec-title">ニュース</div>
+                <div class="list">
+                  {% for it in n.items|slice:":10" %}
+                    <a class="li" href="{{ it.link }}" target="_blank" rel="noopener">
+                      <div class="badge">{{ it.source }}</div>
+                      <div class="li-title">{{ it.title }}</div>
+                      <div class="li-sub">
+                        <span class="host">{{ it.host }}</span>
                       </div>
-                    {% empty %}
-                      <div class="li muted">（ニュース取得待ち / 5分キャッシュ）</div>
-                    {% endfor %}
-                  </div>
+                    </a>
+                  {% empty %}
+                    <div class="empty">ニュース取得中…</div>
+                  {% endfor %}
                 </div>
+              </div>
 
-                <div class="panel">
-                  <div class="panel-title">トレンド（ネット）</div>
-                  <div class="list">
-                    {% for it in n.trends|slice:":10" %}
-                      <div class="li">
-                        <div class="li-top">
-                          <span class="badge">Trends</span>
-                        </div>
-                        <div class="li-title">{{ it.title }}</div>
+              <div class="sec">
+                <div class="sec-title">ネット/トレンド（代替）</div>
+                <div class="list">
+                  {% for it in n.trends|slice:":10" %}
+                    <a class="li" href="{{ it.link }}" target="_blank" rel="noopener">
+                      <div class="badge">Trends</div>
+                      <div class="li-title">{{ it.title }}</div>
+                      <div class="li-sub">
+                        <span class="host">{{ it.host }}</span>
                       </div>
-                    {% empty %}
-                      <div class="li muted">（トレンド取得待ち）</div>
-                    {% endfor %}
-                  </div>
+                    </a>
+                  {% empty %}
+                    <div class="empty">トレンド取得中…</div>
+                  {% endfor %}
                 </div>
-              {% endif %}
+              </div>
             {% endwith %}
-          {% else %}
-            <div class="empty">
-              <div class="empty-title">{{ d.title }}</div>
-              <div class="empty-sub">（このデッキは未定義）</div>
+          {% endif %}
+
+          <!-- STUB decks -->
+          {% if d.key != "assets" and d.key != "news_trends" %}
+            <div class="stub">
+              <div class="stub-title">（準備中）</div>
+              <div class="stub-sub">ここは後で aiapp の知能・ポリシー・レジーム等と合体して“自分で考えて発言するAI”に進化させる</div>
             </div>
           {% endif %}
-        </div>
 
-        <footer class="deck-foot">
-          <div class="dots" aria-hidden="true"></div>
-        </footer>
+        </div>
       </section>
     {% endfor %}
   </div>
 
-  <!-- Mini hud -->
-  <div class="hud">
-    <div class="hud-pill">
-      <span class="hud-dot"></span>
-      <span id="hudText">Swipe</span>
-    </div>
-  </div>
+  <!-- dots -->
+  <div class="dots" id="dots"></div>
 </div>
 
 <script src="{% static 'js/home.js' %}?v=100" defer></script>
