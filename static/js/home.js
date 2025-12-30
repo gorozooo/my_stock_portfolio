@@ -1,99 +1,114 @@
-document.addEventListener("DOMContentLoaded", () => {
-  // -------- CSRF ----------
-  const getCookie = (name) => {
-    const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
-    return m ? m.pop() : '';
-  };
-  const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || getCookie('csrftoken') || '';
+(function(){
+  // ----------------------------
+  // Deck HUD (現在のセクション名)
+  // ----------------------------
+  const rail = document.getElementById("deckRail");
+  const hudText = document.getElementById("hudText");
 
-  // -------- ストレステスト ----------
-  (function initStress() {
-    const root = document.getElementById("stressRoot");
-    if (!root) return;
-    const totalMV = Number(root.dataset.totalMv || 0);
-    const slider  = document.getElementById("stressSlider");
-    const pctEl   = document.getElementById("stressPct");
-    const mvEl    = document.getElementById("stressMV");
-    const beta    = 0.9;
-
-    const update = () => {
-      const pct = Number(slider.value || 0);
-      const mv  = Math.round(totalMV * (1 + beta * pct / 100));
-      pctEl.textContent = String(pct);
-      mvEl.textContent  = "¥" + mv.toLocaleString();
-    };
-    slider?.addEventListener("input", update);
-    update();
-  })();
-
-  // -------- キャッシュフロー ----------
-  (function initCashflow() {
-    const root = document.getElementById("cashRoot");
-    const cvs  = document.getElementById("cashflowChart");
-    if (!root || !cvs) return;
-
-    const div  = Number(root.dataset.dividend || 0);
-    const real = Number(root.dataset.realized || 0);
-
-    if (!window.Chart || (div === 0 && real === 0)) {
-      cvs.style.display = "none";
-      root.querySelector(".empty-msg").style.display = "block";
-      return;
-    }
-    const ctx = cvs.getContext("2d");
-    new Chart(ctx, {
-      type: "bar",
-      data: { labels: ["配当", "実現益"], datasets: [{ label: "今月", data: [div, real], borderWidth: 1 }] },
-      options: { responsive: true, plugins: { legend: { display:false } }, scales: { y: { beginAtZero: true } } }
-    });
-  })();
-
-  // -------- AIアドバイザー: チェック切替 ----------
-  (function initAdvisorToggle() {
-    const list = document.getElementById("aiAdviceList");
-    if (!list) return;
-
-    list.addEventListener("click", async (ev) => {
-      const li  = ev.target.closest(".ai-item");
-      if (!li) return;
-      const btn = li.querySelector(".ai-check");
-      if (!btn) return;
-
-      // UI先行切替
-      const wasTaken = li.dataset.taken === "1";
-      const willTake = !wasTaken;
-      li.dataset.taken = willTake ? "1" : "0";
-      btn.setAttribute("aria-pressed", willTake ? "true" : "false");
-      btn.textContent = willTake ? "✅" : "☑️";
-
-      // サーバ反映（id==0はフロント専用）
-      const id = Number(li.dataset.id || 0);
-      if (id > 0) {
-        try {
-          const res = await fetch(`/api/advisor/toggle/${id}/`, {
-            method: "POST",
-            headers: { "X-CSRFToken": CSRF, "X-Requested-With": "fetch" },
-            credentials: "same-origin"
-          });
-          const json = await res.json();
-          if (!json.ok) throw new Error("toggle failed");
-        } catch (e) {
-          // 失敗したらロールバック
-          li.dataset.taken = wasTaken ? "1" : "0";
-          btn.setAttribute("aria-pressed", wasTaken ? "true" : "false");
-          btn.textContent = wasTaken ? "✅" : "☑️";
-          console.warn(e);
-        }
+  if (rail && hudText){
+    const decks = Array.from(rail.querySelectorAll(".deck"));
+    const obs = new IntersectionObserver((entries)=>{
+      let best = null;
+      for (const e of entries){
+        if (!e.isIntersecting) continue;
+        if (!best || e.intersectionRatio > best.intersectionRatio) best = e;
       }
-    });
-  })();
+      if (best){
+        const t = best.target.querySelector(".deck-title");
+        hudText.textContent = t ? t.textContent.trim() : "Swipe";
+      }
+    }, { root: rail, threshold: [0.35,0.5,0.65] });
 
-  // -------- ドラフト（週次・次の一手） ----------
-  const showDraft = (title, body) => alert(`${title}\n\n${body || "（本文なし）"}`);
-  document.getElementById("btn-ai-weekly")?.addEventListener("click", () => {
-    showDraft("週次レポート（ドラフト）", window.weekly_draft || "");
+    decks.forEach(d => obs.observe(d));
+  }
+
+  // ----------------------------
+  // Ticker (テロップ生成)
+  // ----------------------------
+  const track = document.getElementById("tickerTrack");
+
+  function pickText(){
+    const out = [];
+
+    // サーバ描画済みのNEWS/TRNDSから拾う（見出しのみ）
+    const newsDeck = document.querySelector('.deck[data-key="news_trends"]');
+    if (newsDeck){
+      // 注目セクター（chip）※「まだデータなし」も含むので filter
+      const sectorChips = Array.from(newsDeck.querySelectorAll(".chip"))
+        .map(x => x.textContent.replace(/\s+/g,' ').trim())
+        .filter(t => t && !t.includes("まだデータなし"))
+        .slice(0, 4);
+
+      if (sectorChips.length) out.push("注目: " + sectorChips.join(" / "));
+
+      // ニュース（2番目のpanel想定）
+      const newsTitles = Array.from(newsDeck.querySelectorAll(".panel:nth-of-type(2) .li-title"))
+        .map(x => x.textContent.trim())
+        .filter(Boolean)
+        .slice(0, 4);
+      newsTitles.forEach(t => out.push("NEWS: " + t));
+
+      // トレンド（3番目のpanel想定）
+      const trendTitles = Array.from(newsDeck.querySelectorAll(".panel:nth-of-type(3) .li-title"))
+        .map(x => x.textContent.trim())
+        .filter(Boolean)
+        .slice(0, 4);
+      trendTitles.forEach(t => out.push("TREND: " + t));
+    }
+
+    // AI BRIEFの仮一言
+    const brief = document.querySelector('.deck[data-key="ai_brief"] .quote');
+    if (brief){
+      const q = (brief.textContent || "").trim();
+      if (q) out.unshift("AI: " + q);
+    }
+
+    if (!out.length){
+      out.push("AI: 今日は“固定ルールで淡々と”。");
+      out.push("NEWS: 取得待ち（5分キャッシュ）");
+    }
+    return out;
+  }
+
+  function buildTicker(){
+    if (!track) return;
+
+    const texts = pickText();
+
+    // 2周分作って“途切れ”をなくす
+    const items = texts.concat(texts).map(t => {
+      const div = document.createElement("div");
+      div.className = "ticker-item";
+      div.textContent = t;
+      return div;
+    });
+
+    track.innerHTML = "";
+    items.forEach(i => track.appendChild(i));
+
+    // 距離に応じて速度を調整
+    requestAnimationFrame(()=>{
+      const w = track.scrollWidth || 1;
+      const dur = Math.max(18, Math.min(55, w / 120)); // 120px/s相当
+      track.style.setProperty("--dur", dur + "s");
+      track.classList.add("run");
+    });
+  }
+
+  buildTicker();
+
+  // ----------------------------
+  // 時刻表示の整形（ISO→HH:MM）
+  // ----------------------------
+  const times = document.querySelectorAll(".time[data-iso]");
+  times.forEach(el=>{
+    const iso = el.getAttribute("data-iso");
+    if (!iso) return;
+    try{
+      const dt = new Date(iso);
+      const hh = String(dt.getHours()).padStart(2,"0");
+      const mm = String(dt.getMinutes()).padStart(2,"0");
+      el.textContent = `${hh}:${mm}`;
+    }catch(e){}
   });
-  document.getElementById("btn-ai-rebalance")?.addEventListener("click", () => {
-    showDraft("次の一手（ドラフト）", window.nextmove_draft || "");
-  });
-});
+})();
