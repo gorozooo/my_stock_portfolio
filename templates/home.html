@@ -1,486 +1,258 @@
 {% extends "base.html" %}
 {% load humanize %}
 {% load static %}
-
 {% block title %}Home{% endblock %}
 
 {% block content %}
-<div class="home-shell">
-  <!-- Top: date pill + ticker -->
-  <div class="home-top">
-    <div class="pill pill-date">
-      <div class="pill-cap">本日</div>
-      <div class="pill-main">{{ today_label }}</div>
+<link rel="stylesheet" href="{% static 'portfolio/css/home.css' %}">
+
+<div class="home">
+  <!-- Top Bar: 日付固定 + テロップ -->
+  <div class="topbar">
+    <div class="today">
+      <div class="today-label">本日</div>
+      <div class="today-date">{{ today_label }}</div>
     </div>
 
-    <div class="pill pill-ticker" id="newsTicker">
-      <div class="ticker-icon">📰</div>
-      <div class="ticker-track">
-        <div class="ticker-text" id="tickerText">
-          {% for d in decks %}
-            {% if d.key == "news_trends" %}
-              {% if d.payload.items %}
-                NEWS:
-                {% for it in d.payload.items|slice:":6" %}
-                  {{ it.source }}「{{ it.title }}」 /
-                {% endfor %}
-              {% else %}
-                NEWS: 準備中
-              {% endif %}
-            {% endif %}
-          {% endfor %}
-        </div>
+    <div class="ticker">
+      <div class="ticker-track" id="tickerTrack">
+        <div class="ticker-item">Loading...</div>
       </div>
+      <div class="ticker-fade left"></div>
+      <div class="ticker-fade right"></div>
     </div>
   </div>
 
-  <!-- Deck rail -->
-  <div class="rail" id="rail">
+  <!-- Deck rail (横スワイプ) -->
+  <div class="rail" id="deckRail" aria-label="Home decks">
     {% for d in decks %}
       <section class="deck" data-key="{{ d.key }}">
-        <div class="deck-card">
+        <header class="deck-head">
+          <div class="deck-title">{{ d.title }}</div>
+          <div class="deck-meta" id="deckMeta-{{ d.key }}"></div>
+        </header>
 
-          <div class="deck-head">
-            <div class="deck-title">{{ d.title }}</div>
-            {% if d.payload.as_of %}
-              <div class="deck-sub">更新: {{ d.payload.as_of }}</div>
-            {% endif %}
-          </div>
-
-          <!-- ASSETS -->
+        <div class="deck-body">
           {% if d.key == "assets" %}
             {% with a=d.payload %}
-              <div class="grid2">
-                <div class="kpi">
-                  <div class="kpi-label">実現損益 YTD</div>
-                  <div class="kpi-val {% if a.realized.ytd.total >= 0 %}pos{% else %}neg{% endif %}">
-                    ¥{{ a.realized.ytd.total|floatformat:0|intcomma }}
-                  </div>
-                  <div class="kpi-sub">件数 {{ a.realized.ytd.count }}</div>
+              {% if a.status != "ok" %}
+                <div class="empty">
+                  <div class="empty-title">ASSETS 取得エラー</div>
+                  <div class="empty-sub">{{ a.error|default:"unknown error" }}</div>
                 </div>
-                <div class="kpi">
-                  <div class="kpi-label">今月 MTD</div>
-                  <div class="kpi-val {% if a.realized.mtd.total >= 0 %}pos{% else %}neg{% endif %}">
-                    ¥{{ a.realized.mtd.total|floatformat:0|intcomma }}
-                  </div>
-                  <div class="kpi-sub">件数 {{ a.realized.mtd.count }}</div>
-                </div>
-                <div class="kpi">
-                  <div class="kpi-label">今週 WTD</div>
-                  <div class="kpi-val {% if a.realized.wtd.total >= 0 %}pos{% else %}neg{% endif %}">
-                    ¥{{ a.realized.wtd.total|floatformat:0|intcomma }}
-                  </div>
-                  <div class="kpi-sub">件数 {{ a.realized.wtd.count }}</div>
-                </div>
-                <div class="kpi">
-                  <div class="kpi-label">年間目標（全体）</div>
-                  <div class="kpi-val">
-                    ¥{{ a.goals.year_total|intcomma }}
-                  </div>
-                  <div class="kpi-sub">残り月{{ a.pace.remaining_months_including_current }} / 残り週{{ a.pace.remaining_weeks_including_current }}</div>
-                </div>
-              </div>
-
-              <div class="sec">
-                <div class="sec-title">必要ペース（これから）</div>
+              {% else %}
                 <div class="grid2">
                   <div class="kpi">
-                    <div class="kpi-label">月</div>
-                    <div class="kpi-val {% if a.pace.total_need_per_month.need_per_slot >= 0 %}pos{% else %}neg{% endif %}">
-                      ¥{{ a.pace.total_need_per_month.need_per_slot|floatformat:0|intcomma }}
+                    <div class="kpi-label">実現損益 YTD</div>
+                    <div class="kpi-val {% if a.realized.ytd.total >= 0 %}pos{% else %}neg{% endif %}">
+                      {{ a.realized.ytd.total|floatformat:0|intcomma }}<span class="yen">円</span>
                     </div>
-                    <div class="kpi-sub">残り ¥{{ a.pace.total_need_per_month.remaining|floatformat:0|intcomma }}</div>
+                    <div class="kpi-sub">件数 {{ a.realized.ytd.count }}</div>
                   </div>
                   <div class="kpi">
-                    <div class="kpi-label">週</div>
-                    <div class="kpi-val {% if a.pace.total_need_per_week.need_per_slot >= 0 %}pos{% else %}neg{% endif %}">
-                      ¥{{ a.pace.total_need_per_week.need_per_slot|floatformat:0|intcomma }}
+                    <div class="kpi-label">今月 MTD</div>
+                    <div class="kpi-val {% if a.realized.mtd.total >= 0 %}pos{% else %}neg{% endif %}">
+                      {{ a.realized.mtd.total|floatformat:0|intcomma }}<span class="yen">円</span>
                     </div>
-                    <div class="kpi-sub">残り ¥{{ a.pace.total_need_per_week.remaining|floatformat:0|intcomma }}</div>
+                    <div class="kpi-sub">件数 {{ a.realized.mtd.count }}</div>
                   </div>
                 </div>
-              </div>
 
-              <div class="sec">
-                <div class="sec-title">証券会社別（YTD / 目標 / 必要ペース）</div>
-                <div class="table">
-                  <div class="tr th">
-                    <div>証券会社</div>
-                    <div class="r">YTD</div>
-                    <div class="r">目標</div>
-                    <div class="r">月ペース</div>
-                  </div>
-                  {% for r in a.pace.by_broker_rows %}
-                    <div class="tr">
-                      <div class="bname">{{ r.label }}</div>
-                      <div class="r {% if r.ytd >= 0 %}pos{% else %}neg{% endif %}">
-                        {{ r.ytd|floatformat:0|intcomma }}
-                      </div>
-                      <div class="r">{{ r.goal_year|intcomma }}</div>
-                      <div class="r {% if r.pace_month.need_per_slot >= 0 %}pos{% else %}neg{% endif %}">
-                        {{ r.pace_month.need_per_slot|floatformat:0|intcomma }}
-                      </div>
+                <div class="grid2">
+                  <div class="kpi">
+                    <div class="kpi-label">今週 WTD</div>
+                    <div class="kpi-val {% if a.realized.wtd.total >= 0 %}pos{% else %}neg{% endif %}">
+                      {{ a.realized.wtd.total|floatformat:0|intcomma }}<span class="yen">円</span>
                     </div>
-                  {% endfor %}
+                    <div class="kpi-sub">件数 {{ a.realized.wtd.count }}</div>
+                  </div>
+                  <div class="kpi">
+                    <div class="kpi-label">年間目標（全体）</div>
+                    <div class="kpi-val">
+                      {{ a.goals.year_total|intcomma }}<span class="yen">円</span>
+                    </div>
+                    <div class="kpi-sub">残り月 {{ a.pace.remaining_months_including_current }} / 残り週 {{ a.pace.remaining_weeks_including_current }}</div>
+                  </div>
                 </div>
-                <div class="hint">（例）YTD / 年目標 / 月ペース</div>
+
+                <div class="panel">
+                  <div class="panel-title">必要ペース（これから）</div>
+                  <div class="pace-row">
+                    <div class="pace-item">
+                      <div class="pace-label">月</div>
+                      <div class="pace-val {% if a.pace.total_need_per_month.need_per_slot >= 0 %}pos{% else %}neg{% endif %}">
+                        {{ a.pace.total_need_per_month.need_per_slot|floatformat:0|intcomma }}<span class="yen">円</span>
+                      </div>
+                      <div class="pace-sub">残り {{ a.pace.total_need_per_month.remaining|floatformat:0|intcomma }} 円</div>
+                    </div>
+                    <div class="pace-item">
+                      <div class="pace-label">週</div>
+                      <div class="pace-val {% if a.pace.total_need_per_week.need_per_slot >= 0 %}pos{% else %}neg{% endif %}">
+                        {{ a.pace.total_need_per_week.need_per_slot|floatformat:0|intcomma }}<span class="yen">円</span>
+                      </div>
+                      <div class="pace-sub">残り {{ a.pace.total_need_per_week.remaining|floatformat:0|intcomma }} 円</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="panel">
+                  <div class="panel-title">証券会社別（YTD / 目標 / 必要ペース）</div>
+                  <div class="table">
+                    {% for r in a.pace.by_broker_rows %}
+                      <div class="tr">
+                        <div class="td broker">{{ r.label }}</div>
+                        <div class="td num {% if r.ytd >= 0 %}pos{% else %}neg{% endif %}">
+                          {{ r.ytd|floatformat:0|intcomma }}
+                        </div>
+                        <div class="td num muted">{{ r.goal_year|intcomma }}</div>
+                        <div class="td num need {% if r.pace_month.need_per_slot >= 0 %}pos{% else %}neg{% endif %}">
+                          {{ r.pace_month.need_per_slot|floatformat:0|intcomma }}
+                        </div>
+                      </div>
+                    {% endfor %}
+                  </div>
+                  <div class="table-note">（列）YTD / 年目標 / 月ペース</div>
+                </div>
+              {% endif %}
+            {% endwith %}
+
+          {% elif d.key == "ai_brief" %}
+            {% with b=d.payload %}
+              <div class="empty">
+                <div class="empty-title">AI BRIEF</div>
+                <div class="empty-sub">ここは「自分で考えて自分で発言するAI」の表舞台。次に生成ロジックを繋ぐ。</div>
+              </div>
+              <div class="panel">
+                <div class="panel-title">今日の一言</div>
+                <div class="quote">「相場の正解を当てる」より、“やることを固定してブレない”が勝つ。</div>
+                <div class="quote-sub">（※仮。後であなたのAIコメント生成へ差し替える）</div>
               </div>
             {% endwith %}
-          {% endif %}
 
-          <!-- NEWS & TRENDS -->
-          {% if d.key == "news_trends" %}
+          {% elif d.key == "risk" %}
+            <div class="empty">
+              <div class="empty-title">RISK</div>
+              <div class="empty-sub">信用余力・拘束・レバ・ポリシー逸脱・想定DDなどを集約する枠。</div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">アイデア</div>
+              <ul class="bullets">
+                <li>「今日は攻める日か？」をレジーム＋ボラで判定</li>
+                <li>証券会社別：信用使用率（設定の credit_usage_pct と連動）</li>
+                <li>“やらないリスト” が点灯したら赤で警告</li>
+              </ul>
+            </div>
+
+          {% elif d.key == "market" %}
+            <div class="empty">
+              <div class="empty-title">MARKET</div>
+              <div class="empty-sub">指数・ブレッド・セクター地図・需給の総まとめ枠。</div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">表示候補</div>
+              <div class="chips">
+                <span class="chip">TOPIX / 日経</span>
+                <span class="chip">米金利 / ドル円</span>
+                <span class="chip">ブレッド</span>
+                <span class="chip">業種強弱</span>
+                <span class="chip">テーマ寄与</span>
+              </div>
+            </div>
+
+          {% elif d.key == "today_plan" %}
+            <div class="empty">
+              <div class="empty-title">TODAY PLAN</div>
+              <div class="empty-sub">ウォッチ条件・行動ログ・発注メモを“1枚の計画”にする枠。</div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">今日の型（仮）</div>
+              <ol class="steps">
+                <li>相場レジームを見る</li>
+                <li>やること/やらないことを確定</li>
+                <li>ウォッチ条件を2つだけセット</li>
+                <li>発注は“条件達成”のみ</li>
+              </ol>
+            </div>
+
+          {% elif d.key == "news_trends" %}
             {% with n=d.payload %}
-              <div class="sec">
-                <div class="sec-title">注目セクター（ざっくり）</div>
-                <div class="chips">
-                  {% for s in n.sectors %}
-                    <div class="chip">{{ s.sector }} ×{{ s.count }}</div>
-                  {% empty %}
-                    <div class="chip">その他 ×0</div>
-                  {% endfor %}
+              {% if n.status != "ok" and n.status != "stub" %}
+                <div class="empty">
+                  <div class="empty-title">NEWS & TRENDS 取得エラー</div>
+                  <div class="empty-sub">{{ n.error|default:"unknown error" }}</div>
                 </div>
-                <div class="deck-sub" style="margin-top:10px;">更新: {{ n.as_of }}</div>
-              </div>
+              {% else %}
+                <div class="panel">
+                  <div class="panel-title">注目セクター（ざっくり）</div>
+                  <div class="chips">
+                    {% for s in n.sectors %}
+                      <span class="chip">{{ s.sector }} <span class="chip-sub">×{{ s.count }}</span></span>
+                    {% empty %}
+                      <span class="chip muted">（まだデータなし）</span>
+                    {% endfor %}
+                  </div>
+                  <div class="panel-sub">更新: {{ n.as_of|default:"-" }}</div>
+                </div>
 
-              <div class="sec">
-                <div class="sec-title">ニュース</div>
-                <div class="list">
-                  {% for it in n.items|slice:":10" %}
-                    <a class="li" href="{{ it.link }}" target="_blank" rel="noopener">
-                      <div class="badge">{{ it.source }}</div>
-                      <div class="li-title">{{ it.title }}</div>
-                      <div class="li-sub">
-                        <span class="host">{{ it.host }}</span>
+                <div class="panel">
+                  <div class="panel-title">ニュース</div>
+                  <div class="list">
+                    {% for it in n.items|slice:":10" %}
+                      <div class="li">
+                        <div class="li-top">
+                          <span class="badge">{{ it.source }}</span>
+                          {% if it.published_at %}
+                            <span class="time" data-iso="{{ it.published_at }}">{{ it.published_at }}</span>
+                          {% endif %}
+                        </div>
+                        <div class="li-title">{{ it.title }}</div>
                       </div>
-                    </a>
-                  {% empty %}
-                    <div class="empty">ニュース取得中…</div>
-                  {% endfor %}
+                    {% empty %}
+                      <div class="li muted">（ニュース取得待ち / 5分キャッシュ）</div>
+                    {% endfor %}
+                  </div>
                 </div>
-              </div>
 
-              <div class="sec">
-                <div class="sec-title">ネット/トレンド（代替）</div>
-                <div class="list">
-                  {% for it in n.trends|slice:":10" %}
-                    <a class="li" href="{{ it.link }}" target="_blank" rel="noopener">
-                      <div class="badge">Trends</div>
-                      <div class="li-title">{{ it.title }}</div>
-                      <div class="li-sub">
-                        <span class="host">{{ it.host }}</span>
+                <div class="panel">
+                  <div class="panel-title">トレンド（ネット）</div>
+                  <div class="list">
+                    {% for it in n.trends|slice:":10" %}
+                      <div class="li">
+                        <div class="li-top">
+                          <span class="badge">Trends</span>
+                        </div>
+                        <div class="li-title">{{ it.title }}</div>
                       </div>
-                    </a>
-                  {% empty %}
-                    <div class="empty">トレンド取得中…</div>
-                  {% endfor %}
+                    {% empty %}
+                      <div class="li muted">（トレンド取得待ち）</div>
+                    {% endfor %}
+                  </div>
                 </div>
-              </div>
+              {% endif %}
             {% endwith %}
-          {% endif %}
-
-          <!-- STUB decks -->
-          {% if d.key != "assets" and d.key != "news_trends" %}
-            <div class="stub">
-              <div class="stub-title">（準備中）</div>
-              <div class="stub-sub">ここは後で aiapp の知能・ポリシー・レジーム等と合体して“自分で考えて発言するAI”に進化させる</div>
+          {% else %}
+            <div class="empty">
+              <div class="empty-title">{{ d.title }}</div>
+              <div class="empty-sub">（このデッキは未定義）</div>
             </div>
           {% endif %}
-
         </div>
+
+        <footer class="deck-foot">
+          <div class="dots" aria-hidden="true"></div>
+        </footer>
       </section>
     {% endfor %}
   </div>
 
-  <!-- dots -->
-  <div class="dots" id="dots"></div>
+  <!-- Mini hud -->
+  <div class="hud">
+    <div class="hud-pill">
+      <span class="hud-dot"></span>
+      <span id="hudText">Swipe</span>
+    </div>
+  </div>
 </div>
 
-<script>
-(function(){
-  const rail = document.getElementById("rail");
-  const decks = Array.from(rail.querySelectorAll(".deck"));
-  const dots = document.getElementById("dots");
-  if (!rail || decks.length === 0 || !dots) return;
-
-  dots.innerHTML = decks.map((_,i)=>`<span class="dot ${i===0?'on':''}" data-i="${i}"></span>`).join("");
-  const dotEls = Array.from(dots.querySelectorAll(".dot"));
-
-  const setOn = (idx) => {
-    dotEls.forEach((d,i)=>d.classList.toggle("on", i===idx));
-  };
-
-  const onScroll = () => {
-    const x = rail.scrollLeft;
-    const w = rail.clientWidth || 1;
-    const idx = Math.round(x / w);
-    setOn(Math.max(0, Math.min(decks.length-1, idx)));
-  };
-
-  rail.addEventListener("scroll", () => {
-    window.requestAnimationFrame(onScroll);
-  });
-
-  dotEls.forEach(el=>{
-    el.addEventListener("click", ()=>{
-      const i = parseInt(el.getAttribute("data-i") || "0", 10);
-      rail.scrollTo({ left: i * rail.clientWidth, behavior: "smooth" });
-    });
-  });
-})();
-</script>
-
-<style>
-/* ===== iPhone専用: 見切れゼロ ===== */
-*{ box-sizing:border-box; }
-:root{
-  --bg:#020617;
-  --card:rgba(15,23,42,.92);
-  --card2:rgba(15,23,42,.72);
-  --fg:#e5edff;
-  --sub:rgba(229,237,255,.72);
-  --muted:rgba(148,163,184,.75);
-  --line:rgba(148,163,184,.22);
-
-  --pos:#22c55e;
-  --neg:#ef4444;
-  --accent:#60a5fa;
-}
-body{ background:var(--bg); color:var(--fg); }
-
-.home-shell{
-  width:100%;
-  max-width:430px;  /* iPhone上限 */
-  margin:0 auto;
-  padding:10px 10px 90px;
-}
-
-/* top */
-.home-top{
-  display:flex;
-  gap:10px;
-  align-items:stretch;
-  margin-bottom:10px;
-}
-.pill{
-  border:1px solid var(--line);
-  background:rgba(2,6,23,.35);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border-radius:16px;
-  padding:10px 12px;
-  box-shadow:0 10px 30px rgba(0,0,0,.25);
-}
-.pill-date{ flex:0 0 auto; min-width:150px; }
-.pill-cap{ font-size:12px; color:var(--muted); line-height:1; }
-.pill-main{ font-size:16px; font-weight:700; margin-top:6px; }
-
-.pill-ticker{
-  flex:1 1 auto;
-  display:flex;
-  align-items:center;
-  gap:10px;
-  overflow:hidden;
-}
-.ticker-icon{ font-size:16px; opacity:.9; }
-.ticker-track{
-  position:relative;
-  overflow:hidden;
-  width:100%;
-  height:20px;
-}
-.ticker-text{
-  display:inline-block;
-  white-space:nowrap;
-  will-change:transform;
-  animation: marquee 22s linear infinite;
-  color:rgba(229,237,255,.85);
-  font-size:13px;
-}
-@keyframes marquee{
-  0%{ transform:translateX(100%); }
-  100%{ transform:translateX(-120%); }
-}
-
-/* rail */
-.rail{
-  display:flex;
-  width:100%;
-  overflow-x:auto;
-  scroll-snap-type:x mandatory;
-  -webkit-overflow-scrolling:touch;
-  gap:12px;
-  padding:0;       /* 余白でズレない */
-  margin:0;        /* 余白でズレない */
-}
-.rail::-webkit-scrollbar{ display:none; }
-
-.deck{
-  flex:0 0 100%;
-  width:100%;
-  scroll-snap-align:start;
-}
-
-.deck-card{
-  border:1px solid var(--line);
-  border-radius:18px;
-  background:linear-gradient(180deg, rgba(96,165,250,.12), rgba(0,0,0,0) 40%), var(--card);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  box-shadow:0 14px 40px rgba(0,0,0,.35);
-  padding:14px;
-}
-
-.deck-head{
-  display:flex;
-  align-items:flex-end;
-  justify-content:space-between;
-  padding-bottom:10px;
-  border-bottom:1px solid rgba(148,163,184,.18);
-  margin-bottom:10px;
-}
-.deck-title{
-  letter-spacing:.12em;
-  font-weight:800;
-  font-size:14px;
-}
-.deck-sub{
-  font-size:12px;
-  color:var(--muted);
-}
-
-/* assets blocks */
-.grid2{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:10px;
-}
-.kpi{
-  border:1px solid rgba(148,163,184,.18);
-  background:rgba(2,6,23,.25);
-  border-radius:14px;
-  padding:12px;
-  min-height:86px;
-}
-.kpi-label{ font-size:12px; color:var(--muted); }
-.kpi-val{
-  margin-top:8px;
-  font-size:20px;
-  font-weight:900;
-  letter-spacing:.02em;
-}
-.kpi-sub{ margin-top:6px; font-size:12px; color:rgba(229,237,255,.62); }
-
-.pos{ color:var(--pos); }
-.neg{ color:var(--neg); }
-
-.sec{ margin-top:14px; }
-.sec-title{
-  font-size:13px;
-  color:rgba(229,237,255,.85);
-  margin:0 0 10px;
-  font-weight:800;
-}
-
-/* table */
-.table{
-  border:1px solid rgba(148,163,184,.18);
-  border-radius:14px;
-  overflow:hidden;
-}
-.tr{
-  display:grid;
-  grid-template-columns: 1.1fr 1fr .8fr 1fr;
-  gap:10px;
-  padding:10px 12px;
-  align-items:center;
-  background:rgba(2,6,23,.22);
-  border-top:1px solid rgba(148,163,184,.12);
-}
-.tr.th{
-  background:rgba(2,6,23,.36);
-  border-top:none;
-  color:rgba(229,237,255,.75);
-  font-size:12px;
-  font-weight:800;
-}
-.r{ text-align:right; font-variant-numeric: tabular-nums; }
-.bname{ font-weight:800; }
-.hint{ margin-top:8px; color:rgba(229,237,255,.55); font-size:12px; }
-
-/* chips/list */
-.chips{ display:flex; flex-wrap:wrap; gap:8px; }
-.chip{
-  padding:8px 10px;
-  border-radius:999px;
-  border:1px solid rgba(148,163,184,.18);
-  background:rgba(2,6,23,.25);
-  font-size:12px;
-  color:rgba(229,237,255,.85);
-}
-.list{ display:flex; flex-direction:column; gap:10px; }
-.li{
-  display:block;
-  text-decoration:none;
-  border:1px solid rgba(148,163,184,.18);
-  background:rgba(2,6,23,.25);
-  border-radius:14px;
-  padding:12px;
-}
-.badge{
-  display:inline-block;
-  font-size:12px;
-  font-weight:800;
-  padding:6px 10px;
-  border-radius:999px;
-  background:rgba(96,165,250,.22);
-  border:1px solid rgba(96,165,250,.35);
-  color:rgba(229,237,255,.92);
-}
-.li-title{
-  margin-top:10px;
-  font-size:14px;
-  font-weight:800;
-  color:rgba(229,237,255,.92);
-  line-height:1.35;
-}
-.li-sub{
-  margin-top:8px;
-  font-size:12px;
-  color:rgba(229,237,255,.55);
-}
-.host{ opacity:.95; }
-
-.empty{
-  padding:14px;
-  color:rgba(229,237,255,.6);
-  font-size:13px;
-  border:1px dashed rgba(148,163,184,.22);
-  border-radius:14px;
-}
-
-/* stub */
-.stub{
-  padding:16px;
-  border:1px dashed rgba(148,163,184,.25);
-  border-radius:14px;
-  background:rgba(2,6,23,.20);
-}
-.stub-title{ font-weight:900; }
-.stub-sub{ margin-top:10px; font-size:13px; color:rgba(229,237,255,.65); line-height:1.5; }
-
-/* dots */
-.dots{
-  margin-top:10px;
-  display:flex;
-  justify-content:center;
-  gap:6px;
-}
-.dot{
-  width:7px; height:7px;
-  border-radius:999px;
-  background:rgba(148,163,184,.35);
-}
-.dot.on{ background:rgba(96,165,250,.95); }
-</style>
+<script src="{% static 'portfolio/js/home.js' %}"></script>
 {% endblock %}
