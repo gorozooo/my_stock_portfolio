@@ -21,7 +21,7 @@ BROKER_LABEL = {
     "RAKUTEN": "楽天証券",
     "SBI": "SBI証券",
     "MATSUI": "松井証券",
-    "OTHER": "その他",
+
 }
 
 DEC2 = DecimalField(max_digits=20, decimal_places=2)
