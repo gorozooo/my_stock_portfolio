@@ -66,8 +66,6 @@ def _with_pnl_jpy(qs):
     """
     realized.py の pnl_jpy_calc と同義：
       pnl_jpy_calc = cashflow * fx_to_jpy
-      - USD: fx_rate があればそれ
-      - JPY: 1
     """
     dec0 = Value(Decimal("0"), output_field=DEC2)
     one = Value(Decimal("1"), output_field=DEC4)
@@ -106,7 +104,6 @@ def _sum_pnl_all(
     """
     - BUY / SELL 両方含める
     - 金額 = 円換算済み pnl_jpy_calc の合計
-    - 件数 = Count(id)
     """
     qs = RealizedTrade.objects.filter(user=user, trade_at__gte=start)
     if end is not None:
@@ -117,7 +114,10 @@ def _sum_pnl_all(
     qs = _with_pnl_jpy(qs)
 
     agg = qs.aggregate(
-        pnl=Coalesce(Sum("pnl_jpy_calc", output_field=DEC2), Value(Decimal("0"), output_field=DEC2)),
+        pnl=Coalesce(
+            Sum("pnl_jpy_calc", output_field=DEC2),
+            Value(Decimal("0"), output_field=DEC2),
+        ),
         cnt=Coalesce(Count("id"), Value(0)),
     )
 
@@ -138,35 +138,44 @@ def _broker_rows_ytd(user, start: date) -> List[Dict[str, Any]]:
 
 
 def _build_pace(
-    goal_year: Decimal,
-    ytd: Decimal,
+    goal_year_total: Decimal,
+    goal_by_broker: Dict[str, Any],
+    ytd_total: Decimal,
     d: date,
     by_broker_rows: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    remain = goal_year - ytd
+    remain = goal_year_total - ytd_total
     rem_m = _remaining_months_including_current(d)
     rem_w = _remaining_weeks_including_current(d)
 
     need_m = remain / Decimal(rem_m) if rem_m > 0 else remain
     need_w = remain / Decimal(rem_w) if rem_w > 0 else remain
 
+    # YTD 比率（フォールバック用）
     total_abs = sum(abs(r["ytd"]) for r in by_broker_rows) or 1.0
 
     by_rows = []
     for r in by_broker_rows:
-        weight = abs(r["ytd"]) / total_abs
-        goal_b = float(goal_year) * weight
-        remain_b = goal_b - float(r["ytd"])
-        need_m_b = remain_b / rem_m if rem_m > 0 else remain_b
+        broker = r["broker"]
+
+        # ★ broker別目標：設定があれば最優先
+        if broker in goal_by_broker and goal_by_broker.get(broker, 0):
+            goal_b = Decimal(str(goal_by_broker[broker]))
+        else:
+            weight = abs(r["ytd"]) / total_abs
+            goal_b = goal_year_total * Decimal(str(weight))
+
+        remain_b = goal_b - Decimal(str(r["ytd"]))
+        need_m_b = remain_b / Decimal(rem_m) if rem_m > 0 else remain_b
 
         by_rows.append({
-            "broker": r["broker"],
+            "broker": broker,
             "label": r["label"],
             "ytd": r["ytd"],
-            "goal_year": int(round(goal_b)),
+            "goal_year": int(goal_b),
             "pace_month": {
-                "remaining": remain_b,
-                "need_per_slot": need_m_b,
+                "remaining": float(remain_b),
+                "need_per_slot": float(need_m_b),
             }
         })
 
@@ -199,14 +208,20 @@ def build_assets_snapshot(user) -> Dict[str, Any]:
     mtd_total, mtd_cnt = _sum_pnl_all(user, start=mtd_start)
     wtd_total, wtd_cnt = _sum_pnl_all(user, start=wtd_start)
 
-    # 年間目標（将来拡張）
+    # --- ユーザー設定 ---
     setting, _ = UserSetting.objects.get_or_create(user=user)
-    goal_year_total = Decimal("0")
-    # 例：
-    # goal_year_total = Decimal(setting.realized_goal_year or 0)
+    goal_year_total = Decimal(str(setting.year_goal_total or 0))
+    goal_by_broker = setting.year_goal_by_broker or {}
 
     by_broker = _broker_rows_ytd(user, start=ytd_start)
-    pace = _build_pace(goal_year_total, ytd_total, d, by_broker)
+
+    pace = _build_pace(
+        goal_year_total=goal_year_total,
+        goal_by_broker=goal_by_broker,
+        ytd_total=ytd_total,
+        d=d,
+        by_broker_rows=by_broker,
+    )
 
     return {
         "status": "ok",
