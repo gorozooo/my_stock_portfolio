@@ -4,12 +4,15 @@
 {% block title %}Home{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=101">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=102">
 
 <div class="home-shell">
   <!-- Top: date pill + ticker -->
   <div class="home-top">
-   
+    <div class="pill pill-date">
+      <div class="pill-cap">本日</div>
+      <div class="pill-main">{{ today_label|default:"" }}</div>
+    </div>
 
     <div class="pill pill-ticker" id="newsTicker">
       <div class="ticker-icon">📰</div>
@@ -45,7 +48,9 @@
             {% endif %}
           </div>
 
-          <!-- ASSETS -->
+          <!-- =========================
+               ASSETS
+               ========================= -->
           {% if d.key == "assets" %}
             {% with a=d.payload %}
               <div class="grid2">
@@ -83,24 +88,75 @@
                 <div class="sec-title">必要ペース（これから）</div>
                 <div class="grid2">
                   <div class="kpi">
-                    <div class="kpi-label">月</div>
-                    <div class="kpi-val {% if a.pace.total_need_per_month.need_per_slot >= 0 %}pos{% else %}neg{% endif %}">
+                    <div class="kpi-label">月ペース</div>
+                    {# ★未達（need_per_slot > 0）は warn（黄） #}
+                    <div class="kpi-val {% if a.pace.total_need_per_month.need_per_slot > 0 %}warn{% else %}pos{% endif %}">
                       ¥{{ a.pace.total_need_per_month.need_per_slot|floatformat:0|intcomma }}
                     </div>
-                    <div class="kpi-sub">残り ¥{{ a.pace.total_need_per_month.remaining|floatformat:0|intcomma }}</div>
+                    <div class="kpi-sub">
+                      残り
+                      <span class="{% if a.pace.total_need_per_month.remaining > 0 %}warn{% else %}pos{% endif %}">
+                        ¥{{ a.pace.total_need_per_month.remaining|floatformat:0|intcomma }}
+                      </span>
+                    </div>
                   </div>
+
                   <div class="kpi">
-                    <div class="kpi-label">週</div>
-                    <div class="kpi-val {% if a.pace.total_need_per_week.need_per_slot >= 0 %}pos{% else %}neg{% endif %}">
+                    <div class="kpi-label">週ペース</div>
+                    <div class="kpi-val {% if a.pace.total_need_per_week.need_per_slot > 0 %}warn{% else %}pos{% endif %}">
                       ¥{{ a.pace.total_need_per_week.need_per_slot|floatformat:0|intcomma }}
                     </div>
-                    <div class="kpi-sub">残り ¥{{ a.pace.total_need_per_week.remaining|floatformat:0|intcomma }}</div>
+                    <div class="kpi-sub">
+                      残り
+                      <span class="{% if a.pace.total_need_per_week.remaining > 0 %}warn{% else %}pos{% endif %}">
+                        ¥{{ a.pace.total_need_per_week.remaining|floatformat:0|intcomma }}
+                      </span>
+                    </div>
                   </div>
                 </div>
+                <div class="hint">※ 未達（残り/必要ペースがプラス）→黄色。達成（マイナス/ゼロ）→緑。</div>
               </div>
 
               <div class="sec">
-                <div class="sec-title">証券会社別（YTD / 目標 / 必要ペース）</div>
+                <div class="sec-title">証券会社別（カード）</div>
+
+                <div class="broker-cards">
+                  {% for r in a.pace.by_broker_rows %}
+                    <div class="bcard">
+                      <div class="bcard-top">
+                        <div class="bcard-name">{{ r.label }}</div>
+                        <div class="bcard-ytd {% if r.ytd >= 0 %}pos{% else %}neg{% endif %}">
+                          ¥{{ r.ytd|floatformat:0|intcomma }}
+                        </div>
+                      </div>
+
+                      <div class="brow">
+                        <div class="lk">年目標</div>
+                        <div class="lv">¥{{ r.goal_year|intcomma }}</div>
+                      </div>
+
+                      <div class="brow">
+                        <div class="lk">残り（月基準）</div>
+                        <div class="lv {% if r.pace_month.remaining > 0 %}warn{% else %}pos{% endif %}">
+                          ¥{{ r.pace_month.remaining|floatformat:0|intcomma }}
+                        </div>
+                      </div>
+
+                      <div class="brow">
+                        <div class="lk">月ペース</div>
+                        <div class="lv {% if r.pace_month.need_per_slot > 0 %}warn{% else %}pos{% endif %}">
+                          ¥{{ r.pace_month.need_per_slot|floatformat:0|intcomma }}
+                        </div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+
+                <div class="hint">横スワイプ：YTD / 目標 / 残り / 月ペース</div>
+              </div>
+
+              <div class="sec">
+                <div class="sec-title">証券会社別（表）</div>
                 <div class="table">
                   <div class="tr th">
                     <div>証券会社</div>
@@ -115,7 +171,7 @@
                         {{ r.ytd|floatformat:0|intcomma }}
                       </div>
                       <div class="r">{{ r.goal_year|intcomma }}</div>
-                      <div class="r {% if r.pace_month.need_per_slot >= 0 %}pos{% else %}neg{% endif %}">
+                      <div class="r {% if r.pace_month.need_per_slot > 0 %}warn{% else %}pos{% endif %}">
                         {{ r.pace_month.need_per_slot|floatformat:0|intcomma }}
                       </div>
                     </div>
@@ -126,7 +182,48 @@
             {% endwith %}
           {% endif %}
 
-          <!-- NEWS & TRENDS -->
+          <!-- =========================
+               TODAY PLAN
+               ========================= -->
+          {% if d.key == "today_plan" %}
+            {% with t=d.payload %}
+              <div class="sec">
+                <div class="sec-title">今日の作戦</div>
+
+                {% if t.tasks %}
+                  <div class="plan">
+                    {% for x in t.tasks %}
+                      <div class="plan-item">
+                        <div class="plan-head">
+                          <span class="tag
+                            {% if x.kind == "primary" %}tag-primary
+                            {% elif x.kind == "broker" %}tag-broker
+                            {% elif x.kind == "ok" %}tag-ok
+                            {% else %}tag-check{% endif %}
+                          ">
+                            {% if x.kind == "primary" %}PRIORITY
+                            {% elif x.kind == "broker" %}BROKER
+                            {% elif x.kind == "ok" %}OK
+                            {% else %}CHECK{% endif %}
+                          </span>
+                          <div class="plan-title">{{ x.title }}</div>
+                        </div>
+                        <div class="plan-desc">{{ x.desc }}</div>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <div class="empty">TODAY PLAN 生成中…</div>
+                {% endif %}
+
+                <div class="hint">ASSETS（目標差分）から自動生成。後で Policy/Watch に接続して自動で“具体アクション”へ。</div>
+              </div>
+            {% endwith %}
+          {% endif %}
+
+          <!-- =========================
+               NEWS & TRENDS
+               ========================= -->
           {% if d.key == "news_trends" %}
             {% with n=d.payload %}
               <div class="sec">
@@ -178,7 +275,7 @@
           {% endif %}
 
           <!-- STUB decks -->
-          {% if d.key != "assets" and d.key != "news_trends" %}
+          {% if d.key != "assets" and d.key != "news_trends" and d.key != "today_plan" %}
             <div class="stub">
               <div class="stub-title">（準備中）</div>
               <div class="stub-sub">ここは後で aiapp の知能・ポリシー・レジーム等と合体して“自分で考えて発言するAI”に進化させる</div>
@@ -194,5 +291,5 @@
   <div class="dots" id="dots"></div>
 </div>
 
-<script src="{% static 'js/home.js' %}?v=101" defer></script>
+<script src="{% static 'js/home.js' %}?v=102" defer></script>
 {% endblock %}
