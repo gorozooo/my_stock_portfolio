@@ -9,11 +9,6 @@
 <div class="home-shell">
   <!-- Top: date pill + ticker -->
   <div class="home-top">
-    <div class="pill pill-date">
-      <div class="pill-cap">本日</div>
-      <div class="pill-main">{{ today_label|default:"" }}</div>
-    </div>
-
     <div class="pill pill-ticker" id="newsTicker">
       <div class="ticker-icon">📰</div>
       <div class="ticker-track">
@@ -155,29 +150,7 @@
                 <div class="hint">横スワイプ：YTD / 目標 / 残り / 月ペース</div>
               </div>
 
-              <div class="sec">
-                <div class="sec-title">証券会社別（表）</div>
-                <div class="table">
-                  <div class="tr th">
-                    <div>証券会社</div>
-                    <div class="r">YTD</div>
-                    <div class="r">目標</div>
-                    <div class="r">月ペース</div>
-                  </div>
-                  {% for r in a.pace.by_broker_rows %}
-                    <div class="tr">
-                      <div class="bname">{{ r.label }}</div>
-                      <div class="r {% if r.ytd >= 0 %}pos{% else %}neg{% endif %}">
-                        {{ r.ytd|floatformat:0|intcomma }}
-                      </div>
-                      <div class="r">{{ r.goal_year|intcomma }}</div>
-                      <div class="r {% if r.pace_month.need_per_slot > 0 %}warn{% else %}pos{% endif %}">
-                        {{ r.pace_month.need_per_slot|floatformat:0|intcomma }}
-                      </div>
-                    </div>
-                  {% endfor %}
-                </div>
-                <div class="hint">（例）YTD / 年目標 / 月ペース</div>
+              
               </div>
             {% endwith %}
           {% endif %}
