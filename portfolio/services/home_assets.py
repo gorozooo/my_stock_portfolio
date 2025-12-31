@@ -5,7 +5,16 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Dict, List, Tuple
 
-from django.db.models import Count, F, Sum, Value, Case, When, ExpressionWrapper, DecimalField
+from django.db.models import (
+    Sum,
+    Count,
+    F,
+    ExpressionWrapper,
+    DecimalField,
+    Case,
+    When,
+    Value,
+)
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -18,6 +27,7 @@ BROKER_LABEL = {
     "MATSUI": "松井証券",
     "OTHER": "その他",
 }
+
 
 DEC2 = DecimalField(max_digits=20, decimal_places=2)
 DEC4 = DecimalField(max_digits=20, decimal_places=4)
@@ -51,31 +61,20 @@ def _remaining_weeks_including_current(d: date) -> int:
     return max(1, 52 - iso_week + 1)
 
 
-def _d0(x) -> Decimal:
-    try:
-        if x is None:
-            return Decimal("0")
-        return Decimal(str(x))
-    except Exception:
-        return Decimal("0")
-
-
 # ============================================================
-#  realized.py と同一の「円換算PnL」(pnl_jpy_calc) を付与
-#   - pnl_display = cashflow（= 投資家PnL / 手入力）
-#   - fx_to_jpy_calc:
-#       USD & fx_rate>0 → fx_rate
-#       JPY or それ以外 → 1
+#  realized.py と同一の PnL 計算（円換算）
+#   - pnl_display = cashflow（手入力の実損）
 #   - pnl_jpy_calc = pnl_display * fx_to_jpy_calc
+#   - fx_to_jpy_calc:
+#       USD かつ fx_rate が入っていればそれを使う
+#       それ以外は 1（JPY扱い）
 # ============================================================
-def _annotate_pnl_jpy_like_realized(qs):
+def _annotate_pnl_jpy(qs):
     dec0 = Value(Decimal("0"), output_field=DEC2)
     one = Value(Decimal("1"), output_field=DEC4)
 
-    # 投資家PnL（通貨建て）
     pnl_display = Coalesce(F("cashflow"), dec0)
 
-    # 1通貨あたり何円か（realized.py と同じ判定）
     fx_to_jpy_calc = Case(
         When(
             currency__iexact="USD",
@@ -104,28 +103,32 @@ def _sum_pnl_sell(
     broker: str | None = None,
 ) -> Tuple[Decimal, int]:
     """
-    ✅ realized.py と一致させる
-    - RealizedTrade の SELL のみ
-    - 期間は trade_at
-    - PnL は「pnl_jpy_calc（= cashflow の円換算）」を合計
+    ✅ realized.py の表示と一致させるためのロジック
+    - SELL のみ
+    - “投資家PnL（cashflow）” を円換算した pnl_jpy_calc を合計
+    - trade_at で期間
     """
-    qs = RealizedTrade.objects.filter(user=user, side="SELL", trade_at__gte=start)
+    qs = RealizedTrade.objects.filter(
+        user=user,
+        side="SELL",
+        trade_at__gte=start,
+    )
     if end is not None:
         qs = qs.filter(trade_at__lte=end)
     if broker:
         qs = qs.filter(broker=broker)
 
-    qs = _annotate_pnl_jpy_like_realized(qs)
+    qs = _annotate_pnl_jpy(qs)
 
     agg = qs.aggregate(
         total=Coalesce(Sum("pnl_jpy_calc", output_field=DEC2), Value(Decimal("0"), output_field=DEC2)),
         cnt=Coalesce(Count("id"), Value(0)),
     )
-    return _d0(agg.get("total")), int(agg.get("cnt") or 0)
+    return Decimal(agg["total"] or 0), int(agg["cnt"] or 0)
 
 
 def _broker_rows_ytd(user, start: date) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
+    rows = []
     for key in ("RAKUTEN", "SBI", "MATSUI", "OTHER"):
         total, cnt = _sum_pnl_sell(user, start=start, broker=key)
         rows.append(
@@ -152,7 +155,6 @@ def _build_pace(
     need_m = remain / Decimal(rem_m) if rem_m > 0 else remain
     need_w = remain / Decimal(rem_w) if rem_w > 0 else remain
 
-    # broker別：今年目標は “全体目標をytd比で按分”（暫定）
     total_abs = sum(abs(r["ytd"]) for r in by_broker_rows) or 1.0
 
     by_rows = []
@@ -178,8 +180,14 @@ def _build_pace(
     return {
         "remaining_months_including_current": rem_m,
         "remaining_weeks_including_current": rem_w,
-        "total_need_per_month": {"remaining": float(remain), "need_per_slot": float(need_m)},
-        "total_need_per_week": {"remaining": float(remain), "need_per_slot": float(need_w)},
+        "total_need_per_month": {
+            "remaining": float(remain),
+            "need_per_slot": float(need_m),
+        },
+        "total_need_per_week": {
+            "remaining": float(remain),
+            "need_per_slot": float(need_w),
+        },
         "by_broker_rows": by_rows,
     }
 
