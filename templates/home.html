@@ -1,13 +1,14 @@
+{# templates/home.html #}
 {% extends "base.html" %}
 {% load humanize %}
 {% load static %}
 {% block title %}Home{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=104">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=105">
 
 <div class="home-shell">
-  <!-- Top: date pill + ticker -->
+  <!-- Top: ticker -->
   <div class="home-top">
     <div class="pill pill-ticker" id="newsTicker">
       <div class="ticker-icon">📰</div>
@@ -84,7 +85,6 @@
                 <div class="grid2">
                   <div class="kpi">
                     <div class="kpi-label">月ペース</div>
-                    {# ★未達（need_per_slot > 0）は warn（黄） #}
                     <div class="kpi-val {% if a.pace.total_need_per_month.need_per_slot > 0 %}warn{% else %}pos{% endif %}">
                       ¥{{ a.pace.total_need_per_month.need_per_slot|floatformat:0|intcomma }}
                     </div>
@@ -149,7 +149,144 @@
 
                 <div class="hint">横スワイプ：YTD / 目標 / 残り / 月ペース</div>
               </div>
+            {% endwith %}
+          {% endif %}
 
+          <!-- =========================
+               AI BRIEF
+               ========================= -->
+          {% if d.key == "ai_brief" %}
+            {% with b=d.payload %}
+              <div class="brief">
+                <div class="brief-headline">{{ b.headline|default:"（準備中）" }}</div>
+
+                {% if b.bullets %}
+                  <div class="brief-list">
+                    {% for s in b.bullets %}
+                      <div class="brief-item">• {{ s }}</div>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <div class="empty">AI BRIEF 生成中…</div>
+                {% endif %}
+
+                <div class="hint">“読む→条件化”が目的。ニュースはトリガーにして、監視ルールへ落とす。</div>
+              </div>
+            {% endwith %}
+          {% endif %}
+
+          <!-- =========================
+               RISK
+               ========================= -->
+          {% if d.key == "risk" %}
+            {% with r=d.payload %}
+              <div class="sec">
+                <div class="sec-title">今日のリスク枠</div>
+
+                {% if r.metrics %}
+                  <div class="risk-grid">
+                    {% for m in r.metrics %}
+                      <div class="risk-kpi">
+                        <div class="rk-label">{{ m.label }}</div>
+                        <div class="rk-val {% if m.kind == 'bad' %}neg{% elif m.kind == 'warn' %}warn{% else %}pos{% endif %}">
+                          {{ m.value }}
+                        </div>
+                        {% if m.sub %}
+                          <div class="rk-sub">{{ m.sub }}</div>
+                        {% endif %}
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <div class="empty">RISK 生成中…</div>
+                {% endif %}
+
+                {% if r.alerts %}
+                  <div class="sec" style="margin-top:12px;">
+                    <div class="sec-title">注意</div>
+                    <div class="plan">
+                      {% for a in r.alerts %}
+                        <div class="plan-item">
+                          <div class="plan-head">
+                            <span class="tag {% if a.kind == 'bad' %}tag-primary{% else %}tag-check{% endif %}">
+                              {% if a.kind == 'bad' %}ALERT{% else %}CHECK{% endif %}
+                            </span>
+                            <div class="plan-title">{{ a.title }}</div>
+                          </div>
+                          <div class="plan-desc">{{ a.desc }}</div>
+                        </div>
+                      {% endfor %}
+                    </div>
+                  </div>
+                {% endif %}
+
+                {% if r.rules %}
+                  <div class="sec" style="margin-top:12px;">
+                    <div class="sec-title">今日のルール</div>
+                    <div class="rule-box">
+                      {% for s in r.rules %}
+                        <div class="rule-item">✓ {{ s }}</div>
+                      {% endfor %}
+                    </div>
+                  </div>
+                {% endif %}
+
+                {% if r.notes %}
+                  <div class="hint" style="margin-top:10px;">
+                    {% for s in r.notes %}
+                      <div>・{{ s }}</div>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+            {% endwith %}
+          {% endif %}
+
+          <!-- =========================
+               MARKET
+               ========================= -->
+          {% if d.key == "market" %}
+            {% with m=d.payload %}
+              <div class="sec">
+                <div class="sec-title">今日の相場メモ</div>
+                <div class="market-summary">{{ m.summary|default:"（準備中）" }}</div>
+
+                <div class="sec" style="margin-top:12px;">
+                  <div class="sec-title">NEWS（上位）</div>
+                  <div class="list">
+                    {% for it in m.news %}
+                      <a class="li" href="{{ it.link }}" target="_blank" rel="noopener">
+                        <div class="badge">{{ it.source }}</div>
+                        <div class="li-title">{{ it.title }}</div>
+                        <div class="li-sub">
+                          <span class="host">{{ it.host }}</span>
+                        </div>
+                      </a>
+                    {% empty %}
+                      <div class="empty">ニュース取得中…</div>
+                    {% endfor %}
+                  </div>
+                </div>
+
+                <div class="sec" style="margin-top:12px;">
+                  <div class="sec-title">トレンド（代替）</div>
+                  <div class="list">
+                    {% for it in m.trends %}
+                      <a class="li" href="{{ it.link }}" target="_blank" rel="noopener">
+                        <div class="badge">Trends</div>
+                        <div class="li-title">{{ it.title }}</div>
+                        <div class="li-sub">
+                          <span class="host">{{ it.host }}</span>
+                        </div>
+                      </a>
+                    {% empty %}
+                      <div class="empty">トレンド取得中…</div>
+                    {% endfor %}
+                  </div>
+                </div>
+
+                <div class="hint">目的：相場を“読む”じゃなく、監視条件に変える。</div>
+              </div>
             {% endwith %}
           {% endif %}
 
@@ -179,7 +316,7 @@
                           </span>
                           <div class="plan-title">{{ x.title }}</div>
                         </div>
-                        <div class="plan-desc">{{ x.desc }}</div>
+                        <div class="plan-desc">{{ x.desc|linebreaksbr }}</div>
                       </div>
                     {% endfor %}
                   </div>
@@ -243,14 +380,6 @@
                 </div>
               </div>
             {% endwith %}
-          {% endif %}
-
-          <!-- STUB decks -->
-          {% if d.key != "assets" and d.key != "news_trends" and d.key != "today_plan" %}
-            <div class="stub">
-              <div class="stub-title">（準備中）</div>
-              <div class="stub-sub">ここは後で aiapp の知能・ポリシー・レジーム等と合体して“自分で考えて発言するAI”に進化させる</div>
-            </div>
           {% endif %}
 
         </div>
