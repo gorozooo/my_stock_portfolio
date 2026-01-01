@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 from django.utils import timezone
-
 
 logger = logging.getLogger(__name__)
 
@@ -22,36 +21,6 @@ def _safe_localdate_str() -> str:
         d = timezone.now().date()
     wd = ["月", "火", "水", "木", "金", "土", "日"][d.weekday()]
     return f"{d.year}年{d.month:02d}月{d.day:02d}日({wd})"
-
-
-def _build_ai_brief(user) -> Dict[str, Any]:
-    return {
-        "title": "AI BRIEF",
-        "status": "stub",
-        "headline": "（準備中）",
-        "bullets": [],
-        "as_of": timezone.now().isoformat(),
-    }
-
-
-def _build_risk(user) -> Dict[str, Any]:
-    return {
-        "title": "RISK",
-        "status": "stub",
-        "metrics": [],
-        "alerts": [],
-        "as_of": timezone.now().isoformat(),
-    }
-
-
-def _build_market() -> Dict[str, Any]:
-    return {
-        "title": "MARKET",
-        "status": "stub",
-        "summary": "（準備中）",
-        "items": [],
-        "as_of": timezone.now().isoformat(),
-    }
 
 
 def _as_float(x: Any, default: float = 0.0) -> float:
@@ -70,6 +39,14 @@ def _as_int(x: Any, default: int = 0) -> int:
         return int(float(x))
     except Exception:
         return default
+
+
+def _fmt_yen(v: float | int) -> str:
+    try:
+        n = int(round(float(v)))
+    except Exception:
+        n = 0
+    return f"¥{n:,}"
 
 
 def _get_goal_year_total_from_assets(assets: Dict[str, Any]) -> int:
@@ -304,6 +281,295 @@ def _build_news_trends() -> Dict[str, Any]:
         }
 
 
+def _build_ai_brief(
+    assets: Dict[str, Any],
+    news_trends: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """
+    AI BRIEF = “今日の一言” + 要点3つ
+    - ASSETS(目標/ペース/進捗)を主軸に
+    - NEWS/TRENDS 上位セクターを添える
+    """
+    now_iso = timezone.now().isoformat()
+    try:
+        pace = (assets or {}).get("pace") or {}
+        total_m = (pace.get("total_need_per_month") or {})
+        goal = _get_goal_year_total_from_assets(assets)
+        ytd = _get_ytd_total_from_assets(assets)
+
+        rem_m = _as_float(total_m.get("remaining"), 0.0)
+        need_m = _as_float(total_m.get("need_per_slot"), 0.0)
+
+        sector_hint = _pick_hot_sectors_text(news_trends, limit=3)
+
+        # headline（短く）
+        if goal <= 0:
+            headline = "今日は“利益”より“再現性”を積む日。"
+        else:
+            if rem_m > 0:
+                headline = f"目標まで残り {_fmt_yen(rem_m)}。狙う型を1つに絞ろう。"
+            else:
+                headline = "目標ペースは達成圏。崩さない運用が勝ち。"
+
+        bullets: List[str] = []
+        if goal > 0:
+            bullets.append(f"年目標 {_fmt_yen(goal)} / YTD {_fmt_yen(ytd)}")
+            bullets.append(f"月ペース 目安 {_fmt_yen(need_m)}（残り {_fmt_yen(rem_m)}）")
+        else:
+            bullets.append("目標が0（未設定）。まずは“型”を固定して運用。")
+            bullets.append("損切り幅・利確R・回数上限を固定してブレを減らす。")
+
+        if sector_hint:
+            bullets.append(sector_hint)
+
+        # NEWSから1つだけ“読む→条件化”促進（リンクはtemplate側で出すのでここは文だけ）
+        try:
+            items = (news_trends or {}).get("items") or []
+            if isinstance(items, list) and len(items) > 0 and isinstance(items[0], dict):
+                t = str(items[0].get("title") or "").strip()
+                src = str(items[0].get("source") or "").strip()
+                if t:
+                    bullets.append(f"見出し→条件化: {src}「{t}」を“監視条件”に変換。")
+        except Exception:
+            pass
+
+        return {
+            "title": "AI BRIEF",
+            "status": "ok",
+            "headline": headline,
+            "bullets": bullets[:6],
+            "as_of": now_iso,
+        }
+    except Exception as e:
+        logger.exception("AI BRIEF build failed: %s", e)
+        return {
+            "title": "AI BRIEF",
+            "status": "stub",
+            "headline": "（準備中）",
+            "bullets": [],
+            "as_of": now_iso,
+            "error": str(e),
+        }
+
+
+def _build_risk(user) -> Dict[str, Any]:
+    """
+    RISK = “今日のリスク枠” を明確化（スマホ運用で迷いを消す）
+    - UserSetting から算出（外部データ不要）
+    """
+    now_iso = timezone.now().isoformat()
+    try:
+        from ..models import UserSetting  # type: ignore
+
+        setting, _ = UserSetting.objects.get_or_create(user=user)
+
+        equity = _as_float(getattr(setting, "account_equity", 0), 0.0)
+        risk_pct = _as_float(getattr(setting, "risk_pct", 0.0), 0.0)
+        credit_usage_pct = _as_float(getattr(setting, "credit_usage_pct", 0.0), 0.0)
+
+        risk_yen = int(round(equity * (risk_pct / 100.0))) if equity > 0 else 0
+
+        # 表示用メトリクス（kind: ok/warn/bad）
+        metrics: List[Dict[str, Any]] = []
+
+        # 口座残高
+        metrics.append({
+            "label": "口座残高（設定）",
+            "value": _fmt_yen(equity),
+            "kind": "ok" if equity >= 100_000 else "warn",
+            "sub": "UserSetting.account_equity",
+        })
+
+        # 1トレードのリスク枠
+        rp_kind = "ok"
+        if risk_pct <= 0:
+            rp_kind = "bad"
+        elif risk_pct >= 3.0:
+            rp_kind = "warn"
+
+        metrics.append({
+            "label": "1トレードのリスク％",
+            "value": f"{risk_pct:.1f}%",
+            "kind": rp_kind,
+            "sub": "大きすぎると連敗で死ぬ",
+        })
+
+        ry_kind = "ok"
+        if risk_yen <= 0:
+            ry_kind = "bad"
+        elif risk_yen >= 50_000:
+            ry_kind = "warn"
+
+        metrics.append({
+            "label": "1トレードの最大損失（目安）",
+            "value": _fmt_yen(risk_yen),
+            "kind": ry_kind,
+            "sub": "エントリー前に“損切り幅×枚数”で一致させる",
+        })
+
+        # 信用余力の使用上限
+        cu_kind = "ok"
+        if credit_usage_pct <= 0:
+            cu_kind = "warn"
+        elif credit_usage_pct >= 90:
+            cu_kind = "warn"
+
+        metrics.append({
+            "label": "信用余力の使用上限",
+            "value": f"{credit_usage_pct:.0f}%",
+            "kind": cu_kind,
+            "sub": "突っ込みすぎ防止",
+        })
+
+        # 証券会社倍率/ヘアカット（表示だけ、計算は数量計算側で使う前提）
+        def _pair(name: str, lev: float, hc: float) -> str:
+            return f"{name}: 倍率 {lev:.2f} / HC {int(round(hc*100)):d}%"
+
+        try:
+            lr = _as_float(getattr(setting, "leverage_rakuten", 0.0), 0.0)
+            hr = _as_float(getattr(setting, "haircut_rakuten", 0.0), 0.0)
+            lm = _as_float(getattr(setting, "leverage_matsui", 0.0), 0.0)
+            hm = _as_float(getattr(setting, "haircut_matsui", 0.0), 0.0)
+            ls = _as_float(getattr(setting, "leverage_sbi", 0.0), 0.0)
+            hs = _as_float(getattr(setting, "haircut_sbi", 0.0), 0.0)
+
+            lines = []
+            if lr > 0:
+                lines.append(_pair("楽天", lr, hr))
+            if ls > 0:
+                lines.append(_pair("SBI", ls, hs))
+            if lm > 0:
+                lines.append(_pair("松井", lm, hm))
+
+            notes: List[str] = []
+            if lines:
+                notes.extend(lines)
+        except Exception:
+            notes = []
+
+        alerts: List[Dict[str, Any]] = []
+
+        if risk_pct <= 0:
+            alerts.append({
+                "kind": "bad",
+                "title": "リスク％が0（または未設定）",
+                "desc": "まず 0.5〜1.5% くらいに設定して、“1回の損失上限”を固定しよう。",
+            })
+
+        if equity <= 0:
+            alerts.append({
+                "kind": "bad",
+                "title": "口座残高が0（または未設定）",
+                "desc": "数量計算が破綻するので、口座残高（設定）を入れてね。",
+            })
+
+        # “今日のルール”
+        rules = [
+            "迷ったらサイズ半分（0.5R）",
+            "取り返しトレード禁止（連敗時は回数上限）",
+            "損切りを先に置けないなら入らない",
+        ]
+
+        return {
+            "title": "RISK",
+            "status": "ok",
+            "metrics": metrics,
+            "alerts": alerts,
+            "rules": rules,
+            "notes": notes if "notes" in locals() else [],
+            "as_of": now_iso,
+        }
+
+    except Exception as e:
+        logger.exception("RISK build failed: %s", e)
+        return {
+            "title": "RISK",
+            "status": "stub",
+            "metrics": [],
+            "alerts": [],
+            "rules": [],
+            "notes": [],
+            "as_of": now_iso,
+            "error": str(e),
+        }
+
+
+def _build_market(news_trends: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """
+    MARKET = “今日見るべきもの” を1画面化
+    - NEWS/TRENDS を “整理して短く”
+    """
+    now_iso = timezone.now().isoformat()
+    try:
+        hot = _pick_hot_sectors_text(news_trends, limit=4)
+
+        # ニュース上位
+        news_items: List[Dict[str, Any]] = []
+        items = (news_trends or {}).get("items") or []
+        if isinstance(items, list):
+            for it in items[:6]:
+                if not isinstance(it, dict):
+                    continue
+                title = str(it.get("title") or "").strip()
+                link = str(it.get("link") or "").strip()
+                src = str(it.get("source") or "").strip()
+                host = str(it.get("host") or "").strip()
+                if not title:
+                    continue
+                news_items.append({
+                    "title": title,
+                    "link": link,
+                    "source": src,
+                    "host": host,
+                })
+
+        # トレンド上位（代替）
+        trend_items: List[Dict[str, Any]] = []
+        trends = (news_trends or {}).get("trends") or []
+        if isinstance(trends, list):
+            for it in trends[:6]:
+                if not isinstance(it, dict):
+                    continue
+                title = str(it.get("title") or "").strip()
+                link = str(it.get("link") or "").strip()
+                host = str(it.get("host") or "").strip()
+                if not title:
+                    continue
+                trend_items.append({
+                    "title": title,
+                    "link": link,
+                    "host": host,
+                })
+
+        summary = "（準備中）"
+        if hot:
+            summary = hot
+        elif news_items:
+            summary = "ニュース上位から相場の“主語”を掴む"
+        elif trend_items:
+            summary = "ネット/トレンド上位から“テーマ”を掴む"
+
+        return {
+            "title": "MARKET",
+            "status": "ok",
+            "summary": summary,
+            "news": news_items,
+            "trends": trend_items,
+            "as_of": now_iso,
+        }
+    except Exception as e:
+        logger.exception("MARKET build failed: %s", e)
+        return {
+            "title": "MARKET",
+            "status": "stub",
+            "summary": "（準備中）",
+            "news": [],
+            "trends": [],
+            "as_of": now_iso,
+            "error": str(e),
+        }
+
+
 @login_required
 def home(request):
     """
@@ -324,12 +590,12 @@ def home(request):
     # --- NEWS & TRENDS（5分TTL） ---
     news_trends = _build_news_trends()
 
-    # --- その他 ---
-    ai_brief = _build_ai_brief(request.user)
+    # --- AI BRIEF / RISK / MARKET を実装 ---
+    ai_brief = _build_ai_brief(assets, news_trends=news_trends)
     risk = _build_risk(request.user)
-    market = _build_market()
+    market = _build_market(news_trends=news_trends)
 
-    # ★ TODAY PLAN は assets + news_trends から生成（今回の追加）
+    # ★ TODAY PLAN は assets + news_trends から生成
     today_plan = _build_today_plan_from_assets(assets, news_trends=news_trends)
 
     decks: List[Dict[str, Any]] = [
