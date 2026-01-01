@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
@@ -83,17 +83,60 @@ def _get_ytd_total_from_assets(assets: Dict[str, Any]) -> float:
     return _as_float(ytd.get("total"), 0.0)
 
 
-def _build_today_plan_from_assets(assets: Dict[str, Any]) -> Dict[str, Any]:
+def _pick_hot_sectors_text(news_trends: Dict[str, Any] | None, limit: int = 3) -> str:
+    """
+    news_trends["sectors"] = [{"sector": "...", "count": 12}, ...] を想定
+    例: "今日の注目セクター: 半導体×6 / 自動車×4 / 銀行×3"
+    """
+    try:
+        if not news_trends or not isinstance(news_trends, dict):
+            return ""
+        sectors = news_trends.get("sectors") or []
+        if not isinstance(sectors, list) or len(sectors) == 0:
+            return ""
+
+        parts: List[str] = []
+        for s in sectors[: max(0, int(limit))]:
+            if not isinstance(s, dict):
+                continue
+            name = str(s.get("sector") or "").strip()
+            cnt = s.get("count")
+            if not name:
+                continue
+            if cnt is None:
+                parts.append(name)
+            else:
+                try:
+                    parts.append(f"{name}×{int(float(cnt))}")
+                except Exception:
+                    parts.append(name)
+
+        if not parts:
+            return ""
+        return "今日の注目セクター: " + " / ".join(parts)
+    except Exception:
+        return ""
+
+
+def _append_sector_hint(desc: str, sector_hint: str) -> str:
+    if not sector_hint:
+        return desc
+    if not desc:
+        return sector_hint
+    return f"{desc}\n{sector_hint}"
+
+
+def _build_today_plan_from_assets(
+    assets: Dict[str, Any],
+    news_trends: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     """
     TODAY PLAN を assets(pace + goal + ytd) から自動生成
-    - t.tasks を home.html が描画する前提
-    - warn（黄色）判定は home.html / home.css の思想に合わせて：
-        ・残り（remaining）>0 ＝未達
-        ・必要ペース（need_per_slot）>0 ＝未達
-      に統一する（表示側は warn/pos）
+    + NEWSのセクター上位を追記して、日々の“焦点”を作る
     """
     try:
         now_iso = timezone.now().isoformat()
+        sector_hint = _pick_hot_sectors_text(news_trends, limit=3)
 
         pace = (assets or {}).get("pace") or {}
         total_m = (pace.get("total_need_per_month") or {})
@@ -116,17 +159,28 @@ def _build_today_plan_from_assets(assets: Dict[str, Any]) -> Dict[str, Any]:
             tasks.append({
                 "kind": "primary",
                 "title": "目標が未設定：まず“型”を1つ固定",
-                "desc": "年間目標が0なので、今日は利益額より“再現性（ルール順守）”を最優先。損切り幅/利確R/回数上限などを1つ固定して運用。",
+                "desc": _append_sector_hint(
+                    "年間目標が0なので、今日は利益額より“再現性（ルール順守）”を最優先。"
+                    "損切り幅/利確R/回数上限などを1つ固定して運用。",
+                    sector_hint,
+                ),
             })
             tasks.append({
                 "kind": "check",
                 "title": "やることを減らす（ミス防止）",
-                "desc": "新しいことを増やさず、同じ型だけで記録を厚くする。逸脱しそうなら理由を1行メモ。",
+                "desc": _append_sector_hint(
+                    "新しいことを増やさず、同じ型だけで記録を厚くする。"
+                    "逸脱しそうなら理由を1行メモ。",
+                    sector_hint,
+                ),
             })
             tasks.append({
                 "kind": "check",
                 "title": "ニュースは“条件化”だけする",
-                "desc": "読むだけ禁止。気になった見出しを1つ選び、上抜け/下抜け/イベント日などの監視条件に変換しておく。",
+                "desc": _append_sector_hint(
+                    "読むだけ禁止。気になった見出しを1つ選び、上抜け/下抜け/イベント日などの監視条件に変換しておく。",
+                    sector_hint,
+                ),
             })
 
             return {
@@ -137,14 +191,16 @@ def _build_today_plan_from_assets(assets: Dict[str, Any]) -> Dict[str, Any]:
             }
 
         # ========== CASE 2: 目標あり → 進捗で分岐 ==========
-        # ここでの rem_month_total は「年目標 - ytd」から算出された“残り”を元に
-        # home_assets.py が作っている想定（あなたの前提）
         if rem_month_total > 0:
             # 未達（追い込み）
             tasks.append({
                 "kind": "primary",
                 "title": "必要ペースを意識して“やる形”を絞る",
-                "desc": f"年目標 {goal_year_total:,} 円 / YTD {int(ytd_total):,} 円 → 残り {int(rem_month_total):,} 円。月 {int(need_m_total):,} 円 / 週 {int(need_w_total):,} 円ペースを目安に、狙う型を1つに絞る。",
+                "desc": _append_sector_hint(
+                    f"年目標 {goal_year_total:,} 円 / YTD {int(ytd_total):,} 円 → 残り {int(rem_month_total):,} 円。"
+                    f"月 {int(need_m_total):,} 円 / 週 {int(need_w_total):,} 円ペースを目安に、狙う型を1つに絞る。",
+                    sector_hint,
+                ),
             })
 
             # broker別：need_per_slot が “大きい順” 上位2つ（未達の主因）
@@ -163,13 +219,20 @@ def _build_today_plan_from_assets(assets: Dict[str, Any]) -> Dict[str, Any]:
                 tasks.append({
                     "kind": "broker",
                     "title": f"{label} を優先",
-                    "desc": f"残り {int(rem_b):,} 円 → 月 {int(need_b):,} 円ペース。ここは“負け方を止める”が最優先（取り返し禁止/型固定）。",
+                    "desc": _append_sector_hint(
+                        f"残り {int(rem_b):,} 円 → 月 {int(need_b):,} 円ペース。"
+                        "ここは“負け方を止める”が最優先（取り返し禁止/型固定）。",
+                        sector_hint,
+                    ),
                 })
 
             tasks.append({
                 "kind": "check",
                 "title": "無理に増やさず、ルールで回す",
-                "desc": "損切り/利確ルール優先。取り返しトレード禁止。迷ったらサイズ半分・回数上限で制御。",
+                "desc": _append_sector_hint(
+                    "損切り/利確ルール優先。取り返しトレード禁止。迷ったらサイズ半分・回数上限で制御。",
+                    sector_hint,
+                ),
             })
 
         else:
@@ -177,17 +240,26 @@ def _build_today_plan_from_assets(assets: Dict[str, Any]) -> Dict[str, Any]:
             tasks.append({
                 "kind": "ok",
                 "title": "目標ペース上は問題なし（守り優先）",
-                "desc": "無理に利益を積まず、崩さない運用（再現性・ポリシー順守）を優先。やらないことを増やす。",
+                "desc": _append_sector_hint(
+                    "無理に利益を積まず、崩さない運用（再現性・ポリシー順守）を優先。やらないことを増やす。",
+                    sector_hint,
+                ),
             })
             tasks.append({
                 "kind": "check",
                 "title": "エントリー数を減らす",
-                "desc": "監視・仕込み・記録の精度を上げる。衝動エントリーは禁止。狙う時間帯/形を固定。",
+                "desc": _append_sector_hint(
+                    "監視・仕込み・記録の精度を上げる。衝動エントリーは禁止。狙う時間帯/形を固定。",
+                    sector_hint,
+                ),
             })
             tasks.append({
                 "kind": "check",
                 "title": "勝ちパターンの“説明”を残す",
-                "desc": "勝った取引より、ルール通りに“やらなかった”判断を1つ記録（これが後でAIの芯になる）。",
+                "desc": _append_sector_hint(
+                    "勝った取引より、ルール通りに“やらなかった”判断を1つ記録（これが後でAIの芯になる）。",
+                    sector_hint,
+                ),
             })
 
         return {
@@ -257,8 +329,8 @@ def home(request):
     risk = _build_risk(request.user)
     market = _build_market()
 
-    # ★ TODAY PLAN は assets から生成（ここが今回の要）
-    today_plan = _build_today_plan_from_assets(assets)
+    # ★ TODAY PLAN は assets + news_trends から生成（今回の追加）
+    today_plan = _build_today_plan_from_assets(assets, news_trends=news_trends)
 
     decks: List[Dict[str, Any]] = [
         {"key": "assets", "title": "ASSETS", "payload": assets},
