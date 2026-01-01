@@ -23,6 +23,13 @@ def _safe_localdate_str() -> str:
     return f"{d.year}年{d.month:02d}月{d.day:02d}日({wd})"
 
 
+def _safe_localdate():
+    try:
+        return timezone.localdate()
+    except Exception:
+        return timezone.now().date()
+
+
 def _as_float(x: Any, default: float = 0.0) -> float:
     try:
         if x is None:
@@ -322,7 +329,7 @@ def _build_ai_brief(
         if sector_hint:
             bullets.append(sector_hint)
 
-        # NEWSから1つだけ“読む→条件化”促進（リンクはtemplate側で出すのでここは文だけ）
+        # NEWSから1つだけ“読む→条件化”促進
         try:
             items = (news_trends or {}).get("items") or []
             if isinstance(items, list) and len(items) > 0 and isinstance(items[0], dict):
@@ -369,10 +376,8 @@ def _build_risk(user) -> Dict[str, Any]:
 
         risk_yen = int(round(equity * (risk_pct / 100.0))) if equity > 0 else 0
 
-        # 表示用メトリクス（kind: ok/warn/bad）
         metrics: List[Dict[str, Any]] = []
 
-        # 口座残高
         metrics.append({
             "label": "口座残高（設定）",
             "value": _fmt_yen(equity),
@@ -380,7 +385,6 @@ def _build_risk(user) -> Dict[str, Any]:
             "sub": "UserSetting.account_equity",
         })
 
-        # 1トレードのリスク枠
         rp_kind = "ok"
         if risk_pct <= 0:
             rp_kind = "bad"
@@ -407,7 +411,6 @@ def _build_risk(user) -> Dict[str, Any]:
             "sub": "エントリー前に“損切り幅×枚数”で一致させる",
         })
 
-        # 信用余力の使用上限
         cu_kind = "ok"
         if credit_usage_pct <= 0:
             cu_kind = "warn"
@@ -421,7 +424,6 @@ def _build_risk(user) -> Dict[str, Any]:
             "sub": "突っ込みすぎ防止",
         })
 
-        # 証券会社倍率/ヘアカット（表示だけ、計算は数量計算側で使う前提）
         def _pair(name: str, lev: float, hc: float) -> str:
             return f"{name}: 倍率 {lev:.2f} / HC {int(round(hc*100)):d}%"
 
@@ -463,7 +465,6 @@ def _build_risk(user) -> Dict[str, Any]:
                 "desc": "数量計算が破綻するので、口座残高（設定）を入れてね。",
             })
 
-        # “今日のルール”
         rules = [
             "迷ったらサイズ半分（0.5R）",
             "取り返しトレード禁止（連敗時は回数上限）",
@@ -503,7 +504,6 @@ def _build_market(news_trends: Dict[str, Any] | None = None) -> Dict[str, Any]:
     try:
         hot = _pick_hot_sectors_text(news_trends, limit=4)
 
-        # ニュース上位
         news_items: List[Dict[str, Any]] = []
         items = (news_trends or {}).get("items") or []
         if isinstance(items, list):
@@ -523,7 +523,6 @@ def _build_market(news_trends: Dict[str, Any] | None = None) -> Dict[str, Any]:
                     "host": host,
                 })
 
-        # トレンド上位（代替）
         trend_items: List[Dict[str, Any]] = []
         trends = (news_trends or {}).get("trends") or []
         if isinstance(trends, list):
@@ -570,12 +569,59 @@ def _build_market(news_trends: Dict[str, Any] | None = None) -> Dict[str, Any]:
         }
 
 
+def _load_today_home_snapshot(user) -> Tuple[List[Dict[str, Any]] | None, str | None]:
+    """
+    6:30 生成の HomeDeckSnapshot を優先して読み込む。
+    戻り:
+      decks or None, error or None
+    """
+    try:
+        from aiapp.models.home_deck_snapshot import HomeDeckSnapshot  # type: ignore
+
+        d = _safe_localdate()
+        snap = HomeDeckSnapshot.objects.filter(user=user, snapshot_date=d).first()
+        if not snap:
+            return None, None
+
+        decks = snap.decks
+        if not isinstance(decks, list) or len(decks) == 0:
+            return None, "snapshot decks is empty"
+
+        # “最低限の形”だけ検証（壊れてたらフォールバック）
+        for x in decks:
+            if not isinstance(x, dict):
+                return None, "snapshot decks contains non-dict item"
+            if "key" not in x or "title" not in x or "payload" not in x:
+                return None, "snapshot decks item missing key/title/payload"
+
+        return decks, None
+    except Exception as e:
+        logger.exception("Home snapshot load failed: %s", e)
+        return None, str(e)
+
+
 @login_required
 def home(request):
     """
     Home = デッキ（横スワイプ）前提
     - デッキ順：ASSETS → AI BRIEF → RISK → MARKET → TODAY PLAN → NEWS & TRENDS
+    - 6:30 スナップショットがあれば “それを優先”（再現性）
+    - 無ければ従来通り “その場生成”（フォールバック）
     """
+    # ===== 6:30 snapshot 優先 =====
+    snap_decks, snap_err = _load_today_home_snapshot(request.user)
+    if snap_decks:
+        context = {
+            "today_label": _safe_localdate_str(),
+            "decks": snap_decks,
+            "enable_detail_links": False,
+            # デバッグ用に残す（templateで使わないなら無害）
+            "home_snapshot_used": True,
+            "home_snapshot_error": None,
+        }
+        return render(request, "home.html", context)
+
+    # ===== フォールバック（従来通り） =====
     # --- ASSETS（リアルタイム） ---
     try:
         from ..services.home_assets import build_assets_snapshot
@@ -590,12 +636,12 @@ def home(request):
     # --- NEWS & TRENDS（5分TTL） ---
     news_trends = _build_news_trends()
 
-    # --- AI BRIEF / RISK / MARKET を実装 ---
+    # --- AI BRIEF / RISK / MARKET ---
     ai_brief = _build_ai_brief(assets, news_trends=news_trends)
     risk = _build_risk(request.user)
     market = _build_market(news_trends=news_trends)
 
-    # ★ TODAY PLAN は assets + news_trends から生成
+    # --- TODAY PLAN ---
     today_plan = _build_today_plan_from_assets(assets, news_trends=news_trends)
 
     decks: List[Dict[str, Any]] = [
@@ -611,5 +657,7 @@ def home(request):
         "today_label": _safe_localdate_str(),
         "decks": decks,
         "enable_detail_links": False,
+        "home_snapshot_used": False,
+        "home_snapshot_error": snap_err,
     }
     return render(request, "home.html", context)
