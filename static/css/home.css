@@ -1,3 +1,5 @@
+/* static/css/home.css */
+
 /* ===== iPhone専用: 見切れゼロ ===== */
 *{ box-sizing:border-box; }
 :root{
@@ -40,9 +42,6 @@ body{ background:var(--bg); color:var(--fg); }
   padding:10px 12px;
   box-shadow:0 10px 30px rgba(0,0,0,.25);
 }
-.pill-date{ flex:0 0 auto; min-width:150px; }
-.pill-cap{ font-size:12px; color:var(--muted); line-height:1; }
-.pill-main{ font-size:16px; font-weight:700; margin-top:6px; white-space:nowrap; }
 
 .pill-ticker{
   flex:1 1 auto;
@@ -79,8 +78,8 @@ body{ background:var(--bg); color:var(--fg); }
   scroll-snap-type:x mandatory;
   -webkit-overflow-scrolling:touch;
   gap:12px;
-  padding:0;       /* 余白でズレない */
-  margin:0;        /* 余白でズレない */
+  padding:0;
+  margin:0;
 }
 .rail::-webkit-scrollbar{ display:none; }
 
@@ -195,31 +194,83 @@ body{ background:var(--bg); color:var(--fg); }
 .lk{ font-size:12px; color:rgba(229,237,255,.58); }
 .lv{ font-size:14px; font-weight:900; font-variant-numeric: tabular-nums; }
 
-/* table */
-.table{
-  border:1px solid rgba(148,163,184,.18);
-  border-radius:14px;
-  overflow:hidden;
-}
-.tr{
-  display:grid;
-  grid-template-columns: 1.1fr 1fr .8fr 1fr;
-  gap:10px;
-  padding:10px 12px;
-  align-items:center;
-  background:rgba(2,6,23,.22);
-  border-top:1px solid rgba(148,163,184,.12);
-}
-.tr.th{
-  background:rgba(2,6,23,.36);
-  border-top:none;
-  color:rgba(229,237,255,.75);
-  font-size:12px;
-  font-weight:800;
-}
-.r{ text-align:right; font-variant-numeric: tabular-nums; }
-.bname{ font-weight:800; }
 .hint{ margin-top:8px; color:rgba(229,237,255,.55); font-size:12px; line-height:1.35; }
+
+/* AI BRIEF */
+.brief{
+  border:1px solid rgba(148,163,184,.18);
+  background:rgba(2,6,23,.22);
+  border-radius:16px;
+  padding:12px;
+}
+.brief-headline{
+  font-weight:900;
+  font-size:14px;
+  line-height:1.35;
+  margin-bottom:10px;
+}
+.brief-list{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.brief-item{
+  font-size:13px;
+  color:rgba(229,237,255,.78);
+  line-height:1.4;
+}
+
+/* RISK */
+.risk-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+.risk-kpi{
+  border:1px solid rgba(148,163,184,.18);
+  background:rgba(2,6,23,.25);
+  border-radius:14px;
+  padding:12px;
+  min-height:90px;
+}
+.rk-label{ font-size:12px; color:rgba(229,237,255,.60); }
+.rk-val{
+  margin-top:8px;
+  font-size:16px;
+  font-weight:900;
+  letter-spacing:.02em;
+}
+.rk-sub{
+  margin-top:8px;
+  font-size:11px;
+  color:rgba(229,237,255,.55);
+  line-height:1.35;
+}
+
+.rule-box{
+  border:1px solid rgba(148,163,184,.18);
+  background:rgba(2,6,23,.22);
+  border-radius:14px;
+  padding:12px;
+}
+.rule-item{
+  font-size:13px;
+  color:rgba(229,237,255,.75);
+  line-height:1.45;
+  margin-top:6px;
+}
+.rule-item:first-child{ margin-top:0; }
+
+/* MARKET */
+.market-summary{
+  border:1px solid rgba(148,163,184,.18);
+  background:rgba(2,6,23,.22);
+  border-radius:14px;
+  padding:12px;
+  font-size:13px;
+  color:rgba(229,237,255,.80);
+  line-height:1.45;
+}
 
 /* TODAY PLAN */
 .plan{
@@ -276,16 +327,7 @@ body{ background:var(--bg); color:var(--fg); }
   background: rgba(255,255,255,.04);
 }
 
-/* chips/list */
-.chips{ display:flex; flex-wrap:wrap; gap:8px; }
-.chip{
-  padding:8px 10px;
-  border-radius:999px;
-  border:1px solid rgba(148,163,184,.18);
-  background:rgba(2,6,23,.25);
-  font-size:12px;
-  color:rgba(229,237,255,.85);
-}
+/* list（news/trends） */
 .list{ display:flex; flex-direction:column; gap:10px; }
 .li{
   display:block;
@@ -327,15 +369,16 @@ body{ background:var(--bg); color:var(--fg); }
   border-radius:14px;
 }
 
-/* stub */
-.stub{
-  padding:16px;
-  border:1px dashed rgba(148,163,184,.25);
-  border-radius:14px;
-  background:rgba(2,6,23,.20);
+/* chips */
+.chips{ display:flex; flex-wrap:wrap; gap:8px; }
+.chip{
+  padding:8px 10px;
+  border-radius:999px;
+  border:1px solid rgba(148,163,184,.18);
+  background:rgba(2,6,23,.25);
+  font-size:12px;
+  color:rgba(229,237,255,.85);
 }
-.stub-title{ font-weight:900; }
-.stub-sub{ margin-top:10px; font-size:13px; color:rgba(229,237,255,.65); line-height:1.5; }
 
 /* dots */
 .dots{
