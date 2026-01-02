@@ -10,7 +10,7 @@ class HomeDeckSnapshot(models.Model):
     """
     Homeの“デッキ一式”を、毎朝固定で保存するためのスナップショット。
     - 再現性（同じ朝→同じ表示）
-    - 障害時フォールバック（ニュース取得失敗でも昨日の保存が残る）
+    - 障害時フォールバック（ニュース取得失敗でも保存が残る）
     """
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -18,13 +18,13 @@ class HomeDeckSnapshot(models.Model):
         related_name="home_deck_snapshots",
     )
 
-    # その日の基準日（localdateの想定）
+    # その日の基準日（localdate想定）
     snapshot_date = models.DateField(db_index=True)
 
     # Homeで描画するデッキ配列（assets/today_plan/news_trends など全部）
     decks = models.JSONField(default=list, blank=True)
 
-    # 生成時刻（UTC→表示はiso文字列でOK）
+    # 生成時刻（UTCで保存。表示はiso文字列でOK）
     generated_at = models.DateTimeField(default=timezone.now, db_index=True)
 
     # 例: "2026-01-01T06:30:05+09:00"
