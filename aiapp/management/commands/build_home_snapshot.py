@@ -9,24 +9,33 @@ from aiapp.services.home_snapshot import upsert_today_snapshot
 
 
 class Command(BaseCommand):
-    help = "Build HomeDeckSnapshot for all active users (daily)."
+    help = "Build HomeDeckSnapshot for active users (daily)."
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--user",
+            type=int,
+            default=0,
+            help="user id (optional). If provided, build only for that user id.",
+        )
+        parser.add_argument(
+            "--username",
             type=str,
             default="",
-            help="username (optional). If provided, build only for that user.",
+            help="username (optional). If provided, build only for that username.",
         )
 
     def handle(self, *args, **opts):
         User = get_user_model()
-        username = (opts.get("user") or "").strip()
+        user_id = int(opts.get("user") or 0)
+        username = (opts.get("username") or "").strip()
 
-        if username:
-            qs = User.objects.filter(username=username)
-        else:
-            qs = User.objects.all()
+        qs = User.objects.filter(is_active=True)
+
+        if user_id > 0:
+            qs = qs.filter(id=user_id)
+        elif username:
+            qs = qs.filter(username=username)
 
         n = 0
         for u in qs.iterator():
