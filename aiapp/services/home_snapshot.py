@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from django.utils import timezone
 from django.db import transaction
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -93,28 +93,116 @@ def _append_sector_hint(desc: str, sector_hint: str) -> str:
     return f"{desc}\n{sector_hint}"
 
 
-def _build_news_trends() -> Dict[str, Any]:
+def _find_deck_payload(decks: Any, key: str) -> Optional[Dict[str, Any]]:
+    if not isinstance(decks, list):
+        return None
+    for d in decks:
+        try:
+            if not isinstance(d, dict):
+                continue
+            if d.get("key") != key:
+                continue
+            p = d.get("payload")
+            return p if isinstance(p, dict) else None
+        except Exception:
+            continue
+    return None
+
+
+def _looks_news_trends_valid(nt: Any) -> bool:
+    """
+    NEWS取得失敗でも “直前の保存” を使えるようにするための軽い妥当性チェック。
+    - items / trends / sectors のどれかが入っている or macro_text がある → valid
+    """
+    if not isinstance(nt, dict):
+        return False
+
+    items = nt.get("items")
+    trends = nt.get("trends")
+    sectors = nt.get("sectors")
+    macro_text = nt.get("macro_text")
+
+    has_items = isinstance(items, list) and len(items) > 0
+    has_trends = isinstance(trends, list) and len(trends) > 0
+    has_sectors = isinstance(sectors, list) and len(sectors) > 0
+    has_macro = isinstance(macro_text, str) and macro_text.strip() != ""
+
+    return bool(has_items or has_trends or has_sectors or has_macro)
+
+
+def _load_latest_snapshot_news_trends(user) -> Optional[Dict[str, Any]]:
+    """
+    直前の HomeDeckSnapshot から news_trends payload を取り出す。
+    """
+    try:
+        from aiapp.models.home_deck_snapshot import HomeDeckSnapshot  # type: ignore
+
+        snap = (
+            HomeDeckSnapshot.objects
+            .filter(user=user)
+            .order_by("-snapshot_date", "-generated_at")
+            .first()
+        )
+        if not snap:
+            return None
+
+        prev_nt = _find_deck_payload(snap.decks, "news_trends")
+        if _looks_news_trends_valid(prev_nt):
+            return prev_nt
+        return None
+    except Exception:
+        return None
+
+
+def _build_news_trends(force_refresh: bool = False, user=None) -> Dict[str, Any]:
+    """
+    6:30生成のスナップショットでは “force_refresh=True” 推奨（その朝の固定を作るため）
+    - 必須キー macro_text を必ず持たせる（A/B対応）
+    - 失敗 or 空っぽなら、直前スナップショットの news_trends で補完（障害時フォールバック）
+    """
+    now_iso = timezone.now().isoformat()
+
+    snap: Dict[str, Any]
     try:
         from aiapp.services.home_news_trends import get_news_trends_snapshot  # type: ignore
-        snap = get_news_trends_snapshot()
+
+        snap = get_news_trends_snapshot(force_refresh=force_refresh)
         if not isinstance(snap, dict):
-            return {"status": "error", "error": "news snapshot is not dict", "items": []}
+            snap = {"status": "error", "error": "news snapshot is not dict", "items": []}
+
         snap.setdefault("status", "ok")
         snap.setdefault("items", [])
         snap.setdefault("sectors", [])
         snap.setdefault("trends", [])
-        snap.setdefault("as_of", timezone.now().isoformat())
-        return snap
+        snap.setdefault("macro_text", "")  # ★A/B: 必須
+        snap.setdefault("as_of", now_iso)
     except Exception as e:
         logger.exception("NEWS & TRENDS build failed: %s", e)
-        return {
+        snap = {
             "status": "stub",
-            "as_of": timezone.now().isoformat(),
+            "as_of": now_iso,
             "items": [],
             "sectors": [],
             "trends": [],
+            "macro_text": "",  # ★A/B
             "error": str(e),
         }
+
+    # ---- フォールバック（取得失敗/空っぽ → 直前の保存を使う） ----
+    if not _looks_news_trends_valid(snap):
+        if user is not None:
+            prev_nt = _load_latest_snapshot_news_trends(user)
+            if prev_nt is not None:
+                used = dict(prev_nt)  # shallow copy
+                used.setdefault("items", [])
+                used.setdefault("sectors", [])
+                used.setdefault("trends", [])
+                used.setdefault("macro_text", "")
+                used["status"] = "fallback"
+                used["as_of"] = now_iso
+                snap = used
+
+    return snap
 
 
 def _build_today_plan_from_assets(
@@ -276,13 +364,25 @@ def _build_ai_brief(
 
         sector_hint = _pick_hot_sectors_text(news_trends, limit=3)
 
-        if goal <= 0:
-            headline = "今日は“利益”より“再現性”を積む日。"
+        # ★B: macro_text があればそれを最優先（“経済AI予想”が1行で刺さる）
+        macro_text = ""
+        try:
+            mt = (news_trends or {}).get("macro_text")
+            if isinstance(mt, str):
+                macro_text = mt.strip()
+        except Exception:
+            macro_text = ""
+
+        if macro_text:
+            headline = macro_text
         else:
-            if rem_m > 0:
-                headline = f"目標まで残り {_fmt_yen(rem_m)}。狙う型を1つに絞ろう。"
+            if goal <= 0:
+                headline = "今日は“利益”より“再現性”を積む日。"
             else:
-                headline = "目標ペースは達成圏。崩さない運用が勝ち。"
+                if rem_m > 0:
+                    headline = f"目標まで残り {_fmt_yen(rem_m)}。狙う型を1つに絞ろう。"
+                else:
+                    headline = "目標ペースは達成圏。崩さない運用が勝ち。"
 
         bullets: List[str] = []
         if goal > 0:
@@ -537,6 +637,9 @@ def _validate_decks_shape(decks: Any) -> Tuple[bool, str]:
 def upsert_today_snapshot(user) -> None:
     """
     今日分の HomeDeckSnapshot を生成して保存（上書き）
+    - 6:30 cron 実行前提：NEWSは force_refresh=True（その朝の固定を作る）
+    - NEWS取得失敗/空っぽでも “直前の保存” で補完して、Homeが崩れない
+    - A/B対応：news_trends に macro_text を必ず含める / ai_brief headline も macro_text 優先
     """
     from aiapp.models.home_deck_snapshot import HomeDeckSnapshot  # type: ignore
 
@@ -554,8 +657,8 @@ def upsert_today_snapshot(user) -> None:
         logger.exception("ASSETS build failed (snapshot): %s", e)
         assets = {"status": "error", "error": str(e)}
 
-    # --- NEWS & TRENDS（取得） ---
-    news_trends = _build_news_trends()
+    # --- NEWS & TRENDS（6:30固定生成） ---
+    news_trends = _build_news_trends(force_refresh=True, user=user)
 
     # --- AI BRIEF / RISK / MARKET / TODAY PLAN ---
     ai_brief = _build_ai_brief(assets, news_trends=news_trends)
