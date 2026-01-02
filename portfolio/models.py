@@ -193,10 +193,24 @@ class RealizedTrade(models.Model):
         default="JPY",
         help_text="取引通貨（JPY, USD など）"
     )
+
+    # 互換用：従来のFX（基本は「クローズ時FX」として扱う）
     fx_rate = models.DecimalField(
         max_digits=12, decimal_places=6,
         null=True, blank=True,
         help_text="基準通貨(JPY)への為替レート。1通貨あたり何円か（例: 1USD=150.250000）"
+    )
+
+    # ★追加：オープン/クローズ FX（米国株の円PnLを正しく出すため）
+    open_fx_rate = models.DecimalField(
+        max_digits=12, decimal_places=6,
+        null=True, blank=True,
+        help_text="オープン（購入/建て）時の為替レート。1通貨あたり何円か（例: 1USD=150.250000）"
+    )
+    close_fx_rate = models.DecimalField(
+        max_digits=12, decimal_places=6,
+        null=True, blank=True,
+        help_text="クローズ（決済）時の為替レート。1通貨あたり何円か（例: 1USD=150.250000）"
     )
 
     cashflow  = models.DecimalField(
@@ -285,26 +299,75 @@ class RealizedTrade(models.Model):
         signed = self.amount if self.is_sell else -self.amount
         return signed - float(self.fee) - float(self.tax)
 
+    # ---- FX helpers（互換含む） ----
+    def _fx_open(self) -> float:
+        """
+        オープン時FX（無ければ fx_rate をフォールバック）
+        """
+        if self.open_fx_rate:
+            return float(self.open_fx_rate)
+        if self.fx_rate:
+            return float(self.fx_rate)
+        return 1.0
+
+    def _fx_close(self) -> float:
+        """
+        クローズ時FX（無ければ fx_rate をフォールバック）
+        """
+        if self.close_fx_rate:
+            return float(self.close_fx_rate)
+        if self.fx_rate:
+            return float(self.fx_rate)
+        return 1.0
+
     # 🔸 追加：JPY換算PnL（US株で使える・DBには保存しない）
     @property
     def pnl_jpy(self):
         """
-        通貨がJPY以外で fx_rate があれば、JPY換算したPnL。
-        なければ通常の pnl をそのまま返す。
+        円換算PnL（SELLのみ正しく計算）：
+          (売却円額 - 取得円額) - (手数料・税の円換算)
+        ※ open/close FX が揃っていない場合は、従来互換として
+           「通貨建て pnl × close_fx」を返す（現状ビューと同等の挙動）
         """
-        if (self.currency or "").upper() == "JPY" or not self.fx_rate:
+        cur = (self.currency or "").upper()
+        if cur == "JPY":
             return self.pnl
-        return float(self.pnl) * float(self.fx_rate)
+
+        # SELL で basis があり、open/close FX が使えるなら「真の円PnL」
+        if self.is_sell and self.basis is not None:
+            try:
+                open_fx = self._fx_open()
+                close_fx = self._fx_close()
+                yen_sell = float(self.price) * float(self.qty) * close_fx
+                yen_buy  = float(self.basis) * float(self.qty) * open_fx
+                yen_fee_tax = (float(self.fee) + float(self.tax)) * close_fx  # まずは close で円換算
+                return (yen_sell - yen_buy) - yen_fee_tax
+            except Exception:
+                pass
+
+        # フォールバック（従来互換）
+        try:
+            return float(self.pnl) * float(self._fx_close())
+        except Exception:
+            return self.pnl
 
     @property
     def cashflow_effective_jpy(self):
         """
-        通貨がJPY以外で fx_rate があれば、JPY換算した実現キャッシュフロー。
+        通貨がJPY以外で FX があれば、JPY換算した実現キャッシュフロー。
+        BUYは open_fx、SELL は close_fx を使う（受渡の考え方に合わせる）
         """
         cf = self.cashflow_effective
-        if (self.currency or "").upper() == "JPY" or not self.fx_rate:
+        cur = (self.currency or "").upper()
+        if cur == "JPY":
             return cf
-        return float(cf) * float(self.fx_rate)
+        try:
+            fx = self._fx_close() if self.is_sell else self._fx_open()
+            return float(cf) * float(fx)
+        except Exception:
+            if self.fx_rate:
+                return float(cf) * float(self.fx_rate)
+            return cf
 
     # --------- Normalize / Defaults ---------
     def save(self, *args, **kwargs):
@@ -312,6 +375,7 @@ class RealizedTrade(models.Model):
         - BUY で basis 未入力なら、分析の整合性のため basis=price を自動補完
         - ティッカーは大文字に正規化
         - country / currency のデフォルト補正
+        - open/close FX が空で fx_rate がある場合は互換として補完（DB保存はそのまま）
         """
         # 正規化
         if self.ticker:
@@ -326,6 +390,11 @@ class RealizedTrade(models.Model):
             self.country = "JP"
         if not self.currency:
             self.currency = "JPY"
+
+        # 互換：fx_rate が入っていて open/close が無いなら、close として扱う
+        # （ここで勝手に open_fx_rate まで埋めない。open は Holding 由来を優先したい）
+        if self.fx_rate and not self.close_fx_rate:
+            self.close_fx_rate = self.fx_rate
 
         super().save(*args, **kwargs)
 
