@@ -187,7 +187,6 @@ def _build_today_plan_from_assets(
                 ),
             })
 
-            # broker別：need_per_slot が “大きい順” 上位2つ（未達の主因）
             def _need_per_slot_of_row(r: Dict[str, Any]) -> float:
                 pm = (r.get("pace_month") or {})
                 return _as_float(pm.get("need_per_slot"), 0.0)
@@ -274,6 +273,7 @@ def _build_news_trends() -> Dict[str, Any]:
         snap.setdefault("items", [])
         snap.setdefault("sectors", [])
         snap.setdefault("trends", [])
+        snap.setdefault("macro_text", "")  # ★ 追加: 無い場合も壊れない
         snap.setdefault("as_of", timezone.now().isoformat())
         return snap
     except Exception as e:
@@ -284,6 +284,7 @@ def _build_news_trends() -> Dict[str, Any]:
             "items": [],
             "sectors": [],
             "trends": [],
+            "macro_text": "",  # ★ 追加
             "error": str(e),
         }
 
@@ -296,6 +297,7 @@ def _build_ai_brief(
     AI BRIEF = “今日の一言” + 要点3つ
     - ASSETS(目標/ペース/進捗)を主軸に
     - NEWS/TRENDS 上位セクターを添える
+    - ★ macro_text があれば headline はそれを優先（B）
     """
     now_iso = timezone.now().isoformat()
     try:
@@ -308,15 +310,23 @@ def _build_ai_brief(
         need_m = _as_float(total_m.get("need_per_slot"), 0.0)
 
         sector_hint = _pick_hot_sectors_text(news_trends, limit=3)
+        macro_text = ""
+        try:
+            macro_text = str((news_trends or {}).get("macro_text") or "").strip()
+        except Exception:
+            macro_text = ""
 
         # headline（短く）
-        if goal <= 0:
-            headline = "今日は“利益”より“再現性”を積む日。"
+        if macro_text:
+            headline = macro_text  # ★ 最優先（B）
         else:
-            if rem_m > 0:
-                headline = f"目標まで残り {_fmt_yen(rem_m)}。狙う型を1つに絞ろう。"
+            if goal <= 0:
+                headline = "今日は“利益”より“再現性”を積む日。"
             else:
-                headline = "目標ペースは達成圏。崩さない運用が勝ち。"
+                if rem_m > 0:
+                    headline = f"目標まで残り {_fmt_yen(rem_m)}。狙う型を1つに絞ろう。"
+                else:
+                    headline = "目標ペースは達成圏。崩さない運用が勝ち。"
 
         bullets: List[str] = []
         if goal > 0:
@@ -572,8 +582,6 @@ def _build_market(news_trends: Dict[str, Any] | None = None) -> Dict[str, Any]:
 def _load_today_home_snapshot(user) -> Tuple[List[Dict[str, Any]] | None, str | None]:
     """
     6:30 生成の HomeDeckSnapshot を優先して読み込む。
-    戻り:
-      decks or None, error or None
     """
     try:
         from aiapp.models.home_deck_snapshot import HomeDeckSnapshot  # type: ignore
@@ -587,7 +595,6 @@ def _load_today_home_snapshot(user) -> Tuple[List[Dict[str, Any]] | None, str | 
         if not isinstance(decks, list) or len(decks) == 0:
             return None, "snapshot decks is empty"
 
-        # “最低限の形”だけ検証（壊れてたらフォールバック）
         for x in decks:
             if not isinstance(x, dict):
                 return None, "snapshot decks contains non-dict item"
@@ -615,14 +622,12 @@ def home(request):
             "today_label": _safe_localdate_str(),
             "decks": snap_decks,
             "enable_detail_links": False,
-            # デバッグ用に残す（templateで使わないなら無害）
             "home_snapshot_used": True,
             "home_snapshot_error": None,
         }
         return render(request, "home.html", context)
 
     # ===== フォールバック（従来通り） =====
-    # --- ASSETS（リアルタイム） ---
     try:
         from ..services.home_assets import build_assets_snapshot
         assets = build_assets_snapshot(request.user)
@@ -633,15 +638,12 @@ def home(request):
         logger.exception("ASSETS build failed: %s", e)
         assets = {"status": "error", "error": str(e)}
 
-    # --- NEWS & TRENDS（5分TTL） ---
     news_trends = _build_news_trends()
 
-    # --- AI BRIEF / RISK / MARKET ---
     ai_brief = _build_ai_brief(assets, news_trends=news_trends)
     risk = _build_risk(request.user)
     market = _build_market(news_trends=news_trends)
 
-    # --- TODAY PLAN ---
     today_plan = _build_today_plan_from_assets(assets, news_trends=news_trends)
 
     decks: List[Dict[str, Any]] = [
