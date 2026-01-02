@@ -5,30 +5,32 @@
 {% block title %}Home{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=106">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=105">
 
 <div class="home-shell">
-  <!-- Top: date + ticker -->
+  <!-- Top: ticker -->
   <div class="home-top">
-    <div class="pill pill-date">
-      <div class="date-icon">📅</div>
-      <div class="date-text">本日 {{ today_label }}</div>
-    </div>
-
     <div class="pill pill-ticker" id="newsTicker">
       <div class="ticker-icon">📰</div>
       <div class="ticker-track">
         <div class="ticker-text" id="tickerText">
           {% for d in decks %}
             {% if d.key == "news_trends" %}
+
+              {# ★A: macro_text を最優先で流す #}
+              {% if d.payload.macro_text %}
+                {{ d.payload.macro_text }} /
+              {% endif %}
+
               {% if d.payload.items %}
                 NEWS:
                 {% for it in d.payload.items|slice:":6" %}
                   {{ it.source }}「{{ it.title }}」 /
                 {% endfor %}
               {% else %}
-                NEWS: 準備中
+                NEWS: 準備中 /
               {% endif %}
+
             {% endif %}
           {% endfor %}
         </div>
@@ -396,5 +398,5 @@
   <div class="dots" id="dots"></div>
 </div>
 
-<script src="{% static 'js/home.js' %}?v=103" defer></script>
+<script src="{% static 'js/home.js' %}?v=102" defer></script>
 {% endblock %}
