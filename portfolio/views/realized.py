@@ -164,24 +164,73 @@ def _with_metrics(qs):
     )
 
     # --- ここから円換算 ------------------------------------------------
-    # fx_to_jpy_calc: 1通貨あたり何円か
-    fx_to_jpy_calc = Case(
-        # USD で fx_rate が入っている行 → その値を採用
+    # ★ 重要：open/close の為替を分ける
+    #
+    # 優先順位：
+    #   open_fx_to_jpy  = open_fx_rate → fx_rate → 1
+    #   close_fx_to_jpy = close_fx_rate → fx_rate → 1
+    #
+    # ※ fx_rate しか無い既存データでも、従来互換で動くようにする
+    open_fx_to_jpy = Case(
         When(
             currency__iexact="USD",
-            fx_rate__isnull=False,
-            fx_rate__gt=0,
-            then=F("fx_rate"),
+            then=Coalesce(
+                F("open_fx_rate"),
+                F("fx_rate"),
+                one,
+            ),
         ),
-        # JPY または fx_rate 未設定 → そのまま1倍
         When(currency__iexact="JPY", then=one),
         default=one,
         output_field=DEC4,
     )
 
-    # 円換算PnL / 現金
-    pnl_jpy_calc = ExpressionWrapper(pnl_display * fx_to_jpy_calc, output_field=DEC2)
-    cashflow_calc_jpy = ExpressionWrapper(cashflow_calc * fx_to_jpy_calc, output_field=DEC2)
+    close_fx_to_jpy = Case(
+        When(
+            currency__iexact="USD",
+            then=Coalesce(
+                F("close_fx_rate"),
+                F("fx_rate"),
+                one,
+            ),
+        ),
+        When(currency__iexact="JPY", then=one),
+        default=one,
+        output_field=DEC4,
+    )
+
+    # ★ 円換算「受渡キャッシュフロー」
+    # BUY はエントリー時の支払い→open_fx
+    # SELL はクローズ時の受取り→close_fx
+    cashflow_calc_jpy = Case(
+        When(side="BUY", then=ExpressionWrapper(cashflow_calc * open_fx_to_jpy, output_field=DEC2)),
+        When(side="SELL", then=ExpressionWrapper(cashflow_calc * close_fx_to_jpy, output_field=DEC2)),
+        default=ExpressionWrapper(cashflow_calc * close_fx_to_jpy, output_field=DEC2),
+        output_field=DEC2,
+    )
+
+    # ★ 円換算「実現損益（真）」：SELL のときだけ (売却円 - 取得円) を作る
+    # 取得円 = basis * qty * open_fx
+    # 売却円 = price * qty * close_fx
+    # 手数料税は基本 close_fx で円換算（証券会社の計算に近い）
+    yen_buy = ExpressionWrapper(F("basis") * F("qty") * open_fx_to_jpy, output_field=DEC2)
+    yen_sell = ExpressionWrapper(F("price") * F("qty") * close_fx_to_jpy, output_field=DEC2)
+    yen_fee_tax = ExpressionWrapper((fee + tax) * close_fx_to_jpy, output_field=DEC2)
+
+    pnl_jpy_calc = Case(
+        When(
+            side="SELL",
+            basis__isnull=False,
+            basis__gt=0,
+            then=ExpressionWrapper((yen_sell - yen_buy) - yen_fee_tax, output_field=DEC2),
+        ),
+        # BUY 行などは、従来互換：表示PnL（通貨建て）× close_fx（※通常0なので影響しにくい）
+        default=ExpressionWrapper(pnl_display * close_fx_to_jpy, output_field=DEC2),
+        output_field=DEC2,
+    )
+
+    # 互換：テンプレ等で fx_to_jpy_calc を参照している場合は close を返す
+    fx_to_jpy_calc = close_fx_to_jpy
 
     return qs.annotate(
         cashflow_calc=ExpressionWrapper(cashflow_calc, output_field=DEC2),
@@ -189,7 +238,13 @@ def _with_metrics(qs):
         pnl_pct=pnl_pct,
         is_win=is_win,
         hold_days_f=hold_days_f,
+
+        # FX
+        open_fx_to_jpy=open_fx_to_jpy,
+        close_fx_to_jpy=close_fx_to_jpy,
         fx_to_jpy_calc=fx_to_jpy_calc,
+
+        # JPY換算
         pnl_jpy_calc=pnl_jpy_calc,
         cashflow_calc_jpy=cashflow_calc_jpy,
     )
@@ -1300,7 +1355,12 @@ def create(request):
     sector33_name = (request.POST.get("sector33_name") or "").strip()
     country_in = (request.POST.get("country") or "").strip().upper()
     currency_in = (request.POST.get("currency") or "").strip().upper()
-    fx_rate_raw = (request.POST.get("fx_rate") or "").strip()
+
+    # ★ FX：open/close を分ける（なければ fx_rate 互換）
+    open_fx_raw = (request.POST.get("open_fx_rate") or "").strip()
+    close_fx_raw = (request.POST.get("close_fx_rate") or "").strip()
+    fx_rate_raw = (request.POST.get("fx_rate") or "").strip()  # 互換（従来）
+
     strategy_label = (request.POST.get("strategy_label") or "").strip()
     policy_key = (request.POST.get("policy_key") or "").strip()
     is_ai_raw = (request.POST.get("is_ai_signal") or "").strip().lower()
@@ -1310,12 +1370,23 @@ def create(request):
     country = country_in or "JP"
     currency = currency_in or "JPY"
 
-    fx_rate = None
-    if fx_rate_raw not in ("", None):
+    def _parse_fx(raw: str):
+        if raw in ("", None):
+            return None
         try:
-            fx_rate = _to_dec(fx_rate_raw)
+            v = _to_dec(raw)
+            return v if v and v > 0 else None
         except Exception:
-            fx_rate = None
+            return None
+
+    open_fx_rate = _parse_fx(open_fx_raw)
+    close_fx_rate = _parse_fx(close_fx_raw)
+
+    # 互換：fx_rate しか来ない場合は「close」として扱う
+    fx_rate = _parse_fx(fx_rate_raw)
+    if close_fx_rate is None and fx_rate is not None:
+        close_fx_rate = fx_rate
+
     # ⚠️ ここでは自動取得しない：証券会社レートと合わせるため「完全手入力」
 
     is_ai_signal = is_ai_raw in ["1", "true", "on", "yes"]
@@ -1381,7 +1452,14 @@ def create(request):
         sector33_name=sector33_name,
         country=country,
         currency=currency,
-        fx_rate=fx_rate,  # ← ここは「入力されたものだけ」保存
+
+        # ★ FX（open/close）
+        open_fx_rate=open_fx_rate,
+        close_fx_rate=close_fx_rate,
+
+        # 互換：既存表示が fx_rate を参照している場合は close を入れておく
+        fx_rate=close_fx_rate,
+
         strategy_label=strategy_label,
         policy_key=policy_key,
         is_ai_signal=is_ai_signal,
@@ -1488,13 +1566,17 @@ def export_csv(request):
             "side",
             "qty",
             "price",
+            "basis",
             "fee",
             "tax",
             "cashflow_calc(現金)",
             "pnl_display(実損)",
+            "pnl_jpy_calc(円実損)",
             "country",
             "currency",
-            "fx_rate",
+            "open_fx_rate",
+            "close_fx_rate",
+            "fx_rate(compat)",
             "strategy_label",
             "policy_key",
             "is_ai_signal",
@@ -1516,12 +1598,16 @@ def export_csv(request):
                 t.side,
                 t.qty,
                 t.price,
+                getattr(t, "basis", "") or "",
                 t.fee,
                 t.tax,
                 getattr(t, "cashflow_calc", Decimal("0.00")),
                 getattr(t, "pnl_display", Decimal("0.00")),
+                getattr(t, "pnl_jpy_calc", Decimal("0.00")),
                 smart_str(getattr(t, "country", "") or ""),
                 smart_str(getattr(t, "currency", "") or ""),
+                getattr(t, "open_fx_rate", "") or "",
+                getattr(t, "close_fx_rate", "") or "",
                 getattr(t, "fx_rate", "") or "",
                 smart_str(getattr(t, "strategy_label", "") or ""),
                 smart_str(getattr(t, "policy_key", "") or ""),
@@ -1837,12 +1923,14 @@ def close_submit(request, pk: int):
         name = (request.POST.get("name") or "").strip() or h_get("name", "") or ""
 
         # 追加情報
-        # ★ A案：POSTされていれば優先しつつ、なければ Holding.sector を使う
         sector33_code_in = (request.POST.get("sector33_code") or "").strip()
         sector33_name_in = (request.POST.get("sector33_name") or "").strip()
         country_in = (request.POST.get("country") or "").strip().upper()
         currency_in = (request.POST.get("currency") or "").strip().upper()
-        fx_rate_raw = (request.POST.get("fx_rate") or "").strip()
+
+        # ★ close FX は入力（無ければ保有のFXをフォールバック）
+        close_fx_raw = (request.POST.get("close_fx_rate") or "").strip()
+        fx_rate_raw = (request.POST.get("fx_rate") or "").strip()  # 互換：既存UIはこれ
         strategy_label_in = (request.POST.get("strategy_label") or "").strip()
         policy_key_in = (request.POST.get("policy_key") or "").strip()
         is_ai_raw = (request.POST.get("is_ai_signal") or "").strip().lower()
@@ -1933,27 +2021,38 @@ def close_submit(request, pk: int):
             days_held = None
 
         # --- 33業種 / 国・通貨 / FX / 戦略まわりを最終決定 ---
-        # ★ A案：sector は Holding.sector をそのまま利用
         sector33_name = sector33_name_in or h_get("sector", "") or ""
-        sector33_code = sector33_code_in or ""  # コードは今のところ保持していないので任意
+        sector33_code = sector33_code_in or ""
 
         country = country_in or (h_get("country", "") or h_get("market", "") or "JP")
         currency = currency_in or (h_get("currency", "") or "JPY")
 
-        fx_rate = None
-        if fx_rate_raw not in ("", None):
+        def _parse_fx(raw: str):
+            if raw in ("", None):
+                return None
             try:
-                fx_rate = _to_dec(fx_rate_raw)
+                v = _to_dec(raw)
+                return v if v and v > 0 else None
             except Exception:
-                fx_rate = None
-        else:
-            fx_attr = h_get("fx_rate", None)
-            if fx_attr not in (None, ""):
-                try:
-                    fx_rate = Decimal(str(fx_attr))
-                except Exception:
-                    fx_rate = None
-        # ⚠️ ここでも自動取得はしない：入力 or 保有にあるものだけ
+                return None
+
+        # ★ open FX は「取得時」＝ Holding.fx_rate を優先
+        open_fx_rate = None
+        fx_attr = h_get("fx_rate", None)
+        if fx_attr not in (None, ""):
+            try:
+                open_fx_rate = Decimal(str(fx_attr))
+                if open_fx_rate <= 0:
+                    open_fx_rate = None
+            except Exception:
+                open_fx_rate = None
+
+        # ★ close FX は入力優先（既存UIは fx_rate なのでそこも見る）
+        close_fx_rate = _parse_fx(close_fx_raw)
+        if close_fx_rate is None:
+            close_fx_rate = _parse_fx(fx_rate_raw)
+        if close_fx_rate is None:
+            close_fx_rate = open_fx_rate  # 最後のフォールバック
 
         strategy_label = strategy_label_in or h_get("strategy_label", "") or ""
         policy_key = policy_key_in or h_get("policy_key", "") or ""
@@ -1994,7 +2093,14 @@ def close_submit(request, pk: int):
             sector33_name=sector33_name,
             country=country,
             currency=currency,
-            fx_rate=fx_rate,  # ← 証券会社レートを手入力したもの / 保有からの引継ぎのみ
+
+            # ★ open/close FX を保存
+            open_fx_rate=open_fx_rate,
+            close_fx_rate=close_fx_rate,
+
+            # 互換：既存表示が fx_rate を参照している場合は close を入れておく
+            fx_rate=close_fx_rate,
+
             strategy_label=strategy_label,
             policy_key=policy_key,
             is_ai_signal=is_ai_signal,
@@ -2043,7 +2149,6 @@ def close_submit(request, pk: int):
             )
         else:
             from django.shortcuts import redirect
-
             return redirect("realized_list")
 
     except Exception as e:
@@ -2059,5 +2164,4 @@ def close_submit(request, pk: int):
                 status=400,
             )
         from django.shortcuts import redirect
-
         return redirect("realized_list")
