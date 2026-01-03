@@ -84,8 +84,14 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
             try:
                 amount_str = (request.POST.get("amount") or "").replace(",", "").strip()
                 amount = int(amount_str)
-                if op in ("deposit", "withdraw", "tax") and amount <= 0:
+
+                if op in ("deposit", "withdraw") and amount <= 0:
                     raise ValueError("金額は正の整数で入力してください。")
+
+                # ★ tax は「マイナスもOK」ただし 0 はNG
+                if op == "tax" and amount == 0:
+                    raise ValueError("税金は 0 以外で入力してください。（マイナス可）")
+
                 if op == "restrict" and amount < 0:
                     raise ValueError("拘束金は0以上で入力してください。")
             except ValueError as e:
@@ -96,9 +102,11 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 if op == "deposit":
                     svc.deposit(acc, amount, memo or "入金")
                     messages.success(request, f"{broker} に {amount:,} 円を入金しました。")
+
                 elif op == "withdraw":
                     svc.withdraw(acc, amount, memo or "出金")
                     messages.success(request, f"{broker} から {amount:,} 円を出金しました。")
+
                 elif op == "restrict":
                     # === 拘束金：当日の値を常に“上書き” ===
                     today = date.today()
@@ -106,26 +114,44 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                     ms.restricted_amount = amount
                     ms.save(update_fields=["restricted_amount"])
                     messages.success(request, f"{broker} の拘束金を {amount:,} 円に設定しました。")
+
                 else:
-                    # === 税金（源泉徴収）：対象月の月末日に出金として記帳 ===
+                    # === 税金（源泉徴収）：対象月の月末日に記帳（±対応） ===
+                    #  amount > 0 : 出金（支払い）
+                    #  amount < 0 : 入金（還付/調整）
                     ym = (request.POST.get("month") or "").strip()
                     at_day = _month_end_from_str(ym)  # 例：2025-10 → 2025-10-31
+
                     # 同月・同社の既存税金行を消してから1件で上書き（重複防止）
                     CashLedger.objects.filter(
                         account=acc,
-                        kind=CashLedger.Kind.WITHDRAW,
                         memo__startswith="税金 ",
                         at__year=at_day.year,
                         at__month=at_day.month,
+                        kind__in=[CashLedger.Kind.WITHDRAW, CashLedger.Kind.DEPOSIT],
                     ).delete()
-                    CashLedger.objects.create(
-                        account=acc,
-                        amount=-amount,  # 出金はマイナス
-                        kind=CashLedger.Kind.WITHDRAW,
-                        memo=memo or f"税金 {ym}",
-                        at=at_day,
-                    )
-                    messages.success(request, f"{broker} の税金 {amount:,} 円（{ym}）を記録しました。")
+
+                    if amount > 0:
+                        # 支払い（出金）
+                        CashLedger.objects.create(
+                            account=acc,
+                            amount=-amount,  # 出金はマイナス
+                            kind=CashLedger.Kind.WITHDRAW,
+                            memo=memo or f"税金 {ym}",
+                            at=at_day,
+                        )
+                        messages.success(request, f"{broker} の税金 {amount:,} 円（{ym}）を記録しました。")
+                    else:
+                        # 還付/調整（入金）
+                        CashLedger.objects.create(
+                            account=acc,
+                            amount=abs(amount),  # 入金はプラスで保存
+                            kind=CashLedger.Kind.DEPOSIT,
+                            memo=memo or f"税金 {ym}",
+                            at=at_day,
+                        )
+                        messages.success(request, f"{broker} の税金（還付） {abs(amount):,} 円（{ym}）を記録しました。")
+
             except Exception as e:
                 messages.error(request, f"処理に失敗：{e}")
 
