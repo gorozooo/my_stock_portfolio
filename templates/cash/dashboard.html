@@ -510,7 +510,17 @@ html,body{
         </div>
         <div>
           <label>税額（合計／円）</label>
-          <input type="number" name="amount" inputmode="numeric" min="1" required>
+          {# ★ ここだけマイナス可にする #}
+          <input
+            type="number"
+            name="amount"
+            inputmode="numeric"
+            step="1"
+            required
+            placeholder="例：-1200"
+            pattern="-?[0-9]*"
+            id="tax-amount"
+          >
         </div>
         <div>
           <label>メモ</label>
@@ -554,6 +564,21 @@ document.addEventListener("DOMContentLoaded", () => {
       m.classList.remove("show");
       m.setAttribute("aria-hidden","true");
     });
+  }
+
+  // ★ 税額 input の「全角マイナス」などを軽く正規化（送信前）
+  const taxModal = modals.tax;
+  if (taxModal) {
+    const form = taxModal.querySelector("form");
+    const amountEl = taxModal.querySelector("#tax-amount");
+    if (form && amountEl) {
+      form.addEventListener("submit", () => {
+        if (!amountEl.value) return;
+        amountEl.value = String(amountEl.value)
+          .replace(/[−ー―]/g, "-")   // 全角/長音/ダッシュ系 -> "-"
+          .replace(/[^\d-]/g, "");  // 数字と - 以外除去（念のため）
+      });
+    }
   }
 
   const wrap = document.querySelector(".cash-wrap");
