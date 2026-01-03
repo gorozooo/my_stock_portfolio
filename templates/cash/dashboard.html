@@ -492,7 +492,7 @@ html,body{
 <div class="modal" id="modal-tax" aria-hidden="true">
   <div class="box">
     <h3>🧾 税金（源泉徴収）を月次で記録</h3>
-    <form method="post" action="{% url 'cash_dashboard' %}">
+    <form method="post" action="{% url 'cash_dashboard' %}" id="tax-form">
       {% csrf_token %}
       <input type="hidden" name="op" value="tax">
       <div class="form-grid">
@@ -510,15 +510,14 @@ html,body{
         </div>
         <div>
           <label>税額（合計／円）</label>
-          {# ★ ここだけマイナス可にする #}
+          {# ★ iPhoneでも「-」が打てるように type=text にする #}
           <input
-            type="number"
+            type="text"
             name="amount"
-            inputmode="numeric"
-            step="1"
+            inputmode="text"
+            autocomplete="off"
             required
             placeholder="例：-1200"
-            pattern="-?[0-9]*"
             id="tax-amount"
           >
         </div>
@@ -566,17 +565,60 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // ★ 税額 input の「全角マイナス」などを軽く正規化（送信前）
+  // ===== 税額（text）を数値文字列に正規化して送信 =====
   const taxModal = modals.tax;
   if (taxModal) {
-    const form = taxModal.querySelector("form");
+    const form = taxModal.querySelector("#tax-form");
     const amountEl = taxModal.querySelector("#tax-amount");
+
+    const normalizeIntString = (s) => {
+      if (s == null) return "";
+      s = String(s).trim();
+
+      // 全角マイナス/ダッシュ系 -> "-"
+      s = s.replace(/[−ー―]/g, "-");
+
+      // カンマ除去（"1,200" みたいなのも許容）
+      s = s.replace(/,/g, "");
+
+      // いったん数字とマイナス以外を除去
+      s = s.replace(/[^\d-]/g, "");
+
+      // マイナスは先頭に1つだけ許容
+      const neg = s.startsWith("-") ? "-" : "";
+      s = s.replace(/-/g, "");
+      s = neg + s;
+
+      return s;
+    };
+
+    if (amountEl) {
+      amountEl.addEventListener("input", () => {
+        // 入力中にガッツリ書き換えると打ちにくい場合があるので、軽めに全角だけ直す
+        amountEl.value = String(amountEl.value).replace(/[−ー―]/g, "-");
+      });
+    }
+
     if (form && amountEl) {
-      form.addEventListener("submit", () => {
-        if (!amountEl.value) return;
-        amountEl.value = String(amountEl.value)
-          .replace(/[−ー―]/g, "-")   // 全角/長音/ダッシュ系 -> "-"
-          .replace(/[^\d-]/g, "");  // 数字と - 以外除去（念のため）
+      form.addEventListener("submit", (e) => {
+        const v = normalizeIntString(amountEl.value);
+
+        if (!v || v === "-" ) {
+          e.preventDefault();
+          alert("税額を入力してください（例：-1200）");
+          amountEl.focus();
+          return;
+        }
+
+        // 数値として解釈できるかチェック（整数限定）
+        if (!/^-?\d+$/.test(v)) {
+          e.preventDefault();
+          alert("税額は整数で入力してください（例：-1200）");
+          amountEl.focus();
+          return;
+        }
+
+        amountEl.value = v; // 正規化して送信
       });
     }
   }
