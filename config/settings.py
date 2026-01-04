@@ -60,7 +60,6 @@ INSTALLED_APPS = [
 
     # 自作アプリ
     'portfolio',
-    #'advisor.apps.AdvisorConfig',
     'aiapp.apps.AiappConfig',
 ]
 
