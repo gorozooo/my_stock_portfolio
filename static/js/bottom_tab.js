@@ -75,10 +75,10 @@ document.addEventListener("DOMContentLoaded", () => {
       aiapp_simulate_list : "/aiapp/simulate/",
 
       // legacy Advisor (旧AI) – HOMEメニューからアクセスさせる
-      advisor_board    : "/advisor/board/",
-      advisor_notify   : "/advisor/notify-dashboard",
-      advisor_ab       : "/advisor/ab",
-      advisor_history  : "/advisor/policy",
+      //advisor_board    : "/advisor/board/",
+      //advisor_notify   : "/advisor/notify-dashboard",
+      //advisor_ab       : "/advisor/ab",
+      //advisor_history  : "/advisor/policy",
 
       // Holdings / Realized
       holdings_base  : "/holdings/",
