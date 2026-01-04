@@ -1,0 +1,19 @@
+id: nisa_income
+name: "NISA（配当重視）"
+kind: "long"
+priority: 60          # ボード採用の相対優先度（大ほど強い）
+limit: 10             # 候補抽出の上限（内部）
+rules:
+  min_overall: 60     # TrendResult.overall_score の下限
+  min_theme: 0.50     # theme_score の下限
+  allow_weekly: ["up","flat"]
+  min_slope_yr: 0.10  # 年率傾き（0.10=+10%/yr）※無い銘柄は無視
+  # ※将来RSI/EMA/配当利回り等を足す拡張余地は残してあります
+targets:
+  tp_pct: 0.20        # 目標 +20%
+  sl_pct: 0.08        # 損切 -8%
+size:
+  risk_pct: 0.003     # 1トレードの資金リスク（0.3%）
+labels:
+  segment: "NISA（長期/配当）"
+  action:  "配当重視で監視継続"

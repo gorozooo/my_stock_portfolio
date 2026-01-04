@@ -1,0 +1,10 @@
+# advisor/management/commands/advisor_policy_snapshot.py
+from django.core.management.base import BaseCommand
+from advisor.services.policy_loader import snapshot_active_policies
+
+class Command(BaseCommand):
+    help = "activeポリシーを日付フォルダへスナップショット保存"
+
+    def handle(self, *args, **opts):
+        out = snapshot_active_policies()
+        self.stdout.write(self.style.SUCCESS(f"snapshot -> {out}"))
