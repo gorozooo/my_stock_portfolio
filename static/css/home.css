@@ -79,7 +79,7 @@ body{ background:var(--bg); color:var(--fg); }
   display:inline-block;
   white-space:nowrap;
   will-change:transform;
-  animation: marquee 26s linear infinite;
+  animation: marquee 40s linear infinite;
   color:rgba(229,237,255,.85);
   font-size:13px;
 }
