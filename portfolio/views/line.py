@@ -150,7 +150,7 @@ def _int_or_none(x) -> Optional[int]:
     except Exception:
         return None
 
-def _latest_tr(user, ticker: str) -> Optional[TrendResult]:
+#def _latest_tr(user, ticker: str) -> Optional[TrendResult]:
     return (TrendResult.objects
             .filter(user=user, ticker=ticker.upper())
             .order_by("-asof", "-updated_at")
