@@ -109,13 +109,7 @@ body{ background:var(--bg); color:var(--fg); }
   100% { transform:translateX(calc(-1 * var(--marqueeDist, 600px))); }
 }
 
-/* 動きが苦手な人用（iOSも効く） */
-@media (prefers-reduced-motion: reduce){
-  .ticker-text.is-marquee{
-    animation: none !important;
-    transform:translateX(0) !important;
-  }
-}
+
 
 /* rail */
 .rail{
