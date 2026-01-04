@@ -1,0 +1,1640 @@
+# aiapp/management/commands/picks_build.py
+# -*- coding: utf-8 -*-
+"""
+AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
+
+========================================
+▼ 全体フロー（1銘柄あたり）
+========================================
+  1. 価格取得（OHLCV）
+  2. 特徴量生成（テクニカル指標など）
+  3. フィルタリング層（仕手株・流動性・異常値などで土台から除外）
+  4. スコアリング / ⭐️算出
+     ★本番仕様：⭐️は confidence_service（司令塔）で確定
+        - 過去30〜90日の仮想エントリー成績（BehaviorStats: 同モード → 無ければ all/all）
+        - 特徴量の安定性
+        - Entry/TP/SL距離適正
+        - scoring_service は補助輪
+  5. Entry / TP / SL の計算
+  6. Sizing（数量・必要資金・想定PL/損失・見送り理由）
+     ★本番（今回）：pTP をEVに混ぜた ev_true_* を使う
+  7. 理由テキスト生成（選定理由×最大5行 + 懸念1行）
+  8. バイアス層（セクター波 / 大型・小型バランスの微調整）
+  9. ランキング（本番）→ JSON 出力
+
+========================================
+▼ ランキング（本番仕様）
+========================================
+  C: EV_true（pTP混ぜた本命EV）降順 → 採用優先
+     - まず楽天の EV_true_rakuten を主キーにする（UI表示の基準）
+     - qty_rakuten > 0 を優先（0株は下へ）
+     - 次点として ml_rank / score_100 / last_close
+
+  TopK（UI用 latest_full.json）：
+     - 原則：EV_true_rakuten > 0 かつ qty_rakuten > 0 のみ採用
+     - 0件になった場合のみフォールバック（上位から topk 件）
+
+========================================
+▼ 利用サービス / モジュール
+========================================
+  ・価格取得:
+      aiapp.services.fetch_price.get_prices
+
+  ・特徴量生成:
+      aiapp.models.features.make_features
+
+  ・スコア:
+      aiapp.services.scoring_service.score_sample
+
+  ・⭐️（本番）:
+      aiapp.services.confidence_service.compute_confidence_star
+
+  ・ML推論（主役の一部）:
+      aiapp.services.ml_infer_service.infer_from_features
+        ※ p_win / EV / hold_days_pred / tp_first / probs / ml_rank を返す
+
+  ・Entry / TP / SL:
+      aiapp.services.entry_service.compute_entry_tp_sl
+
+  ・数量 / 必要資金 / 想定PL / 想定損失 / 見送り理由 / EV_true:
+      aiapp.services.sizing_service.compute_position_sizing
+
+  ・理由5つ + 懸念（日本語テキスト）:
+      aiapp.services.reasons.make_reasons
+
+  ・銘柄フィルタ層:
+      aiapp.services.picks_filters.FilterContext
+      aiapp.services.picks_filters.check_all
+
+  ・セクター波 / 大型・小型バランス調整:
+      aiapp.services.picks_bias.apply_all
+
+========================================
+▼ 出力ファイル
+========================================
+  - media/aiapp/picks/latest_full_all.json
+  - media/aiapp/picks/latest_full.json
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import dataclass, asdict
+from datetime import datetime, timedelta, timezone as dt_timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
+import pandas as pd
+from django.contrib.auth import get_user_model
+from django.core.management.base import BaseCommand
+
+from aiapp.services.fetch_price import get_prices
+from aiapp.models.features import make_features, FeatureConfig
+from aiapp.services.sizing_service import compute_position_sizing
+
+# ML infer（C: 主役の一部）
+try:
+    from aiapp.services.ml_infer_service import infer_from_features as ml_infer_from_features
+except Exception:  # pragma: no cover
+    ml_infer_from_features = None  # type: ignore
+
+# オプション扱いのサービス群（無くても動くように）
+try:
+    from aiapp.models import StockMaster
+except Exception:  # pragma: no cover
+    StockMaster = None  # type: ignore
+
+try:
+    from aiapp.services.reasons import make_reasons as make_ai_reasons
+except Exception:  # pragma: no cover
+    make_ai_reasons = None  # type: ignore
+
+try:
+    from aiapp.services.scoring_service import (
+        score_sample as ext_score_sample,
+        stars_from_score as ext_stars_from_score,  # 補助輪（最終⭐️はconfidence_service）
+    )
+except Exception:  # pragma: no cover
+    ext_score_sample = None  # type: ignore
+    ext_stars_from_score = None  # type: ignore
+
+try:
+    from aiapp.services.entry_service import compute_entry_tp_sl as ext_entry_tp_sl
+except Exception:  # pragma: no cover
+    ext_entry_tp_sl = None  # type: ignore
+
+# 追加: フィルタ層 & バイアス層
+try:
+    from aiapp.services.picks_filters import FilterContext, check_all as picks_check_all
+except Exception:  # pragma: no cover
+    FilterContext = None  # type: ignore
+    picks_check_all = None  # type: ignore
+
+try:
+    from aiapp.services.picks_bias import apply_all as apply_bias_all
+except Exception:  # pragma: no cover
+    apply_bias_all = None  # type: ignore
+
+# 追加: マクロレジーム（あれば使う）
+try:
+    from aiapp.models.macro import MacroRegimeSnapshot
+except Exception:  # pragma: no cover
+    MacroRegimeSnapshot = None  # type: ignore
+
+# ★追加: ⭐️司令塔（本番仕様）
+try:
+    from aiapp.services.confidence_service import compute_confidence_star, compute_confidence_detail
+except Exception:  # pragma: no cover
+    compute_confidence_star = None  # type: ignore
+    compute_confidence_detail = None  # type: ignore
+
+# ★追加: BehaviorStats（picks_buildで一括ロード→cache渡し）
+try:
+    from aiapp.models.behavior_stats import BehaviorStats
+except Exception:  # pragma: no cover
+    BehaviorStats = None  # type: ignore
+
+
+# =========================================================
+# 共通設定
+# =========================================================
+
+PICKS_DIR = Path("media/aiapp/picks")
+PICKS_DIR.mkdir(parents=True, exist_ok=True)
+
+JST = dt_timezone(timedelta(hours=9))
+
+
+def dt_now_stamp() -> str:
+    return datetime.now(JST).strftime("%Y%m%d_%H%M%S")
+
+
+def _env_bool(key: str, default: bool = False) -> bool:
+    v = os.getenv(key)
+    if v is None:
+        return default
+    return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
+BUILD_LOG = _env_bool("AIAPP_BUILD_LOG", False)
+CONF_DETAIL = _env_bool("AIAPP_CONF_DETAIL", False)  # 1なら confidence_detail を meta に入れる（重いので通常OFF）
+
+
+# =========================================================
+# ヘルパ
+# =========================================================
+
+def _safe_series(x) -> pd.Series:
+    """
+    どんな形で来ても 1D pd.Series[float] に正規化する。
+    """
+    if x is None:
+        return pd.Series(dtype="float64")
+    if isinstance(x, pd.Series):
+        return x.astype("float64")
+    if isinstance(x, pd.DataFrame):
+        if x.shape[1] == 0:
+            return pd.Series(dtype="float64")
+        return x.iloc[:, -1].astype("float64")
+    try:
+        arr = np.asarray(x, dtype="float64")
+        if arr.ndim == 0:
+            return pd.Series([float(arr)], dtype="float64")
+        return pd.Series(arr, dtype="float64")
+    except Exception:
+        return pd.Series(dtype="float64")
+
+
+def _series_tail_to_list(s, max_points: int = 60) -> Optional[List[Optional[float]]]:
+    """
+    pd.Series などから末尾 max_points 本だけ取り出して
+    JSON 化しやすい Python の list[float | None] に変換する。
+    NaN / inf は None にする。
+    """
+    ser = _safe_series(s)
+    if ser.empty:
+        return None
+    ser = ser.tail(max_points)
+    out: List[Optional[float]] = []
+    for v in ser:
+        try:
+            f = float(v)
+        except Exception:
+            f = float("nan")
+        if not np.isfinite(f):
+            out.append(None)
+        else:
+            out.append(f)
+    return out if out else None
+
+
+def _safe_float(x) -> float:
+    """
+    スカラ/Series/DataFrame/Index などから float を1つ取り出す。
+    失敗時は NaN。
+    """
+    try:
+        if x is None:
+            return float("nan")
+        if isinstance(x, (pd.Series, pd.Index)):
+            if len(x) == 0:
+                return float("nan")
+            return float(pd.to_numeric(pd.Series(x).iloc[-1], errors="coerce"))
+        if isinstance(x, pd.DataFrame):
+            if x.shape[1] == 0 or len(x) == 0:
+                return float("nan")
+            col = x.columns[-1]
+            return float(pd.to_numeric(x[col].iloc[-1], errors="coerce"))
+        return float(x)
+    except Exception:
+        return float("nan")
+
+
+def _nan_to_none(x):
+    if isinstance(x, (float, int)) and x != x:  # NaN
+        return None
+    return x
+
+
+def _build_reasons_features(feat: pd.DataFrame, last: float, atr: float) -> Dict[str, Any]:
+    """
+    reasons.make_reasons 用に、features DataFrame から必要な指標だけ抜き出して
+    名前を合わせた dict を組み立てる。
+    """
+    if feat is None or len(feat) == 0:
+        return {}
+
+    row = feat.iloc[-1]
+
+    def g(key: str) -> Optional[float]:
+        try:
+            v = row.get(key)
+        except Exception:
+            v = None
+        if v is None:
+            return None
+        try:
+            f = float(v)
+        except Exception:
+            return None
+        if not np.isfinite(f):
+            return None
+        return f
+
+    # トレンド傾き（中期）
+    ema_slope = g("SLOPE_25") or g("SLOPE_20")
+
+    # 相対強度は「20日リターン」を簡易的に％換算して使う
+    rel_strength_10 = None
+    r20 = g("RET_20")
+    if r20 is not None:
+        rel_strength_10 = r20 * 100.0  # 例: 0.12 → 12%
+
+    # 直近1日の変動率（イベント検出用）
+    ret1_pct = None
+    r1 = g("RET_1")
+    if r1 is not None:
+        ret1_pct = r1 * 100.0  # 例: 0.08 → 8%
+
+    # RSI
+    rsi14 = g("RSI14")
+
+    # 出来高と平均（Volume / MA25 でざっくり）
+    vol = g("Volume")
+    ma_base = g("MA25") or g("MA20")
+    vol_ma_ratio = None
+    if vol is not None and ma_base is not None and ma_base > 0:
+        # 本来は出来高MAを使うのがベストだが、現状は価格MAを目安として使用
+        vol_ma_ratio = vol / ma_base
+
+    # ブレイクフラグ（ゴールデンクロス）
+    breakout_flag = 0
+    gcross = g("GCROSS")
+    if gcross is not None and gcross > 0:
+        breakout_flag = 1
+
+    # VWAP乖離
+    vwap_proximity = g("VWAP_GAP_PCT")
+
+    # ATR
+    atr14 = None
+    if np.isfinite(atr):
+        atr14 = float(atr)
+
+    # 終値
+    last_price = None
+    if np.isfinite(last):
+        last_price = float(last)
+
+    return {
+        "ema_slope": ema_slope,
+        "rel_strength_10": rel_strength_10,
+        "ret1_pct": ret1_pct,             # ★ イベント検出用（前日比％）
+        "rsi14": rsi14,
+        "vol_ma_ratio": vol_ma_ratio,     # ★ 新しい名前に統一
+        "breakout_flag": breakout_flag,
+        "atr14": atr14,
+        "vwap_proximity": vwap_proximity,
+        "last_price": last_price,
+    }
+
+
+def _extract_chart_ohlc(
+    raw: pd.DataFrame,
+    max_points: int = 60,
+) -> Tuple[
+    Optional[List[float]],
+    Optional[List[float]],
+    Optional[List[float]],
+    Optional[List[float]],
+    Optional[List[str]],
+]:
+    """
+    チャート用の OHLC 配列＋日付配列を生成（ローソク足＋終値ライン＋X軸の日付表示用）。
+    get_prices が返す DataFrame の末尾から max_points 本だけ抜き出す。
+    """
+    if raw is None:
+        return None, None, None, None, None
+    try:
+        df = raw.copy()
+    except Exception:
+        return None, None, None, None, None
+
+    if len(df) == 0:
+        return None, None, None, None, None
+
+    # 列名のゆらぎに軽く対応
+    def col_name(candidates):
+        for c in candidates:
+            if c in df.columns:
+                return c
+        return None
+
+    col_o = col_name(["Open", "open", "OPEN"])
+    col_h = col_name(["High", "high", "HIGH"])
+    col_l = col_name(["Low", "low", "LOW"])
+    col_c = col_name(["Close", "close", "CLOSE"])
+
+    if not (col_o and col_h and col_l and col_c):
+        return None, None, None, None, None
+
+    # 末尾 max_points 本
+    df = df[[col_o, col_h, col_l, col_c]].tail(max_points)
+
+    opens = [float(v) for v in df[col_o].tolist()]
+    highs = [float(v) for v in df[col_h].tolist()]
+    lows = [float(v) for v in df[col_l].tolist()]
+    closes = [float(v) for v in df[col_c].tolist()]
+
+    if not closes:
+        return None, None, None, None, None
+
+    # X軸用の日付（YYYY-MM-DD）
+    dates: List[str] = []
+    try:
+        if isinstance(df.index, pd.DatetimeIndex):
+            dates = [d.strftime("%Y-%m-%d") for d in df.index]
+        else:
+            # 念のため index を日時に解釈できるものだけ変換
+            idx_dt = pd.to_datetime(df.index, errors="coerce")
+            for d in idx_dt:
+                if pd.isna(d):
+                    dates.append("")  # 軽いフォールバック
+                else:
+                    dates.append(d.strftime("%Y-%m-%d"))
+    except Exception:
+        dates = []
+
+    return opens, highs, lows, closes, (dates or None)
+
+
+# =========================================================
+# フォールバック実装（サービスが無い場合）
+# =========================================================
+
+def _fallback_score_sample(feat: pd.DataFrame) -> float:
+    """
+    0.0〜1.0 のスコアに正規化する簡易ロジック（テスト用）。
+    """
+    if feat is None or len(feat) == 0:
+        return 0.0
+
+    f = feat.copy()
+    for c in ["RSI14", "RET_5", "RET_20", "SLOPE_5", "SLOPE_20"]:
+        if c not in f.columns:
+            f[c] = np.nan
+
+    def nz(s: pd.Series) -> pd.Series:
+        s = _safe_series(s)
+        if s.empty:
+            return s
+        m = float(s.mean())
+        sd = float(s.std(ddof=0))
+        if not np.isfinite(sd) or sd == 0:
+            return pd.Series(np.zeros(len(s)), index=s.index)
+        return (s - m) / sd
+
+    def sig(v: float) -> float:
+        try:
+            return float(1.0 / (1.0 + np.exp(-float(v))))
+        except Exception:
+            return 0.5
+
+    rsi = _safe_float(nz(f["RSI14"]).iloc[-1])
+    mom5 = _safe_float(nz(f["RET_5"]).iloc[-1])
+    mom20 = _safe_float(nz(f["RET_20"]).iloc[-1])
+    sl5 = _safe_float(nz(f["SLOPE_5"]).iloc[-1])
+    sl20 = _safe_float(nz(f["SLOPE_20"]).iloc[-1])
+
+    comp = (
+        0.30 * sig(rsi)
+        + 0.25 * sig(mom5)
+        + 0.20 * sig(mom20)
+        + 0.15 * sig(sl5)
+        + 0.10 * sig(sl20)
+    )
+    return float(max(0.0, min(1.0, comp)))
+
+
+def _fallback_stars(score01: float) -> int:
+    if not np.isfinite(score01):
+        return 1
+    s = max(0.0, min(1.0, float(score01)))
+    if s < 0.2:
+        return 1
+    if s < 0.4:
+        return 2
+    if s < 0.6:
+        return 3
+    if s < 0.8:
+        return 4
+    return 5
+
+
+def _fallback_entry_tp_sl(last: float, atr: float) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """
+    暫定・短期×攻め用の Entry / TP / SL。
+    """
+    if not np.isfinite(last) or not np.isfinite(atr) or atr <= 0:
+        return None, None, None
+    entry = last + 0.05 * atr
+    tp = entry + 0.80 * atr
+    sl = entry - 0.60 * atr
+    return float(entry), float(tp), float(sl)
+
+
+def _score_to_0_100(s01: float) -> int:
+    if not np.isfinite(s01):
+        return 0
+    return int(round(max(0.0, min(1.0, s01)) * 100))
+
+
+def _normalize_code(code: str) -> str:
+    """
+    DB/JSON でぶれないように銘柄コードを正規化。
+    - "7203.T" → "7203"
+    - "7203"   → "7203"
+    """
+    s = str(code or "").strip()
+    if not s:
+        return s
+    if s.endswith(".T"):
+        s = s[:-2]
+    return s
+
+
+def _mode_period_from_horizon(horizon: str) -> str:
+    """
+    picks_build の horizon を BehaviorStats の mode_period に合わせる。
+      short/mid/long はそのまま
+      それ以外は short 扱いに寄せる（壊さない）
+    """
+    h = (horizon or "").strip().lower()
+    if h in ("short", "mid", "long"):
+        return h
+    return "short"
+
+
+def _mode_aggr_from_style(style: str) -> str:
+    """
+    picks_build の style を BehaviorStats の mode_aggr に合わせる。
+      aggressive -> aggr
+      normal     -> norm
+      defensive  -> def
+    既に aggr/norm/def が来た場合はそのまま
+    """
+    s = (style or "").strip().lower()
+    if s in ("aggr", "norm", "def"):
+        return s
+    if s in ("aggressive", "attack", "atk"):
+        return "aggr"
+    if s in ("normal", "standard", "norm"):
+        return "norm"
+    if s in ("defensive", "defence", "def"):
+        return "def"
+    # 既存 default に寄せる（壊さない）
+    return "aggr"
+
+
+def _as_float_or_none(x) -> Optional[float]:
+    try:
+        if x is None:
+            return None
+        f = float(x)
+        if not np.isfinite(f):
+            return None
+        return f
+    except Exception:
+        return None
+
+
+# =========================================================
+# ★ entry_reason（6択を必ず返す）
+# =========================================================
+
+_ENTRY_REASONS = (
+    "trend_follow",   # 順張り
+    "pullback",       # 押し目
+    "breakout",       # ブレイク
+    "reversal",       # 逆張り
+    "news",           # 材料
+    "mean_revert",    # レンジ逆
+)
+
+
+def _classify_entry_reason(
+    feat: pd.DataFrame,
+    *,
+    last: Optional[float],
+    atr: Optional[float],
+    entry: Optional[float],
+    tp: Optional[float],
+    sl: Optional[float],
+    ml_tp_first: Optional[str] = None,
+    ml_tp_probs: Optional[Dict[str, float]] = None,
+    reason_lines: Optional[List[str]] = None,
+    reason_concern: Optional[str] = None,
+) -> str:
+    """
+    entry_reason を 6択から必ず1つ返す。
+    - ここは「UIの分類タグ」用途。厳密さより “一貫性” と “落ちない” を優先。
+    - feat の列名揺れ/欠損があっても落とさない。
+
+    返す値:
+      trend_follow / pullback / breakout / reversal / news / mean_revert
+    """
+    try:
+        if feat is None or len(feat) == 0:
+            return "mean_revert"
+        row = feat.iloc[-1]
+
+        def g(key: str) -> Optional[float]:
+            try:
+                v = row.get(key)
+            except Exception:
+                v = None
+            if v is None:
+                return None
+            try:
+                f = float(v)
+            except Exception:
+                return None
+            if not np.isfinite(f):
+                return None
+            return f
+
+        # --- 主要指標 ---
+        slope25 = g("SLOPE_25")
+        slope5 = g("SLOPE_5")
+        rsi14 = g("RSI14")
+        bb_z = g("BB_Z")
+        vwap_gap = g("VWAP_GAP_PCT")
+        gcross = g("GCROSS")
+        dcross = g("DCROSS")
+
+        r1 = g("RET_1")
+        ret1_pct = (r1 * 100.0) if (r1 is not None) else None
+
+        ma25 = g("MA25") or g("MA20")
+        ma75 = g("MA75") or g("MA60")
+        high_52w = g("HIGH_52W")
+        low_52w = g("LOW_52W")
+
+        last_f = float(last) if (last is not None and np.isfinite(float(last))) else None
+        atr_f = float(atr) if (atr is not None and np.isfinite(float(atr))) else None
+
+        # --- テキスト側のヒント（あれば）---
+        text_blob = ""
+        try:
+            if reason_lines:
+                text_blob += " ".join([str(x) for x in reason_lines if x])
+            if reason_concern:
+                text_blob += " " + str(reason_concern)
+        except Exception:
+            text_blob = ""
+
+        def has_kw(*kws: str) -> bool:
+            if not text_blob:
+                return False
+            for kw in kws:
+                if kw and kw in text_blob:
+                    return True
+            return False
+
+        # =========================================================
+        # 優先度: news > breakout > pullback > trend_follow > reversal > mean_revert
+        # =========================================================
+
+        # --- news（材料）: 急変 or テキストが材料っぽい ---
+        if has_kw("材料", "決算", "IR", "ニュース", "上方修正", "下方修正", "増配", "減配", "自社株買", "TOB"):
+            return "news"
+        if ret1_pct is not None:
+            if abs(float(ret1_pct)) >= 7.0:
+                return "news"
+
+        # --- breakout（ブレイク） ---
+        if gcross is not None and gcross > 0:
+            return "breakout"
+        if last_f is not None and high_52w is not None:
+            # 52週高値の“ほぼ”更新をブレイク扱い
+            if last_f >= float(high_52w) * 0.995:
+                return "breakout"
+        if last_f is not None and ma25 is not None and ma75 is not None:
+            if last_f > float(ma25) and last_f > float(ma75):
+                if slope25 is not None and float(slope25) > 0:
+                    if bb_z is not None and float(bb_z) >= 1.0:
+                        return "breakout"
+
+        # --- pullback（押し目） ---
+        if last_f is not None and ma25 is not None:
+            if slope25 is not None and float(slope25) > 0:
+                # “トレンド上”でMA付近に戻ってる
+                near_ma = abs(last_f - float(ma25)) <= (0.6 * atr_f) if atr_f and atr_f > 0 else abs(last_f - float(ma25)) <= (0.015 * last_f)
+                rsi_ok = (rsi14 is None) or (40.0 <= float(rsi14) <= 60.0)
+                vwap_ok = (vwap_gap is None) or (abs(float(vwap_gap)) <= 1.0)
+                if near_ma and rsi_ok and vwap_ok:
+                    return "pullback"
+
+        # --- trend_follow（順張り） ---
+        if slope25 is not None and float(slope25) > 0:
+            rsi_strong = (rsi14 is None) or (float(rsi14) >= 55.0)
+            if last_f is not None and ma25 is not None:
+                if last_f >= float(ma25) and rsi_strong:
+                    return "trend_follow"
+            if rsi_strong:
+                return "trend_follow"
+
+        # --- reversal（逆張り） ---
+        # 弱トレンド/下向き + RSI低め or BB_Zが低い or 52週安値付近
+        if last_f is not None and low_52w is not None:
+            if last_f <= float(low_52w) * 1.010:
+                return "reversal"
+        if rsi14 is not None and float(rsi14) <= 35.0:
+            return "reversal"
+        if bb_z is not None and float(bb_z) <= -1.2:
+            return "reversal"
+        if slope25 is not None and float(slope25) < 0:
+            if dcross is not None and float(dcross) > 0:
+                return "reversal"
+            # 下向きのときは逆張り寄せ
+            return "reversal"
+
+        # --- mean_revert（レンジ逆） ---
+        # BB_Zが極端 / slopeが小さい / どれにも当たらない最終フォールバック
+        if bb_z is not None and abs(float(bb_z)) >= 1.6:
+            return "mean_revert"
+        if slope25 is not None and abs(float(slope25)) <= 0.02:
+            return "mean_revert"
+
+        return "mean_revert"
+    except Exception:
+        return "mean_revert"
+
+
+# =========================================================
+# 出力アイテム
+# =========================================================
+
+@dataclass
+class PickItem:
+    code: str
+    name: Optional[str] = None
+    sector_display: Optional[str] = None
+
+    # ★ entry_reason（6択・必ず1つ）
+    entry_reason: Optional[str] = None
+
+    # チャート用 OHLC（最新 max_points 本）
+    chart_open: Optional[List[float]] = None
+    chart_high: Optional[List[float]] = None
+    chart_low: Optional[List[float]] = None
+    chart_closes: Optional[List[float]] = None  # 終値のみ（ライン用）
+    chart_dates: Optional[List[str]] = None     # X軸用日付（YYYY-MM-DD）
+
+    # テクニカル系オーバーレイ
+    chart_ma_short: Optional[List[Optional[float]]] = None  # 例: MA5
+    chart_ma_mid: Optional[List[Optional[float]]] = None    # 例: MA25
+    chart_ma_75: Optional[List[Optional[float]]] = None     # MA75
+    chart_ma_100: Optional[List[Optional[float]]] = None    # MA100
+    chart_ma_200: Optional[List[Optional[float]]] = None    # MA200
+    chart_vwap: Optional[List[Optional[float]]] = None      # VWAP
+    chart_rsi: Optional[List[Optional[float]]] = None       # RSI14
+
+    # 52週高安値 / 上場来高安値
+    high_52w: Optional[float] = None
+    low_52w: Optional[float] = None
+    high_all: Optional[float] = None
+    low_all: Optional[float] = None
+
+    last_close: Optional[float] = None
+    atr: Optional[float] = None
+
+    entry: Optional[float] = None
+    tp: Optional[float] = None
+    sl: Optional[float] = None
+
+    score: Optional[float] = None          # 0..1
+    score_100: Optional[int] = None        # 0..100
+    stars: Optional[int] = None            # 1..5（confidence_serviceで確定）
+
+    # ===== ML outputs =====
+    ml_p_win: Optional[float] = None
+    ml_ev: Optional[float] = None
+    ml_rank: Optional[float] = None
+    ml_hold_days_pred: Optional[float] = None
+    ml_tp_first: Optional[str] = None
+    ml_tp_first_probs: Optional[Dict[str, float]] = None
+
+    # ===== EV / RR (手数料込み) =====
+    ev_net_rakuten: Optional[float] = None
+    rr_net_rakuten: Optional[float] = None
+    ev_net_matsui: Optional[float] = None
+    rr_net_matsui: Optional[float] = None
+    ev_net_sbi: Optional[float] = None
+    rr_net_sbi: Optional[float] = None
+
+    # ===== 本命EV（pTP混ぜ） =====
+    ev_true_rakuten: Optional[float] = None
+    ev_true_matsui: Optional[float] = None
+    ev_true_sbi: Optional[float] = None
+
+    qty_rakuten: Optional[int] = None
+    required_cash_rakuten: Optional[float] = None
+    est_pl_rakuten: Optional[float] = None
+    est_loss_rakuten: Optional[float] = None
+
+    qty_matsui: Optional[int] = None
+    required_cash_matsui: Optional[float] = None
+    est_pl_matsui: Optional[float] = None
+    est_loss_matsui: Optional[float] = None
+
+    qty_sbi: Optional[int] = None
+    required_cash_sbi: Optional[float] = None
+    est_pl_sbi: Optional[float] = None
+    est_loss_sbi: Optional[float] = None
+
+    # sizing_service 側で組んだ共通メッセージ（両方0株など）
+    reasons_text: Optional[List[str]] = None
+
+    # 理由5つ＋懸念（reasons サービス）
+    reason_lines: Optional[List[str]] = None
+    reason_concern: Optional[str] = None
+
+    # 証券会社別の見送り理由（qty=0 のときだけ使用）
+    reason_rakuten: Optional[str] = None
+    reason_matsui: Optional[str] = None
+    reason_sbi: Optional[str] = None
+
+
+# =========================================================
+# 1銘柄処理
+# =========================================================
+
+def _work_one(
+    user,
+    code: str,
+    nbars: int,
+    *,
+    mode_period: str,
+    mode_aggr: str,
+    behavior_cache: Optional[Dict[Tuple[str, str, str], Dict[str, Any]]] = None,
+    filter_stats: Optional[Dict[str, int]] = None,
+    regime: Optional[object] = None,
+) -> Optional[Tuple[PickItem, Dict[str, Any]]]:
+    """
+    単一銘柄について、価格→特徴量→スコア→Entry/TP/SL→⭐️（司令塔）→Sizing→理由 まで全部まとめて計算。
+    sizing_meta には risk_pct / lot_size を入れて返す。
+    """
+    try:
+        raw = get_prices(code, nbars=nbars, period="3y")
+        if raw is None or len(raw) == 0:
+            if BUILD_LOG:
+                print(f"[picks_build] {code}: empty price")
+            return None
+
+        # チャート用 OHLC（ローソク足＋終値ライン＋日付）
+        max_points = 260
+        chart_open, chart_high, chart_low, chart_closes, chart_dates = _extract_chart_ohlc(
+            raw, max_points=max_points
+        )
+
+        # 特徴量（MA / RSI / VWAP 等）
+        cfg = FeatureConfig()
+        feat = make_features(raw, cfg=cfg)
+        if feat is None or len(feat) == 0:
+            if BUILD_LOG:
+                print(f"[picks_build] {code}: empty features")
+            return None
+
+        close_s = _safe_series(feat.get("Close"))
+        atr_s = _safe_series(feat.get(f"ATR{cfg.atr_period}") if f"ATR{cfg.atr_period}" in feat else None)
+
+        last = _safe_float(close_s.iloc[-1] if len(close_s) else np.nan)
+        atr = _safe_float(atr_s.iloc[-1] if len(atr_s) else np.nan)
+
+        # --- MA 系オーバーレイ ---
+        ma_short_col = f"MA{cfg.ma_short}"    # 5
+        ma_mid_col = f"MA{cfg.ma_mid}"        # 25
+        ma_75_col = f"MA{cfg.ma_long}"        # 75
+        ma_100_col = f"MA{cfg.ma_extra1}"     # 100
+        ma_200_col = f"MA{cfg.ma_extra2}"     # 200
+        rsi_col = f"RSI{cfg.rsi_period}"
+
+        chart_ma_short = _series_tail_to_list(feat.get(ma_short_col), max_points=max_points)
+        chart_ma_mid = _series_tail_to_list(feat.get(ma_mid_col), max_points=max_points)
+        chart_ma_75 = _series_tail_to_list(feat.get(ma_75_col), max_points=max_points)
+        chart_ma_100 = _series_tail_to_list(feat.get(ma_100_col), max_points=max_points)
+        chart_ma_200 = _series_tail_to_list(feat.get(ma_200_col), max_points=max_points)
+        chart_vwap = _series_tail_to_list(feat.get("VWAP"), max_points=max_points)
+        chart_rsi = _series_tail_to_list(feat.get(rsi_col), max_points=max_points)
+
+        # --- 52週高安値 / 上場来高安値（スカラー） ---
+        high_52w = None
+        low_52w = None
+        high_all = None
+        low_all = None
+
+        if "HIGH_52W" in feat.columns:
+            high_52w = _safe_float(_safe_series(feat["HIGH_52W"]).iloc[-1])
+        if "LOW_52W" in feat.columns:
+            low_52w = _safe_float(_safe_series(feat["LOW_52W"]).iloc[-1])
+        if "HIGH_ALL" in feat.columns:
+            high_all = _safe_float(_safe_series(feat["HIGH_ALL"]).iloc[-1])
+        if "LOW_ALL" in feat.columns:
+            low_all = _safe_float(_safe_series(feat["LOW_ALL"]).iloc[-1])
+
+        high_52w = _nan_to_none(high_52w)
+        low_52w = _nan_to_none(low_52w)
+        high_all = _nan_to_none(high_all)
+        low_all = _nan_to_none(low_all)
+
+        # --- 仕手株・流動性などのフィルタリング層 ---
+        if picks_check_all is not None and FilterContext is not None:
+            try:
+                ctx = FilterContext(
+                    code=str(code),
+                    feat=feat.iloc[-1].to_dict(),
+                    last=last,
+                    atr=atr,
+                )
+                decision = picks_check_all(ctx)
+                if decision and getattr(decision, "skip", False):
+                    # フィルタ理由ごとの件数カウント
+                    if filter_stats is not None:
+                        reason = getattr(decision, "reason_code", None) or "SKIP"
+                        filter_stats[reason] = filter_stats.get(reason, 0) + 1
+
+                    if BUILD_LOG:
+                        rc = getattr(decision, "reason_code", None)
+                        rt = getattr(decision, "reason_text", None)
+                        print(f"[picks_build] {code}: filtered out ({rc}) {rt}")
+                    return None
+            except Exception as ex:
+                if filter_stats is not None:
+                    filter_stats["filter_error"] = filter_stats.get("filter_error", 0) + 1
+                if BUILD_LOG:
+                    print(f"[picks_build] {code}: filter error {ex}")
+
+        # --- スコア（レジーム込み本格版） ---
+        if ext_score_sample:
+            try:
+                # 新シグネチャ: score_sample(feat, regime=None)
+                s01 = float(ext_score_sample(feat, regime=regime))
+            except TypeError:
+                # 万一、古いシグネチャだった場合のフォールバック
+                s01 = float(ext_score_sample(feat))
+        else:
+            s01 = _fallback_score_sample(feat)
+
+        score100 = _score_to_0_100(s01)
+
+        # --- Entry / TP / SL ---
+        if ext_entry_tp_sl:
+            e, t, s = ext_entry_tp_sl(last, atr, mode="aggressive", horizon="short")
+        else:
+            e, t, s = _fallback_entry_tp_sl(last, atr)
+
+        # =========================================================
+        # ⭐️（本番仕様）：confidence_service（司令塔）で確定
+        # =========================================================
+        code_norm = _normalize_code(code)
+
+        fallback_star = None
+        if ext_stars_from_score:
+            try:
+                fallback_star = int(ext_stars_from_score(s01))
+            except Exception:
+                fallback_star = None
+        if not isinstance(fallback_star, int) or not (1 <= fallback_star <= 5):
+            fallback_star = _fallback_stars(s01)
+
+        stars = int(fallback_star)
+
+        conf_meta: Dict[str, Any] = {}
+        if compute_confidence_star is not None:
+            try:
+                try:
+                    stars = int(
+                        compute_confidence_star(
+                            code=str(code_norm),
+                            feat_df=feat,
+                            entry=e,
+                            tp=t,
+                            sl=s,
+                            mode_period=mode_period,
+                            mode_aggr=mode_aggr,
+                            regime=regime,
+                            behavior_cache=behavior_cache,
+                        )
+                    )
+                except TypeError:
+                    stars = int(
+                        compute_confidence_star(
+                            code=str(code_norm),
+                            feat_df=feat,
+                            entry=e,
+                            tp=t,
+                            sl=s,
+                            mode_period=mode_period,
+                            mode_aggr=mode_aggr,
+                            regime=regime,
+                        )
+                    )
+
+                if CONF_DETAIL and compute_confidence_detail is not None:
+                    try:
+                        try:
+                            d = compute_confidence_detail(
+                                code=str(code_norm),
+                                feat_df=feat,
+                                entry=e,
+                                tp=t,
+                                sl=s,
+                                mode_period=mode_period,
+                                mode_aggr=mode_aggr,
+                                regime=regime,
+                                behavior_cache=behavior_cache,
+                            )
+                        except TypeError:
+                            d = compute_confidence_detail(
+                                code=str(code_norm),
+                                feat_df=feat,
+                                entry=e,
+                                tp=t,
+                                sl=s,
+                                mode_period=mode_period,
+                                mode_aggr=mode_aggr,
+                                regime=regime,
+                            )
+
+                        conf_meta = {
+                            "stars_final": int(d.stars_final),
+                            "stars_perf": d.stars_perf,
+                            "stars_stability": int(d.stars_stability),
+                            "stars_distance": int(d.stars_distance),
+                            "stars_score": int(d.stars_score),
+                            "score01": d.score01,
+                            "perf_source": d.perf_source,
+                            "perf_n": d.perf_n,
+                            "perf_win_rate": d.perf_win_rate,
+                            "perf_avg_pl": d.perf_avg_pl,
+                            "w_perf": float(d.w_perf),
+                            "w_stability": float(d.w_stability),
+                            "w_distance": float(d.w_distance),
+                            "w_score": float(d.w_score),
+                        }
+                    except Exception:
+                        conf_meta = {}
+            except Exception as ex:
+                if BUILD_LOG:
+                    print(f"[picks_build] confidence_service error for {code_norm}: {ex}")
+                stars = int(fallback_star)
+
+        # =========================================================
+        # ML推論（主役の一部）→ PickItem に詰める
+        # =========================================================
+        ml_meta: Dict[str, Any] = {}
+        ml_p_win = None
+        ml_ev = None
+        ml_rank = None
+        ml_hold = None
+        ml_tp = None
+        ml_tp_probs = None
+
+        if ml_infer_from_features is not None:
+            try:
+                r = ml_infer_from_features(feat_df=feat)
+                ml_p_win = getattr(r, "p_win", None)
+                ml_ev = getattr(r, "ev", None)
+                ml_rank = getattr(r, "ml_rank", None)
+                ml_hold = getattr(r, "hold_days_pred", None)
+                ml_tp = getattr(r, "tp_first", None)
+                ml_tp_probs = getattr(r, "tp_first_probs", None)
+                ml_meta = {
+                    "p_win": ml_p_win,
+                    "ev": ml_ev,
+                    "rank": ml_rank,
+                    "hold": ml_hold,
+                    "tp_first": ml_tp,
+                }
+            except Exception as ex:
+                if BUILD_LOG:
+                    print(f"[picks_build] ml_infer error for {code_norm}: {ex}")
+
+        # --- 理由5つ＋懸念（特徴量ベース） ---
+        reason_lines: Optional[List[str]] = None
+        reason_concern: Optional[str] = None
+        if make_ai_reasons is not None:
+            try:
+                reasons_feat = _build_reasons_features(feat, last, atr)
+                rs, concern = make_ai_reasons(reasons_feat)
+                if rs:
+                    reason_lines = list(rs[:5])
+                if concern:
+                    reason_concern = str(concern)
+            except Exception as ex:
+                if BUILD_LOG:
+                    print(f"[picks_build] reasons error for {code_norm}: {ex}")
+
+        # ★ entry_reason（6択・必ず1つ）
+        entry_reason = _classify_entry_reason(
+            feat,
+            last=_nan_to_none(last),
+            atr=_nan_to_none(atr),
+            entry=_nan_to_none(e),
+            tp=_nan_to_none(t),
+            sl=_nan_to_none(s),
+            ml_tp_first=ml_tp,
+            ml_tp_probs=ml_tp_probs if isinstance(ml_tp_probs, dict) else None,
+            reason_lines=reason_lines,
+            reason_concern=reason_concern,
+        )
+
+        if BUILD_LOG:
+            msg = (
+                f"[picks_build] {code_norm} last={last} atr={atr} "
+                f"score01={s01:.3f} score100={score100} stars={stars} "
+                f"(period={mode_period} aggr={mode_aggr}) entry_reason={entry_reason}"
+            )
+            if ml_meta:
+                msg += f" ml(p_win={ml_p_win} ev={ml_ev} hold={ml_hold} tp_first={ml_tp})"
+            if conf_meta:
+                msg += f" conf={conf_meta}"
+            print(msg)
+
+        item = PickItem(
+            code=str(code_norm),
+            last_close=_nan_to_none(last),
+            atr=_nan_to_none(atr),
+            entry=_nan_to_none(e),
+            tp=_nan_to_none(t),
+            sl=_nan_to_none(s),
+            score=_nan_to_none(s01),
+            score_100=int(score100),
+            stars=int(stars),
+
+            ml_p_win=_nan_to_none(ml_p_win),
+            ml_ev=_nan_to_none(ml_ev),
+            ml_rank=_nan_to_none(ml_rank),
+            ml_hold_days_pred=_nan_to_none(ml_hold),
+            ml_tp_first=ml_tp,
+            ml_tp_first_probs=ml_tp_probs,
+
+            reason_lines=reason_lines,
+            reason_concern=reason_concern,
+
+            entry_reason=str(entry_reason),
+
+            chart_open=chart_open,
+            chart_high=chart_high,
+            chart_low=chart_low,
+            chart_closes=chart_closes,
+            chart_dates=chart_dates,
+            chart_ma_short=chart_ma_short,
+            chart_ma_mid=chart_ma_mid,
+            chart_ma_75=chart_ma_75,
+            chart_ma_100=chart_ma_100,
+            chart_ma_200=chart_ma_200,
+            chart_vwap=chart_vwap,
+            chart_rsi=chart_rsi,
+            high_52w=high_52w,
+            low_52w=low_52w,
+            high_all=high_all,
+            low_all=low_all,
+        )
+
+        # =========================================================
+        # p(tp_first) を sizing に渡す（本命EVの材料）
+        # =========================================================
+        p_tp_first = None
+        try:
+            if isinstance(ml_tp_probs, dict):
+                v = ml_tp_probs.get("tp_first")
+                if v is not None:
+                    p_tp_first = float(v)
+        except Exception:
+            p_tp_first = None
+
+        # --- Sizing（数量・必要資金・想定PL/損失 + 見送り理由 + EV_true） ---
+        try:
+            sizing = compute_position_sizing(
+                user=user,
+                code=str(code_norm),
+                last_price=last,
+                atr=atr,
+                entry=e,
+                tp=t,
+                sl=s,
+                p_tp_first=p_tp_first,  # ★対応（sizing_service側が受け取る前提）
+            )
+        except TypeError:
+            # 旧シグネチャ互換
+            sizing = compute_position_sizing(
+                user=user,
+                code=str(code_norm),
+                last_price=last,
+                atr=atr,
+                entry=e,
+                tp=t,
+                sl=s,
+            )
+
+        # 楽天
+        item.qty_rakuten = sizing.get("qty_rakuten")
+        item.required_cash_rakuten = sizing.get("required_cash_rakuten")
+        item.est_pl_rakuten = sizing.get("est_pl_rakuten")
+        item.est_loss_rakuten = sizing.get("est_loss_rakuten")
+
+        # 松井
+        item.qty_matsui = sizing.get("qty_matsui")
+        item.required_cash_matsui = sizing.get("required_cash_matsui")
+        item.est_pl_matsui = sizing.get("est_pl_matsui")
+        item.est_loss_matsui = sizing.get("est_loss_matsui")
+
+        # SBI
+        item.qty_sbi = sizing.get("qty_sbi")
+        item.required_cash_sbi = sizing.get("required_cash_sbi")
+        item.est_pl_sbi = sizing.get("est_pl_sbi")
+        item.est_loss_sbi = sizing.get("est_loss_sbi")
+
+        # EV / RR (手数料込み)
+        item.ev_net_rakuten = sizing.get("ev_net_rakuten")
+        item.rr_net_rakuten = sizing.get("rr_net_rakuten")
+        item.ev_net_matsui = sizing.get("ev_net_matsui")
+        item.rr_net_matsui = sizing.get("rr_net_matsui")
+        item.ev_net_sbi = sizing.get("ev_net_sbi")
+        item.rr_net_sbi = sizing.get("rr_net_sbi")
+
+        # 本命EV（pTP混ぜ）
+        item.ev_true_rakuten = sizing.get("ev_true_rakuten")
+        item.ev_true_matsui = sizing.get("ev_true_matsui")
+        item.ev_true_sbi = sizing.get("ev_true_sbi")
+
+        # 共通メッセージ
+        reasons_text = sizing.get("reasons_text")
+        item.reasons_text = reasons_text if reasons_text else None
+
+        # 証券会社別の見送り理由（0株のときにテンプレートが表示）
+        item.reason_rakuten = sizing.get("reason_rakuten_msg") or ""
+        item.reason_matsui = sizing.get("reason_matsui_msg") or ""
+        item.reason_sbi = sizing.get("reason_sbi_msg") or ""
+
+        sizing_meta = {
+            "risk_pct": sizing.get("risk_pct"),
+            "lot_size": sizing.get("lot_size"),
+        }
+
+        if conf_meta:
+            sizing_meta["confidence_detail"] = conf_meta
+
+        if BUILD_LOG:
+            evr = _as_float_or_none(item.ev_true_rakuten)
+            qtyr = int(item.qty_rakuten or 0)
+            print(f"[picks_build] {code_norm} EV_true_rakuten={evr} qty_rakuten={qtyr} pTP={p_tp_first}")
+
+        return item, sizing_meta
+
+    except Exception as e:
+        print(f"[picks_build] work error for {code}: {e}")
+        if filter_stats is not None:
+            filter_stats["work_error"] = filter_stats.get("work_error", 0) + 1
+        return None
+
+
+# =========================================================
+# ユニバース読み込み
+# =========================================================
+
+def _load_universe_from_txt(name: str) -> List[str]:
+    base = Path("aiapp/data/universe")
+    filename = name
+    if not filename.endswith(".txt"):
+        filename = f"{filename}.txt"
+    txt = base / filename
+    if not txt.exists():
+        print(f"[picks_build] universe file not found: {txt}")
+        return []
+    codes: List[str] = []
+    for line in txt.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        codes.append(line.split(",")[0].strip())
+    return codes
+
+
+def _load_universe_all_jpx() -> List[str]:
+    """
+    StockMaster から日本株全銘柄コードを取る ALL-JPX 用。
+    """
+    if StockMaster is None:
+        print("[picks_build] StockMaster not available; ALL-JPX empty")
+        return []
+    try:
+        qs = StockMaster.objects.values_list("code", flat=True).order_by("code")
+        codes = [str(c).strip() for c in qs if c]
+        print(f"[picks_build] ALL-JPX from StockMaster: {len(codes)} codes")
+        return codes
+    except Exception as e:
+        print(f"[picks_build] ALL-JPX load error: {e}")
+        return []
+
+
+def _load_universe(name: str) -> List[str]:
+    """
+    ユニバース名 → 銘柄コード一覧。
+      all_jpx / all / jpx_all         → StockMaster から全件
+      nk225 / nikkei225 / nikkei_225  → data/universe/nk225.txt
+      それ以外                          → data/universe/<name>.txt
+    """
+    key = (name or "").strip().lower()
+
+    if key in ("all_jpx", "all", "jpx_all"):
+        codes = _load_universe_all_jpx()
+        if codes:
+            return codes
+        print("[picks_build] ALL-JPX fallback to txt")
+        return _load_universe_from_txt("all_jpx")
+
+    if key in ("nk225", "nikkei225", "nikkei_225"):
+        return _load_universe_from_txt("nk225")
+
+    return _load_universe_from_txt(key)
+
+
+# =========================================================
+# 銘柄名・業種補完
+# =========================================================
+
+def _enrich_meta(items: List[PickItem]) -> None:
+    if not items or StockMaster is None:
+        return
+    codes = [it.code for it in items if it and it.code]
+    if not codes:
+        return
+    try:
+        qs = StockMaster.objects.filter(code__in=codes).values("code", "name", "sector_name")
+        meta: Dict[str, Tuple[str, str]] = {
+            str(r["code"]): (r.get("name") or "", r.get("sector_name") or "")
+            for r in qs
+        }
+        for it in items:
+            if it.code in meta:
+                nm, sec = meta[it.code]
+                if not it.name:
+                    it.name = nm or None
+                if not it.sector_display:
+                    it.sector_display = sec or None
+    except Exception:
+        pass
+
+
+# =========================================================
+# Django management command
+# =========================================================
+
+class Command(BaseCommand):
+    help = "AIピック生成（FULL + TopK + Sizing + 理由テキキスト）"
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--universe",
+            type=str,
+            default="nk225",
+            help="all_jpx / nk225 / nikkei_225 / <file name> など",
+        )
+        parser.add_argument("--sample", type=int, default=None)
+        parser.add_argument("--head", type=int, default=None)
+        parser.add_argument("--budget", type=int, default=None)
+        parser.add_argument("--nbars", type=int, default=260)
+        parser.add_argument("--nbars-lite", type=int, default=45)
+        parser.add_argument("--use-snapshot", action="store_true")
+        parser.add_argument("--lite-only", action="store_true")
+        parser.add_argument("--force", action="store_true")
+        parser.add_argument("--style", type=str, default="aggressive")
+        parser.add_argument("--horizon", type=str, default="short")
+        parser.add_argument(
+            "--topk",
+            type=int,
+            default=int(os.getenv("AIAPP_TOPK", "10")),
+            help="上位何銘柄を latest_full.json に出すか",
+        )
+
+    def handle(self, *args, **opts):
+        universe = opts.get("universe") or "nk225"
+        nbars = int(opts.get("nbars") or 260)
+        style = (opts.get("style") or "aggressive").lower()
+        horizon = (opts.get("horizon") or "short").lower()
+        topk = int(opts.get("topk") or 10)
+
+        # ★ 本番仕様（⭐️）キー（confidence_serviceに渡す）
+        mode_period = _mode_period_from_horizon(horizon)
+        mode_aggr = _mode_aggr_from_style(style)
+
+        codes = _load_universe(universe)
+        stockmaster_total = len(codes)
+
+        # ---- マクロレジームの読み込み（あれば）----
+        macro_regime = None
+        if MacroRegimeSnapshot is not None:
+            try:
+                today = datetime.now(JST).date()
+                macro_regime = (
+                    MacroRegimeSnapshot.objects
+                    .filter(date__lte=today)
+                    .order_by("-date")
+                    .first()
+                )
+                if BUILD_LOG and macro_regime is not None:
+                    print(
+                        f"[picks_build] use MacroRegimeSnapshot "
+                        f"date={macro_regime.date} regime={macro_regime.regime_label}"
+                    )
+            except Exception as ex:
+                if BUILD_LOG:
+                    print(f"[picks_build] macro regime load error: {ex}")
+
+        # 空ユニバースのとき
+        if not codes:
+            print("[picks_build] universe empty → 空JSON出力")
+
+            regime_date_str = None
+            if macro_regime is not None:
+                d = getattr(macro_regime, "date", None)
+                if d is not None:
+                    regime_date_str = d.isoformat()
+
+            self._emit(
+                [],
+                [],
+                mode="full",
+                style=style,
+                horizon=horizon,
+                universe=universe,
+                topk=topk,
+                meta_extra={
+                    "stockmaster_total": stockmaster_total,
+                    "filter_stats": {},
+                    "regime_date": regime_date_str,
+                    "regime_label": getattr(macro_regime, "regime_label", None) if macro_regime else None,
+                    "regime_summary": getattr(macro_regime, "summary", None) if macro_regime else None,
+                    # ★ ⭐️本番仕様メタ
+                    "stars_engine": "confidence_service",
+                    "stars_mode_period": mode_period,
+                    "stars_mode_aggr": mode_aggr,
+                    "behaviorstats_cache_rows": 0,
+                    # ★ MLメタ
+                    "ml_engine": "lightgbm",
+                    "ml_models_dir": "media/aiapp/ml/models/latest",
+                    # ★ Rankメタ
+                    "rank_mode": "EV_true_rakuten",
+                    "topk_rule": "EV_true_rakuten>0 and qty_rakuten>0",
+                },
+            )
+            return
+
+        if BUILD_LOG:
+            print(f"[picks_build] start FULL universe={universe} codes={stockmaster_total}")
+
+        User = get_user_model()
+        user = User.objects.first()
+
+        items: List[PickItem] = []
+        meta_extra: Dict[str, Any] = {}
+
+        # フィルタ理由ごとの削除件数カウンタ
+        filter_stats: Dict[str, int] = {}
+
+        # confidence_detail を meta に1つだけ載せたい（確認用）
+        first_conf_detail: Optional[Dict[str, Any]] = None
+
+        # =========================================================
+        # ★ BehaviorStats を一括ロードしてキャッシュ化（DB連打防止）
+        # =========================================================
+        behavior_cache: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+        if BehaviorStats is not None and codes:
+            try:
+                codes_norm = [_normalize_code(c) for c in codes if c]
+                qs = (
+                    BehaviorStats.objects
+                    .filter(code__in=codes_norm)
+                    .values("code", "mode_period", "mode_aggr", "stars", "n", "win_rate", "avg_pl")
+                )
+                for r in qs:
+                    c = _normalize_code(r.get("code"))
+                    mp = (r.get("mode_period") or "").strip().lower()
+                    ma = (r.get("mode_aggr") or "").strip().lower()
+                    if not c or not mp or not ma:
+                        continue
+                    behavior_cache[(c, mp, ma)] = {
+                        "stars": r.get("stars"),
+                        "n": r.get("n"),
+                        "win_rate": r.get("win_rate"),
+                        "avg_pl": r.get("avg_pl"),
+                    }
+                if BUILD_LOG:
+                    print(f"[picks_build] BehaviorStats cache rows: {len(behavior_cache)}")
+            except Exception as ex:
+                if BUILD_LOG:
+                    print(f"[picks_build] BehaviorStats cache load error: {ex}")
+                behavior_cache = {}
+
+        for code in codes:
+            res = _work_one(
+                user,
+                code,
+                nbars=nbars,
+                mode_period=mode_period,
+                mode_aggr=mode_aggr,
+                behavior_cache=behavior_cache,
+                filter_stats=filter_stats,
+                regime=macro_regime,
+            )
+            if res is None:
+                continue
+            item, sizing_meta = res
+            items.append(item)
+
+            # meta（risk_pct / lot_size）は最初に取得できた値を採用
+            if sizing_meta:
+                if sizing_meta.get("risk_pct") is not None and "risk_pct" not in meta_extra:
+                    meta_extra["risk_pct"] = float(sizing_meta["risk_pct"])
+                if sizing_meta.get("lot_size") is not None and "lot_size" not in meta_extra:
+                    meta_extra["lot_size"] = int(sizing_meta["lot_size"])
+
+                if CONF_DETAIL and first_conf_detail is None and sizing_meta.get("confidence_detail"):
+                    first_conf_detail = sizing_meta.get("confidence_detail")
+
+        _enrich_meta(items)
+
+        # ---- セクターバイアス・サイズバイアス適用（あれば） ----
+        # ※あなたの方針：picks_bias は stars を触らない前提
+        if apply_bias_all is not None and items:
+            try:
+                apply_bias_all(items)
+            except Exception as ex:
+                if BUILD_LOG:
+                    print(f"[picks_build] bias error: {ex}")
+
+        # =========================================================
+        # 本番：並び替え（EV_true_rakuten desc → qty_rakuten>0 → ml_rank → score_100 → last_close）
+        # =========================================================
+        def _rank_key(x: PickItem):
+            ev_true = _as_float_or_none(x.ev_true_rakuten)
+            ev_key = ev_true if ev_true is not None else -1e18
+
+            qty = int(x.qty_rakuten or 0)
+            qty_ok = 1 if qty > 0 else 0
+
+            mr = _as_float_or_none(x.ml_rank)
+            mr_key = mr if mr is not None else -1e18
+
+            sc = float(x.score_100) if x.score_100 is not None else -1e18
+            lc = float(x.last_close) if x.last_close is not None else -1e18
+
+            return (ev_key, qty_ok, mr_key, sc, lc)
+
+        items.sort(key=_rank_key, reverse=True)
+
+        # =========================================================
+        # TopK（UI用）：原則「EV_true>0 かつ qty>0」だけ
+        # =========================================================
+        top_candidates: List[PickItem] = []
+        for it in items:
+            ev_true = _as_float_or_none(it.ev_true_rakuten)
+            qty = int(it.qty_rakuten or 0)
+            if ev_true is not None and ev_true > 0 and qty > 0:
+                top_candidates.append(it)
+
+        top_items = top_candidates[: max(0, topk)]
+
+        # フォールバック：0件なら「並び替え済み上位」から出す（UIが空になる事故回避）
+        if not top_items:
+            top_items = items[: max(0, topk)]
+
+        if BUILD_LOG:
+            print(
+                f"[picks_build] done stockmaster_total={stockmaster_total} "
+                f"total={len(items)} topk={len(top_items)}"
+            )
+
+        # 追加メタ
+        meta_extra["stockmaster_total"] = stockmaster_total
+        meta_extra["filter_stats"] = filter_stats
+
+        if macro_regime is not None:
+            d = getattr(macro_regime, "date", None)
+            regime_date_str = d.isoformat() if d is not None else None
+            meta_extra["regime_date"] = regime_date_str
+            meta_extra["regime_label"] = getattr(macro_regime, "regime_label", None)
+            meta_extra["regime_summary"] = getattr(macro_regime, "summary", None)
+
+        # ★ ⭐️本番仕様メタ
+        meta_extra["stars_engine"] = "confidence_service"
+        meta_extra["stars_mode_period"] = mode_period
+        meta_extra["stars_mode_aggr"] = mode_aggr
+        meta_extra["behaviorstats_cache_rows"] = len(behavior_cache)
+        if first_conf_detail is not None:
+            meta_extra["confidence_detail_sample"] = first_conf_detail
+
+        # ★ MLメタ
+        meta_extra["ml_engine"] = "lightgbm"
+        meta_extra["ml_models_dir"] = "media/aiapp/ml/models/latest"
+
+        # ★ Rankメタ
+        meta_extra["rank_mode"] = "EV_true_rakuten"
+        meta_extra["topk_rule"] = "EV_true_rakuten>0 and qty_rakuten>0"
+
+        self._emit(
+            items,
+            top_items,
+            mode="full",
+            style=style,
+            horizon=horizon,
+            universe=universe,
+            topk=topk,
+            meta_extra=meta_extra,
+        )
+
+    # -------------------- 出力 --------------------
+
+    def _emit(
+        self,
+        all_items: List[PickItem],
+        top_items: List[PickItem],
+        *,
+        mode: str,
+        style: str,
+        horizon: str,
+        universe: str,
+        topk: int,
+        meta_extra: Dict[str, Any],
+    ) -> None:
+        meta: Dict[str, Any] = {
+            "mode": mode,
+            "style": style,
+            "horizon": horizon,
+            "universe": universe,
+            "total": len(all_items),
+            "topk": topk,
+        }
+        meta.update({k: v for k, v in (meta_extra or {}).items() if v is not None})
+
+        data_all = {"meta": meta, "items": [asdict(x) for x in all_items]}
+        data_top = {"meta": meta, "items": [asdict(x) for x in top_items]}
+
+        PICKS_DIR.mkdir(parents=True, exist_ok=True)
+
+        # 全件（検証用）
+        out_all_latest = PICKS_DIR / "latest_full_all.json"
+        out_all_stamp = PICKS_DIR / f"{dt_now_stamp()}_{horizon}_{style}_full_all.json"
+        out_all_latest.write_text(json.dumps(data_all, ensure_ascii=False, separators=(",", ":")))
+        out_all_stamp.write_text(json.dumps(data_all, ensure_ascii=False, separators=(",", ":")))
+
+        # TopK（UI用）
+        out_top_latest = PICKS_DIR / "latest_full.json"
+        out_top_stamp = PICKS_DIR / f"{dt_now_stamp()}_{horizon}_{style}_full.json"
+        out_top_latest.write_text(json.dumps(data_top, ensure_ascii=False, separators=(",", ":")))
+        out_top_stamp.write_text(json.dumps(data_top, ensure_ascii=False, separators=(",", ":")))

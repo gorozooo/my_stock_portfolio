@@ -1,0 +1,438 @@
+{% extends "base.html" %}
+{% load static %}
+{% load humanize %}
+
+{% block title %}AI Picks{% endblock %}
+
+{% block head %}
+<style>
+  :root{
+    --bg:#0b0f1a; --card:rgba(255,255,255,0.06); --sub:#94a3b8; --fg:#eaf0ff;
+    --accent:#2563eb; --ok:#16a34a; --warn:#f59e0b; --bad:#ef4444; --muted:#334155;
+  }
+  body{background:var(--bg);color:var(--fg)}
+  .wrap{max-width:720px;margin:0 auto;padding:10px 12px 80px}
+
+  .head{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.05);
+    border-radius:16px;margin:6px 0 12px 0;backdrop-filter:blur(10px)
+  }
+  .head-left-top{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    margin-bottom:2px;
+  }
+  .head .ts{font-size:13px;color:#bac5d6}
+  .head .meta{font-size:11px;color:#7f8da3;margin-top:2px}
+
+  .mode-pill{
+    padding:2px 8px;
+    border-radius:999px;
+    font-size:10px;
+    font-weight:600;
+    border:1px solid rgba(255,255,255,.18);
+  }
+  .mode-live{
+    background:rgba(34,197,94,0.18);
+    color:#bbf7d0;
+    border-color:rgba(34,197,94,0.45);
+  }
+  .mode-demo{
+    background:rgba(239,68,68,0.18);
+    color:#fecaca;
+    border-color:rgba(239,68,68,0.45);
+  }
+
+  .head .btn{
+    padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.07);color:#eaf0ff;text-decoration:none;font-size:13px;
+  }
+  .head .btn-demo{
+    border-color:rgba(248,113,113,.6);
+    background:rgba(127,29,29,0.7);
+  }
+
+  .grid{display:grid;gap:10px}
+
+  .card{
+    border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.05);
+    border-radius:16px;padding:14px;backdrop-filter:blur(10px)
+  }
+
+  .ttl{
+    display:flex;gap:8px;align-items:flex-start;justify-content:space-between;margin-bottom:6px;
+  }
+  .ttl h3{font-size:16px;margin:0;line-height:1.3}
+  .ttl .sub{font-size:12px;color:#9fb1c7;margin-top:2px}
+
+  .stars{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:4px;
+    line-height:1;
+  }
+  .stars .star-wrap{position:relative;display:inline-block}
+  .stars .star-base{color:#3a475a;letter-spacing:1px;font-size:16px}
+  .stars .star-fill{
+    position:absolute;inset:0;
+    color:#ffd166;overflow:hidden;white-space:nowrap;letter-spacing:1px;font-size:16px;
+  }
+  .stars .score-text{
+    font-size:15px;
+    font-weight:600;
+    color:#fff;
+    text-align:center;
+    margin-top:2px;
+  }
+
+  .kpi{
+    display:grid;
+    gap:8px;
+    margin-top:10px;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .kpi .it{
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:12px;
+    padding:8px;
+  }
+  .kpi .lb{font-size:12px;color:#9fb1c7;margin-bottom:2px}
+  .kpi .vl{font-size:14px;line-height:1.4}
+  .kpi .vl div{display:flex;justify-content:space-between;gap:4px}
+  .kpi .name{font-size:12px;color:#9fb1c7}
+  .kpi .num{font-size:14px}
+  .kpi .pos{color:var(--ok)}
+  .kpi .neg{color:var(--bad)}
+
+  .entry-row{font-size:14px;display:flex;flex-direction:column;gap:2px}
+  .entry-row span{display:flex;align-items:center;gap:6px}
+  .dot-entry{width:10px;height:10px;border-radius:999px;background:#22c55e;display:inline-block}
+  .dot-tp{width:10px;height:10px;border-radius:999px;background:#60a5fa;display:inline-block}
+  .dot-sl{width:10px;height:10px;border-radius:999px;background:#f97373;display:inline-block}
+
+  .btns{
+    display:flex;gap:8px;margin-top:12px;
+  }
+  .btns a,
+  .btns button{
+    flex:1;
+    text-align:center;
+    text-decoration:none;
+    color:#eaf0ff;
+    border:1px solid rgba(255,255,255,.12);
+    border-radius:12px;
+    padding:10px 8px;
+    background:rgba(255,255,255,.07);
+    font-size:13px;
+  }
+  .btns button{
+    cursor:pointer;
+  }
+  .btns form{
+    flex:1;
+    margin:0;
+  }
+
+  .empty{
+    margin-top:16px;padding:16px;
+    border:1px dashed rgba(255,255,255,.15);
+    border-radius:12px;color:#c7d2e0;font-size:13px;
+  }
+
+  .meta{font-size:11px;color:#7f8da3;margin-top:4px;line-height:1.5}
+
+  /* ルール通過チェック（B用） */
+  .rule-pass{
+    margin-top:8px;
+    padding-top:6px;
+    border-top:1px dashed rgba(148,163,184,0.4);
+    font-size:11px;
+    color:#9ca3af;
+  }
+  .rule-pass-title{
+    font-size:11px;
+    font-weight:600;
+    margin-bottom:2px;
+    color:#e5e7eb;
+  }
+  .rule-pass-broker{
+    margin-top:4px;
+    font-weight:600;
+  }
+  .rule-pass-list{
+    margin:2px 0 0 0;
+    padding-left:1em;
+    list-style:none;
+  }
+  .rule-pass-list li::before{
+    content:"・";
+    margin-right:2px;
+  }
+
+  /* 理由×5＋懸念表示 */
+  .reasons-block{
+    margin-top:10px;
+    padding-top:8px;
+    border-top:1px dashed rgba(148,163,184,0.6);
+    font-size:12px;
+    color:#e5e7eb;
+  }
+  .reasons-title{
+    font-size:12px;
+    font-weight:600;
+    margin-bottom:4px;
+  }
+  .reasons-list{
+    margin:0;
+    padding-left:1.2em;
+  }
+  .reasons-list li{
+    margin-bottom:2px;
+    line-height:1.5;
+  }
+  .reason-concern{
+    margin-top:4px;
+    font-size:11px;
+    color:#fbbf24;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="wrap">
+
+  <div class="head">
+    <div>
+      <div class="head-left-top">
+        <div class="ts">最終更新</div>
+        <div class="mode-pill {% if is_demo %}mode-demo{% else %}mode-live{% endif %}">
+          {% if is_demo %}DEMOモード{% else %}LIVEモード{% endif %}
+        </div>
+      </div>
+      <div style="font-weight:600;font-size:14px">{{ updated_label }}</div>
+      {% if items and items|length > 0 and items.0.price_date %}
+        <div class="meta">価格基準: {{ items.0.price_date }} / {{ items.0.price_vendor|default:"" }}</div>
+      {% endif %}
+    </div>
+    <div>
+      {% if is_demo %}
+        <a class="btn btn-demo" href="?mode=live&reset=1">DEMO解除</a>
+      {% else %}
+        <a class="btn" href="?mode=demo&reset=1">DEMOで検証</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if items and items|length > 0 %}
+    <div class="grid">
+      {% for item in items %}
+        <div class="card">
+          <div class="ttl">
+            <div>
+              <h3>{{ item.name_norm|default:item.name }}</h3>
+              <div class="sub">
+                {{ item.code }} ・ {{ item.sector_display|default:"業種不明" }}
+              </div>
+            </div>
+            <div class="stars"
+                 aria-label="レーティング"
+                 title="{% if item.score_100 is not None %}{{ item.score_100|floatformat:0 }} / 100{% else %}N/A{% endif %}">
+              {% with p=item.score_100|default:0 %}
+                <div class="star-wrap">
+                  <span class="star-base">★★★★★</span>
+                  <span class="star-fill" style="width: {{ p }}%;">★★★★★</span>
+                </div>
+                <div class="score-text">{{ p|floatformat:0 }}点</div>
+              {% endwith %}
+            </div>
+          </div>
+
+          <div class="kpi">
+            <div class="it">
+              <div class="lb">現在値</div>
+              <div class="vl">
+                {% if item.last_close %}
+                  {% if item.is_etf or item.sector_display == 'ETF/ETN' %}
+                    {{ item.last_close|floatformat:1|intcomma }} 円
+                  {% else %}
+                    {{ item.last_close|floatformat:0|intcomma }} 円
+                  {% endif %}
+                {% else %}
+                  —
+                {% endif %}
+                {% if item.price_date %}
+                  <div class="meta">{{ item.price_date }} / {{ item.price_vendor|default:"" }}</div>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="it">
+              <div class="lb">数量（{{ lot_size }}株単元・リスク{{ risk_pct|floatformat:2 }}%）</div>
+              <div class="vl">
+                <div><span class="name">楽天</span><span class="num">{{ item.qty_rakuten|default:0|intcomma }} 株</span></div>
+                <div><span class="name">松井</span><span class="num">{{ item.qty_matsui|default:0|intcomma }} 株</span></div>
+              </div>
+            </div>
+
+            <div class="it">
+              <div class="lb">Entry / TP / SL</div>
+              <div class="entry-row">
+                <span><span class="dot-entry"></span>Entry :
+                  {% if item.is_etf or item.sector_display == 'ETF/ETN' %}
+                    {% if item.entry %}{{ item.entry|floatformat:1|intcomma }} 円{% else %}—{% endif %}
+                  {% else %}
+                    {% if item.entry %}{{ item.entry|floatformat:0|intcomma }} 円{% else %}—{% endif %}
+                  {% endif %}
+                </span>
+                <span><span class="dot-tp"></span>TP :
+                  {% if item.is_etf or item.sector_display == 'ETF/ETN' %}
+                    {% if item.tp %}{{ item.tp|floatformat:1|intcomma }} 円{% else %}—{% endif %}
+                  {% else %}
+                    {% if item.tp %}{{ item.tp|floatformat:0|intcomma }} 円{% else %}—{% endif %}
+                  {% endif %}
+                </span>
+                <span><span class="dot-sl"></span>SL :
+                  {% if item.is_etf or item.sector_display == 'ETF/ETN' %}
+                    {% if item.sl %}{{ item.sl|floatformat:1|intcomma }} 円{% else %}—{% endif %}
+                  {% else %}
+                    {% if item.sl %}{{ item.sl|floatformat:0|intcomma }} 円{% else %}—{% endif %}
+                  {% endif %}
+                </span>
+              </div>
+            </div>
+
+            <div class="it">
+              <div class="lb">必要資金（概算）</div>
+              <div class="vl">
+                <div><span class="name">楽天</span><span class="num">{{ item.required_cash_rakuten|default:0|floatformat:0|intcomma }} 円</span></div>
+                <div><span class="name">松井</span><span class="num">{{ item.required_cash_matsui|default:0|floatformat:0|intcomma }} 円</span></div>
+              </div>
+            </div>
+
+            <div class="it">
+              <div class="lb">想定利益</div>
+              <div class="vl">
+                <div>
+                  <span class="name">楽天</span>
+                  <span class="num pos">
+                    {% if item.est_pl_rakuten %}+{{ item.est_pl_rakuten|floatformat:0|intcomma }} 円{% else %}0 円{% endif %}
+                  </span>
+                </div>
+                <div>
+                  <span class="name">松井</span>
+                  <span class="num pos">
+                    {% if item.est_pl_matsui %}+{{ item.est_pl_matsui|floatformat:0|intcomma }} 円{% else %}0 円{% endif %}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="it">
+              <div class="lb">想定損失</div>
+              <div class="vl">
+                <div>
+                  <span class="name">楽天</span>
+                  <span class="num neg">
+                    {% if item.est_loss_rakuten %}-{{ item.est_loss_rakuten|floatformat:0|intcomma }} 円{% else %}0 円{% endif %}
+                  </span>
+                </div>
+                <div>
+                  <span class="name">松井</span>
+                  <span class="num neg">
+                    {% if item.est_loss_matsui %}-{{ item.est_loss_matsui|floatformat:0|intcomma }} 円{% else %}0 円{% endif %}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {# C1: 銘柄ごとの理由×5＋懸念（reasons.py から来たものだけ） #}
+          {% if item.reason_lines %}
+            <div class="reasons-block">
+              <div class="reasons-title">AIがこの銘柄を選んだ主なポイント</div>
+              <ol class="reasons-list">
+                {% for line in item.reason_lines %}
+                  <li>{{ line }}</li>
+                {% endfor %}
+              </ol>
+              {% if item.reason_concern %}
+                <div class="reason-concern">懸念: {{ item.reason_concern }}</div>
+              {% endif %}
+
+              {# 見送り理由（数量0の口座だけ） #}
+              {% if item.qty_rakuten == 0 and item.reason_rakuten or item.qty_matsui == 0 and item.reason_matsui %}
+                <div class="meta">
+                  {% if item.qty_rakuten == 0 and item.reason_rakuten %}
+                    楽天では見送り: {{ item.reason_rakuten }}
+                    {% if item.qty_matsui == 0 and item.reason_matsui %}<br>{% endif %}
+                  {% endif %}
+                  {% if item.qty_matsui == 0 and item.reason_matsui %}
+                    松井では見送り: {{ item.reason_matsui }}
+                  {% endif %}
+                </div>
+              {% endif %}
+            </div>
+          {% endif %}
+
+          {# B: ルール通過の内訳 #}
+          {% if item.pass_checks_rakuten or item.pass_checks_matsui %}
+            <div class="rule-pass">
+              <div class="rule-pass-title">ルール通過の内訳</div>
+
+              {% if item.pass_checks_rakuten %}
+                <div class="rule-pass-broker">楽天</div>
+                <ul class="rule-pass-list">
+                  {% for line in item.pass_checks_rakuten %}
+                    <li>{{ line|safe }}</li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+
+              {% if item.pass_checks_matsui %}
+                <div class="rule-pass-broker">松井</div>
+                <ul class="rule-pass-list">
+                  {% for line in item.pass_checks_matsui %}
+                    <li>{{ line|safe }}</li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+            </div>
+          {% endif %}
+
+          <div class="btns">
+            <a href="#">ウォッチ</a>
+
+            <form method="post" action="{% url 'aiapp:ai_picks_simulate' %}">
+              {% csrf_token %}
+              <input type="hidden" name="code" value="{{ item.code }}">
+              <input type="hidden" name="name" value="{{ item.name_norm|default:item.name }}">
+              <input type="hidden" name="mode" value="{% if is_demo %}demo{% else %}live{% endif %}">
+              <input type="hidden" name="entry" value="{{ item.entry|default:'' }}">
+              <input type="hidden" name="qty_rakuten" value="{{ item.qty_rakuten|default:'' }}">
+              <input type="hidden" name="qty_matsui" value="{{ item.qty_matsui|default:'' }}">
+              <input type="hidden" name="required_cash_rakuten" value="{{ item.required_cash_rakuten|default:'' }}">
+              <input type="hidden" name="required_cash_matsui" value="{{ item.required_cash_matsui|default:'' }}">
+              <input type="hidden" name="est_pl_rakuten" value="{{ item.est_pl_rakuten|default:'' }}">
+              <input type="hidden" name="est_pl_matsui" value="{{ item.est_pl_matsui|default:'' }}">
+              <input type="hidden" name="est_loss_rakuten" value="{{ item.est_loss_rakuten|default:'' }}">
+              <input type="hidden" name="est_loss_matsui" value="{{ item.est_loss_matsui|default:'' }}">
+              <input type="hidden" name="price_date" value="{{ item.price_date|default:'' }}">
+              <button type="submit">シミュレ</button>
+            </form>
+
+            <a href="#">今すぐで</a>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">
+      候補が0件です。条件が厳しすぎる可能性があります。右上のDEMOボタンや、スタイル・ユニバース設定を確認してください。
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}
