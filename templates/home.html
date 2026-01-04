@@ -160,24 +160,85 @@
           {% endif %}
 
           <!-- =========================
-               AI BRIEF
+               AI BRIEF（最終仕様：要約/根拠/懸念/逃げ道）
                ========================= -->
           {% if d.key == "ai_brief" %}
             {% with b=d.payload %}
               <div class="brief">
-                <div class="brief-headline">{{ b.headline|default:"（準備中）" }}</div>
 
-                {% if b.bullets %}
-                  <div class="brief-list">
-                    {% for s in b.bullets %}
-                      <div class="brief-item">• {{ s }}</div>
-                    {% endfor %}
+                {# 要約（人格の一言） #}
+                <div class="brief-headline">
+                  {% if b.summary %}
+                    {{ b.summary }}
+                  {% else %}
+                    {{ b.headline|default:"（準備中）" }}
+                  {% endif %}
+                </div>
+
+                {# 根拠（最大5） #}
+                {% if b.reasons %}
+                  <div class="sec" style="margin-top:10px;">
+                    <div class="sec-title">根拠</div>
+                    <div class="brief-list">
+                      {% for s in b.reasons|slice:":5" %}
+                        <div class="brief-item">• {{ s }}</div>
+                      {% endfor %}
+                    </div>
                   </div>
                 {% else %}
-                  <div class="empty">AI BRIEF 生成中…</div>
+                  {# 互換：旧bulletsが残っている場合 #}
+                  {% if b.bullets %}
+                    <div class="sec" style="margin-top:10px;">
+                      <div class="sec-title">根拠</div>
+                      <div class="brief-list">
+                        {% for s in b.bullets|slice:":5" %}
+                          <div class="brief-item">• {{ s }}</div>
+                        {% endfor %}
+                      </div>
+                    </div>
+                  {% endif %}
                 {% endif %}
 
-                <div class="hint">“読む→条件化”が目的。ニュースはトリガーにして、監視ルールへ落とす。</div>
+                {# 懸念（最大2） #}
+                {% if b.concerns %}
+                  <div class="sec" style="margin-top:10px;">
+                    <div class="sec-title">懸念</div>
+                    <div class="brief-list">
+                      {% for s in b.concerns|slice:":2" %}
+                        <div class="brief-item">• {{ s }}</div>
+                      {% endfor %}
+                    </div>
+                  </div>
+                {% endif %}
+
+                {# 逃げ道（1行） #}
+                {% if b.escape %}
+                  <div class="sec" style="margin-top:10px;">
+                    <div class="sec-title">逃げ道</div>
+                    <div class="market-summary">{{ b.escape }}</div>
+                  </div>
+                {% endif %}
+
+                {# 外部ニュースは“参考”として最大1件（ほどほど） #}
+                {% if b.reference_news %}
+                  <div class="sec" style="margin-top:12px;">
+                    <div class="sec-title">参考（外部）</div>
+                    <a class="li" href="{{ b.reference_news.link }}" target="_blank" rel="noopener">
+                      <div class="badge">
+                        {% if b.reference_news.source %}{{ b.reference_news.source }}{% else %}NEWS{% endif %}
+                      </div>
+                      <div class="li-title">{{ b.reference_news.title }}</div>
+                      <div class="li-sub">
+                        <span class="host">{{ b.reference_news.host }}</span>
+                        {% if b.reference_news.hint %}
+                          <span style="margin-left:8px;opacity:.75;">{{ b.reference_news.hint }}</span>
+                        {% endif %}
+                      </div>
+                    </a>
+                  </div>
+                {% endif %}
+
+                <div class="hint">AI BRIEFはアプリ内データが主役。外部は参考に留め、行動はPolicy/Snapshotに従う。</div>
               </div>
             {% endwith %}
           {% endif %}
@@ -305,8 +366,33 @@
               <div class="sec">
                 <div class="sec-title">今日の作戦</div>
 
+                {# 追加：最終仕様の表示（モード/自信度/優先アクション） #}
+                {% if t.mode %}
+                  <div class="sec" style="margin-top:10px;">
+                    <div class="sec-title">今日のモード</div>
+                    <div class="market-summary">
+                      {{ t.mode.label|default:"（準備中）" }}
+                      {% if t.confidence %}
+                        <span style="margin-left:8px;opacity:.75;">自信度 {{ t.confidence|floatformat:2 }}</span>
+                      {% endif %}
+                    </div>
+                  </div>
+                {% endif %}
+
+                {% if t.actions %}
+                  <div class="sec" style="margin-top:10px;">
+                    <div class="sec-title">優先アクション</div>
+                    <div class="brief-list">
+                      {% for s in t.actions|slice:":3" %}
+                        <div class="brief-item">• {{ s }}</div>
+                      {% endfor %}
+                    </div>
+                  </div>
+                {% endif %}
+
+                {# 既存：tasks（互換） #}
                 {% if t.tasks %}
-                  <div class="plan">
+                  <div class="plan" style="margin-top:12px;">
                     {% for x in t.tasks %}
                       <div class="plan-item">
                         <div class="plan-head">
