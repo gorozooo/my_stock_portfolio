@@ -23,7 +23,6 @@
   };
 
   const getDeckWidth = () => {
-    // rail の可視幅 = 1枚の幅（flex:0 0 100% 前提）
     return rail.clientWidth || 1;
   };
 
@@ -34,12 +33,10 @@
     setOn(clamp(idx, 0, decks.length - 1));
   };
 
-  // scroll -> requestAnimationFrame
   rail.addEventListener("scroll", () => {
     window.requestAnimationFrame(onScroll);
   }, { passive: true });
 
-  // dot click -> scrollTo
   const bindDotClicks = () => {
     dotEls.forEach(el=>{
       el.addEventListener("click", ()=>{
@@ -51,7 +48,6 @@
   };
   bindDotClicks();
 
-  // resize/orientation -> keep current index and rebuild dots (保険)
   let resizeTimer = null;
   const onResize = () => {
     if (resizeTimer) window.clearTimeout(resizeTimer);
@@ -60,13 +56,14 @@
       const w = getDeckWidth();
       const idx = clamp(Math.round(x / w), 0, decks.length - 1);
 
-      // dots rebuild
       dotEls = buildDots();
       bindDotClicks();
       setOn(idx);
 
-      // snap to idx
       rail.scrollTo({ left: idx * w, behavior: "auto" });
+
+      // tickerも再計算（向き変更で幅が変わる）
+      setupTicker();
     }, 120);
   };
 
@@ -75,18 +72,70 @@
     window.visualViewport.addEventListener("resize", onResize, { passive: true });
   }
 
-  // init
   window.requestAnimationFrame(onScroll);
 
-  // ticker: 二重化で途切れ対策（テキストが短い時だけ）
+  // =========================
+  // ticker: 読める速度に自動調整
+  // =========================
   const tickerText = document.getElementById("tickerText");
-  if (tickerText) {
-    const raw = (tickerText.textContent || "").trim();
-    // “NEWS: 準備中” みたいに短い場合も、二重化して流れを作る
-    if (raw.length > 0) {
-      const sep = "  ／  ";
-      const doubled = raw + sep + raw + sep + raw;
+
+  const setupTicker = () => {
+    if (!tickerText) return;
+
+    const raw = (tickerText.getAttribute("data-raw") || tickerText.textContent || "").trim();
+    if (!raw) return;
+
+    // まず raw を保存（何回も二重化しない）
+    tickerText.setAttribute("data-raw", raw);
+
+    const track = tickerText.closest(".ticker-track");
+    const trackW = (track && track.clientWidth) ? track.clientWidth : 300;
+
+    // テキストが短い時は“流さない”（読ませる）
+    // 目安: track幅の1.2倍以下なら固定表示
+    tickerText.classList.remove("is-marquee");
+    tickerText.style.setProperty("--marqueeDur", "0s");
+    tickerText.style.setProperty("--marqueeDist", "0px");
+    tickerText.textContent = raw;
+
+    // 一旦DOM反映後に幅を測る
+    window.requestAnimationFrame(() => {
+      const textW = tickerText.scrollWidth || 0;
+
+      if (textW <= trackW * 1.2) {
+        // 固定表示でOK
+        tickerText.classList.remove("is-marquee");
+        tickerText.textContent = raw;
+        return;
+      }
+
+      // 長い時だけ “ほどほどに” ループできるように二重化（3回まで）
+      const sep = "   ／   ";
+      const doubled = raw + sep + raw;
       tickerText.textContent = doubled;
-    }
-  }
+
+      // 再測定
+      window.requestAnimationFrame(() => {
+        const newW = tickerText.scrollWidth || textW;
+
+        // 距離: “raw 1回分 + 余白” くらい動けばOK
+        // newW 全部動かすと長すぎるので、動かす距離を制御
+        const dist = Math.max(textW + 80, trackW + 120);
+
+        // 速度(px/sec)：読みやすさ最優先で遅め
+        // 目安 28〜40 px/sec（遅いほど読みやすい）
+        const pxPerSec = 32;
+
+        // 最短/最長（極端対策）
+        let dur = dist / pxPerSec;
+        dur = Math.max(18, Math.min(48, dur)); // 18〜48秒
+
+        tickerText.style.setProperty("--marqueeDist", `${dist}px`);
+        tickerText.style.setProperty("--marqueeDur", `${dur}s`);
+        tickerText.classList.add("is-marquee");
+      });
+    });
+  };
+
+  setupTicker();
 })();
