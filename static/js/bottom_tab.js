@@ -146,14 +146,6 @@ document.addEventListener("DOMContentLoaded", () => {
       { section:"ホーム" },
       { label:"トレンド",        href: URLS.trend_base,           icon:"📈", tone:"info" },
       { label:"設定を開く",      href:"/settings/trade",          icon:"⚙️", tone:"info" },
-
-      { section:"AI（従来advisor）" },
-      { label:"AIボード",        href: URLS.advisor_board,        icon:"🧠", tone:"info" },
-      { label:"ウォッチリスト",    href:"/advisor/watch",          icon:"📝", tone:"info" },
-      { label:"ルール",          href:"/advisor/policy1",         icon:"🚓", tone:"info" },
-      { label:"通知ダッシュボード", href: URLS.advisor_notify,    icon:"🔔", tone:"info" },
-      { label:"ABテスト",        href: URLS.advisor_ab,           icon:"🧪", tone:"info" },
-      { label:"運用履歴",        href: URLS.advisor_history,      icon:"📜", tone:"info" },
     ],
     // 🧠 AIタブ → aiapp メニュー
     advisor: [
