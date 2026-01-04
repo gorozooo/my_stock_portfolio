@@ -12,9 +12,9 @@ from portfolio.models_line import LineContact
 from portfolio.services.line_api import verify_signature, reply
 
 # 追加: 発注メモ保存に必要
-from django.contrib.auth import get_user_model
-from advisor.models_order import OrderMemo
-from advisor.models_trend import TrendResult
+#from django.contrib.auth import get_user_model
+#from advisor.models_order import OrderMemo
+#from advisor.models_trend import TrendResult
 
 logger = logging.getLogger(__name__)
 JST = timezone(timedelta(hours=9))
