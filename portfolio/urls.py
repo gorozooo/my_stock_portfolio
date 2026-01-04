@@ -122,7 +122,7 @@ urlpatterns = [
     path("advisor/notify-dashboard/", notify_dashboard, name="notify_dashboard"),
     
     # LINE
-    path("line/webhook/", line_webhook, name="line_webhook"),
+    #path("line/webhook/", line_webhook, name="line_webhook"),
     
     # positions
     path("positions/", positions_views.position_list, name="position_list"),
