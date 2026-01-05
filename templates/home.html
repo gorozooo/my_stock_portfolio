@@ -60,6 +60,7 @@
                   </div>
                   <div class="kpi-sub">件数 {{ a.realized.ytd.count }}</div>
                 </div>
+
                 <div class="kpi">
                   <div class="kpi-label">今月 MTD</div>
                   <div class="kpi-val {% if a.realized.mtd.total >= 0 %}pos{% else %}neg{% endif %}">
@@ -67,6 +68,7 @@
                   </div>
                   <div class="kpi-sub">件数 {{ a.realized.mtd.count }}</div>
                 </div>
+
                 <div class="kpi">
                   <div class="kpi-label">今週 WTD</div>
                   <div class="kpi-val {% if a.realized.wtd.total >= 0 %}pos{% else %}neg{% endif %}">
@@ -74,12 +76,42 @@
                   </div>
                   <div class="kpi-sub">件数 {{ a.realized.wtd.count }}</div>
                 </div>
+
                 <div class="kpi">
                   <div class="kpi-label">年間目標（全体）</div>
                   <div class="kpi-val">
                     ¥{{ a.goals.year_total|intcomma }}
                   </div>
-                  <div class="kpi-sub">残り月{{ a.pace.remaining_months_including_current }} / 残り週{{ a.pace.remaining_weeks_including_current }}</div>
+                  <div class="kpi-sub">
+                    <div>残り月{{ a.pace.remaining_months_including_current }} / 残り週{{ a.pace.remaining_weeks_including_current }}</div>
+
+                    {# --- 追加：前年金額 / 前年比 / 前年同月比 --- #}
+                    {% if a.realized.year_prev %}
+                      <div>前年（年合計） ¥{{ a.realized.year_prev.total|floatformat:0|intcomma }}</div>
+                    {% endif %}
+
+                    <div>
+                      前年比
+                      {% if a.realized.ytd_yoy_pct is not None %}
+                        <span class="{% if a.realized.ytd_yoy_pct > 0 %}pos{% elif a.realized.ytd_yoy_pct < 0 %}neg{% else %}warn{% endif %}">
+                          {{ a.realized.ytd_yoy_pct|floatformat:1 }}%
+                        </span>
+                      {% else %}
+                        --
+                      {% endif %}
+                    </div>
+
+                    <div>
+                      前年同月比
+                      {% if a.realized.mtd_yoy_pct is not None %}
+                        <span class="{% if a.realized.mtd_yoy_pct > 0 %}pos{% elif a.realized.mtd_yoy_pct < 0 %}neg{% else %}warn{% endif %}">
+                          {{ a.realized.mtd_yoy_pct|floatformat:1 }}%
+                        </span>
+                      {% else %}
+                        --
+                      {% endif %}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -146,11 +178,49 @@
                           ¥{{ r.pace_month.need_per_slot|floatformat:0|intcomma }}
                         </div>
                       </div>
+
+                      {# --- 追加：前年金額 / 前年比 / 前年同月比 --- #}
+                      <div class="brow">
+                        <div class="lk">前年（年合計）</div>
+                        <div class="lv">
+                          {% if r.ytd_prev is not None %}
+                            ¥{{ r.ytd_prev|floatformat:0|intcomma }}
+                          {% else %}
+                            --
+                          {% endif %}
+                        </div>
+                      </div>
+
+                      <div class="brow">
+                        <div class="lk">前年比</div>
+                        <div class="lv">
+                          {% if r.ytd_yoy_pct is not None %}
+                            <span class="{% if r.ytd_yoy_pct > 0 %}pos{% elif r.ytd_yoy_pct < 0 %}neg{% else %}warn{% endif %}">
+                              {{ r.ytd_yoy_pct|floatformat:1 }}%
+                            </span>
+                          {% else %}
+                            --
+                          {% endif %}
+                        </div>
+                      </div>
+
+                      <div class="brow">
+                        <div class="lk">前年同月比</div>
+                        <div class="lv">
+                          {% if r.mtd_yoy_pct is not None %}
+                            <span class="{% if r.mtd_yoy_pct > 0 %}pos{% elif r.mtd_yoy_pct < 0 %}neg{% else %}warn{% endif %}">
+                              {{ r.mtd_yoy_pct|floatformat:1 }}%
+                            </span>
+                          {% else %}
+                            --
+                          {% endif %}
+                        </div>
+                      </div>
                     </div>
                   {% endfor %}
                 </div>
 
-                <div class="hint">横スワイプ：YTD / 目標 / 残り / 月ペース</div>
+                <div class="hint">横スワイプ：YTD / 目標 / 残り / 月ペース（＋前年/前年比/前年同月比）</div>
               </div>
             {% endwith %}
           {% endif %}
@@ -458,14 +528,11 @@
 <script>
 (function(){
   // ISO文字列(UTC等) → JST(Asia/Tokyo)で "YYYY-MM-DD HH:mm" にして置き換える
-  const pad2 = (n) => String(n).padStart(2, "0");
-
   const fmtJST = (iso) => {
     try{
       if (!iso) return "";
       const d = new Date(iso);
       if (isNaN(d.getTime())) return "";
-      // Safari/iOSでも安定しやすい：Intl + formatToPartsで組み立て
       const parts = new Intl.DateTimeFormat("ja-JP", {
         timeZone: "Asia/Tokyo",
         year: "numeric",
@@ -497,7 +564,6 @@
     const iso = (el.getAttribute("data-iso") || "").trim();
     const jst = fmtJST(iso);
     if (jst) el.textContent = jst;
-    // 失敗時はそのまま（元のISO表示）
   });
 })();
 </script>
