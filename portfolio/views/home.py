@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
@@ -21,13 +21,6 @@ def _safe_localdate_str() -> str:
         d = timezone.now().date()
     wd = ["月", "火", "水", "木", "金", "土", "日"][d.weekday()]
     return f"{d.year}年{d.month:02d}月{d.day:02d}日({wd})"
-
-
-def _safe_localdate():
-    try:
-        return timezone.localdate()
-    except Exception:
-        return timezone.now().date()
 
 
 def _as_float(x: Any, default: float = 0.0) -> float:
@@ -102,176 +95,16 @@ def _pick_hot_sectors_text(news_trends: Dict[str, Any] | None, limit: int = 3) -
         return ""
 
 
-def _append_sector_hint(desc: str, sector_hint: str) -> str:
-    if not sector_hint:
-        return desc
-    if not desc:
-        return sector_hint
-    return f"{desc}\n{sector_hint}"
-
-
-def _build_today_plan_from_assets(
-    assets: Dict[str, Any],
-    news_trends: Dict[str, Any] | None = None,
-) -> Dict[str, Any]:
-    """
-    TODAY PLAN を assets(pace + goal + ytd) から自動生成
-    + NEWSのセクター上位を追記して、日々の“焦点”を作る
-    """
-    try:
-        now_iso = timezone.now().isoformat()
-        sector_hint = _pick_hot_sectors_text(news_trends, limit=3)
-
-        pace = (assets or {}).get("pace") or {}
-        total_m = (pace.get("total_need_per_month") or {})
-        total_w = (pace.get("total_need_per_week") or {})
-        by = pace.get("by_broker_rows") or []
-        if not isinstance(by, list):
-            by = []
-
-        goal_year_total = _get_goal_year_total_from_assets(assets)
-        ytd_total = _get_ytd_total_from_assets(assets)
-
-        rem_month_total = _as_float(total_m.get("remaining"), 0.0)
-        need_m_total = _as_float(total_m.get("need_per_slot"), 0.0)
-        need_w_total = _as_float(total_w.get("need_per_slot"), 0.0)
-
-        tasks: List[Dict[str, Any]] = []
-
-        # ========== CASE 1: 年間目標が未設定 ==========
-        if goal_year_total <= 0:
-            tasks.append({
-                "kind": "primary",
-                "title": "目標が未設定：まず“型”を1つ固定",
-                "desc": _append_sector_hint(
-                    "年間目標が0なので、今日は利益額より“再現性（ルール順守）”を最優先。"
-                    "損切り幅/利確R/回数上限などを1つ固定して運用。",
-                    sector_hint,
-                ),
-            })
-            tasks.append({
-                "kind": "check",
-                "title": "やることを減らす（ミス防止）",
-                "desc": _append_sector_hint(
-                    "新しいことを増やさず、同じ型だけで記録を厚くする。"
-                    "逸脱しそうなら理由を1行メモ。",
-                    sector_hint,
-                ),
-            })
-            tasks.append({
-                "kind": "check",
-                "title": "ニュースは“条件化”だけする",
-                "desc": _append_sector_hint(
-                    "読むだけ禁止。気になった見出しを1つ選び、上抜け/下抜け/イベント日などの監視条件に変換しておく。",
-                    sector_hint,
-                ),
-            })
-
-            return {
-                "title": "TODAY PLAN",
-                "status": "ok",
-                "as_of": now_iso,
-                "tasks": tasks,
-            }
-
-        # ========== CASE 2: 目標あり → 進捗で分岐 ==========
-        if rem_month_total > 0:
-            # 未達（追い込み）
-            tasks.append({
-                "kind": "primary",
-                "title": "必要ペースを意識して“やる形”を絞る",
-                "desc": _append_sector_hint(
-                    f"年目標 {goal_year_total:,} 円 / YTD {int(ytd_total):,} 円 → 残り {int(rem_month_total):,} 円。"
-                    f"月 {int(need_m_total):,} 円 / 週 {int(need_w_total):,} 円ペースを目安に、狙う型を1つに絞る。",
-                    sector_hint,
-                ),
-            })
-
-            def _need_per_slot_of_row(r: Dict[str, Any]) -> float:
-                pm = (r.get("pace_month") or {})
-                return _as_float(pm.get("need_per_slot"), 0.0)
-
-            by_sorted = sorted(by, key=_need_per_slot_of_row, reverse=True)
-            top = by_sorted[:2]
-
-            for r in top:
-                pm = r.get("pace_month") or {}
-                need_b = _as_float(pm.get("need_per_slot"), 0.0)
-                rem_b = _as_float(pm.get("remaining"), 0.0)
-                label = (r.get("label") or "").strip() or "（不明）"
-                tasks.append({
-                    "kind": "broker",
-                    "title": f"{label} を優先",
-                    "desc": _append_sector_hint(
-                        f"残り {int(rem_b):,} 円 → 月 {int(need_b):,} 円ペース。"
-                        "ここは“負け方を止める”が最優先（取り返し禁止/型固定）。",
-                        sector_hint,
-                    ),
-                })
-
-            tasks.append({
-                "kind": "check",
-                "title": "無理に増やさず、ルールで回す",
-                "desc": _append_sector_hint(
-                    "損切り/利確ルール優先。取り返しトレード禁止。迷ったらサイズ半分・回数上限で制御。",
-                    sector_hint,
-                ),
-            })
-
-        else:
-            # 達成圏（守り）
-            tasks.append({
-                "kind": "ok",
-                "title": "目標ペース上は問題なし（守り優先）",
-                "desc": _append_sector_hint(
-                    "無理に利益を積まず、崩さない運用（再現性・ポリシー順守）を優先。やらないことを増やす。",
-                    sector_hint,
-                ),
-            })
-            tasks.append({
-                "kind": "check",
-                "title": "エントリー数を減らす",
-                "desc": _append_sector_hint(
-                    "監視・仕込み・記録の精度を上げる。衝動エントリーは禁止。狙う時間帯/形を固定。",
-                    sector_hint,
-                ),
-            })
-            tasks.append({
-                "kind": "check",
-                "title": "勝ちパターンの“説明”を残す",
-                "desc": _append_sector_hint(
-                    "勝った取引より、ルール通りに“やらなかった”判断を1つ記録（これが後でAIの芯になる）。",
-                    sector_hint,
-                ),
-            })
-
-        return {
-            "title": "TODAY PLAN",
-            "status": "ok",
-            "as_of": now_iso,
-            "tasks": tasks,
-        }
-
-    except Exception as e:
-        logger.exception("TODAY PLAN build failed: %s", e)
-        return {
-            "title": "TODAY PLAN",
-            "status": "error",
-            "as_of": timezone.now().isoformat(),
-            "tasks": [],
-            "error": str(e),
-        }
-
-
 def _build_news_trends() -> Dict[str, Any]:
     """
     NEWS & TRENDS は “新鮮枠”：
     - スナップショットに固定せず、表示時に取得
-    - home_news_trends 側の 5分TTLキャッシュで「ほどほど」を担保
+    - home_news_trends 側の TTLキャッシュで「ほどほど」を担保
     """
     now_iso = timezone.now().isoformat()
     try:
         from aiapp.services.home_news_trends import get_news_trends_snapshot  # type: ignore
+
         snap = get_news_trends_snapshot()
         if not isinstance(snap, dict):
             return {"status": "error", "error": "news snapshot is not dict", "items": [], "as_of": now_iso}
@@ -302,10 +135,10 @@ def _build_ai_brief(
     news_trends: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """
-    AI BRIEF = “今日の一言” + 要点3つ
+    AI BRIEF = “今日の一言” + 要点
     - ASSETS(目標/ペース/進捗)を主軸に
     - NEWS/TRENDS 上位セクターを添える
-    - ★ macro_text があれば headline はそれを優先（B）
+    - macro_text があれば headline はそれを優先
     """
     now_iso = timezone.now().isoformat()
     try:
@@ -326,20 +159,20 @@ def _build_ai_brief(
 
         # headline（短く）
         if macro_text:
-            headline = macro_text  # ★ 最優先（B）
+            headline = macro_text
         else:
             if goal <= 0:
                 headline = "今日は“利益”より“再現性”を積む日。"
             else:
                 if rem_m > 0:
-                    headline = f"目標まで残り {_fmt_yen(rem_m)}。狙う型を1つに絞ろう。"
+                    headline = f"目標まで残り {_fmt_yen(rem_m)}。狙う型を絞ろう。"
                 else:
                     headline = "目標ペースは達成圏。崩さない運用が勝ち。"
 
         bullets: List[str] = []
         if goal > 0:
             bullets.append(f"年目標 {_fmt_yen(goal)} / YTD {_fmt_yen(ytd)}")
-            bullets.append(f"月ペース 目安 {_fmt_yen(need_m)}（残り {_fmt_yen(rem_m)}）")
+            bullets.append(f"月ペース目安 {_fmt_yen(need_m)}（残り {_fmt_yen(rem_m)}）")
         else:
             bullets.append("目標が0（未設定）。まずは“型”を固定して運用。")
             bullets.append("損切り幅・利確R・回数上限を固定してブレを減らす。")
@@ -347,14 +180,14 @@ def _build_ai_brief(
         if sector_hint:
             bullets.append(sector_hint)
 
-        # NEWSから1つだけ“読む→条件化”促進
+        # NEWSから1つだけ“読む→条件化”の促進
         try:
             items = (news_trends or {}).get("items") or []
             if isinstance(items, list) and len(items) > 0 and isinstance(items[0], dict):
                 t = str(items[0].get("title") or "").strip()
                 src = str(items[0].get("source") or "").strip()
                 if t:
-                    bullets.append(f"見出し→条件化: {src}「{t}」を“監視条件”に変換。")
+                    bullets.append(f"見出し→条件化: {src}「{t}」を監視条件に変換。")
         except Exception:
             pass
 
@@ -377,309 +210,18 @@ def _build_ai_brief(
         }
 
 
-def _build_risk(user) -> Dict[str, Any]:
-    """
-    RISK = “今日のリスク枠” を明確化（スマホ運用で迷いを消す）
-    - UserSetting から算出（外部データ不要）
-    """
-    now_iso = timezone.now().isoformat()
-    try:
-        from ..models import UserSetting  # type: ignore
-
-        setting, _ = UserSetting.objects.get_or_create(user=user)
-
-        equity = _as_float(getattr(setting, "account_equity", 0), 0.0)
-        risk_pct = _as_float(getattr(setting, "risk_pct", 0.0), 0.0)
-        credit_usage_pct = _as_float(getattr(setting, "credit_usage_pct", 0.0), 0.0)
-
-        risk_yen = int(round(equity * (risk_pct / 100.0))) if equity > 0 else 0
-
-        metrics: List[Dict[str, Any]] = []
-
-        metrics.append({
-            "label": "口座残高（設定）",
-            "value": _fmt_yen(equity),
-            "kind": "ok" if equity >= 100_000 else "warn",
-            "sub": "UserSetting.account_equity",
-        })
-
-        rp_kind = "ok"
-        if risk_pct <= 0:
-            rp_kind = "bad"
-        elif risk_pct >= 3.0:
-            rp_kind = "warn"
-
-        metrics.append({
-            "label": "1トレードのリスク％",
-            "value": f"{risk_pct:.1f}%",
-            "kind": rp_kind,
-            "sub": "大きすぎると連敗で死ぬ",
-        })
-
-        ry_kind = "ok"
-        if risk_yen <= 0:
-            ry_kind = "bad"
-        elif risk_yen >= 50_000:
-            ry_kind = "warn"
-
-        metrics.append({
-            "label": "1トレードの最大損失（目安）",
-            "value": _fmt_yen(risk_yen),
-            "kind": ry_kind,
-            "sub": "エントリー前に“損切り幅×枚数”で一致させる",
-        })
-
-        cu_kind = "ok"
-        if credit_usage_pct <= 0:
-            cu_kind = "warn"
-        elif credit_usage_pct >= 90:
-            cu_kind = "warn"
-
-        metrics.append({
-            "label": "信用余力の使用上限",
-            "value": f"{credit_usage_pct:.0f}%",
-            "kind": cu_kind,
-            "sub": "突っ込みすぎ防止",
-        })
-
-        def _pair(name: str, lev: float, hc: float) -> str:
-            return f"{name}: 倍率 {lev:.2f} / HC {int(round(hc*100)):d}%"
-
-        notes: List[str] = []
-        try:
-            lr = _as_float(getattr(setting, "leverage_rakuten", 0.0), 0.0)
-            hr = _as_float(getattr(setting, "haircut_rakuten", 0.0), 0.0)
-            lm = _as_float(getattr(setting, "leverage_matsui", 0.0), 0.0)
-            hm = _as_float(getattr(setting, "haircut_matsui", 0.0), 0.0)
-            ls = _as_float(getattr(setting, "leverage_sbi", 0.0), 0.0)
-            hs = _as_float(getattr(setting, "haircut_sbi", 0.0), 0.0)
-
-            if lr > 0:
-                notes.append(_pair("楽天", lr, hr))
-            if ls > 0:
-                notes.append(_pair("SBI", ls, hs))
-            if lm > 0:
-                notes.append(_pair("松井", lm, hm))
-        except Exception:
-            pass
-
-        alerts: List[Dict[str, Any]] = []
-
-        if risk_pct <= 0:
-            alerts.append({
-                "kind": "bad",
-                "title": "リスク％が0（または未設定）",
-                "desc": "まず 0.5〜1.5% くらいに設定して、“1回の損失上限”を固定しよう。",
-            })
-
-        if equity <= 0:
-            alerts.append({
-                "kind": "bad",
-                "title": "口座残高が0（または未設定）",
-                "desc": "数量計算が破綻するので、口座残高（設定）を入れてね。",
-            })
-
-        rules = [
-            "迷ったらサイズ半分（0.5R）",
-            "取り返しトレード禁止（連敗時は回数上限）",
-            "損切りを先に置けないなら入らない",
-        ]
-
-        return {
-            "title": "RISK",
-            "status": "ok",
-            "metrics": metrics,
-            "alerts": alerts,
-            "rules": rules,
-            "notes": notes,
-            "as_of": now_iso,
-        }
-
-    except Exception as e:
-        logger.exception("RISK build failed: %s", e)
-        return {
-            "title": "RISK",
-            "status": "stub",
-            "metrics": [],
-            "alerts": [],
-            "rules": [],
-            "notes": [],
-            "as_of": now_iso,
-            "error": str(e),
-        }
-
-
-def _build_market(news_trends: Dict[str, Any] | None = None) -> Dict[str, Any]:
-    """
-    MARKET = “今日見るべきもの” を1画面化
-    - NEWS/TRENDS を “整理して短く”
-    """
-    now_iso = timezone.now().isoformat()
-    try:
-        hot = _pick_hot_sectors_text(news_trends, limit=4)
-
-        news_items: List[Dict[str, Any]] = []
-        items = (news_trends or {}).get("items") or []
-        if isinstance(items, list):
-            for it in items[:6]:
-                if not isinstance(it, dict):
-                    continue
-                title = str(it.get("title") or "").strip()
-                link = str(it.get("link") or "").strip()
-                src = str(it.get("source") or "").strip()
-                host = str(it.get("host") or "").strip()
-                if not title:
-                    continue
-                news_items.append({
-                    "title": title,
-                    "link": link,
-                    "source": src,
-                    "host": host,
-                })
-
-        trend_items: List[Dict[str, Any]] = []
-        trends = (news_trends or {}).get("trends") or []
-        if isinstance(trends, list):
-            for it in trends[:6]:
-                if not isinstance(it, dict):
-                    continue
-                title = str(it.get("title") or "").strip()
-                link = str(it.get("link") or "").strip()
-                host = str(it.get("host") or "").strip()
-                if not title:
-                    continue
-                trend_items.append({
-                    "title": title,
-                    "link": link,
-                    "host": host,
-                })
-
-        summary = "（準備中）"
-        if hot:
-            summary = hot
-        elif news_items:
-            summary = "ニュース上位から相場の“主語”を掴む"
-        elif trend_items:
-            summary = "ネット/トレンド上位から“テーマ”を掴む"
-
-        return {
-            "title": "MARKET",
-            "status": "ok",
-            "summary": summary,
-            "news": news_items,
-            "trends": trend_items,
-            "as_of": now_iso,
-        }
-    except Exception as e:
-        logger.exception("MARKET build failed: %s", e)
-        return {
-            "title": "MARKET",
-            "status": "stub",
-            "summary": "（準備中）",
-            "news": [],
-            "trends": [],
-            "as_of": now_iso,
-            "error": str(e),
-        }
-
-
-def _load_today_home_snapshot(user) -> Tuple[List[Dict[str, Any]] | None, str | None]:
-    """
-    6:30 生成の HomeDeckSnapshot を優先して読み込む。
-    """
-    try:
-        from aiapp.models.home_deck_snapshot import HomeDeckSnapshot  # type: ignore
-
-        d = _safe_localdate()
-        snap = HomeDeckSnapshot.objects.filter(user=user, snapshot_date=d).first()
-        if not snap:
-            return None, None
-
-        decks = snap.decks
-        if not isinstance(decks, list) or len(decks) == 0:
-            return None, "snapshot decks is empty"
-
-        for x in decks:
-            if not isinstance(x, dict):
-                return None, "snapshot decks contains non-dict item"
-            if "key" not in x or "title" not in x or "payload" not in x:
-                return None, "snapshot decks item missing key/title/payload"
-
-        return decks, None
-    except Exception as e:
-        logger.exception("Home snapshot load failed: %s", e)
-        return None, str(e)
-
-
-def _override_deck_payload(
-    decks: List[Dict[str, Any]],
-    key: str,
-    payload: Dict[str, Any],
-    title_fallback: str,
-) -> List[Dict[str, Any]]:
-    """
-    decks 内の key の payload を差し替える（無ければ末尾追加）
-    """
-    out: List[Dict[str, Any]] = []
-    replaced = False
-    for d in decks:
-        if isinstance(d, dict) and d.get("key") == key:
-            out.append({
-                "key": key,
-                "title": str(d.get("title") or title_fallback),
-                "payload": payload,
-            })
-            replaced = True
-        else:
-            out.append(d)
-    if not replaced:
-        out.append({"key": key, "title": title_fallback, "payload": payload})
-    return out
-
-
 @login_required
 def home(request):
     """
     Home = デッキ（横スワイプ）前提
-    - デッキ順：ASSETS → AI BRIEF → RISK → MARKET → TODAY PLAN → NEWS & TRENDS
-    - 6:30 スナップショットがあれば “それを優先”（再現性）
-      ただし ASSETS と NEWS & TRENDS は “常に新鮮” を最優先し、表示時に差し替える
-    - スナップショットが無ければ “その場生成”（フォールバック）
+    - デッキ順：ASSETS → AI BRIEF → NEWS & TRENDS
+    - スナップショットは使わない（完全撤去）
+    - ASSETS / NEWS は都度生成（NEWS側は service TTL でほどほど）
     """
-    # ===== 6:30 snapshot 優先 =====
-    snap_decks, snap_err = _load_today_home_snapshot(request.user)
-    if snap_decks:
-        # --- ASSETS（常に新鮮） ---
-        try:
-            from ..services.home_assets import build_assets_snapshot
-            assets = build_assets_snapshot(request.user)
-            if not isinstance(assets, dict):
-                assets = {"status": "error", "error": "assets snapshot is not dict"}
-            assets.setdefault("status", "ok")
-        except Exception as e:
-            logger.exception("ASSETS build failed: %s", e)
-            assets = {"status": "error", "error": str(e)}
-
-        # --- NEWS & TRENDS（常に新鮮 / ほどほどTTLは service側で担保） ---
-        news_trends = _build_news_trends()
-
-        # snapshot decks の該当payloadだけ差し替え
-        decks = list(snap_decks)
-        decks = _override_deck_payload(decks, "assets", assets, "ASSETS")
-        decks = _override_deck_payload(decks, "news_trends", news_trends, "NEWS & TRENDS")
-
-        context = {
-            "today_label": _safe_localdate_str(),
-            "decks": decks,
-            "enable_detail_links": False,
-            "home_snapshot_used": True,
-            "home_snapshot_error": None,
-        }
-        return render(request, "home.html", context)
-
-    # ===== フォールバック（従来通り） =====
+    # --- ASSETS ---
     try:
         from ..services.home_assets import build_assets_snapshot
+
         assets = build_assets_snapshot(request.user)
         if not isinstance(assets, dict):
             assets = {"status": "error", "error": "assets snapshot is not dict"}
@@ -688,20 +230,15 @@ def home(request):
         logger.exception("ASSETS build failed: %s", e)
         assets = {"status": "error", "error": str(e)}
 
+    # --- NEWS & TRENDS ---
     news_trends = _build_news_trends()
 
+    # --- AI BRIEF ---
     ai_brief = _build_ai_brief(assets, news_trends=news_trends)
-    risk = _build_risk(request.user)
-    market = _build_market(news_trends=news_trends)
-
-    today_plan = _build_today_plan_from_assets(assets, news_trends=news_trends)
 
     decks: List[Dict[str, Any]] = [
         {"key": "assets", "title": "ASSETS", "payload": assets},
         {"key": "ai_brief", "title": "AI BRIEF", "payload": ai_brief},
-        {"key": "risk", "title": "RISK", "payload": risk},
-        {"key": "market", "title": "MARKET", "payload": market},
-        {"key": "today_plan", "title": "TODAY PLAN", "payload": today_plan},
         {"key": "news_trends", "title": "NEWS & TRENDS", "payload": news_trends},
     ]
 
@@ -709,7 +246,5 @@ def home(request):
         "today_label": _safe_localdate_str(),
         "decks": decks,
         "enable_detail_links": False,
-        "home_snapshot_used": False,
-        "home_snapshot_error": snap_err,
     }
     return render(request, "home.html", context)
