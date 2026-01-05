@@ -6,7 +6,6 @@
 
 from .master import StockMaster
 from .vtrade import VirtualTrade
-from .home_deck_snapshot import HomeDeckSnapshot
 
 # =========================================================
 # 指数・為替・レジーム系
