@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
@@ -49,57 +49,11 @@ def _fmt_yen(v: float | int) -> str:
     return f"¥{n:,}"
 
 
-def _get_goal_year_total_from_assets(assets: Dict[str, Any]) -> int:
-    goals = (assets or {}).get("goals") or {}
-    return _as_int(goals.get("year_total"), 0)
-
-
-def _get_ytd_total_from_assets(assets: Dict[str, Any]) -> float:
-    realized = (assets or {}).get("realized") or {}
-    ytd = realized.get("ytd") or {}
-    return _as_float(ytd.get("total"), 0.0)
-
-
-def _pick_hot_sectors_text(news_trends: Dict[str, Any] | None, limit: int = 3) -> str:
-    """
-    news_trends["sectors"] = [{"sector": "...", "count": 12}, ...] を想定
-    例: "今日の注目セクター: 半導体×6 / 自動車×4 / 銀行×3"
-    """
-    try:
-        if not news_trends or not isinstance(news_trends, dict):
-            return ""
-        sectors = news_trends.get("sectors") or []
-        if not isinstance(sectors, list) or len(sectors) == 0:
-            return ""
-
-        parts: List[str] = []
-        for s in sectors[: max(0, int(limit))]:
-            if not isinstance(s, dict):
-                continue
-            name = str(s.get("sector") or "").strip()
-            cnt = s.get("count")
-            if not name:
-                continue
-            if cnt is None:
-                parts.append(name)
-            else:
-                try:
-                    parts.append(f"{name}×{int(float(cnt))}")
-                except Exception:
-                    parts.append(name)
-
-        if not parts:
-            return ""
-        return "今日の注目セクター: " + " / ".join(parts)
-    except Exception:
-        return ""
-
-
 def _build_news_trends() -> Dict[str, Any]:
     """
     NEWS & TRENDS は “新鮮枠”：
-    - スナップショットに固定せず、表示時に取得
-    - home_news_trends 側の TTLキャッシュで「ほどほど」を担保
+    - 表示時に取得（スナップショットしない）
+    - home_news_trends 側のTTLキャッシュで「ほどほど」を担保
     """
     now_iso = timezone.now().isoformat()
     try:
@@ -114,7 +68,8 @@ def _build_news_trends() -> Dict[str, Any]:
         snap.setdefault("sectors", [])
         snap.setdefault("trends", [])
         snap.setdefault("macro_text", "")
-        # as_of は「取得した今」を優先（固定化を避ける）
+
+        # as_of は「取得した今」を優先
         snap["as_of"] = now_iso
         return snap
     except Exception as e:
@@ -130,82 +85,134 @@ def _build_news_trends() -> Dict[str, Any]:
         }
 
 
-def _build_ai_brief(
-    assets: Dict[str, Any],
-    news_trends: Dict[str, Any] | None = None,
-) -> Dict[str, Any]:
+def _build_ai_brief_from_context(ctx: Dict[str, Any]) -> Dict[str, Any]:
     """
-    AI BRIEF = “今日の一言” + 要点
-    - ASSETS(目標/ペース/進捗)を主軸に
-    - NEWS/TRENDS 上位セクターを添える
-    - macro_text があれば headline はそれを優先
+    A段階：まずは “素材に沿った発言” にする（テンプレを減らす土台）
+    - summary / reasons / concerns / escape の枠は「見やすさ」と「UI安定」のために残す
+      ※今後、UI側で “折りたたみ/長文” に対応すれば制約は緩められる
     """
     now_iso = timezone.now().isoformat()
+
     try:
-        pace = (assets or {}).get("pace") or {}
-        total_m = (pace.get("total_need_per_month") or {})
-        goal = _get_goal_year_total_from_assets(assets)
-        ytd = _get_ytd_total_from_assets(assets)
+        user_state = (ctx or {}).get("user_state") or {}
+        port = (ctx or {}).get("portfolio_state") or {}
+        beh = (ctx or {}).get("behavior_state") or {}
+        mk = (ctx or {}).get("market_state") or {}
+        cons = (ctx or {}).get("constraints") or {}
 
-        rem_m = _as_float(total_m.get("remaining"), 0.0)
-        need_m = _as_float(total_m.get("need_per_slot"), 0.0)
+        goal = _as_int(port.get("goal_year_total"), 0)
+        ytd = _as_float(port.get("realized_ytd"), 0.0)
+        mtd = _as_float(port.get("realized_mtd"), 0.0)
 
-        sector_hint = _pick_hot_sectors_text(news_trends, limit=3)
-        macro_text = ""
-        try:
-            macro_text = str((news_trends or {}).get("macro_text") or "").strip()
-        except Exception:
-            macro_text = ""
+        # “主語” を作る：themesが強い順に
+        themes = mk.get("themes") or []
+        theme_top = ""
+        if isinstance(themes, list) and themes:
+            t0 = themes[0]
+            if isinstance(t0, dict):
+                theme_top = str(t0.get("name") or "").strip()
 
-        # headline（短く）
-        if macro_text:
-            headline = macro_text
-        else:
-            if goal <= 0:
-                headline = "今日は“利益”より“再現性”を積む日。"
-            else:
-                if rem_m > 0:
-                    headline = f"目標まで残り {_fmt_yen(rem_m)}。狙う型を絞ろう。"
-                else:
-                    headline = "目標ペースは達成圏。崩さない運用が勝ち。"
+        # news_top 1件目（読ませるための“外部の一言”）
+        news_top = mk.get("news_top") or []
+        first_news_title = ""
+        first_news_source = ""
+        if isinstance(news_top, list) and news_top:
+            n0 = news_top[0]
+            if isinstance(n0, dict):
+                first_news_title = str(n0.get("title") or "").strip()
+                first_news_source = str(n0.get("source") or "").strip()
 
-        bullets: List[str] = []
+        # 行動（直近7日）
+        last7 = (beh.get("last_7d") or {}) if isinstance(beh, dict) else {}
+        trades7 = _as_int(last7.get("trades"), 0)
+        pnl7 = _as_float(last7.get("pnl_sum"), 0.0)
+
+        # リスク設定
+        equity = _as_int(user_state.get("equity"), 0)
+        risk_pct = _as_float(user_state.get("risk_pct"), 0.0)
+        risk_yen = user_state.get("risk_yen", None)
+
+        # summary（固定文を避けて、素材の組み合わせで組み立てる）
+        # ここは “短いが毎日変わる” を狙う
+        parts: List[str] = []
+
+        if theme_top:
+            parts.append(f"主語は「{theme_top}」。")
+
         if goal > 0:
-            bullets.append(f"年目標 {_fmt_yen(goal)} / YTD {_fmt_yen(ytd)}")
-            bullets.append(f"月ペース目安 {_fmt_yen(need_m)}（残り {_fmt_yen(rem_m)}）")
+            parts.append(f"年目標 {_fmt_yen(goal)} に対して、いまYTD {_fmt_yen(ytd)}。")
         else:
-            bullets.append("目標が0（未設定）。まずは“型”を固定して運用。")
-            bullets.append("損切り幅・利確R・回数上限を固定してブレを減らす。")
+            parts.append("年目標は未設定。今日は結果より“型”を優先。")
 
-        if sector_hint:
-            bullets.append(sector_hint)
+        if trades7 > 0:
+            sign = "＋" if pnl7 >= 0 else "−"
+            parts.append(f"直近7日 {trades7}件、合計 {sign}{_fmt_yen(abs(pnl7))}。")
+        else:
+            parts.append("直近7日は記録が薄い。まずはログを厚くする日。")
 
-        # NEWSから1つだけ“読む→条件化”の促進
-        try:
-            items = (news_trends or {}).get("items") or []
-            if isinstance(items, list) and len(items) > 0 and isinstance(items[0], dict):
-                t = str(items[0].get("title") or "").strip()
-                src = str(items[0].get("source") or "").strip()
-                if t:
-                    bullets.append(f"見出し→条件化: {src}「{t}」を監視条件に変換。")
-        except Exception:
-            pass
+        # 迷い要素（外部ニュースが強い＝ノイズが増える）を入れる
+        if first_news_title:
+            parts.append("外部ノイズは増えてる。読むより条件化。")
+
+        summary = " ".join([p for p in parts if p]).strip()
+        if not summary:
+            summary = "今日は“状況の棚卸し”から。数字→制約→焦点の順に整える。"
+
+        # reasons（最大5）：内部データ中心＋外部は1つだけ
+        reasons: List[str] = []
+        reasons.append(f"YTD {_fmt_yen(ytd)} / MTD {_fmt_yen(mtd)}（実現損益）")
+        if goal > 0:
+            reasons.append(f"年目標 {_fmt_yen(goal)}（設定値）")
+        if equity > 0 and risk_pct > 0:
+            if risk_yen is not None:
+                reasons.append(f"1回の損失上限 目安 {_fmt_yen(risk_yen)}（{risk_pct:.1f}%）")
+            else:
+                reasons.append(f"リスク設定 {risk_pct:.1f}%（口座残高未設定だと数量計算が弱い）")
+        if trades7 > 0:
+            reasons.append(f"直近7日：{trades7}件 / 合計損益 {_fmt_yen(pnl7)}")
+        if first_news_title:
+            reasons.append(f"外部：{first_news_source}「{first_news_title}」→ 監視条件に変換")
+
+        reasons = [x for x in reasons if x][:5]
+
+        # concerns（最大2）：本当に危ないものを優先
+        concerns: List[str] = []
+        if goal <= 0:
+            concerns.append("目標が未設定だと、日々の判断軸がブレやすい。")
+        if equity <= 0:
+            concerns.append("口座残高（設定）が0だと、リスク額が固定できない。")
+        if not concerns and first_news_title:
+            concerns.append("外部ニュースの量が多い日は、判断が散って手数が増えやすい。")
+        concerns = concerns[:2]
+
+        # escape（1行）：hard_rules から1つ採用
+        hard_rules = cons.get("hard_rules") or []
+        escape = ""
+        if isinstance(hard_rules, list) and hard_rules:
+            escape = str(hard_rules[0] or "").strip()
+        if not escape:
+            escape = "迷ったら入らない。まず監視条件だけ作って待つ。"
 
         return {
             "title": "AI BRIEF",
             "status": "ok",
-            "headline": headline,
-            "bullets": bullets[:6],
             "as_of": now_iso,
+            "summary": summary,
+            "reasons": reasons,
+            "concerns": concerns,
+            "escape": escape,
         }
+
     except Exception as e:
         logger.exception("AI BRIEF build failed: %s", e)
         return {
             "title": "AI BRIEF",
             "status": "stub",
-            "headline": "（準備中）",
-            "bullets": [],
             "as_of": now_iso,
+            "summary": "（準備中）",
+            "reasons": [],
+            "concerns": [],
+            "escape": "",
             "error": str(e),
         }
 
@@ -214,11 +221,10 @@ def _build_ai_brief(
 def home(request):
     """
     Home = デッキ（横スワイプ）前提
-    - デッキ順：ASSETS → AI BRIEF → NEWS & TRENDS
-    - スナップショットは使わない（完全撤去）
-    - ASSETS / NEWS は都度生成（NEWS側は service TTL でほどほど）
+    - スナップショットは使わない（毎回生成）
+    - デッキ：ASSETS → AI BRIEF → NEWS & TRENDS
     """
-    # --- ASSETS ---
+    # --- ASSETS（毎回生成：内部データ）---
     try:
         from ..services.home_assets import build_assets_snapshot
 
@@ -230,11 +236,21 @@ def home(request):
         logger.exception("ASSETS build failed: %s", e)
         assets = {"status": "error", "error": str(e)}
 
-    # --- NEWS & TRENDS ---
+    # --- NEWS & TRENDS（外部：ほどほどTTLは service側）---
     news_trends = _build_news_trends()
 
-    # --- AI BRIEF ---
-    ai_brief = _build_ai_brief(assets, news_trends=news_trends)
+    # --- AI BRIEF：素材(ctx)を作ってログに出す（A段階）---
+    ctx: Dict[str, Any] = {}
+    try:
+        from aiapp.services.brief_context import build_brief_context, log_brief_context  # type: ignore
+
+        ctx = build_brief_context(user=request.user, assets=assets, news_trends=news_trends)
+        log_brief_context(ctx)
+    except Exception as e:
+        logger.exception("AI BRIEF context build failed: %s", e)
+        ctx = {"error": str(e)}
+
+    ai_brief = _build_ai_brief_from_context(ctx if isinstance(ctx, dict) else {})
 
     decks: List[Dict[str, Any]] = [
         {"key": "assets", "title": "ASSETS", "payload": assets},
