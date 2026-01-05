@@ -40,7 +40,10 @@
           <div class="deck-head">
             <div class="deck-title">{{ d.title }}</div>
             {% if d.payload.as_of %}
-              <div class="deck-sub">更新: {{ d.payload.as_of }}</div>
+              <div class="deck-sub">
+                更新:
+                <span class="js-asof" data-iso="{{ d.payload.as_of }}">{{ d.payload.as_of }}</span>
+              </div>
             {% endif %}
           </div>
 
@@ -397,7 +400,12 @@
                     <div class="chip">その他 ×0</div>
                   {% endfor %}
                 </div>
-                <div class="deck-sub" style="margin-top:10px;">更新: {{ n.as_of }}</div>
+                {% if n.as_of %}
+                  <div class="deck-sub" style="margin-top:10px;">
+                    更新:
+                    <span class="js-asof" data-iso="{{ n.as_of }}">{{ n.as_of }}</span>
+                  </div>
+                {% endif %}
               </div>
 
               <div class="sec">
@@ -446,4 +454,52 @@
 </div>
 
 <script src="{% static 'js/home.js' %}?v=103" defer></script>
+
+<script>
+(function(){
+  // ISO文字列(UTC等) → JST(Asia/Tokyo)で "YYYY-MM-DD HH:mm" にして置き換える
+  const pad2 = (n) => String(n).padStart(2, "0");
+
+  const fmtJST = (iso) => {
+    try{
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return "";
+      // Safari/iOSでも安定しやすい：Intl + formatToPartsで組み立て
+      const parts = new Intl.DateTimeFormat("ja-JP", {
+        timeZone: "Asia/Tokyo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      }).formatToParts(d);
+
+      const map = {};
+      for (const p of parts) map[p.type] = p.value;
+
+      const y = map.year || "";
+      const m = map.month || "";
+      const da = map.day || "";
+      const h = map.hour || "";
+      const mi = map.minute || "";
+
+      if (!y || !m || !da || !h || !mi) return "";
+      return `${y}-${m}-${da} ${h}:${mi}`;
+    }catch(e){
+      return "";
+    }
+  };
+
+  const els = document.querySelectorAll(".js-asof[data-iso]");
+  els.forEach(el => {
+    const iso = (el.getAttribute("data-iso") || "").trim();
+    const jst = fmtJST(iso);
+    if (jst) el.textContent = jst;
+    // 失敗時はそのまま（元のISO表示）
+  });
+})();
+</script>
+
 {% endblock %}
