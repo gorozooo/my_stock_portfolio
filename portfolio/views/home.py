@@ -264,27 +264,35 @@ def _build_today_plan_from_assets(
 
 
 def _build_news_trends() -> Dict[str, Any]:
+    """
+    NEWS & TRENDS は “新鮮枠”：
+    - スナップショットに固定せず、表示時に取得
+    - home_news_trends 側の 5分TTLキャッシュで「ほどほど」を担保
+    """
+    now_iso = timezone.now().isoformat()
     try:
         from aiapp.services.home_news_trends import get_news_trends_snapshot  # type: ignore
         snap = get_news_trends_snapshot()
         if not isinstance(snap, dict):
-            return {"status": "error", "error": "news snapshot is not dict", "items": []}
+            return {"status": "error", "error": "news snapshot is not dict", "items": [], "as_of": now_iso}
+
         snap.setdefault("status", "ok")
         snap.setdefault("items", [])
         snap.setdefault("sectors", [])
         snap.setdefault("trends", [])
-        snap.setdefault("macro_text", "")  # ★ 追加: 無い場合も壊れない
-        snap.setdefault("as_of", timezone.now().isoformat())
+        snap.setdefault("macro_text", "")
+        # as_of は「取得した今」を優先（固定化を避ける）
+        snap["as_of"] = now_iso
         return snap
     except Exception as e:
         logger.exception("NEWS & TRENDS build failed: %s", e)
         return {
             "status": "stub",
-            "as_of": timezone.now().isoformat(),
+            "as_of": now_iso,
             "items": [],
             "sectors": [],
             "trends": [],
-            "macro_text": "",  # ★ 追加
+            "macro_text": "",
             "error": str(e),
         }
 
@@ -437,6 +445,7 @@ def _build_risk(user) -> Dict[str, Any]:
         def _pair(name: str, lev: float, hc: float) -> str:
             return f"{name}: 倍率 {lev:.2f} / HC {int(round(hc*100)):d}%"
 
+        notes: List[str] = []
         try:
             lr = _as_float(getattr(setting, "leverage_rakuten", 0.0), 0.0)
             hr = _as_float(getattr(setting, "haircut_rakuten", 0.0), 0.0)
@@ -445,19 +454,14 @@ def _build_risk(user) -> Dict[str, Any]:
             ls = _as_float(getattr(setting, "leverage_sbi", 0.0), 0.0)
             hs = _as_float(getattr(setting, "haircut_sbi", 0.0), 0.0)
 
-            lines = []
             if lr > 0:
-                lines.append(_pair("楽天", lr, hr))
+                notes.append(_pair("楽天", lr, hr))
             if ls > 0:
-                lines.append(_pair("SBI", ls, hs))
+                notes.append(_pair("SBI", ls, hs))
             if lm > 0:
-                lines.append(_pair("松井", lm, hm))
-
-            notes: List[str] = []
-            if lines:
-                notes.extend(lines)
+                notes.append(_pair("松井", lm, hm))
         except Exception:
-            notes = []
+            pass
 
         alerts: List[Dict[str, Any]] = []
 
@@ -487,7 +491,7 @@ def _build_risk(user) -> Dict[str, Any]:
             "metrics": metrics,
             "alerts": alerts,
             "rules": rules,
-            "notes": notes if "notes" in locals() else [],
+            "notes": notes,
             "as_of": now_iso,
         }
 
@@ -607,20 +611,66 @@ def _load_today_home_snapshot(user) -> Tuple[List[Dict[str, Any]] | None, str | 
         return None, str(e)
 
 
+def _override_deck_payload(
+    decks: List[Dict[str, Any]],
+    key: str,
+    payload: Dict[str, Any],
+    title_fallback: str,
+) -> List[Dict[str, Any]]:
+    """
+    decks 内の key の payload を差し替える（無ければ末尾追加）
+    """
+    out: List[Dict[str, Any]] = []
+    replaced = False
+    for d in decks:
+        if isinstance(d, dict) and d.get("key") == key:
+            out.append({
+                "key": key,
+                "title": str(d.get("title") or title_fallback),
+                "payload": payload,
+            })
+            replaced = True
+        else:
+            out.append(d)
+    if not replaced:
+        out.append({"key": key, "title": title_fallback, "payload": payload})
+    return out
+
+
 @login_required
 def home(request):
     """
     Home = デッキ（横スワイプ）前提
     - デッキ順：ASSETS → AI BRIEF → RISK → MARKET → TODAY PLAN → NEWS & TRENDS
     - 6:30 スナップショットがあれば “それを優先”（再現性）
-    - 無ければ従来通り “その場生成”（フォールバック）
+      ただし ASSETS と NEWS & TRENDS は “常に新鮮” を最優先し、表示時に差し替える
+    - スナップショットが無ければ “その場生成”（フォールバック）
     """
     # ===== 6:30 snapshot 優先 =====
     snap_decks, snap_err = _load_today_home_snapshot(request.user)
     if snap_decks:
+        # --- ASSETS（常に新鮮） ---
+        try:
+            from ..services.home_assets import build_assets_snapshot
+            assets = build_assets_snapshot(request.user)
+            if not isinstance(assets, dict):
+                assets = {"status": "error", "error": "assets snapshot is not dict"}
+            assets.setdefault("status", "ok")
+        except Exception as e:
+            logger.exception("ASSETS build failed: %s", e)
+            assets = {"status": "error", "error": str(e)}
+
+        # --- NEWS & TRENDS（常に新鮮 / ほどほどTTLは service側で担保） ---
+        news_trends = _build_news_trends()
+
+        # snapshot decks の該当payloadだけ差し替え
+        decks = list(snap_decks)
+        decks = _override_deck_payload(decks, "assets", assets, "ASSETS")
+        decks = _override_deck_payload(decks, "news_trends", news_trends, "NEWS & TRENDS")
+
         context = {
             "today_label": _safe_localdate_str(),
-            "decks": snap_decks,
+            "decks": decks,
             "enable_detail_links": False,
             "home_snapshot_used": True,
             "home_snapshot_error": None,
