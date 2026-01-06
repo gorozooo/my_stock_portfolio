@@ -1,8 +1,10 @@
+# aiapp/services/ai_brief_engine.py
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 from django.utils import timezone
 
@@ -118,8 +120,8 @@ def _sum_ytd_by_group(ctx: Dict[str, Any]) -> Dict[str, float]:
 def _group_goals_from_trade_setting_or_fallback(ctx: Dict[str, Any], group_eq: Dict[str, Dict[str, Any]]) -> Dict[str, int]:
     """
     優先：trade_setting.html で保存した「証券会社別 年目標」
-      - 楽天 = year_goal_broker_RAKUTEN
-      - SBI+松井 = year_goal_broker_SBI + year_goal_broker_MATSUI
+      - 楽天 = year_goal_by_broker["RAKUTEN"]
+      - SBI+松井 = year_goal_by_broker["SBI"] + year_goal_by_broker["MATSUI"]
     フォールバック：
       - 証券会社別が全部0なら、全体目標を残高比率で自動分配
     """
@@ -159,6 +161,98 @@ def _group_goals_from_trade_setting_or_fallback(ctx: Dict[str, Any], group_eq: D
     r_goal = int(round(total_goal * (float(r_eq) / float(tot))))
     s_goal = int(total_goal - r_goal)
     return {"rakuten": r_goal, "sbi_matsui": s_goal}
+
+
+# -------------------------
+# sizing / action cards
+# -------------------------
+def _calc_risk_per_share(c: Dict[str, Any]) -> Optional[float]:
+    """
+    1株あたりの損失見込み（円）を決める。
+    優先：
+      1) entry & sl があれば abs(entry - sl)
+      2) atr があれば atr * 1.5
+    """
+    entry = _as_float(c.get("entry"), 0.0)
+    sl = _as_float(c.get("sl"), 0.0)
+    if entry > 0 and sl > 0:
+        r = abs(float(entry) - float(sl))
+        if r > 0:
+            return float(r)
+
+    atr = _as_float(c.get("atr"), 0.0)
+    if atr > 0:
+        r = float(atr) * 1.5
+        if r > 0:
+            return float(r)
+
+    return None
+
+
+def _calc_qty(risk_yen: Optional[int], risk_per_share: Optional[float]) -> int:
+    if risk_yen is None or risk_yen <= 0:
+        return 0
+    if risk_per_share is None or risk_per_share <= 0:
+        return 0
+    try:
+        return max(0, int(math.floor(float(risk_yen) / float(risk_per_share))))
+    except Exception:
+        return 0
+
+
+def _build_action_cards(ctx: Dict[str, Any], limit: int = 3) -> List[Dict[str, Any]]:
+    """
+    ctx["ml_candidates"]（latest_full.json由来）から、グループ別数量提案を作る。
+    """
+    cands = ctx.get("ml_candidates") or []
+    if not isinstance(cands, list) or not cands:
+        return []
+
+    group_eq = _get_group_equity_and_risk(ctx)
+    r_risk = (group_eq.get("rakuten") or {}).get("risk_yen", None)
+    s_risk = (group_eq.get("sbi_matsui") or {}).get("risk_yen", None)
+
+    out: List[Dict[str, Any]] = []
+    for c in cands:
+        if not isinstance(c, dict):
+            continue
+
+        code = _s(c.get("code")).strip()
+        if not code:
+            continue
+
+        risk_per_share = _calc_risk_per_share(c)
+        if risk_per_share is None:
+            # 逆指値/ATRが無いなら “提案できない” としてスキップ（事故防止）
+            continue
+
+        qty_r = _calc_qty(r_risk if isinstance(r_risk, int) else None, risk_per_share)
+        qty_s = _calc_qty(s_risk if isinstance(s_risk, int) else None, risk_per_share)
+
+        card = {
+            "code": code,
+            "name": c.get("name"),
+            "sector_display": c.get("sector_display"),
+            "rank": c.get("rank"),
+            "rank_group": c.get("rank_group"),
+            "entry": c.get("entry"),
+            "tp": c.get("tp"),
+            "sl": c.get("sl"),
+            "atr": c.get("atr"),
+            "last_close": c.get("last_close"),
+            "score": c.get("score"),
+            "score_100": c.get("score_100"),
+            "stars": c.get("stars"),
+            "risk_per_share": float(risk_per_share),
+            "qty_rakuten": int(qty_r),
+            "qty_sbi_matsui": int(qty_s),
+        }
+
+        out.append(card)
+        if len(out) >= max(1, int(limit)):
+            break
+
+    return out
 
 
 @dataclass
@@ -306,7 +400,7 @@ def _build_reasons(ctx: Dict[str, Any], st: BriefState) -> List[str]:
     if (r_goal + s_goal) > 0:
         reasons.append(f"年目標は設定どおり：楽天 {_yen(r_goal)} / YTD {_yen(r_ytd)}、SBI+松井 {_yen(s_goal)} / YTD {_yen(s_ytd)}。")
     else:
-        reasons.append(f"年目標が未設定（証券会社別が0）。まず目標を入れると判断が締まる。")
+        reasons.append("年目標が未設定（証券会社別が0）。まず目標を入れると判断が締まる。")
 
     reasons.append(f"全体では YTD {_yen(ytd_total)} / MTD {_yen(mtd_total)}。数字は“現実固定”に使う。")
 
@@ -337,7 +431,18 @@ def _build_reasons(ctx: Dict[str, Any], st: BriefState) -> List[str]:
         else:
             reasons.append("直近がプラスの時こそ雑になりやすい。手順固定が次のドローダウンを防ぐ。")
 
-    # market
+    # ここで action_cards（数量提案）が作れるなら、最後の枠に入れる（実用優先）
+    cards = _build_action_cards(ctx, limit=1)
+    if cards:
+        c0 = cards[0]
+        nm = _s(c0.get("name") or c0.get("code")).strip()
+        rps = _as_float(c0.get("risk_per_share"), 0.0)
+        qr = _as_int(c0.get("qty_rakuten"), 0)
+        qs = _as_int(c0.get("qty_sbi_matsui"), 0)
+        if rps > 0:
+            reasons.append(f"数量目安（1株損失≈{_yen(rps)}）：{nm} → 楽天 {qr}株 / SBI+松井 {qs}株。")
+
+    # market（枠が残ってたら）
     themes = ms.get("themes") or []
     if st.topic:
         reasons.append(f"ニュース側の主語は「{st.topic}」。読むだけ禁止で、監視条件に変換する。")
@@ -377,6 +482,13 @@ def _build_concerns(ctx: Dict[str, Any], st: BriefState) -> List[str]:
                 concerns.append("ニュースの主語が散ってる（その他が強い）。追いかけるほど迷いが増える日。")
                 break
 
+    # 数量提案が作れない時の注意（逆指値/ATR無しが多い時）
+    cands = ctx.get("ml_candidates") or []
+    if isinstance(cands, list) and cands:
+        cards = _build_action_cards(ctx, limit=1)
+        if not cards:
+            concerns.append("候補に逆指値（SL）/ATRが無く、数量が算出できない。先に“逃げ道”をデータとして固める。")
+
     if not concerns:
         concerns.append("迷いが出たら“比較”をやめて、条件とサイズで機械化する。")
 
@@ -408,6 +520,9 @@ def build_ai_brief_from_ctx(*, ctx: Dict[str, Any], user_id: int) -> Dict[str, A
     concerns = _build_concerns(ctx, st)
     escape = _build_escape(ctx, st)
 
+    # ★ 追加：数量提案カード（最大3）
+    action_cards = _build_action_cards(ctx, limit=3)
+
     reference_news = None
     try:
         ms = ctx.get("market_state") or {}
@@ -436,4 +551,6 @@ def build_ai_brief_from_ctx(*, ctx: Dict[str, Any], user_id: int) -> Dict[str, A
         "confidence": st.confidence,
         "tone": st.tone,
         "topic": st.topic,
+        # ★追加（テンプレで表示できる）
+        "action_cards": action_cards,
     }
