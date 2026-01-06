@@ -285,7 +285,7 @@ def build_user_state_from_settings(user) -> Dict[str, Any]:
 
         # --- 許容損失を「楽天」「SBI+松井」に分割（全体は使わない表示にする） ---
         # グループの“口座残高”は compute_broker_summaries の数値から作る：
-        # equity_yen = cash_yen + stock_eval_value（ざっくり「現金 + 現物評価額」）
+        # equity_yen = cash_yen + stock_acq_value（＝設定画面の「現物（特定）評価額」と合わせる）
         risk_groups: Dict[str, Dict[str, Any]] = {}
 
         try:
@@ -310,9 +310,15 @@ def build_user_state_from_settings(user) -> Dict[str, Any]:
                 try:
                     code = _safe_str(getattr(b, "code", "")).strip().upper()
                     cash_yen = _as_int(getattr(b, "cash_yen", 0), 0)
-                    stock_eval = _as_int(getattr(b, "stock_eval_value", 0), 0)
+
+                    # ★ここが修正点：
+                    # 以前: stock_eval_value（評価額）を使っていて許容損失が膨らむ
+                    # 今回: settings画面の「現物（特定）評価額」に合わせて stock_acq_value を使う
+                    stock_acq = _as_int(getattr(b, "stock_acq_value", 0), 0)
+
                     if code:
-                        broker_eq[code] = int(cash_yen + stock_eval)
+                        eq = int(cash_yen + stock_acq)
+                        broker_eq[code] = eq if eq > 0 else 0
                 except Exception:
                     continue
 
