@@ -241,6 +241,123 @@ body{ background:var(--bg); color:var(--fg); }
   line-height:1.4;
 }
 
+/* ===== AI BRIEF: action cards（数量提案） ===== */
+.acards{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.acard{
+  border:1px solid rgba(148,163,184,.18);
+  background:rgba(2,6,23,.25);
+  border-radius:14px;
+  padding:12px;
+}
+.acard-top{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  align-items:flex-start;
+}
+.acard-title{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:baseline;
+}
+.ac-code{
+  font-weight:900;
+  letter-spacing:.08em;
+  font-variant-numeric: tabular-nums;
+}
+.ac-name{
+  font-weight:800;
+  color:rgba(229,237,255,.88);
+  font-size:13px;
+}
+.ac-badges{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+.ac-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  padding:5px 8px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:800;
+  border:1px solid rgba(148,163,184,.18);
+  background:rgba(15,23,42,.55);
+  color:rgba(229,237,255,.88);
+}
+.ac-badge-soft{
+  background:rgba(96,165,250,.14);
+  border-color:rgba(96,165,250,.25);
+}
+.ac-badge-stars{
+  background:rgba(245,158,11,.14);
+  border-color:rgba(245,158,11,.25);
+}
+.ac-sub{
+  margin-top:6px;
+  font-size:12px;
+  color:rgba(229,237,255,.62);
+}
+.ac-grid{
+  margin-top:10px;
+  display:grid;
+  grid-template-columns:repeat(3, 1fr);
+  gap:8px;
+}
+.ac-k{
+  border:1px solid rgba(148,163,184,.16);
+  background:rgba(2,6,23,.20);
+  border-radius:12px;
+  padding:10px;
+}
+.ac-lb{
+  font-size:11px;
+  color:rgba(229,237,255,.55);
+}
+.ac-v{
+  margin-top:6px;
+  font-size:14px;
+  font-weight:900;
+  font-variant-numeric: tabular-nums;
+}
+.ac-split{
+  margin-top:10px;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+}
+.ac-side{
+  border:1px solid rgba(148,163,184,.16);
+  background:rgba(2,6,23,.20);
+  border-radius:12px;
+  padding:10px;
+}
+.ac-side-title{
+  font-size:11px;
+  color:rgba(229,237,255,.55);
+}
+.ac-side-val{
+  margin-top:6px;
+  font-size:16px;
+  font-weight:900;
+  font-variant-numeric: tabular-nums;
+  color:rgba(229,237,255,.92);
+}
+.ac-hint{
+  margin-top:8px;
+  font-size:12px;
+  color:rgba(229,237,255,.55);
+  line-height:1.35;
+}
+
 /* list（news/trends） */
 .list{ display:flex; flex-direction:column; gap:10px; }
 .li{
