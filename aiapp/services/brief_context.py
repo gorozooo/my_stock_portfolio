@@ -133,6 +133,23 @@ def _append_file_log(line: str) -> None:
             continue
 
 
+def _get_attr_int(obj: Any, names: List[str], default: int = 0) -> int:
+    """
+    obj から int を “候補名順” で拾う。
+    - 例: cash_balance_yen → cash_yen → cash
+    """
+    for nm in names:
+        try:
+            if hasattr(obj, nm):
+                v = getattr(obj, nm)
+                if v is None:
+                    continue
+                return _as_int(v, default)
+        except Exception:
+            continue
+    return int(default)
+
+
 # -------------------------
 # picks loader (for AI BRIEF action candidates)
 # -------------------------
@@ -288,9 +305,10 @@ def build_user_state_from_settings(user) -> Dict[str, Any]:
     """
     UserSetting から “自分の縛り” を取る。
 
-    ✅ ここが今回の狙い撃ちポイント：
-    - year_goal_total / year_goal_by_broker を ctx に入れて、trade_setting.html と100%一致させる
-    - 許容損失（円）を「全体」ではなく「楽天」「SBI+松井」グループ別に出す
+    ✅ 今回のポイント：
+    - year_goal_total / year_goal_by_broker を ctx に入れて、trade_setting.html と100%一致
+    - 許容損失（円）を「楽天」「SBI+松井」グループ別に出す
+    - “基準” は 証券サマリ表示と同じ意味（現金残高＋現物評価額）に揃える
     """
     out: Dict[str, Any] = {
         "equity": 0,
@@ -298,10 +316,8 @@ def build_user_state_from_settings(user) -> Dict[str, Any]:
         "risk_yen": None,
         "mode_period": "",
         "mode_aggr": "",
-        # ---- goals (trade_setting.html と一致させる) ----
         "goal_year_total": 0,
         "goal_year_by_broker": {},
-        # ---- per-group risk (楽天 / SBI+松井) ----
         "risk_groups": {},
     }
 
@@ -342,16 +358,14 @@ def build_user_state_from_settings(user) -> Dict[str, Any]:
         out["goal_year_total"] = int(goal_total) if goal_total > 0 else 0
         out["goal_year_by_broker"] = goal_by_broker
 
-        # --- 許容損失を「楽天」「SBI+松井」に分割（全体は使わない表示にする） ---
-        # グループの“口座残高”は compute_broker_summaries の数値から作る：
-        # equity_yen = cash_yen + stock_eval_value（ざっくり「現金 + 現物評価額」）
+        # --- 許容損失を「楽天」「SBI+松井」に分割 ---
+        # 重要：ここで使う “基準” は証券サマリ表示と同じ
+        #       = 現金残高 + 現物（特定）評価額
         risk_groups: Dict[str, Dict[str, Any]] = {}
 
         try:
-            # 遅延 import（循環/起動コスト回避）
             from aiapp.services.broker_summary import compute_broker_summaries  # type: ignore
 
-            # settings.py と同じパラメータ（UserSetting 由来）
             brokers = compute_broker_summaries(
                 user=user,
                 risk_pct=float(risk_pct) if risk_pct else 0.0,
@@ -363,15 +377,42 @@ def build_user_state_from_settings(user) -> Dict[str, Any]:
                 sbi_haircut=float(getattr(setting, "haircut_sbi", 0) or 0),
             )
 
-            # broker code -> equity_yen
             broker_eq: Dict[str, int] = {}
             for b in brokers or []:
                 try:
                     code = _safe_str(getattr(b, "code", "")).strip().upper()
-                    cash_yen = _as_int(getattr(b, "cash_yen", 0), 0)
-                    stock_eval = _as_int(getattr(b, "stock_eval_value", 0), 0)
-                    if code:
-                        broker_eq[code] = int(cash_yen + stock_eval)
+                    if not code:
+                        continue
+
+                    # 「現金残高」に相当しそうな候補
+                    cash_yen = _get_attr_int(
+                        b,
+                        [
+                            "cash_balance_yen",
+                            "cash_balance",
+                            "cash_yen",
+                            "cash",
+                            "cash_value",
+                        ],
+                        default=0,
+                    )
+
+                    # 「現物（特定）評価額」に相当しそうな候補
+                    stock_eval = _get_attr_int(
+                        b,
+                        [
+                            "stock_eval_value",
+                            "stock_eval_yen",
+                            "stock_value_yen",
+                            "spot_stock_eval_yen",
+                            "spot_eval_yen",
+                            "stock_value",
+                        ],
+                        default=0,
+                    )
+
+                    # 証券サマリ表示と同義の “基準”
+                    broker_eq[code] = int(cash_yen + stock_eval)
                 except Exception:
                     continue
 
@@ -381,7 +422,6 @@ def build_user_state_from_settings(user) -> Dict[str, Any]:
                     s += int(broker_eq.get(str(c).upper(), 0))
                 return int(s)
 
-            # グループ定義（AI BRIEF 側の view と一致）
             g_r_eq = _group_sum(["RAKUTEN"])
             g_s_eq = _group_sum(["SBI", "MATSUI"])
 
@@ -406,11 +446,9 @@ def build_user_state_from_settings(user) -> Dict[str, Any]:
             }
 
         except Exception:
-            # ここで落としてAI BRIEF全体を止めない（最悪、従来どおり全体だけになる）
             risk_groups = {}
 
         out["risk_groups"] = risk_groups
-
         return out
     except Exception:
         return out
@@ -517,10 +555,8 @@ def log_brief_context(ctx: Dict[str, Any]) -> None:
     except Exception:
         line = f"[AI_BRIEF_CTX] {timezone.now().isoformat()} <dump_failed>"
 
-    # 1) まずは強制ファイルログ
     _append_file_log(line)
 
-    # 2) logger も一応投げる（生きてれば拾われる）
     try:
         logger.info("%s", line)
     except Exception:
