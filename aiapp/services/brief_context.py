@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -97,7 +96,6 @@ def _project_root_guess() -> str:
     """
     try:
         here = os.path.abspath(os.getcwd())
-        # いまのカレントがどこでも、上に辿って manage.py を探す
         cur = here
         for _ in range(10):
             if os.path.exists(os.path.join(cur, "manage.py")):
@@ -234,19 +232,62 @@ def _calc_group_risk(equity_yen: int, risk_pct: float) -> Optional[int]:
         return None
 
 
+def _extract_year_goal_by_broker_from_usersetting(setting) -> Dict[str, int]:
+    """
+    trade_setting.html の「年間目標（証券会社別）」で保存されている値を拾う。
+    想定：
+      - year_goal_broker_XXX というフィールドが Model に存在（XXX は RAKUTEN/SBI/MATSUI 等）
+      - もしくは year_goal_brokers のような dict(JSON) フィールド
+    どっちでも拾えるように “雑に強く” しておく。
+    """
+    out: Dict[str, int] = {}
+
+    # 1) JSON/dict フィールドがあれば最優先
+    try:
+        d = getattr(setting, "year_goal_brokers", None)
+        if isinstance(d, dict):
+            for k, v in d.items():
+                kk = _safe_str(k).strip().upper()
+                if not kk:
+                    continue
+                vv = _as_int(v, 0)
+                if vv > 0:
+                    out[kk] = vv
+    except Exception:
+        pass
+
+    # 2) 通常フィールド year_goal_broker_*
+    try:
+        for k, v in (getattr(setting, "__dict__", {}) or {}).items():
+            if not isinstance(k, str):
+                continue
+            if not k.startswith("year_goal_broker_"):
+                continue
+            suffix = k.replace("year_goal_broker_", "", 1)
+            code = _safe_str(suffix).strip().upper()
+            if not code:
+                continue
+            vv = _as_int(v, 0)
+            if vv > 0:
+                out[code] = vv
+    except Exception:
+        pass
+
+    return out
+
+
 def build_user_state_from_settings(user) -> Dict[str, Any]:
     """
     UserSetting から “自分の縛り” を取る。
-    ※ここでのポイント：
-      - 旧: account_equity（全体）から risk_yen を作っていた → テンプレ感＆誤差の元
-      - 新: ブローカー別残高から「楽天」「SBI+松井」グループの risk_yen を作って ctx に入れる
     """
     out: Dict[str, Any] = {
-        "equity": 0,         # 旧互換（全体値）。AI BRIEFでは原則使わない
+        "equity": 0,              # 旧互換（全体）
         "risk_pct": 0.0,
-        "risk_yen": None,    # 旧互換（全体円）。AI BRIEFでは原則使わない
-        "risk_groups": {},   # ← 新：楽天 / SBI+松井 の円換算
-        "broker_equity": {}, # ← 新：ブローカーごとの現金+評価額（デバッグ用）
+        "risk_yen": None,         # 旧互換（全体）
+        "risk_groups": {},        # 楽天 / SBI+松井 の許容損失（円）
+        "broker_equity": {},      # ブローカー別 体力（現金+評価額）
+        "goal_year_total": 0,     # 全体目標（trade_setting.html）
+        "goal_year_by_broker": {},# 証券会社別目標（trade_setting.html）
         "mode_period": "",
         "mode_aggr": "",
     }
@@ -257,7 +298,7 @@ def build_user_state_from_settings(user) -> Dict[str, Any]:
 
         setting, _ = UserSetting.objects.get_or_create(user=user)
 
-        # 旧互換（残しておく）
+        # --- 基本 ---
         equity = _as_float(getattr(setting, "account_equity", 0), 0.0)
         risk_pct = _as_float(getattr(setting, "risk_pct", 0.0), 0.0)
 
@@ -272,7 +313,11 @@ def build_user_state_from_settings(user) -> Dict[str, Any]:
         out["mode_period"] = _safe_str(getattr(setting, "mode_period", "")).strip()
         out["mode_aggr"] = _safe_str(getattr(setting, "mode_aggr", "")).strip()
 
-        # --- ブローカー別残高（現金+評価額）からグループ許容損失を作る ---
+        # --- 年目標（trade_setting.html の保存値を優先） ---
+        out["goal_year_total"] = _as_int(getattr(setting, "year_goal_total", 0), 0)
+        out["goal_year_by_broker"] = _extract_year_goal_by_broker_from_usersetting(setting)
+
+        # --- ブローカー別残高（現金+評価額）→ グループ許容損失 ---
         leverage_rakuten = _as_float(getattr(setting, "leverage_rakuten", 3.3), 3.3)
         haircut_rakuten = _as_float(getattr(setting, "haircut_rakuten", 0.1), 0.1)
         leverage_matsui = _as_float(getattr(setting, "leverage_matsui", 3.0), 3.0)
@@ -291,7 +336,6 @@ def build_user_state_from_settings(user) -> Dict[str, Any]:
             sbi_haircut=haircut_sbi,
         )
 
-        # ブローカー別の「体力」= 現金 + 株評価額 (+ margin_used_eval を足したければここ)
         broker_equity: Dict[str, int] = {}
         if isinstance(broker_nums, list):
             for b in broker_nums:
@@ -306,7 +350,6 @@ def build_user_state_from_settings(user) -> Dict[str, Any]:
 
         out["broker_equity"] = broker_equity
 
-        # グループ定義（あなたの要望）
         rakuten_eq = int(broker_equity.get("RAKUTEN", 0))
         sbi_eq = int(broker_equity.get("SBI", 0))
         matsui_eq = int(broker_equity.get("MATSUI", 0))
@@ -339,7 +382,7 @@ def build_portfolio_state_from_assets(assets: Dict[str, Any]) -> Dict[str, Any]:
     out: Dict[str, Any] = {
         "realized_ytd": 0.0,
         "realized_mtd": 0.0,
-        "goal_year_total": 0,
+        "goal_year_total": 0,  # 旧互換（assets側）
         "brokers": [],
     }
 
@@ -411,7 +454,7 @@ def build_brief_context(
     ctx: Dict[str, Any] = {
         "as_of": as_of,
         "date": d.isoformat(),
-        "user_state": user_state,
+        "user_state": user_state,          # ← 年目標（証券会社別）もここに入る
         "portfolio_state": portfolio_state,
         "behavior_state": behavior_state,
         "market_state": market_state,
@@ -432,10 +475,8 @@ def log_brief_context(ctx: Dict[str, Any]) -> None:
     except Exception:
         line = f"[AI_BRIEF_CTX] {timezone.now().isoformat()} <dump_failed>"
 
-    # 1) まずは強制ファイルログ
     _append_file_log(line)
 
-    # 2) logger も一応投げる（生きてれば拾われる）
     try:
         logger.info("%s", line)
     except Exception:
