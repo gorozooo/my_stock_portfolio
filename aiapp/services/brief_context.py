@@ -1,4 +1,3 @@
-# aiapp/services/brief_context.py
 from __future__ import annotations
 
 import json
@@ -226,36 +225,107 @@ def build_behavior_state_from_realized(user) -> Dict[str, Any]:
         return out
 
 
+def _calc_group_risk(equity_yen: int, risk_pct: float) -> Optional[int]:
+    try:
+        if equity_yen <= 0 or risk_pct <= 0:
+            return None
+        return int(round(float(equity_yen) * (float(risk_pct) / 100.0)))
+    except Exception:
+        return None
+
+
 def build_user_state_from_settings(user) -> Dict[str, Any]:
     """
     UserSetting から “自分の縛り” を取る。
+    ※ここでのポイント：
+      - 旧: account_equity（全体）から risk_yen を作っていた → テンプレ感＆誤差の元
+      - 新: ブローカー別残高から「楽天」「SBI+松井」グループの risk_yen を作って ctx に入れる
     """
     out: Dict[str, Any] = {
-        "equity": 0,
+        "equity": 0,         # 旧互換（全体値）。AI BRIEFでは原則使わない
         "risk_pct": 0.0,
-        "risk_yen": None,
+        "risk_yen": None,    # 旧互換（全体円）。AI BRIEFでは原則使わない
+        "risk_groups": {},   # ← 新：楽天 / SBI+松井 の円換算
+        "broker_equity": {}, # ← 新：ブローカーごとの現金+評価額（デバッグ用）
         "mode_period": "",
         "mode_aggr": "",
     }
 
     try:
         from portfolio.models import UserSetting  # type: ignore
+        from aiapp.services.broker_summary import compute_broker_summaries  # type: ignore
 
         setting, _ = UserSetting.objects.get_or_create(user=user)
 
+        # 旧互換（残しておく）
         equity = _as_float(getattr(setting, "account_equity", 0), 0.0)
         risk_pct = _as_float(getattr(setting, "risk_pct", 0.0), 0.0)
+
+        out["equity"] = int(round(equity))
+        out["risk_pct"] = float(risk_pct) if risk_pct else 0.0
 
         risk_yen = None
         if equity > 0 and risk_pct > 0:
             risk_yen = int(round(equity * (risk_pct / 100.0)))
-
-        out["equity"] = int(round(equity))
-        out["risk_pct"] = float(risk_pct) if risk_pct else 0.0
         out["risk_yen"] = risk_yen
 
         out["mode_period"] = _safe_str(getattr(setting, "mode_period", "")).strip()
         out["mode_aggr"] = _safe_str(getattr(setting, "mode_aggr", "")).strip()
+
+        # --- ブローカー別残高（現金+評価額）からグループ許容損失を作る ---
+        leverage_rakuten = _as_float(getattr(setting, "leverage_rakuten", 3.3), 3.3)
+        haircut_rakuten = _as_float(getattr(setting, "haircut_rakuten", 0.1), 0.1)
+        leverage_matsui = _as_float(getattr(setting, "leverage_matsui", 3.0), 3.0)
+        haircut_matsui = _as_float(getattr(setting, "haircut_matsui", 0.1), 0.1)
+        leverage_sbi = _as_float(getattr(setting, "leverage_sbi", 2.8), 2.8)
+        haircut_sbi = _as_float(getattr(setting, "haircut_sbi", 0.3), 0.3)
+
+        broker_nums = compute_broker_summaries(
+            user=user,
+            risk_pct=float(out["risk_pct"] or 0.0),
+            rakuten_leverage=leverage_rakuten,
+            rakuten_haircut=haircut_rakuten,
+            matsui_leverage=leverage_matsui,
+            matsui_haircut=haircut_matsui,
+            sbi_leverage=leverage_sbi,
+            sbi_haircut=haircut_sbi,
+        )
+
+        # ブローカー別の「体力」= 現金 + 株評価額 (+ margin_used_eval を足したければここ)
+        broker_equity: Dict[str, int] = {}
+        if isinstance(broker_nums, list):
+            for b in broker_nums:
+                code = _safe_str(getattr(b, "code", "")).strip().upper()
+                if not code:
+                    continue
+                cash = _as_int(getattr(b, "cash_yen", 0), 0)
+                evalv = _as_int(getattr(b, "stock_eval_value", 0), 0)
+                margin_used = _as_int(getattr(b, "margin_used_eval", 0), 0)
+                eq = int(cash + evalv + margin_used)
+                broker_equity[code] = eq
+
+        out["broker_equity"] = broker_equity
+
+        # グループ定義（あなたの要望）
+        rakuten_eq = int(broker_equity.get("RAKUTEN", 0))
+        sbi_eq = int(broker_equity.get("SBI", 0))
+        matsui_eq = int(broker_equity.get("MATSUI", 0))
+        sbi_matsui_eq = int(sbi_eq + matsui_eq)
+
+        out["risk_groups"] = {
+            "rakuten": {
+                "label": "楽天",
+                "brokers": ["RAKUTEN"],
+                "equity_yen": rakuten_eq,
+                "risk_yen": _calc_group_risk(rakuten_eq, float(out["risk_pct"] or 0.0)) if rakuten_eq > 0 else None,
+            },
+            "sbi_matsui": {
+                "label": "SBI+松井",
+                "brokers": ["SBI", "MATSUI"],
+                "equity_yen": sbi_matsui_eq,
+                "risk_yen": _calc_group_risk(sbi_matsui_eq, float(out["risk_pct"] or 0.0)) if sbi_matsui_eq > 0 else None,
+            },
+        }
 
         return out
     except Exception:
