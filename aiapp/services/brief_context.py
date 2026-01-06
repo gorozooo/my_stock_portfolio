@@ -1,3 +1,4 @@
+# aiapp/services/brief_context.py
 from __future__ import annotations
 
 import json
@@ -130,6 +131,64 @@ def _append_file_log(line: str) -> None:
             return
         except Exception:
             continue
+
+
+# -------------------------
+# picks loader (for AI BRIEF action candidates)
+# -------------------------
+def _load_latest_picks_top(limit: int = 5) -> List[Dict[str, Any]]:
+    """
+    media/aiapp/picks/latest_full.json（top）から、AI BRIEF用の候補を抜き出す。
+    - 失敗しても落ちない（[] を返す）
+    - 必要最小だけ（code/name/entry/tp/sl/atr/last_close/score/stars/rank）
+    """
+    try:
+        root = _project_root_guess()
+        path = os.path.join(root, "media", "aiapp", "picks", "latest_full.json")
+        if not os.path.exists(path):
+            return []
+
+        try:
+            raw = json.loads(open(path, "r", encoding="utf-8").read())
+        except Exception:
+            return []
+
+        items = raw.get("items") or []
+        if not isinstance(items, list):
+            return []
+
+        out: List[Dict[str, Any]] = []
+        for row in items:
+            if not isinstance(row, dict):
+                continue
+
+            code = _safe_str(row.get("code")).strip()
+            if not code:
+                continue
+
+            cand = {
+                "code": code,
+                "name": _safe_str(row.get("name") or row.get("name_norm")).strip() or None,
+                "sector_display": _safe_str(row.get("sector_display")).strip() or None,
+                "rank": _as_int(row.get("rank"), 0) or None,
+                "rank_group": _safe_str(row.get("rank_group")).strip() or None,
+                "entry": _as_float(row.get("entry"), 0.0) or None,
+                "tp": _as_float(row.get("tp"), 0.0) or None,
+                "sl": _as_float(row.get("sl"), 0.0) or None,
+                "atr": _as_float(row.get("atr"), 0.0) or None,
+                "last_close": _as_float(row.get("last_close"), 0.0) or None,
+                "score": _as_float(row.get("score"), 0.0) or None,
+                "score_100": _as_int(row.get("score_100"), 0) or None,
+                "stars": _as_int(row.get("stars"), 0) or None,
+            }
+
+            out.append(cand)
+            if len(out) >= max(1, int(limit)):
+                break
+
+        return out
+    except Exception:
+        return []
 
 
 # -------------------------
@@ -285,7 +344,7 @@ def build_user_state_from_settings(user) -> Dict[str, Any]:
 
         # --- 許容損失を「楽天」「SBI+松井」に分割（全体は使わない表示にする） ---
         # グループの“口座残高”は compute_broker_summaries の数値から作る：
-        # equity_yen = cash_yen + stock_acq_value（＝設定画面の「現物（特定）評価額」と合わせる）
+        # equity_yen = cash_yen + stock_eval_value（ざっくり「現金 + 現物評価額」）
         risk_groups: Dict[str, Dict[str, Any]] = {}
 
         try:
@@ -310,15 +369,9 @@ def build_user_state_from_settings(user) -> Dict[str, Any]:
                 try:
                     code = _safe_str(getattr(b, "code", "")).strip().upper()
                     cash_yen = _as_int(getattr(b, "cash_yen", 0), 0)
-
-                    # ★ここが修正点：
-                    # 以前: stock_eval_value（評価額）を使っていて許容損失が膨らむ
-                    # 今回: settings画面の「現物（特定）評価額」に合わせて stock_acq_value を使う
-                    stock_acq = _as_int(getattr(b, "stock_acq_value", 0), 0)
-
+                    stock_eval = _as_int(getattr(b, "stock_eval_value", 0), 0)
                     if code:
-                        eq = int(cash_yen + stock_acq)
-                        broker_eq[code] = eq if eq > 0 else 0
+                        broker_eq[code] = int(cash_yen + stock_eval)
                 except Exception:
                     continue
 
@@ -407,10 +460,11 @@ def build_portfolio_state_from_assets(assets: Dict[str, Any]) -> Dict[str, Any]:
 
 def build_ml_candidates_stub(user) -> List[Dict[str, Any]]:
     """
-    A段階では “銘柄候補の推論” はまだつなげない。
+    A段階：picks_build の top（latest_full.json）から候補だけ引く。
+    - user は将来フィルタに使う予定（現時点では未使用）
     """
     _ = user
-    return []
+    return _load_latest_picks_top(limit=5)
 
 
 def build_brief_context(
