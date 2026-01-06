@@ -404,16 +404,26 @@ def _build_reasons(ctx: Dict[str, Any], st: BriefState) -> List[str]:
 
     reasons.append(f"全体では YTD {_yen(ytd_total)} / MTD {_yen(mtd_total)}。数字は“現実固定”に使う。")
 
-    # 許容損失：グループ別
+    # 許容損失：グループ別（★母数=基準額も必ず明記）
     if risk_pct > 0:
         r_risk = (group_eq.get("rakuten") or {}).get("risk_yen", None)
         s_risk = (group_eq.get("sbi_matsui") or {}).get("risk_yen", None)
 
+        r_eq = _as_int((group_eq.get("rakuten") or {}).get("equity_yen"), 0)
+        s_eq = _as_int((group_eq.get("sbi_matsui") or {}).get("equity_yen"), 0)
+
         parts = []
         if r_risk is not None:
-            parts.append(f"楽天 {risk_pct:.1f}%（目安 {_yen(r_risk)}）")
+            if r_eq > 0:
+                parts.append(f"楽天 {risk_pct:.1f}%（{_yen(r_risk)} / 基準 {_yen(r_eq)}）")
+            else:
+                parts.append(f"楽天 {risk_pct:.1f}%（目安 {_yen(r_risk)}）")
+
         if s_risk is not None:
-            parts.append(f"SBI+松井 {risk_pct:.1f}%（目安 {_yen(s_risk)}）")
+            if s_eq > 0:
+                parts.append(f"SBI+松井 {risk_pct:.1f}%（{_yen(s_risk)} / 基準 {_yen(s_eq)}）")
+            else:
+                parts.append(f"SBI+松井 {risk_pct:.1f}%（目安 {_yen(s_risk)}）")
 
         if parts:
             reasons.append("1トレードの許容損失は " + " / ".join(parts) + "。ここを超える判断は全部“事故”。")
