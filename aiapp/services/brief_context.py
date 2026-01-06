@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -96,6 +97,7 @@ def _project_root_guess() -> str:
     """
     try:
         here = os.path.abspath(os.getcwd())
+        # いまのカレントがどこでも、上に辿って manage.py を探す
         cur = here
         for _ in range(10):
             if os.path.exists(os.path.join(cur, "manage.py")):
@@ -223,152 +225,132 @@ def build_behavior_state_from_realized(user) -> Dict[str, Any]:
         return out
 
 
-def _calc_group_risk(equity_yen: int, risk_pct: float) -> Optional[int]:
-    try:
-        if equity_yen <= 0 or risk_pct <= 0:
-            return None
-        return int(round(float(equity_yen) * (float(risk_pct) / 100.0)))
-    except Exception:
-        return None
-
-
-def _extract_year_goal_by_broker_from_usersetting(setting) -> Dict[str, int]:
-    """
-    trade_setting.html の「年間目標（証券会社別）」で保存されている値を拾う。
-    想定：
-      - year_goal_broker_XXX というフィールドが Model に存在（XXX は RAKUTEN/SBI/MATSUI 等）
-      - もしくは year_goal_brokers のような dict(JSON) フィールド
-    どっちでも拾えるように “雑に強く” しておく。
-    """
-    out: Dict[str, int] = {}
-
-    # 1) JSON/dict フィールドがあれば最優先
-    try:
-        d = getattr(setting, "year_goal_brokers", None)
-        if isinstance(d, dict):
-            for k, v in d.items():
-                kk = _safe_str(k).strip().upper()
-                if not kk:
-                    continue
-                vv = _as_int(v, 0)
-                if vv > 0:
-                    out[kk] = vv
-    except Exception:
-        pass
-
-    # 2) 通常フィールド year_goal_broker_*
-    try:
-        for k, v in (getattr(setting, "__dict__", {}) or {}).items():
-            if not isinstance(k, str):
-                continue
-            if not k.startswith("year_goal_broker_"):
-                continue
-            suffix = k.replace("year_goal_broker_", "", 1)
-            code = _safe_str(suffix).strip().upper()
-            if not code:
-                continue
-            vv = _as_int(v, 0)
-            if vv > 0:
-                out[code] = vv
-    except Exception:
-        pass
-
-    return out
-
-
 def build_user_state_from_settings(user) -> Dict[str, Any]:
     """
     UserSetting から “自分の縛り” を取る。
+
+    ✅ ここが今回の狙い撃ちポイント：
+    - year_goal_total / year_goal_by_broker を ctx に入れて、trade_setting.html と100%一致させる
+    - 許容損失（円）を「全体」ではなく「楽天」「SBI+松井」グループ別に出す
     """
     out: Dict[str, Any] = {
-        "equity": 0,              # 旧互換（全体）
+        "equity": 0,
         "risk_pct": 0.0,
-        "risk_yen": None,         # 旧互換（全体）
-        "risk_groups": {},        # 楽天 / SBI+松井 の許容損失（円）
-        "broker_equity": {},      # ブローカー別 体力（現金+評価額）
-        "goal_year_total": 0,     # 全体目標（trade_setting.html）
-        "goal_year_by_broker": {},# 証券会社別目標（trade_setting.html）
+        "risk_yen": None,
         "mode_period": "",
         "mode_aggr": "",
+        # ---- goals (trade_setting.html と一致させる) ----
+        "goal_year_total": 0,
+        "goal_year_by_broker": {},
+        # ---- per-group risk (楽天 / SBI+松井) ----
+        "risk_groups": {},
     }
 
     try:
         from portfolio.models import UserSetting  # type: ignore
-        from aiapp.services.broker_summary import compute_broker_summaries  # type: ignore
 
         setting, _ = UserSetting.objects.get_or_create(user=user)
 
-        # --- 基本 ---
+        # --- 基本（従来どおり） ---
         equity = _as_float(getattr(setting, "account_equity", 0), 0.0)
         risk_pct = _as_float(getattr(setting, "risk_pct", 0.0), 0.0)
-
-        out["equity"] = int(round(equity))
-        out["risk_pct"] = float(risk_pct) if risk_pct else 0.0
 
         risk_yen = None
         if equity > 0 and risk_pct > 0:
             risk_yen = int(round(equity * (risk_pct / 100.0)))
+
+        out["equity"] = int(round(equity))
+        out["risk_pct"] = float(risk_pct) if risk_pct else 0.0
         out["risk_yen"] = risk_yen
 
         out["mode_period"] = _safe_str(getattr(setting, "mode_period", "")).strip()
         out["mode_aggr"] = _safe_str(getattr(setting, "mode_aggr", "")).strip()
 
-        # --- 年目標（trade_setting.html の保存値を優先） ---
-        out["goal_year_total"] = _as_int(getattr(setting, "year_goal_total", 0), 0)
-        out["goal_year_by_broker"] = _extract_year_goal_by_broker_from_usersetting(setting)
+        # --- 年目標（trade_setting.html の保存先をそのまま反映） ---
+        goal_total = _as_int(getattr(setting, "year_goal_total", 0), 0)
+        goal_by_broker_raw = getattr(setting, "year_goal_by_broker", {}) or {}
 
-        # --- ブローカー別残高（現金+評価額）→ グループ許容損失 ---
-        leverage_rakuten = _as_float(getattr(setting, "leverage_rakuten", 3.3), 3.3)
-        haircut_rakuten = _as_float(getattr(setting, "haircut_rakuten", 0.1), 0.1)
-        leverage_matsui = _as_float(getattr(setting, "leverage_matsui", 3.0), 3.0)
-        haircut_matsui = _as_float(getattr(setting, "haircut_matsui", 0.1), 0.1)
-        leverage_sbi = _as_float(getattr(setting, "leverage_sbi", 2.8), 2.8)
-        haircut_sbi = _as_float(getattr(setting, "haircut_sbi", 0.3), 0.3)
-
-        broker_nums = compute_broker_summaries(
-            user=user,
-            risk_pct=float(out["risk_pct"] or 0.0),
-            rakuten_leverage=leverage_rakuten,
-            rakuten_haircut=haircut_rakuten,
-            matsui_leverage=leverage_matsui,
-            matsui_haircut=haircut_matsui,
-            sbi_leverage=leverage_sbi,
-            sbi_haircut=haircut_sbi,
-        )
-
-        broker_equity: Dict[str, int] = {}
-        if isinstance(broker_nums, list):
-            for b in broker_nums:
-                code = _safe_str(getattr(b, "code", "")).strip().upper()
-                if not code:
+        goal_by_broker: Dict[str, int] = {}
+        if isinstance(goal_by_broker_raw, dict):
+            for k, v in goal_by_broker_raw.items():
+                kk = _safe_str(k).strip().upper()
+                if not kk:
                     continue
-                cash = _as_int(getattr(b, "cash_yen", 0), 0)
-                evalv = _as_int(getattr(b, "stock_eval_value", 0), 0)
-                margin_used = _as_int(getattr(b, "margin_used_eval", 0), 0)
-                eq = int(cash + evalv + margin_used)
-                broker_equity[code] = eq
+                vv = _as_int(v, 0)
+                if vv > 0:
+                    goal_by_broker[kk] = int(vv)
 
-        out["broker_equity"] = broker_equity
+        out["goal_year_total"] = int(goal_total) if goal_total > 0 else 0
+        out["goal_year_by_broker"] = goal_by_broker
 
-        rakuten_eq = int(broker_equity.get("RAKUTEN", 0))
-        sbi_eq = int(broker_equity.get("SBI", 0))
-        matsui_eq = int(broker_equity.get("MATSUI", 0))
-        sbi_matsui_eq = int(sbi_eq + matsui_eq)
+        # --- 許容損失を「楽天」「SBI+松井」に分割（全体は使わない表示にする） ---
+        # グループの“口座残高”は compute_broker_summaries の数値から作る：
+        # equity_yen = cash_yen + stock_eval_value（ざっくり「現金 + 現物評価額」）
+        risk_groups: Dict[str, Dict[str, Any]] = {}
 
-        out["risk_groups"] = {
-            "rakuten": {
-                "label": "楽天",
-                "brokers": ["RAKUTEN"],
-                "equity_yen": rakuten_eq,
-                "risk_yen": _calc_group_risk(rakuten_eq, float(out["risk_pct"] or 0.0)) if rakuten_eq > 0 else None,
-            },
-            "sbi_matsui": {
-                "label": "SBI+松井",
-                "brokers": ["SBI", "MATSUI"],
-                "equity_yen": sbi_matsui_eq,
-                "risk_yen": _calc_group_risk(sbi_matsui_eq, float(out["risk_pct"] or 0.0)) if sbi_matsui_eq > 0 else None,
-            },
-        }
+        try:
+            # 遅延 import（循環/起動コスト回避）
+            from aiapp.services.broker_summary import compute_broker_summaries  # type: ignore
+
+            # settings.py と同じパラメータ（UserSetting 由来）
+            brokers = compute_broker_summaries(
+                user=user,
+                risk_pct=float(risk_pct) if risk_pct else 0.0,
+                rakuten_leverage=float(getattr(setting, "leverage_rakuten", 0) or 0),
+                rakuten_haircut=float(getattr(setting, "haircut_rakuten", 0) or 0),
+                matsui_leverage=float(getattr(setting, "leverage_matsui", 0) or 0),
+                matsui_haircut=float(getattr(setting, "haircut_matsui", 0) or 0),
+                sbi_leverage=float(getattr(setting, "leverage_sbi", 0) or 0),
+                sbi_haircut=float(getattr(setting, "haircut_sbi", 0) or 0),
+            )
+
+            # broker code -> equity_yen
+            broker_eq: Dict[str, int] = {}
+            for b in brokers or []:
+                try:
+                    code = _safe_str(getattr(b, "code", "")).strip().upper()
+                    cash_yen = _as_int(getattr(b, "cash_yen", 0), 0)
+                    stock_eval = _as_int(getattr(b, "stock_eval_value", 0), 0)
+                    if code:
+                        broker_eq[code] = int(cash_yen + stock_eval)
+                except Exception:
+                    continue
+
+            def _group_sum(codes: List[str]) -> int:
+                s = 0
+                for c in codes:
+                    s += int(broker_eq.get(str(c).upper(), 0))
+                return int(s)
+
+            # グループ定義（AI BRIEF 側の view と一致）
+            g_r_eq = _group_sum(["RAKUTEN"])
+            g_s_eq = _group_sum(["SBI", "MATSUI"])
+
+            def _risk_yen_from_eq(eq_yen: int) -> Optional[int]:
+                if eq_yen <= 0 or risk_pct <= 0:
+                    return None
+                return int(round(float(eq_yen) * (float(risk_pct) / 100.0)))
+
+            risk_groups = {
+                "rakuten": {
+                    "label": "楽天",
+                    "brokers": ["RAKUTEN"],
+                    "equity_yen": int(g_r_eq),
+                    "risk_yen": _risk_yen_from_eq(int(g_r_eq)),
+                },
+                "sbi_matsui": {
+                    "label": "SBI+松井",
+                    "brokers": ["SBI", "MATSUI"],
+                    "equity_yen": int(g_s_eq),
+                    "risk_yen": _risk_yen_from_eq(int(g_s_eq)),
+                },
+            }
+
+        except Exception:
+            # ここで落としてAI BRIEF全体を止めない（最悪、従来どおり全体だけになる）
+            risk_groups = {}
+
+        out["risk_groups"] = risk_groups
 
         return out
     except Exception:
@@ -382,7 +364,7 @@ def build_portfolio_state_from_assets(assets: Dict[str, Any]) -> Dict[str, Any]:
     out: Dict[str, Any] = {
         "realized_ytd": 0.0,
         "realized_mtd": 0.0,
-        "goal_year_total": 0,  # 旧互換（assets側）
+        "goal_year_total": 0,
         "brokers": [],
     }
 
@@ -454,7 +436,7 @@ def build_brief_context(
     ctx: Dict[str, Any] = {
         "as_of": as_of,
         "date": d.isoformat(),
-        "user_state": user_state,          # ← 年目標（証券会社別）もここに入る
+        "user_state": user_state,
         "portfolio_state": portfolio_state,
         "behavior_state": behavior_state,
         "market_state": market_state,
@@ -475,8 +457,10 @@ def log_brief_context(ctx: Dict[str, Any]) -> None:
     except Exception:
         line = f"[AI_BRIEF_CTX] {timezone.now().isoformat()} <dump_failed>"
 
+    # 1) まずは強制ファイルログ
     _append_file_log(line)
 
+    # 2) logger も一応投げる（生きてれば拾われる）
     try:
         logger.info("%s", line)
     except Exception:
