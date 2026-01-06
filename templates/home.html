@@ -5,7 +5,7 @@
 {% block title %}Home{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=110">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=111">
 
 <div class="home-shell">
   <!-- Top: ticker -->
@@ -253,6 +253,75 @@
                       {% endfor %}
                     </div>
                   {% endif %}
+                {% endif %}
+
+                {% if b.action_cards %}
+                  <div class="sec" style="margin-top:12px;">
+                    <div class="sec-title">数量提案（候補）</div>
+
+                    <div class="acards">
+                      {% for c in b.action_cards|slice:":3" %}
+                        <div class="acard">
+                          <div class="acard-top">
+                            <div class="acard-title">
+                              <span class="ac-code">{{ c.code }}</span>
+                              {% if c.name %}
+                                <span class="ac-name">{{ c.name }}</span>
+                              {% endif %}
+                            </div>
+
+                            <div class="ac-badges">
+                              {% if c.stars is not None %}
+                                <span class="ac-badge ac-badge-stars">⭐️{{ c.stars }}</span>
+                              {% endif %}
+                              {% if c.rank %}
+                                <span class="ac-badge">#{{ c.rank }}</span>
+                              {% endif %}
+                              {% if c.rank_group %}
+                                <span class="ac-badge ac-badge-soft">{{ c.rank_group }}</span>
+                              {% endif %}
+                            </div>
+                          </div>
+
+                          {% if c.sector_display %}
+                            <div class="ac-sub">{{ c.sector_display }}</div>
+                          {% endif %}
+
+                          <div class="ac-grid">
+                            <div class="ac-k">
+                              <div class="ac-lb">Entry</div>
+                              <div class="ac-v">¥{{ c.entry|default:0|floatformat:0|intcomma }}</div>
+                            </div>
+                            <div class="ac-k">
+                              <div class="ac-lb">SL</div>
+                              <div class="ac-v">¥{{ c.sl|default:0|floatformat:0|intcomma }}</div>
+                            </div>
+                            <div class="ac-k">
+                              <div class="ac-lb">1株損失</div>
+                              <div class="ac-v">¥{{ c.risk_per_share|default:0|floatformat:0|intcomma }}</div>
+                            </div>
+                          </div>
+
+                          <div class="ac-split">
+                            <div class="ac-side">
+                              <div class="ac-side-title">楽天</div>
+                              <div class="ac-side-val">{{ c.qty_rakuten|default:0|intcomma }}株</div>
+                            </div>
+                            <div class="ac-side">
+                              <div class="ac-side-title">SBI+松井</div>
+                              <div class="ac-side-val">{{ c.qty_sbi_matsui|default:0|intcomma }}株</div>
+                            </div>
+                          </div>
+
+                          <div class="ac-hint">
+                            ※数量は「口座グループ残高 × リスク%」÷「1株損失」で計算。0株は“見送り”扱い。
+                          </div>
+                        </div>
+                      {% endfor %}
+                    </div>
+
+                    <div class="hint">上の数量は“最大許容”の目安。迷うなら半分、逆指値が置けないなら0。</div>
+                  </div>
                 {% endif %}
 
                 {% if b.concerns %}
