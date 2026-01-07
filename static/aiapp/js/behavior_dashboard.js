@@ -1,3 +1,4 @@
+// aiapp/static/aiapp/js/behavior_dashboard.js
 (function(){
   // --- ticker (iPhone確実) ---
   var track = document.getElementById("tickerTrack");
