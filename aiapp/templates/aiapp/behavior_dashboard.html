@@ -1,12 +1,11 @@
 {# aiapp/templates/aiapp/behavior_dashboard.html #}
 {% extends "base.html" %}
-{% load humanize %}
-{% load static %}
+{% load humanize static %}
 
 {% block title %}AI 行動ダッシュボード{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'aiapp/css/behavior_dashboard.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'aiapp/css/behavior_dashboard.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -15,7 +14,10 @@
   <!-- 上部：今日 + テロップ -->
   <div class="topbar">
     <div class="topline">
-      
+      <div class="today">
+        <span class="k">本日</span>
+        <span class="v">{{ today_label }}</span>
+      </div>
 
       <div class="ticker" aria-label="ticker">
         <div class="ticker-track" id="tickerTrack">
@@ -39,9 +41,18 @@
     <div class="empty">
       まだ行動データがありません。<br>
       <span class="small">simulate（PRO）→ ai_sim_eval → sync_simulate_pro_eval の流れで分析が出ます。</span><br>
+
       <div style="margin-top:10px;" class="badges">
         <span class="badge"><span class="chip" style="background:var(--accent)"></span>simulate files: {{ sim_files }}</span>
         <span class="badge"><span class="chip" style="background:var(--accent2)"></span>理解度: {{ understanding_label }}</span>
+      </div>
+
+      <div class="hr"></div>
+      <div class="card">
+        <div class="row"><div class="k">ML meta mtime</div><div class="v">{{ updates.ml_meta_mtime }}</div></div>
+        <div class="row" style="margin-top:6px;"><div class="k">ML created_at</div><div class="v">{{ updates.ml_meta_created_at }}</div></div>
+        <div class="row" style="margin-top:6px;"><div class="k">side mtime</div><div class="v">{{ updates.side_mtime }}</div></div>
+        <div class="row" style="margin-top:6px;"><div class="k">dataset mtime</div><div class="v">{{ updates.dataset_mtime }}</div></div>
       </div>
     </div>
   {% else %}
@@ -102,9 +113,26 @@
           {% endfor %}
           <div class="small">直近12個</div>
         </div>
+
+        <div class="hr"></div>
+
+        <div class="h" style="font-size:13px;">最終更新</div>
+        <div class="hsub">「走ってるか」をここで確認</div>
+
+        <div class="card" style="margin-top:10px;">
+          <div class="row"><div class="k">ML meta mtime</div><div class="v">{{ updates.ml_meta_mtime }}</div></div>
+          <div class="row" style="margin-top:6px;"><div class="k">ML created_at</div><div class="v">{{ updates.ml_meta_created_at }}</div></div>
+          <div class="hr"></div>
+          <div class="row"><div class="k">side mtime</div><div class="v">{{ updates.side_mtime }}</div></div>
+          <div class="row" style="margin-top:6px;"><div class="k">side latest ts</div><div class="v">{{ updates.side_latest_ts }}</div></div>
+          <div class="hr"></div>
+          <div class="row"><div class="k">dataset mtime</div><div class="v">{{ updates.dataset_mtime }}</div></div>
+          <div class="row" style="margin-top:6px;"><div class="k">dataset latest ts</div><div class="v">{{ updates.dataset_latest_ts }}</div></div>
+          <div class="row" style="margin-top:6px;"><div class="k">ml latest ts</div><div class="v">{{ updates.ml_latest_ts }}</div></div>
+        </div>
       </section>
 
-      <!-- Page 2: Learning (BehaviorStats / entry_reason) -->
+      <!-- Page 2: Learning -->
       <section class="page" data-page="1">
         <div class="hrow">
           <div class="h">Learning</div>
@@ -174,48 +202,32 @@
         <div class="hsub">“どれくらい当たってるか” を信号機で確認</div>
 
         {% if ml and ml.has_metrics %}
-          {# ★ ここが 1カラム縦積み #}
-          <div class="metrics metrics-onecol" style="margin-top:10px;">
+          <div class="metrics" style="margin-top:10px;">
+
             <div class="mcard">
               <div class="t">p_win（勝つ確率）</div>
-              <div class="big">
-                AUC {% if ml.pwin_auc is not None %}{{ ml.pwin_auc|floatformat:3 }}{% else %}-{% endif %}
-              </div>
+              <div class="big">AUC {% if ml.pwin_auc is not None %}{{ ml.pwin_auc|floatformat:3 }}{% else %}-{% endif %}</div>
 
               {% with e=ml_explain.p_win_auc %}
-                <div class="sig sig-{{ e.signal.level }}">
-                  <span class="lamp"></span>{{ e.signal.label }}：{{ e.comment }}
-                </div>
+                <div class="sig sig-{{ e.signal.level }}"><span class="lamp"></span>{{ e.signal.label }}：{{ e.comment }}</div>
                 <details class="details">
                   <summary>この数字の意味（タップで説明）</summary>
                   <div class="body">
                     <div style="font-weight:1100;color:rgba(229,237,255,.84);">{{ e.name }}</div>
-                    <ul>
-                      {% for b in e.bullets %}
-                        <li>{{ b }}</li>
-                      {% endfor %}
-                    </ul>
+                    <ul>{% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
                   </div>
                 </details>
               {% endwith %}
 
-              <div class="cap">
-                logloss {% if ml.pwin_logloss is not None %}{{ ml.pwin_logloss|floatformat:3 }}{% else %}-{% endif %}
-              </div>
+              <div class="cap">logloss {% if ml.pwin_logloss is not None %}{{ ml.pwin_logloss|floatformat:3 }}{% else %}-{% endif %}</div>
 
               {% with e=ml_explain.p_win_logloss %}
-                <div class="sig sig-{{ e.signal.level }}">
-                  <span class="lamp"></span>{{ e.signal.label }}：{{ e.comment }}
-                </div>
+                <div class="sig sig-{{ e.signal.level }}"><span class="lamp"></span>{{ e.signal.label }}：{{ e.comment }}</div>
                 <details class="details">
                   <summary>loglossの意味（タップで説明）</summary>
                   <div class="body">
                     <div style="font-weight:1100;color:rgba(229,237,255,.84);">{{ e.name }}</div>
-                    <ul>
-                      {% for b in e.bullets %}
-                        <li>{{ b }}</li>
-                      {% endfor %}
-                    </ul>
+                    <ul>{% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
                   </div>
                 </details>
               {% endwith %}
@@ -223,44 +235,28 @@
 
             <div class="mcard">
               <div class="t">EV（期待値の推定）</div>
-              <div class="big">
-                MAE {% if ml.ev_mae is not None %}{{ ml.ev_mae|floatformat:3 }}{% else %}-{% endif %}
-              </div>
+              <div class="big">MAE {% if ml.ev_mae is not None %}{{ ml.ev_mae|floatformat:3 }}{% else %}-{% endif %}</div>
 
               {% with e=ml_explain.ev_mae %}
-                <div class="sig sig-{{ e.signal.level }}">
-                  <span class="lamp"></span>{{ e.signal.label }}：{{ e.comment }}
-                </div>
+                <div class="sig sig-{{ e.signal.level }}"><span class="lamp"></span>{{ e.signal.label }}：{{ e.comment }}</div>
                 <details class="details">
                   <summary>この数字の意味（タップで説明）</summary>
                   <div class="body">
                     <div style="font-weight:1100;color:rgba(229,237,255,.84);">{{ e.name }}</div>
-                    <ul>
-                      {% for b in e.bullets %}
-                        <li>{{ b }}</li>
-                      {% endfor %}
-                    </ul>
+                    <ul>{% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
                   </div>
                 </details>
               {% endwith %}
 
-              <div class="cap">
-                RMSE {% if ml.ev_rmse is not None %}{{ ml.ev_rmse|floatformat:3 }}{% else %}-{% endif %}
-              </div>
+              <div class="cap">RMSE {% if ml.ev_rmse is not None %}{{ ml.ev_rmse|floatformat:3 }}{% else %}-{% endif %}</div>
 
               {% with e=ml_explain.ev_rmse %}
-                <div class="sig sig-{{ e.signal.level }}">
-                  <span class="lamp"></span>{{ e.signal.label }}：{{ e.comment }}
-                </div>
+                <div class="sig sig-{{ e.signal.level }}"><span class="lamp"></span>{{ e.signal.label }}：{{ e.comment }}</div>
                 <details class="details">
                   <summary>RMSEの意味（タップで説明）</summary>
                   <div class="body">
                     <div style="font-weight:1100;color:rgba(229,237,255,.84);">{{ e.name }}</div>
-                    <ul>
-                      {% for b in e.bullets %}
-                        <li>{{ b }}</li>
-                      {% endfor %}
-                    </ul>
+                    <ul>{% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
                   </div>
                 </details>
               {% endwith %}
@@ -268,44 +264,28 @@
 
             <div class="mcard">
               <div class="t">tp_first（TP先/SL先）</div>
-              <div class="big">
-                ACC {% if ml.tp_acc is not None %}{{ ml.tp_acc|floatformat:3 }}{% else %}-{% endif %}
-              </div>
+              <div class="big">ACC {% if ml.tp_acc is not None %}{{ ml.tp_acc|floatformat:3 }}{% else %}-{% endif %}</div>
 
               {% with e=ml_explain.tp_acc %}
-                <div class="sig sig-{{ e.signal.level }}">
-                  <span class="lamp"></span>{{ e.signal.label }}：{{ e.comment }}
-                </div>
+                <div class="sig sig-{{ e.signal.level }}"><span class="lamp"></span>{{ e.signal.label }}：{{ e.comment }}</div>
                 <details class="details">
                   <summary>この数字の意味（タップで説明）</summary>
                   <div class="body">
                     <div style="font-weight:1100;color:rgba(229,237,255,.84);">{{ e.name }}</div>
-                    <ul>
-                      {% for b in e.bullets %}
-                        <li>{{ b }}</li>
-                      {% endfor %}
-                    </ul>
+                    <ul>{% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
                   </div>
                 </details>
               {% endwith %}
 
-              <div class="cap">
-                logloss {% if ml.tp_logloss is not None %}{{ ml.tp_logloss|floatformat:3 }}{% else %}-{% endif %}
-              </div>
+              <div class="cap">logloss {% if ml.tp_logloss is not None %}{{ ml.tp_logloss|floatformat:3 }}{% else %}-{% endif %}</div>
 
               {% with e=ml_explain.tp_logloss %}
-                <div class="sig sig-{{ e.signal.level }}">
-                  <span class="lamp"></span>{{ e.signal.label }}：{{ e.comment }}
-                </div>
+                <div class="sig sig-{{ e.signal.level }}"><span class="lamp"></span>{{ e.signal.label }}：{{ e.comment }}</div>
                 <details class="details">
                   <summary>loglossの意味（タップで説明）</summary>
                   <div class="body">
                     <div style="font-weight:1100;color:rgba(229,237,255,.84);">{{ e.name }}</div>
-                    <ul>
-                      {% for b in e.bullets %}
-                        <li>{{ b }}</li>
-                      {% endfor %}
-                    </ul>
+                    <ul>{% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
                   </div>
                 </details>
               {% endwith %}
@@ -316,27 +296,29 @@
               <div class="big">{{ ml.rows|intcomma }}</div>
 
               {% with e=ml_explain.valid_rows %}
-                <div class="sig sig-{{ e.signal.level }}">
-                  <span class="lamp"></span>{{ e.signal.label }}：{{ e.comment }}
-                </div>
-                <details class="details">
-                  <summary>データ量の意味（タップで説明）</summary>
-                  <div class="body">
-                    <div style="font-weight:1100;color:rgba(229,237,255,.84);">{{ e.name }}</div>
-                    <ul>
-                      {% for b in e.bullets %}
-                        <li>{{ b }}</li>
-                      {% endfor %}
-                    </ul>
-                  </div>
-                </details>
+                <div class="sig sig-{{ e.signal.level }}"><span class="lamp"></span>{{ e.signal.label }}：{{ e.comment }}</div>
               {% endwith %}
 
               <div class="cap">
                 train {{ ml.train_rows|intcomma }} / valid {{ ml.valid_rows|intcomma }}<br>
                 created {{ ml.created_at|default:"-" }}
               </div>
+
+              <details class="details">
+                <summary>更新状況（タップで表示）</summary>
+                <div class="body">
+                  <ul>
+                    <li>ML meta mtime：{{ updates.ml_meta_mtime }}</li>
+                    <li>side mtime：{{ updates.side_mtime }}</li>
+                    <li>side latest ts：{{ updates.side_latest_ts }}</li>
+                    <li>dataset mtime：{{ updates.dataset_mtime }}</li>
+                    <li>dataset latest ts：{{ updates.dataset_latest_ts }}</li>
+                    <li>ml latest ts：{{ updates.ml_latest_ts }}</li>
+                  </ul>
+                </div>
+              </details>
             </div>
+
           </div>
         {% else %}
           <div class="empty" style="margin-top:10px;">
@@ -352,12 +334,10 @@
 
         {% if ml_latest %}
           <div class="card" style="margin-top:10px;">
-            <div class="row">
-              <div class="k">code</div>
-              <div class="v">{{ ml_latest.code }}</div>
-            </div>
+            <div class="row"><div class="k">ts</div><div class="v">{{ ml_latest.ts|default:"-" }}</div></div>
+            <div class="row" style="margin-top:6px;"><div class="k">code</div><div class="v">{{ ml_latest.code }}</div></div>
 
-            <div class="row" style="margin-top:6px;">
+            <div class="row" style="margin-top:10px;">
               <div class="k">p_win（勝つ確率）</div>
               <div class="v">{% if ml_latest.p_win is not None %}{{ ml_latest.p_win|floatformat:3 }}{% else %}-{% endif %}</div>
             </div>
@@ -367,9 +347,7 @@
                 <summary>p_winの意味（タップで説明）</summary>
                 <div class="body">
                   <div style="font-weight:1100;color:rgba(229,237,255,.84);">{{ e.name }}</div>
-                  <ul>
-                    {% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}
-                  </ul>
+                  <ul>{% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
                 </div>
               </details>
             {% endwith %}
@@ -384,9 +362,7 @@
                 <summary>p_tp_firstの意味（タップで説明）</summary>
                 <div class="body">
                   <div style="font-weight:1100;color:rgba(229,237,255,.84);">{{ e.name }}</div>
-                  <ul>
-                    {% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}
-                  </ul>
+                  <ul>{% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
                 </div>
               </details>
             {% endwith %}
@@ -401,9 +377,7 @@
                 <summary>EV_predの意味（タップで説明）</summary>
                 <div class="body">
                   <div style="font-weight:1100;color:rgba(229,237,255,.84);">{{ e.name }}</div>
-                  <ul>
-                    {% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}
-                  </ul>
+                  <ul>{% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
                 </div>
               </details>
             {% endwith %}
@@ -418,9 +392,7 @@
                 <summary>EV_trueの意味（タップで説明）</summary>
                 <div class="body">
                   <div style="font-weight:1100;color:rgba(229,237,255,.84);">{{ e.name }}</div>
-                  <ul>
-                    {% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}
-                  </ul>
+                  <ul>{% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
                 </div>
               </details>
             {% endwith %}
@@ -431,12 +403,10 @@
               <div class="k">Entry補正（ATR係数）</div>
               <div class="v">{% if ml_latest.shape_entry_k is not None %}{{ ml_latest.shape_entry_k|floatformat:2 }}{% else %}-{% endif %}</div>
             </div>
-
             <div class="row" style="margin-top:6px;">
               <div class="k">RRターゲット</div>
               <div class="v">{% if ml_latest.shape_rr_target is not None %}{{ ml_latest.shape_rr_target|floatformat:2 }}{% else %}-{% endif %}</div>
             </div>
-
             <div class="row" style="margin-top:6px;">
               <div class="k">TP係数 / SL係数</div>
               <div class="v">
@@ -459,11 +429,10 @@
                 </div>
               </div>
             </details>
+
           </div>
         {% else %}
-          <div class="empty" style="margin-top:10px;">
-            まだ評価ログがありません。
-          </div>
+          <div class="empty" style="margin-top:10px;">まだ ML推論ログがありません。</div>
         {% endif %}
 
         <div class="hr"></div>
@@ -486,16 +455,19 @@
                   {% endif %}
                 </div>
               </div>
+
               <div class="row" style="margin-top:6px;">
                 <div class="k">PL</div>
                 <div class="v {% if t.pl >= 0 %}pl-pos{% else %}pl-neg{% endif %}">
                   {{ t.pl|floatformat:0|intcomma }}円
                 </div>
               </div>
+
               <div class="row" style="margin-top:6px;">
                 <div class="k">R</div>
                 <div class="v">{% if t.r is not None %}{{ t.r|floatformat:2 }}{% else %}-{% endif %}</div>
               </div>
+
               <div class="row" style="margin-top:6px;">
                 <div class="k">meta</div>
                 <div class="v" style="font-weight:900;color:rgba(148,163,184,.88);">{{ t.meta }}</div>
@@ -525,7 +497,7 @@
         </div>
       </section>
 
-      <!-- Page 4: Policy / Filters -->
+      <!-- Page 4 -->
       <section class="page" data-page="3">
         <div class="hrow">
           <div class="h">Policy / Filters</div>
@@ -543,7 +515,7 @@
             <div class="line"><span class="k">fees（手数料/滑り）</span><span>純利益を削る</span></div>
           </div>
           <div class="small" style="margin-top:8px;">
-            ※ sizing_service は runtime 優先で読み込み（今回修正済）。<br>
+            ※ sizing_service は runtime 優先で読み込み（今回の修正で反映安定）。<br>
             settingsで変えた値が、そのまま採用可否に反映されます。
           </div>
         </div>
@@ -587,5 +559,5 @@
   {% endif %}
 </div>
 
-<script src="{% static 'aiapp/js/behavior_dashboard.js' %}?v=1" defer></script>
+<script src="{% static 'aiapp/js/behavior_dashboard.js' %}"></script>
 {% endblock %}
