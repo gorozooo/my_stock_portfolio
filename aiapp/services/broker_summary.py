@@ -13,8 +13,8 @@ from portfolio.models import Holding
 
 # 表示順（固定）
 BROKERS_UI = [
-    ("RAKUTEN", "楽天"),
-    ("MATSUI",  "松井"),
+    ("RAKUTEN", "楽　天　"),
+    ("MATSUI",  "松　井　"),
     ("SBI",     "SBI"),
 ]
 
@@ -23,8 +23,8 @@ BROKERS_UI = [
 # ※あなたのDBでは cash_service 側の broker が「楽天」「松井」「SBI」になっているため、
 #   ここも同じ値に統一する。
 BROKER_CODE_TO_CASH_BROKER_NAME = {
-    "RAKUTEN": "楽天",
-    "MATSUI":  "松井",
+    "RAKUTEN": "楽　天　",
+    "MATSUI":  "松　井　",
     "SBI":     "SBI",
 }
 
