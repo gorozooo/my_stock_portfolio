@@ -52,10 +52,24 @@ def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
             try:
                 rows.append(json.loads(s))
             except Exception:
+                # 壊れ行はスキップ（末尾空行/途中欠けがあっても落ちない）
                 continue
     except Exception:
         return rows
     return rows
+
+
+def _path_mtime_str(p: Path) -> str:
+    """
+    ファイルの更新時刻（mtime）をローカル時刻で文字列化。
+    """
+    try:
+        if not p.exists():
+            return "-"
+        dt = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.get_current_timezone())
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return "-"
 
 
 def _summarize_simulate_dir(sim_dir: Path) -> Dict[str, Any]:
@@ -306,7 +320,6 @@ def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> L
         ev_true = _pick_any_float(r, ["ev_true", "ml_ev_true"])
 
         # --- Shape（Entry/TP/SLの係数など。無ければNone） ---
-        # ここは side_rows 側なので「shape_*」優先にしておく
         shape_entry_k = _pick_any_float(r, ["shape_entry_k", "entry_k"])
         shape_rr_target = _pick_any_float(r, ["shape_rr_target", "rr_target"])
         shape_tp_k = _pick_any_float(r, ["shape_tp_k", "tp_k"])
@@ -343,7 +356,6 @@ def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> L
             }
         )
 
-    # 新しいものを上に
     out.reverse()
     return out
 
@@ -526,7 +538,6 @@ def _ml_explain_pack(ml_metrics: Dict[str, Any]) -> Dict[str, Any]:
     """
     テンプレでそのまま出せる“説明つき”辞書を返す。
     """
-    # 値
     pwin_auc = _safe_float(ml_metrics.get("pwin_auc"))
     pwin_logloss = _safe_float(ml_metrics.get("pwin_logloss"))
     ev_mae = _safe_float(ml_metrics.get("ev_mae"))
@@ -539,7 +550,6 @@ def _ml_explain_pack(ml_metrics: Dict[str, Any]) -> Dict[str, Any]:
 
     out: Dict[str, Any] = {}
 
-    # p_win
     out["p_win_auc"] = {
         "key": "p_win_auc",
         "name": "p_win（勝つ確率）AUC",
@@ -565,7 +575,6 @@ def _ml_explain_pack(ml_metrics: Dict[str, Any]) -> Dict[str, Any]:
         ],
     }
 
-    # EV
     out["ev_mae"] = {
         "key": "ev_mae",
         "name": "EV（期待値推定）MAE",
@@ -591,7 +600,6 @@ def _ml_explain_pack(ml_metrics: Dict[str, Any]) -> Dict[str, Any]:
         ],
     }
 
-    # tp_first
     out["tp_acc"] = {
         "key": "tp_acc",
         "name": "tp_first（TP先/SL先）ACC",
@@ -617,7 +625,6 @@ def _ml_explain_pack(ml_metrics: Dict[str, Any]) -> Dict[str, Any]:
         ],
     }
 
-    # data volume
     out["rows"] = {
         "key": "rows",
         "name": "学習データ量（total rows）",
@@ -671,8 +678,6 @@ def _ml_latest_explain_pack(ml_latest: Optional[Dict[str, Any]]) -> Dict[str, An
     ev_pred = _safe_float(ml_latest.get("ev_pred"))
     ev_true = _safe_float(ml_latest.get("ev_true"))
 
-    # ここは“当たり外れ”ではなく「読み方」の信号機にする（過信防止）
-    # p_win: 0.55以上なら緑寄り、0.45〜0.55黄、0.45未満赤
     def rate_prob(v: Optional[float]) -> Dict[str, Any]:
         if v is None:
             return {"signal": _sig("red"), "comment": "未出力"}
@@ -682,7 +687,6 @@ def _ml_latest_explain_pack(ml_latest: Optional[Dict[str, Any]]) -> Dict[str, An
             return {"signal": _sig("yellow"), "comment": "五分〜やや不利（形の補正が重要）"}
         return {"signal": _sig("red"), "comment": "不利寄り（形を厳しめにする）"}
 
-    # EVは符号が大事：プラスなら緑寄り、ゼロ付近黄、マイナス赤（ただし単体で決めない）
     def rate_ev(v: Optional[float]) -> Dict[str, Any]:
         if v is None:
             return {"signal": _sig("red"), "comment": "未出力"}
@@ -739,7 +743,6 @@ def _ml_latest_explain_pack(ml_latest: Optional[Dict[str, Any]]) -> Dict[str, An
 def _ml_metrics_view(meta: Dict[str, Any]) -> Dict[str, Any]:
     """
     テンプレ表示用に要約して渡す。
-    ※ tp_first が “-” になる問題は、meta.json のキー揺れを吸収して解決する。
     """
     metrics = meta.get("metrics") if isinstance(meta.get("metrics"), dict) else {}
 
@@ -748,7 +751,6 @@ def _ml_metrics_view(meta: Dict[str, Any]) -> Dict[str, Any]:
     tp = _get_metrics_block(metrics, ["tp_first", "p_tp_first", "tp"])
     hold = _get_metrics_block(metrics, ["hold_days_pred", "hold_days", "hold"])
 
-    # accuracy のキーも揺れがちなので吸収
     tp_acc = _safe_float(tp.get("accuracy"))
     if tp_acc is None:
         tp_acc = _safe_float(tp.get("acc"))
@@ -771,7 +773,6 @@ def _ml_metrics_view(meta: Dict[str, Any]) -> Dict[str, Any]:
 
         "hold_mae": _safe_float(hold.get("mae")),
 
-        # 表示分岐
         "has_metrics": bool(metrics) and (int(meta.get("valid_rows") or 0) > 0),
         "has_tp_first": (tp_acc is not None) or (_safe_float(tp.get("logloss")) is not None),
         "has_hold_days": (_safe_float(hold.get("mae")) is not None),
@@ -780,99 +781,17 @@ def _ml_metrics_view(meta: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _parse_ts_any(s: str) -> Optional[datetime]:
-    """
-    ts の ISO文字列をできる範囲で datetime にする（失敗しても落とさない）
-    """
     if not s:
         return None
     try:
-        # "2025-12-26T17:56:40.770568+09:00"
         return datetime.fromisoformat(s)
     except Exception:
         return None
 
 
-def _select_latest_ml_inference(
-    dataset_rows: List[Dict[str, Any]],
-    user_id: int,
-) -> Optional[Dict[str, Any]]:
-    """
-    latest_behavior.jsonl（= raw simulate ログ）から
-    「ML実数値が入っている最新の1件」を選ぶ。
-
-    ✅ “確実に最新を拾う” ために末尾（最新）から走査する。
-    優先:
-      1) ml_ok == True かつ ML数値が1つでも入ってる行（最新から最初に見つかったもの）
-      2) ML数値が1つでも入ってる行（最新から最初に見つかったもの）
-      3) それも無ければ None
-
-    ★重要：user_id / ml_ok が「直下に無い」ログでも拾えるようにする
-      - raw 直下
-      - sim_order
-      - replay.sim_order
-    をマージして判定する。
-    """
-    if not dataset_rows:
-        return None
-
-    def merged_view(x: Dict[str, Any]) -> Dict[str, Any]:
-        out = dict(x or {})
-        so = x.get("sim_order")
-        if isinstance(so, dict) and so:
-            out.update(so)
-        rp = x.get("replay")
-        if isinstance(rp, dict) and rp:
-            so2 = rp.get("sim_order")
-            if isinstance(so2, dict) and so2:
-                out.update(so2)
-        return out
-
-    def user_match(x: Dict[str, Any]) -> bool:
-        m = merged_view(x)
-        uid = m.get("user_id", None)
-        if uid is None:
-            # user_id が無い行は “現ユーザー扱い” で拾う（今回のshape消失の根本対策）
-            return True
-        try:
-            return int(uid) == int(user_id)
-        except Exception:
-            return True
-
-    def has_any_ml(x: Dict[str, Any]) -> bool:
-        m = merged_view(x)
-        return (
-            (m.get("ml_ok") is True)
-            or (_safe_float(m.get("p_win")) is not None)
-            or (_safe_float(m.get("ev_pred")) is not None)
-            or (_safe_float(m.get("p_tp_first")) is not None)
-        )
-
-    # 1) ml_ok True を最新から
-    for r in reversed(dataset_rows):
-        if not user_match(r):
-            continue
-        m = merged_view(r)
-        if m.get("ml_ok") is True and has_any_ml(r):
-            return r
-
-    # 2) any ml fields を最新から
-    for r in reversed(dataset_rows):
-        if not user_match(r):
-            continue
-        if has_any_ml(r):
-            return r
-
-    return None
-
-
 def _merge_sim_order_sources(raw: Dict[str, Any]) -> Dict[str, Any]:
     """
-    shape/係数がどこに入ってても拾えるように、候補をマージする。
-    優先順:
-      1) raw 直下
-      2) raw["sim_order"]
-      3) raw["replay"]["sim_order"]
-    ※ 後勝ち（後のdictで上書き）だと優先が逆になるので、手動で順序を作る。
+    shape/係数がどこに入ってても拾えるように候補をマージする。
     """
     merged: Dict[str, Any] = {}
     if isinstance(raw, dict):
@@ -880,7 +799,6 @@ def _merge_sim_order_sources(raw: Dict[str, Any]) -> Dict[str, Any]:
 
         so = raw.get("sim_order")
         if isinstance(so, dict) and so:
-            # sim_order の方が “本命”になりがちなので上書きOK
             merged.update(so)
 
         rp = raw.get("replay")
@@ -893,20 +811,13 @@ def _merge_sim_order_sources(raw: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _ml_latest_view_from_raw(raw: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    テンプレ（ml_latest.*）に合わせてキーを整形して返す。
-    - ML数値は直下/ネストをまとめて拾う
-    - Shapeは shape_* を最優先で拾う（無ければ entry_k 等）
-    """
     merged = _merge_sim_order_sources(raw or {})
 
-    # ML numbers（キー揺れも吸収）
     p_win = _pick_any_float(merged, ["p_win", "ml_pwin", "ml_p_win"])
     p_tp_first = _pick_any_float(merged, ["p_tp_first", "ml_p_tp_first", "ml_tp_first"])
     ev_pred = _pick_any_float(merged, ["ev_pred", "ml_ev_pred", "ev_ml", "pred_ev"])
     ev_true = _pick_any_float(merged, ["ev_true", "ml_ev_true"])
 
-    # Shape（ここが白枠の本体）
     shape_entry_k = _pick_any_float(merged, ["shape_entry_k", "entry_k"])
     shape_rr_target = _pick_any_float(merged, ["shape_rr_target", "rr_target"])
     shape_tp_k = _pick_any_float(merged, ["shape_tp_k", "tp_k"])
@@ -914,6 +825,7 @@ def _ml_latest_view_from_raw(raw: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "code": str(merged.get("code") or raw.get("code") or ""),
+        "ts": str(merged.get("ts") or raw.get("ts") or ""),
 
         "p_win": p_win,
         "p_tp_first": p_tp_first,
@@ -927,21 +839,66 @@ def _ml_latest_view_from_raw(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _latest_ts_in_rows(rows: List[Dict[str, Any]], user_id: int) -> str:
+    """
+    並び順に依存せず、ts の max を取る（表示用）。
+    """
+    best: Optional[datetime] = None
+    best_s: str = ""
+    for r in rows:
+        if int(r.get("user_id") or 0) != int(user_id):
+            continue
+        ts = str(r.get("ts") or "")
+        dt = _parse_ts_any(ts)
+        if not dt:
+            continue
+        if best is None or dt > best:
+            best = dt
+            best_s = ts
+    return best_s or "-"
+
+
+def _select_latest_ml_inference(dataset_rows: List[Dict[str, Any]], user_id: int) -> Optional[Dict[str, Any]]:
+    """
+    ✅ 並び順を信じない。
+    「ML数値が入っている行」の中から ts が最大のものを返す。
+    """
+    if not dataset_rows:
+        return None
+
+    def has_any_ml(x: Dict[str, Any]) -> bool:
+        m = _merge_sim_order_sources(x)
+        return (
+            x.get("ml_ok") is True
+            or _safe_float(m.get("p_win")) is not None
+            or _safe_float(m.get("ev_pred")) is not None
+            or _safe_float(m.get("p_tp_first")) is not None
+        )
+
+    best_row: Optional[Dict[str, Any]] = None
+    best_dt: Optional[datetime] = None
+
+    for r in dataset_rows:
+        if int(r.get("user_id") or 0) != int(user_id):
+            continue
+        if not has_any_ml(r):
+            continue
+        dt = _parse_ts_any(str(r.get("ts") or ""))
+        if not dt:
+            continue
+        if best_dt is None or dt > best_dt:
+            best_dt = dt
+            best_row = r
+
+    return best_row
+
+
 # =========================
 # view
 # =========================
 
 @login_required
 def behavior_dashboard(request: HttpRequest) -> HttpResponse:
-    """
-    ✅ PRO仕様の行動ダッシュボード（テロップ + entry_reason別 + MLメトリクス）
-    - simulate/*.jsonl を集計
-    - behavior/model/latest_behavior_model_u{user}.json を読む
-    - behavior/latest_behavior_side.jsonl を読む
-    - behavior/latest_behavior.jsonl を読む（← 追加：最新ML推論の実数値用）
-    - behavior/ticker/latest_ticker_u{user}.json を読む
-    - ml/models/latest/meta.json を読む（AUC/RMSEなど）
-    """
     user = request.user
     today = timezone.localdate()
     today_label = today.strftime("%Y-%m-%d")
@@ -950,6 +907,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
 
     sim_dir = media_root / "aiapp" / "simulate"
     beh_dir = media_root / "aiapp" / "behavior"
+    ml_meta_path = media_root / "aiapp" / "ml" / "models" / "latest" / "meta.json"
 
     model_path = beh_dir / "model" / f"latest_behavior_model_u{user.id}.json"
     side_path = beh_dir / "latest_behavior_side.jsonl"
@@ -987,19 +945,29 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
 
     ticker = _load_ticker(ticker_path)
 
-    # entry_reason 別
     entry_reason_stats = _build_entry_reason_stats_from_side(side_rows)
 
-    # ★ ML metrics（AUC/RMSEなど）
+    # ★ ML metrics
     ml_meta = _load_ml_latest_meta()
     ml_metrics = _ml_metrics_view(ml_meta)
     ml_explain = _ml_explain_pack(ml_metrics)
 
-    # ★ 最新ML推論（実数値）は raw dataset から拾う
+    # ★ 最新ML推論（実数値）
     dataset_rows = _read_jsonl(dataset_path)
     raw_latest = _select_latest_ml_inference(dataset_rows, user_id=user.id)
     ml_latest = _ml_latest_view_from_raw(raw_latest) if raw_latest else None
     ml_latest_explain = _ml_latest_explain_pack(ml_latest)
+
+    # ★ 最終更新（UI表示用）
+    updates = {
+        "ml_meta_mtime": _path_mtime_str(ml_meta_path),
+        "ml_meta_created_at": str(ml_metrics.get("created_at") or "-"),
+        "side_mtime": _path_mtime_str(side_path),
+        "dataset_mtime": _path_mtime_str(dataset_path),
+        "side_latest_ts": _latest_ts_in_rows(side_rows, user_id=user.id),
+        "dataset_latest_ts": _latest_ts_in_rows(dataset_rows, user_id=user.id),
+        "ml_latest_ts": str((ml_latest or {}).get("ts") or "-"),
+    }
 
     if not has_data:
         return render(
@@ -1018,6 +986,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
                 "ml_explain": ml_explain,
                 "ml_latest": ml_latest,
                 "ml_latest_explain": ml_latest_explain,
+                "updates": updates,
             },
         )
 
@@ -1042,7 +1011,6 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         streak_len=streak_len,
     )
 
-    # 最近の評価（side）
     recent_trades = _extract_recent_trades(side_rows, limit=8)
 
     ctx = {
@@ -1073,5 +1041,6 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         "ml_explain": ml_explain,
         "ml_latest": ml_latest,
         "ml_latest_explain": ml_latest_explain,
+        "updates": updates,
     }
     return render(request, "aiapp/behavior_dashboard.html", ctx)
