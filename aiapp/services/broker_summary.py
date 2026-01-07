@@ -1,28 +1,41 @@
 # aiapp/services/broker_summary.py
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Literal, List, Dict
+
 from django.db.models import Sum, F
 
-# ← 修正ポイント：定義元に合わせて分けて import
+# 定義元に合わせて分けて import
 from portfolio.models_cash import BrokerAccount, CashLedger
 from portfolio.models import Holding
 
+
 # 表示順（固定）
 BROKERS_UI = [
-    ("RAKUTEN", "楽天"),
-    ("MATSUI",  "松井"),
+    ("RAKUTEN", "楽天"),
+    ("MATSUI",  "松井"),
     ("SBI",     "SBI"),
 ]
+
+# ---- 重要：内部コード → Cash側の broker 名（DBに入っている値）へ寄せる ----
+# cash_dashboard（cash_service.broker_summaries）が返す broker 名と合わせる目的。
+# ※あなたのDBでは cash_service 側の broker が「楽天」「松井」「SBI」になっているため、
+#   ここも同じ値に統一する。
+BROKER_CODE_TO_CASH_BROKER_NAME = {
+    "RAKUTEN": "楽天",
+    "MATSUI":  "松井",
+    "SBI":     "SBI",
+}
 
 
 @dataclass
 class BrokerNumbers:
     code: Literal["RAKUTEN", "MATSUI", "SBI"]
     label: str
-    cash_yen: int                     # 現金残高
-    stock_acq_value: int              # 現物（特定）取得額
-    stock_eval_value: int             # 現物（特定）評価額（参考）
+    cash_yen: int                     # 現金残高（cash_dashboard の「残り」と一致）
+    stock_acq_value: int              # 現物（特定のみ）取得額
+    stock_eval_value: int             # 現物（特定のみ）評価額（参考）
     margin_used_eval: int             # 信用建玉の評価額合計（BUY/SELLとも絶対値）
     leverage: float                   # 倍率（概算）
     haircut: float                    # ヘアカット率（0.0〜）
@@ -31,12 +44,14 @@ class BrokerNumbers:
     note: str | None                  # 注記
 
 
-def _cash_balance_yen(broker_label_jp: str) -> int:
+def _cash_balance_yen(*, cash_broker_name: str) -> int:
     """
     BrokerAccount(opening_balance + ledgers) の和。
-    CashLedger.amount は 入金＋/出金− で運用されている前提。
+    CashLedger.amount は 入金＋ / 出金− で運用されている前提。
+
+    ここは cash_dashboard と同じ “broker 名” をキーに拾う（重要）。
     """
-    accounts = BrokerAccount.objects.filter(broker=broker_label_jp, currency="JPY")
+    accounts = BrokerAccount.objects.filter(broker=cash_broker_name, currency="JPY")
     if not accounts.exists():
         return 0
     base = accounts.aggregate(total=Sum("opening_balance"))["total"] or 0
@@ -44,9 +59,12 @@ def _cash_balance_yen(broker_label_jp: str) -> int:
     return int(base + ledg)
 
 
-def _stock_numbers_for(broker_code: str) -> Dict[str, int]:
-    """現物（特定）の取得額/評価額、信用建玉（MARGIN）の評価額を集計。"""
-    # 現物（特定）
+def _stock_numbers_for(*, broker_code: str) -> Dict[str, int]:
+    """
+    現物（特定のみ）の取得額/評価額、信用建玉（MARGIN）の評価額を集計。
+    ※方針：NISAは含めない（SPECのみ）。UIで明記する。
+    """
+    # 現物（特定のみ）
     qs_spot = Holding.objects.filter(broker=broker_code, account="SPEC")
     acq = qs_spot.aggregate(total=Sum(F("avg_cost") * F("quantity")))["total"] or 0
     evalv = qs_spot.aggregate(total=Sum(F("last_price") * F("quantity")))["total"] or 0
@@ -76,16 +94,18 @@ def compute_broker_summaries(
     """
     概算ルール
       base（楽天/松井/SBI） = 現金 + 現物取得額*(1-ヘアカット)
-      信用枠                  = base * 倍率
-      信用余力                = max(0, 信用枠 - 信用建玉評価額合計)
+      信用枠               = base * 倍率
+      信用余力             = max(0, 信用枠 - 信用建玉評価額合計)
 
-    ※ 3社とも「倍率 / ヘアカット」を同条件で扱う。
+    ※3社とも「倍率 / ヘアカット」を同条件で扱う。
     """
     out: List[BrokerNumbers] = []
 
     for code, label in BROKERS_UI:
-        cash_yen = _cash_balance_yen(label)
-        nums = _stock_numbers_for(code)
+        cash_broker_name = BROKER_CODE_TO_CASH_BROKER_NAME.get(code, label)
+        cash_yen = _cash_balance_yen(cash_broker_name=cash_broker_name)
+
+        nums = _stock_numbers_for(broker_code=code)
         acq = nums["acq"]
         evalv = nums["eval"]
         used = nums["margin_used"]
@@ -99,12 +119,10 @@ def compute_broker_summaries(
             hc = float(matsui_haircut or 0.0)
 
         elif code == "SBI":
-            # 他の証券と同じルールで倍率/ヘアカットを利用
             lev = float(sbi_leverage or 2.8)
             hc = float(sbi_haircut or 0.30)
 
         else:
-            # 想定外コードが来た場合のフォールバック
             lev = 2.8
             hc = 0.0
 
