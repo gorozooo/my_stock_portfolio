@@ -2,7 +2,7 @@
   // --- ticker (iPhone確実) ---
   var track = document.getElementById("tickerTrack");
   if (track){
-    var pxPerSec = 105;
+    var pxPerSec = 130;
     var x = 0;
     var last = performance.now();
 
