@@ -6,9 +6,8 @@ from typing import Literal, List, Dict
 
 from django.db.models import Sum, F
 
-# 定義元に合わせて分けて import
-from portfolio.models_cash import BrokerAccount, CashLedger
 from portfolio.models import Holding
+from portfolio.services import cash_service as cash_svc
 
 
 # 表示順（固定）
@@ -17,16 +16,6 @@ BROKERS_UI = [
     ("MATSUI",  "松井"),
     ("SBI",     "SBI"),
 ]
-
-# ---- 重要：内部コード → Cash側の broker 名（DBに入っている値）へ寄せる ----
-# cash_dashboard（cash_service.broker_summaries）が返す broker 名と合わせる目的。
-# ※あなたのDBでは cash_service 側の broker が「楽天」「松井」「SBI」になっているため、
-#   ここも同じ値に統一する。
-BROKER_CODE_TO_CASH_BROKER_NAME = {
-    "RAKUTEN": "楽天",
-    "MATSUI":  "松井",
-    "SBI":     "SBI",
-}
 
 
 @dataclass
@@ -44,19 +33,20 @@ class BrokerNumbers:
     note: str | None                  # 注記
 
 
-def _cash_balance_yen(*, cash_broker_name: str) -> int:
+def _cash_map_by_label() -> Dict[str, int]:
     """
-    BrokerAccount(opening_balance + ledgers) の和。
-    CashLedger.amount は 入金＋ / 出金− で運用されている前提。
+    cash_service の broker_summaries(as_of) を使って
+    broker表示名(label) -> 残り(cash) を作る。
 
-    ここは cash_dashboard と同じ “broker 名” をキーに拾う（重要）。
+    これで「設定画面の現金残高」と「現金ダッシュボードの残り」を完全一致させる。
     """
-    accounts = BrokerAccount.objects.filter(broker=cash_broker_name, currency="JPY")
-    if not accounts.exists():
-        return 0
-    base = accounts.aggregate(total=Sum("opening_balance"))["total"] or 0
-    ledg = CashLedger.objects.filter(account__in=accounts).aggregate(total=Sum("amount"))["total"] or 0
-    return int(base + ledg)
+    from datetime import date
+    rows = cash_svc.broker_summaries(date.today())  # ここは cash_dashboard と同じ
+    out: Dict[str, int] = {}
+    for r in rows:
+        label = str(r.get("broker") or "").strip()
+        out[label] = int(r.get("cash") or 0)
+    return out
 
 
 def _stock_numbers_for(*, broker_code: str) -> Dict[str, int]:
@@ -93,17 +83,18 @@ def compute_broker_summaries(
 ) -> List[BrokerNumbers]:
     """
     概算ルール
-      base（楽天/松井/SBI） = 現金 + 現物取得額*(1-ヘアカット)
-      信用枠               = base * 倍率
-      信用余力             = max(0, 信用枠 - 信用建玉評価額合計)
+      base（各社） = 現金（残り） + 現物取得額*(1-ヘアカット)
+      信用枠       = base * 倍率
+      信用余力     = max(0, 信用枠 - 信用建玉評価額合計)
 
-    ※3社とも「倍率 / ヘアカット」を同条件で扱う。
+    現金（残り）は cash_service と完全一致させる。
     """
     out: List[BrokerNumbers] = []
 
+    cash_by_label = _cash_map_by_label()
+
     for code, label in BROKERS_UI:
-        cash_broker_name = BROKER_CODE_TO_CASH_BROKER_NAME.get(code, label)
-        cash_yen = _cash_balance_yen(cash_broker_name=cash_broker_name)
+        cash_yen = int(cash_by_label.get(label, 0))
 
         nums = _stock_numbers_for(broker_code=code)
         acq = nums["acq"]
