@@ -1,3 +1,4 @@
+/* aiapp/static/aiapp/css/behavior_dashboard.css */
 :root{
   --bg:#020617;
   --card:rgba(15,23,42,.92);
@@ -30,14 +31,12 @@ body{
   color: var(--fg);
 }
 
-/* iPhone専用の読みやすい幅 */
 .wrap{
   max-width: 420px;
   margin: 0 auto;
   padding: 12px 12px calc(84px + var(--safe-b));
 }
 
-/* ===== 上部：今日 + テロップ ===== */
 .topbar{
   position: sticky;
   top: 0;
@@ -79,7 +78,6 @@ body{
   align-items:center;
   position: relative;
 }
-
 .ticker::before{
   content:"";
   position:absolute; left:0; top:0; bottom:0;
@@ -121,7 +119,6 @@ body{
   box-shadow: 0 0 0 4px rgba(96,165,250,0.16);
 }
 
-/* ===== 横スワイプ：ページング ===== */
 .pager{ margin-top: 12px; }
 
 .pages{
@@ -144,7 +141,6 @@ body{
   padding: 12px;
 }
 
-/* タイトル行 */
 .hrow{
   display:flex;
   justify-content: space-between;
@@ -163,7 +159,6 @@ body{
   color: var(--muted);
 }
 
-/* 小さなナビ（ドット） */
 .dots{
   display:flex;
   justify-content:center;
@@ -182,7 +177,6 @@ body{
   border-color: rgba(96,165,250,.55);
 }
 
-/* KPI */
 .kpis{
   display:grid;
   grid-template-columns: 1fr 1fr;
@@ -265,7 +259,6 @@ body{
 .seq-dot.lose{ background: rgba(239,68,68,.16); border-color: rgba(239,68,68,.32); }
 .seq-dot.flat{ background: rgba(96,165,250,.14); border-color: rgba(96,165,250,.26); }
 
-/* リスト */
 .list{
   display:flex;
   flex-direction: column;
@@ -305,7 +298,6 @@ body{
 .pl-pos{ color: var(--ok); }
 .pl-neg{ color: var(--bad); }
 
-/* レバー */
 .lever{
   border-radius: var(--r);
   border: 1px solid rgba(148,163,184,.18);
@@ -344,14 +336,11 @@ body{
 }
 .lever .line .k{ color: rgba(148,163,184,.92); }
 
-/* ★ MLメトリクス */
+/* ★ MLメトリクス：1カラム縦専用UI */
 .metrics{
   display:grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr; /* ←ここが1カラム */
   gap: 10px;
-}
-.metrics.metrics-1col{
-  grid-template-columns: 1fr; /* ←縦専用 */
 }
 .mcard{
   border-radius: var(--r);
@@ -380,7 +369,6 @@ body{
   line-height: 1.35;
 }
 
-/* 信号機ピル */
 .sig{
   display:inline-flex;
   align-items:center;
@@ -425,7 +413,6 @@ body{
   box-shadow: 0 0 0 4px rgba(239,68,68,.14);
 }
 
-/* 折りたたみ説明 */
 .details{
   margin-top: 8px;
   border-radius: 12px;
@@ -452,38 +439,10 @@ body{
   margin: 6px 0 0 16px;
   padding: 0;
 }
-.details li{ margin: 4px 0; }
-.details-title{
-  font-weight:1100;
-  color: rgba(229,237,255,.84);
+.details li{
+  margin: 4px 0;
 }
 
-/* 見出し直下の更新表示 */
-.update-line{
-  margin-top: 6px;
-  display:flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items:center;
-}
-.u-badge{
-  display:inline-flex;
-  align-items:center;
-  border-radius: 999px;
-  padding: 4px 8px;
-  font-size: 10px;
-  font-weight: 1000;
-  border: 1px solid rgba(148,163,184,.18);
-  background: rgba(2,6,23,.22);
-  color: rgba(229,237,255,.86);
-}
-.u-text{
-  font-size: 10px;
-  font-weight: 900;
-  color: rgba(148,163,184,.90);
-}
-
-/* 空状態 */
 .empty{
   border-radius: calc(var(--r) + 2px);
   border: 1px dashed rgba(148,163,184,.22);
