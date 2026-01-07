@@ -52,24 +52,10 @@ def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
             try:
                 rows.append(json.loads(s))
             except Exception:
-                # 壊れ行はスキップ（末尾空行/途中欠けがあっても落ちない）
                 continue
     except Exception:
         return rows
     return rows
-
-
-def _path_mtime_str(p: Path) -> str:
-    """
-    ファイルの更新時刻（mtime）をローカル時刻で文字列化。
-    """
-    try:
-        if not p.exists():
-            return "-"
-        dt = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.get_current_timezone())
-        return dt.strftime("%Y-%m-%d %H:%M:%S")
-    except Exception:
-        return "-"
 
 
 def _summarize_simulate_dir(sim_dir: Path) -> Dict[str, Any]:
@@ -298,13 +284,98 @@ def _pick_any_float(r: Dict[str, Any], keys: List[str]) -> Optional[float]:
     return None
 
 
-def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> List[Dict[str, Any]]:
+def _parse_ts_any(s: str) -> Optional[datetime]:
     """
-    評価済み（side）を表示する部分。
-    ※ ここは「最近の評価（抜粋）」用なので、MLが入ってない古い行でもOK。
+    ts の ISO文字列をできる範囲で datetime にする（失敗しても落とさない）
     """
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
+# =========================
+# ★ JST表示（yyyy/mm/dd hh:mm:ss）と「更新時刻」ユーティリティ
+# =========================
+
+def _fmt_jst_dt(dt: datetime) -> str:
+    tz = timezone.get_current_timezone()  # JST想定
+    try:
+        if dt.tzinfo is None:
+            dt = timezone.make_aware(dt, tz)
+        else:
+            dt = dt.astimezone(tz)
+        return dt.strftime("%Y/%m/%d %H:%M:%S")
+    except Exception:
+        return "-"
+
+
+def _fmt_jst_from_iso(s: str) -> str:
+    if not s:
+        return "-"
+    dt = _parse_ts_any(s)
+    if not dt:
+        return "-"
+    return _fmt_jst_dt(dt)
+
+
+def _path_mtime_str(p: Path) -> str:
+    try:
+        if not p.exists():
+            return "-"
+        tz = timezone.get_current_timezone()
+        dt = datetime.fromtimestamp(p.stat().st_mtime, tz=tz)
+        return dt.strftime("%Y/%m/%d %H:%M:%S")
+    except Exception:
+        return "-"
+
+
+def _latest_ts_in_rows(rows: List[Dict[str, Any]], user_id: int, key: str = "ts") -> str:
+    """
+    rows の中から user_id に一致する行の ts 最大（最新）をJST整形で返す
+    """
+    best: Optional[datetime] = None
+    for r in rows:
+        if int(r.get("user_id") or 0) != int(user_id):
+            continue
+        dt = _parse_ts_any(str(r.get(key) or ""))
+        if not dt:
+            continue
+        if best is None or dt > best:
+            best = dt
+    if not best:
+        return "-"
+    return _fmt_jst_dt(best)
+
+
+# =========================
+# recent trades（tsで最新3件）
+# =========================
+
+def _extract_recent_trades(side_rows: List[Dict[str, Any]], user_id: int, limit: int = 3) -> List[Dict[str, Any]]:
+    """
+    ✅ 最近の評価（抜粋）を「tsで最新から」拾う。
+    - user_idで絞る
+    - tsをパースして降順（新→古）
+    - 最新limit件（デフォ3件）
+    """
+    rows2: List[Dict[str, Any]] = []
+    for r in side_rows:
+        if int(r.get("user_id") or 0) != int(user_id):
+            continue
+        dt = _parse_ts_any(str(r.get("ts") or r.get("trade_date") or ""))
+        if not dt:
+            continue
+        rows2.append({"_dt": dt, "_r": r})
+
+    rows2.sort(key=lambda x: x["_dt"], reverse=True)
+    rows2 = rows2[:limit]
+
     out: List[Dict[str, Any]] = []
-    for r in side_rows[-limit:]:
+    for x in rows2:
+        r = x["_r"]
         code = str(r.get("code") or "")
         label = str(r.get("eval_label") or "").strip().lower()
         pl = _safe_float(r.get("eval_pl")) or 0.0
@@ -319,19 +390,13 @@ def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> L
         ev_pred = _pick_any_float(r, ["ev_pred", "ml_ev_pred", "ev_ml", "pred_ev"])
         ev_true = _pick_any_float(r, ["ev_true", "ml_ev_true"])
 
-        # --- Shape（Entry/TP/SLの係数など。無ければNone） ---
-        shape_entry_k = _pick_any_float(r, ["shape_entry_k", "entry_k"])
-        shape_rr_target = _pick_any_float(r, ["shape_rr_target", "rr_target"])
-        shape_tp_k = _pick_any_float(r, ["shape_tp_k", "tp_k"])
-        shape_sl_k = _pick_any_float(r, ["shape_sl_k", "sl_k"])
-
         meta_bits: List[str] = []
         if broker:
             meta_bits.append(broker.upper())
         if mode:
             meta_bits.append(mode.upper())
         if ts:
-            meta_bits.append(ts)
+            meta_bits.append(_fmt_jst_from_iso(ts))
         meta = " / ".join(meta_bits) if meta_bits else "-"
 
         out.append(
@@ -347,16 +412,8 @@ def _extract_recent_trades(side_rows: List[Dict[str, Any]], limit: int = 8) -> L
                 "p_tp_first": p_tp_first,
                 "ev_pred": ev_pred,
                 "ev_true": ev_true,
-
-                # Shape numbers
-                "shape_entry_k": shape_entry_k,
-                "shape_rr_target": shape_rr_target,
-                "shape_tp_k": shape_tp_k,
-                "shape_sl_k": shape_sl_k,
             }
         )
-
-    out.reverse()
     return out
 
 
@@ -668,7 +725,6 @@ def _ml_explain_pack(ml_metrics: Dict[str, Any]) -> Dict[str, Any]:
 def _ml_latest_explain_pack(ml_latest: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """
     「最新のML推論（実数値）」の初心者向け説明（信号機付き）。
-    ここは “精度” ではなく “今回の出力の意味” を整理する。
     """
     if not ml_latest:
         return {}
@@ -780,18 +836,62 @@ def _ml_metrics_view(meta: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _parse_ts_any(s: str) -> Optional[datetime]:
-    if not s:
+def _select_latest_ml_inference(
+    dataset_rows: List[Dict[str, Any]],
+    user_id: int,
+) -> Optional[Dict[str, Any]]:
+    """
+    latest_behavior.jsonl（= raw simulate ログ）から
+    「ML実数値が入っている最新の1件」を選ぶ。
+
+    ✅ 末尾（最新）から走査する（並びが崩れてても耐える）。
+    """
+    if not dataset_rows:
         return None
-    try:
-        return datetime.fromisoformat(s)
-    except Exception:
-        return None
+
+    def merged_view(x: Dict[str, Any]) -> Dict[str, Any]:
+        out = dict(x or {})
+        so = x.get("sim_order")
+        if isinstance(so, dict) and so:
+            out.update(so)
+        rp = x.get("replay")
+        if isinstance(rp, dict) and rp:
+            so2 = rp.get("sim_order")
+            if isinstance(so2, dict) and so2:
+                out.update(so2)
+        return out
+
+    def has_any_ml(x: Dict[str, Any]) -> bool:
+        m = merged_view(x)
+        return (
+            x.get("ml_ok") is True
+            or _safe_float(m.get("p_win")) is not None
+            or _safe_float(m.get("ev_pred")) is not None
+            or _safe_float(m.get("p_tp_first")) is not None
+        )
+
+    for r in reversed(dataset_rows):
+        if int(r.get("user_id") or 0) != int(user_id):
+            continue
+        if r.get("ml_ok") is True and has_any_ml(r):
+            return r
+
+    for r in reversed(dataset_rows):
+        if int(r.get("user_id") or 0) != int(user_id):
+            continue
+        if has_any_ml(r):
+            return r
+
+    return None
 
 
 def _merge_sim_order_sources(raw: Dict[str, Any]) -> Dict[str, Any]:
     """
-    shape/係数がどこに入ってても拾えるように候補をマージする。
+    shape/係数がどこに入ってても拾えるように、候補をマージする。
+    優先順:
+      1) raw 直下
+      2) raw["sim_order"]
+      3) raw["replay"]["sim_order"]
     """
     merged: Dict[str, Any] = {}
     if isinstance(raw, dict):
@@ -811,6 +911,9 @@ def _merge_sim_order_sources(raw: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _ml_latest_view_from_raw(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    テンプレ（ml_latest.*）に合わせてキーを整形して返す。
+    """
     merged = _merge_sim_order_sources(raw or {})
 
     p_win = _pick_any_float(merged, ["p_win", "ml_pwin", "ml_p_win"])
@@ -825,7 +928,6 @@ def _ml_latest_view_from_raw(raw: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "code": str(merged.get("code") or raw.get("code") or ""),
-        "ts": str(merged.get("ts") or raw.get("ts") or ""),
 
         "p_win": p_win,
         "p_tp_first": p_tp_first,
@@ -836,61 +938,10 @@ def _ml_latest_view_from_raw(raw: Dict[str, Any]) -> Dict[str, Any]:
         "shape_rr_target": shape_rr_target,
         "shape_tp_k": shape_tp_k,
         "shape_sl_k": shape_sl_k,
+
+        # 更新表示用
+        "_ts": str(merged.get("ts") or raw.get("ts") or ""),
     }
-
-
-def _latest_ts_in_rows(rows: List[Dict[str, Any]], user_id: int) -> str:
-    """
-    並び順に依存せず、ts の max を取る（表示用）。
-    """
-    best: Optional[datetime] = None
-    best_s: str = ""
-    for r in rows:
-        if int(r.get("user_id") or 0) != int(user_id):
-            continue
-        ts = str(r.get("ts") or "")
-        dt = _parse_ts_any(ts)
-        if not dt:
-            continue
-        if best is None or dt > best:
-            best = dt
-            best_s = ts
-    return best_s or "-"
-
-
-def _select_latest_ml_inference(dataset_rows: List[Dict[str, Any]], user_id: int) -> Optional[Dict[str, Any]]:
-    """
-    ✅ 並び順を信じない。
-    「ML数値が入っている行」の中から ts が最大のものを返す。
-    """
-    if not dataset_rows:
-        return None
-
-    def has_any_ml(x: Dict[str, Any]) -> bool:
-        m = _merge_sim_order_sources(x)
-        return (
-            x.get("ml_ok") is True
-            or _safe_float(m.get("p_win")) is not None
-            or _safe_float(m.get("ev_pred")) is not None
-            or _safe_float(m.get("p_tp_first")) is not None
-        )
-
-    best_row: Optional[Dict[str, Any]] = None
-    best_dt: Optional[datetime] = None
-
-    for r in dataset_rows:
-        if int(r.get("user_id") or 0) != int(user_id):
-            continue
-        if not has_any_ml(r):
-            continue
-        dt = _parse_ts_any(str(r.get("ts") or ""))
-        if not dt:
-            continue
-        if best_dt is None or dt > best_dt:
-            best_dt = dt
-            best_row = r
-
-    return best_row
 
 
 # =========================
@@ -899,6 +950,9 @@ def _select_latest_ml_inference(dataset_rows: List[Dict[str, Any]], user_id: int
 
 @login_required
 def behavior_dashboard(request: HttpRequest) -> HttpResponse:
+    """
+    ✅ PRO仕様の行動ダッシュボード
+    """
     user = request.user
     today = timezone.localdate()
     today_label = today.strftime("%Y-%m-%d")
@@ -907,12 +961,12 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
 
     sim_dir = media_root / "aiapp" / "simulate"
     beh_dir = media_root / "aiapp" / "behavior"
-    ml_meta_path = media_root / "aiapp" / "ml" / "models" / "latest" / "meta.json"
 
     model_path = beh_dir / "model" / f"latest_behavior_model_u{user.id}.json"
     side_path = beh_dir / "latest_behavior_side.jsonl"
     dataset_path = beh_dir / "latest_behavior.jsonl"
     ticker_path = beh_dir / "ticker" / f"latest_ticker_u{user.id}.json"
+    ml_meta_path = media_root / "aiapp" / "ml" / "models" / "latest" / "meta.json"
 
     sim_sum = _summarize_simulate_dir(sim_dir)
 
@@ -958,15 +1012,27 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     ml_latest = _ml_latest_view_from_raw(raw_latest) if raw_latest else None
     ml_latest_explain = _ml_latest_explain_pack(ml_latest)
 
-    # ★ 最終更新（UI表示用）
+    # ★ 更新表示（見出し直下に出す）
     updates = {
-        "ml_meta_mtime": _path_mtime_str(ml_meta_path),
-        "ml_meta_created_at": str(ml_metrics.get("created_at") or "-"),
-        "side_mtime": _path_mtime_str(side_path),
-        "dataset_mtime": _path_mtime_str(dataset_path),
-        "side_latest_ts": _latest_ts_in_rows(side_rows, user_id=user.id),
-        "dataset_latest_ts": _latest_ts_in_rows(dataset_rows, user_id=user.id),
-        "ml_latest_ts": str((ml_latest or {}).get("ts") or "-"),
+        # train_lgbm_models 由来
+        "ml_metrics": {
+            "command": "train_lgbm_models",
+            "mtime": _path_mtime_str(ml_meta_path),
+            "created_at": _fmt_jst_from_iso(str(ml_meta.get("created_at") or "")),
+        },
+        # ai_simulate_auto 由来（raw log）
+        "ml_infer": {
+            "command": "ai_simulate_auto",
+            "mtime": _path_mtime_str(dataset_path),
+            "latest_ts": _latest_ts_in_rows(dataset_rows, user_id=user.id, key="ts"),
+            "picked_ts": _fmt_jst_from_iso(str((ml_latest or {}).get("_ts") or "")),
+        },
+        # sync_simulate_pro_eval / ai_sim_eval 由来（評価 side）
+        "recent_eval": {
+            "command": "sync_simulate_pro_eval",
+            "mtime": _path_mtime_str(side_path),
+            "latest_ts": _latest_ts_in_rows(side_rows, user_id=user.id, key="ts"),
+        },
     }
 
     if not has_data:
@@ -1011,7 +1077,8 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         streak_len=streak_len,
     )
 
-    recent_trades = _extract_recent_trades(side_rows, limit=8)
+    # ✅ 最近の評価（side）…最新3件
+    recent_trades = _extract_recent_trades(side_rows, user_id=user.id, limit=3)
 
     ctx = {
         "has_data": True,
