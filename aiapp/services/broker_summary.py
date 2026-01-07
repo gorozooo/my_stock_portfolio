@@ -22,7 +22,7 @@ BROKERS_UI = [
 class BrokerNumbers:
     code: Literal["RAKUTEN", "MATSUI", "SBI"]
     label: str
-    cash_yen: int                     # 現金残高（cash_dashboard の「残り」と一致）
+    cash_yen: int                     # ★ ここは「余力（available）」を入れる（表示名はテンプレで調整）
     stock_acq_value: int              # 現物（特定のみ）取得額
     stock_eval_value: int             # 現物（特定のみ）評価額（参考）
     margin_used_eval: int             # 信用建玉の評価額合計（BUY/SELLとも絶対値）
@@ -33,19 +33,19 @@ class BrokerNumbers:
     note: str | None                  # 注記
 
 
-def _cash_map_by_label() -> Dict[str, int]:
+def _available_map_by_label() -> Dict[str, int]:
     """
     cash_service の broker_summaries(as_of) を使って
-    broker表示名(label) -> 残り(cash) を作る。
+    broker表示名(label) -> 余力(available) を作る。
 
-    これで「設定画面の現金残高」と「現金ダッシュボードの残り」を完全一致させる。
+    これで「設定画面の表示」と「現金ダッシュボードの余力」を完全一致させる。
     """
     from datetime import date
-    rows = cash_svc.broker_summaries(date.today())  # ここは cash_dashboard と同じ
+    rows = cash_svc.broker_summaries(date.today())
     out: Dict[str, int] = {}
     for r in rows:
         label = str(r.get("broker") or "").strip()
-        out[label] = int(r.get("cash") or 0)
+        out[label] = int(r.get("available") or 0)
     return out
 
 
@@ -83,18 +83,18 @@ def compute_broker_summaries(
 ) -> List[BrokerNumbers]:
     """
     概算ルール
-      base（各社） = 現金（残り） + 現物取得額*(1-ヘアカット)
+      base（各社） = 余力（available） + 現物取得額*(1-ヘアカット)
       信用枠       = base * 倍率
       信用余力     = max(0, 信用枠 - 信用建玉評価額合計)
 
-    現金（残り）は cash_service と完全一致させる。
+    ※現金枠には「残高」ではなく「余力」を採用（あなたの希望）。
     """
     out: List[BrokerNumbers] = []
 
-    cash_by_label = _cash_map_by_label()
+    available_by_label = _available_map_by_label()
 
     for code, label in BROKERS_UI:
-        cash_yen = int(cash_by_label.get(label, 0))
+        yoryoku_cash = int(available_by_label.get(label, 0))
 
         nums = _stock_numbers_for(broker_code=code)
         acq = nums["acq"]
@@ -104,20 +104,17 @@ def compute_broker_summaries(
         if code == "RAKUTEN":
             lev = float(rakuten_leverage or 2.9)
             hc = float(rakuten_haircut or 0.30)
-
         elif code == "MATSUI":
             lev = float(matsui_leverage or 2.8)
             hc = float(matsui_haircut or 0.0)
-
         elif code == "SBI":
             lev = float(sbi_leverage or 2.8)
             hc = float(sbi_haircut or 0.30)
-
         else:
             lev = 2.8
             hc = 0.0
 
-        base = cash_yen + int(acq * (1.0 - hc))
+        base = yoryoku_cash + int(acq * (1.0 - hc))
         limit = int(base * lev)
         yoryoku = max(0, limit - used)
 
@@ -127,7 +124,7 @@ def compute_broker_summaries(
             BrokerNumbers(
                 code=code,
                 label=label,
-                cash_yen=int(cash_yen),
+                cash_yen=int(yoryoku_cash),     # ★ 余力を入れる
                 stock_acq_value=int(acq),
                 stock_eval_value=int(evalv),
                 margin_used_eval=int(used),
