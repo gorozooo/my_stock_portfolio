@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from django.utils import timezone
 
@@ -189,31 +189,54 @@ def _calc_risk_per_share(c: Dict[str, Any]) -> Optional[float]:
     return None
 
 
-def _calc_qty(risk_yen: Optional[int], risk_per_share: Optional[float]) -> int:
-    if risk_yen is None or risk_yen <= 0:
-        return 0
-    if risk_per_share is None or risk_per_share <= 0:
-        return 0
-    try:
-        return max(0, int(math.floor(float(risk_yen) / float(risk_per_share))))
-    except Exception:
-        return 0
-
-
-def _round_lot_qty(qty: int, lot: int = 100) -> int:
+def _round_down_lot(qty: int, lot_size: int = 100) -> int:
     """
     日本株想定：100株単位で切り下げ。
-    - 100株未満は0（発注不可）
+    - qty < lot_size は 0（＝見送り）
     """
     try:
         q = int(qty)
+        ls = int(lot_size)
+        if q <= 0 or ls <= 1:
+            return max(0, q)
+        if q < ls:
+            return 0
+        return (q // ls) * ls
     except Exception:
         return 0
-    if lot <= 1:
-        return max(0, q)
-    if q < lot:
-        return 0
-    return int((q // lot) * lot)
+
+
+def _calc_qty_detail(risk_yen: Optional[int], risk_per_share: Optional[float], lot_size: int = 100) -> Dict[str, Any]:
+    """
+    数量計算（詳細）
+    - raw_qty: 端数含む“理論株数”（切り下げ前）
+    - qty: 100株単位で切り下げ後
+    - unused_risk_yen: 余ったリスク枠（概算）
+    """
+    if risk_yen is None or risk_yen <= 0:
+        return {"raw_qty": 0, "qty": 0, "unused_risk_yen": None}
+    if risk_per_share is None or risk_per_share <= 0:
+        return {"raw_qty": 0, "qty": 0, "unused_risk_yen": None}
+
+    try:
+        raw = max(0, int(math.floor(float(risk_yen) / float(risk_per_share))))
+    except Exception:
+        raw = 0
+
+    qty = _round_down_lot(raw, lot_size=lot_size)
+
+    unused = None
+    try:
+        # 「使わなかったリスク枠」＝ risk_yen - qty * risk_per_share
+        #（0以上になるはず。概算なので表示用）
+        unused_val = float(risk_yen) - (float(qty) * float(risk_per_share))
+        if unused_val < 0:
+            unused_val = 0.0
+        unused = int(round(unused_val))
+    except Exception:
+        unused = None
+
+    return {"raw_qty": int(raw), "qty": int(qty), "unused_risk_yen": unused}
 
 
 def _build_action_cards(ctx: Dict[str, Any], limit: int = 3) -> List[Dict[str, Any]]:
@@ -242,12 +265,9 @@ def _build_action_cards(ctx: Dict[str, Any], limit: int = 3) -> List[Dict[str, A
             # 逆指値/ATRが無いなら “提案できない” としてスキップ（事故防止）
             continue
 
-        qty_r_raw = _calc_qty(r_risk if isinstance(r_risk, int) else None, risk_per_share)
-        qty_s_raw = _calc_qty(s_risk if isinstance(s_risk, int) else None, risk_per_share)
-
-        # ★③：100株単位に切り下げ（日本株想定）
-        qty_r = _round_lot_qty(qty_r_raw, lot=100)
-        qty_s = _round_lot_qty(qty_s_raw, lot=100)
+        # ★ 100株単位で切り下げ（JP株想定）
+        d_r = _calc_qty_detail(r_risk if isinstance(r_risk, int) else None, risk_per_share, lot_size=100)
+        d_s = _calc_qty_detail(s_risk if isinstance(s_risk, int) else None, risk_per_share, lot_size=100)
 
         card = {
             "code": code,
@@ -264,8 +284,19 @@ def _build_action_cards(ctx: Dict[str, Any], limit: int = 3) -> List[Dict[str, A
             "score_100": c.get("score_100"),
             "stars": c.get("stars"),
             "risk_per_share": float(risk_per_share),
-            "qty_rakuten": int(qty_r),
-            "qty_sbi_matsui": int(qty_s),
+
+            # 楽天
+            "qty_rakuten": int(d_r["qty"]),
+            "qty_rakuten_raw": int(d_r["raw_qty"]),
+            "qty_rakuten_unused_risk_yen": d_r.get("unused_risk_yen", None),
+
+            # SBI+松井
+            "qty_sbi_matsui": int(d_s["qty"]),
+            "qty_sbi_matsui_raw": int(d_s["raw_qty"]),
+            "qty_sbi_matsui_unused_risk_yen": d_s.get("unused_risk_yen", None),
+
+            # 表示注記用
+            "qty_lot_size": 100,
         }
 
         out.append(card)
@@ -438,7 +469,7 @@ def _build_reasons(ctx: Dict[str, Any], st: BriefState) -> List[str]:
         if parts:
             reasons.append("1トレードの許容損失は " + " / ".join(parts) + "。ここを超える判断は全部“事故”。")
         else:
-            reasons.append(f"リスク%は {risk_pct:.1f}%。口座別（現金+評価額×%）の円換算も合わせて固定すると迷いが減る。")
+            reasons.append(f"リスク%は {risk_pct:.1f}%。口座別（基準×%）の円換算も合わせて固定すると迷いが減る。")
     else:
         reasons.append("リスク%が未設定。サイズ計算が崩れるので、先にここを決める。")
 
@@ -451,7 +482,7 @@ def _build_reasons(ctx: Dict[str, Any], st: BriefState) -> List[str]:
         else:
             reasons.append("直近がプラスの時こそ雑になりやすい。手順固定が次のドローダウンを防ぐ。")
 
-    # ここで action_cards（数量提案）が作れるなら、最後の枠に入れる（実用優先）
+    # 実用枠：数量提案（100株単位で切り下げ）
     cards = _build_action_cards(ctx, limit=1)
     if cards:
         c0 = cards[0]
@@ -459,8 +490,18 @@ def _build_reasons(ctx: Dict[str, Any], st: BriefState) -> List[str]:
         rps = _as_float(c0.get("risk_per_share"), 0.0)
         qr = _as_int(c0.get("qty_rakuten"), 0)
         qs = _as_int(c0.get("qty_sbi_matsui"), 0)
+        ur = c0.get("qty_rakuten_unused_risk_yen", None)
+        uss = c0.get("qty_sbi_matsui_unused_risk_yen", None)
         if rps > 0:
-            reasons.append(f"数量目安（1株損失≈{_yen(rps)}）：{nm} → 楽天 {qr}株 / SBI+松井 {qs}株。")
+            tail = []
+            if isinstance(ur, int):
+                tail.append(f"楽天 余り{_yen(ur)}")
+            if isinstance(uss, int):
+                tail.append(f"SBI+松井 余り{_yen(uss)}")
+            note = f"（100株単位で切り下げ）"
+            if tail:
+                note += " / " + " / ".join(tail)
+            reasons.append(f"数量目安（1株損失≈{_yen(rps)}）：{nm} → 楽天 {qr}株 / SBI+松井 {qs}株。{note}")
 
     # market（枠が残ってたら）
     themes = ms.get("themes") or []
@@ -540,14 +581,14 @@ def build_ai_brief_from_ctx(*, ctx: Dict[str, Any], user_id: int) -> Dict[str, A
     concerns = _build_concerns(ctx, st)
     escape = _build_escape(ctx, st)
 
-    # ★ 数量提案カード（最大3）
+    # ★ 数量提案カード（最大3） ※数量は100株単位で切り下げ
     action_cards = _build_action_cards(ctx, limit=3)
 
     reference_news = None
     try:
         ms = ctx.get("market_state") or {}
         top = (ms.get("news_top") or [])
-        if isinstanceR = isinstance(top, list) and top and isinstance(top[0], dict):
+        if isinstance(top, list) and top and isinstance(top[0], dict):
             it = top[0]
             reference_news = {
                 "title": _s(it.get("title")).strip(),
