@@ -200,6 +200,22 @@ def _calc_qty(risk_yen: Optional[int], risk_per_share: Optional[float]) -> int:
         return 0
 
 
+def _round_lot_qty(qty: int, lot: int = 100) -> int:
+    """
+    日本株想定：100株単位で切り下げ。
+    - 100株未満は0（発注不可）
+    """
+    try:
+        q = int(qty)
+    except Exception:
+        return 0
+    if lot <= 1:
+        return max(0, q)
+    if q < lot:
+        return 0
+    return int((q // lot) * lot)
+
+
 def _build_action_cards(ctx: Dict[str, Any], limit: int = 3) -> List[Dict[str, Any]]:
     """
     ctx["ml_candidates"]（latest_full.json由来）から、グループ別数量提案を作る。
@@ -226,8 +242,12 @@ def _build_action_cards(ctx: Dict[str, Any], limit: int = 3) -> List[Dict[str, A
             # 逆指値/ATRが無いなら “提案できない” としてスキップ（事故防止）
             continue
 
-        qty_r = _calc_qty(r_risk if isinstance(r_risk, int) else None, risk_per_share)
-        qty_s = _calc_qty(s_risk if isinstance(s_risk, int) else None, risk_per_share)
+        qty_r_raw = _calc_qty(r_risk if isinstance(r_risk, int) else None, risk_per_share)
+        qty_s_raw = _calc_qty(s_risk if isinstance(s_risk, int) else None, risk_per_share)
+
+        # ★③：100株単位に切り下げ（日本株想定）
+        qty_r = _round_lot_qty(qty_r_raw, lot=100)
+        qty_s = _round_lot_qty(qty_s_raw, lot=100)
 
         card = {
             "code": code,
@@ -404,26 +424,16 @@ def _build_reasons(ctx: Dict[str, Any], st: BriefState) -> List[str]:
 
     reasons.append(f"全体では YTD {_yen(ytd_total)} / MTD {_yen(mtd_total)}。数字は“現実固定”に使う。")
 
-    # 許容損失：グループ別（★母数=基準額も必ず明記）
+    # 許容損失：グループ別
     if risk_pct > 0:
         r_risk = (group_eq.get("rakuten") or {}).get("risk_yen", None)
         s_risk = (group_eq.get("sbi_matsui") or {}).get("risk_yen", None)
 
-        r_eq = _as_int((group_eq.get("rakuten") or {}).get("equity_yen"), 0)
-        s_eq = _as_int((group_eq.get("sbi_matsui") or {}).get("equity_yen"), 0)
-
         parts = []
         if r_risk is not None:
-            if r_eq > 0:
-                parts.append(f"楽天 {risk_pct:.1f}%（{_yen(r_risk)} / 基準 {_yen(r_eq)}）")
-            else:
-                parts.append(f"楽天 {risk_pct:.1f}%（目安 {_yen(r_risk)}）")
-
+            parts.append(f"楽天 {risk_pct:.1f}%（目安 {_yen(r_risk)}）")
         if s_risk is not None:
-            if s_eq > 0:
-                parts.append(f"SBI+松井 {risk_pct:.1f}%（{_yen(s_risk)} / 基準 {_yen(s_eq)}）")
-            else:
-                parts.append(f"SBI+松井 {risk_pct:.1f}%（目安 {_yen(s_risk)}）")
+            parts.append(f"SBI+松井 {risk_pct:.1f}%（目安 {_yen(s_risk)}）")
 
         if parts:
             reasons.append("1トレードの許容損失は " + " / ".join(parts) + "。ここを超える判断は全部“事故”。")
@@ -530,14 +540,14 @@ def build_ai_brief_from_ctx(*, ctx: Dict[str, Any], user_id: int) -> Dict[str, A
     concerns = _build_concerns(ctx, st)
     escape = _build_escape(ctx, st)
 
-    # ★ 追加：数量提案カード（最大3）
+    # ★ 数量提案カード（最大3）
     action_cards = _build_action_cards(ctx, limit=3)
 
     reference_news = None
     try:
         ms = ctx.get("market_state") or {}
         top = (ms.get("news_top") or [])
-        if isinstance(top, list) and top and isinstance(top[0], dict):
+        if isinstanceR = isinstance(top, list) and top and isinstance(top[0], dict):
             it = top[0]
             reference_news = {
                 "title": _s(it.get("title")).strip(),
@@ -561,6 +571,5 @@ def build_ai_brief_from_ctx(*, ctx: Dict[str, Any], user_id: int) -> Dict[str, A
         "confidence": st.confidence,
         "tone": st.tone,
         "topic": st.topic,
-        # ★追加（テンプレで表示できる）
         "action_cards": action_cards,
     }
