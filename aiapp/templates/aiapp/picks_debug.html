@@ -87,21 +87,6 @@
       </div>
     </div>
 
-    <!-- ===== 本日 + 評価パイプライン状況（PRO専用） ===== -->
-    <div class="banner-row">
-      <div class="banner-date">
-        シミュレーション反映結果
-      </div>
-      <div class="banner-badges">
-        <span class="banner-badge">合計 {{ behavior_banner_pro.total|default:0 }}</span>
-        <span class="banner-badge ok">✅ 評価済 {{ behavior_banner_pro.counts.evaluated|default:0 }}</span>
-        <span class="banner-badge warn">⏳ 未来 {{ behavior_banner_pro.counts.pending_future|default:0 }}</span>
-        <span class="banner-badge dim">💤 skip {{ behavior_banner_pro.counts.skip|default:0 }}</span>
-        <span class="banner-badge bad">❓ unknown {{ behavior_banner_pro.counts.unknown|default:0 }}</span>
-      </div>
-    </div>
-  </div>
-
   <div class="filter-row">
     <input
       id="filterInput"
