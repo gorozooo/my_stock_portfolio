@@ -9,6 +9,7 @@
 
 今回追加:
 - confirm_score / confirm_flags を計算して PickItem に格納（ランキング補助）
+- confirm_flags を「理由テキスト」に 1行混ぜる（UIの納得感アップ）
 """
 
 from __future__ import annotations
@@ -139,6 +140,32 @@ def _fallback_entry_tp_sl(last: float, atr: float):
     tp = entry + 0.80 * atr
     sl = entry - 0.60 * atr
     return float(entry), float(tp), float(sl)
+
+
+def _confirm_flags_to_ja(flags: Optional[List[str]]) -> List[str]:
+    """
+    confirm_flags を UI向けの短い日本語タグへ変換。
+    """
+    if not flags:
+        return []
+    m = {
+        "golden_cross": "GC",
+        "break_20d_high": "20日高値更新",
+        "break_20d_low": "20日安値割れ",
+        "pullback_rebound": "押し目反発",
+        "rsi_overheat": "RSI過熱",
+        "rsi_weak": "RSI弱め",
+        "higher_lows": "安値切り上げ",
+        "below_mid_ma": "MA下",
+        "neutral": "中立",
+        "data_short": "データ不足",
+    }
+    out = []
+    for f in flags:
+        s = m.get(str(f), str(f))
+        if s and s not in out:
+            out.append(s)
+    return out
 
 
 def work_one(
@@ -390,6 +417,18 @@ def work_one(
             last_close=nan_to_none(last),
             atr=nan_to_none(atr),
         )
+
+        # ★confirm を理由テキストに 1行混ぜる（最大5行維持）
+        try:
+            tags = _confirm_flags_to_ja(confirm_flags)
+            if tags:
+                line = f"形(確度): {confirm_score}/100｜" + "・".join(tags[:6])
+                base = list(reason_lines) if isinstance(reason_lines, list) else []
+                merged = [line] + base
+                # 先頭に入れるので最大5行に切る（元の理由は最大4つ残る）
+                reason_lines = merged[:5]
+        except Exception:
+            pass
 
         if BUILD_LOG:
             msg = (
