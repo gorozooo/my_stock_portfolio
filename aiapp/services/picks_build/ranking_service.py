@@ -1,8 +1,12 @@
+# aiapp/services/picks_build/ranking_service.py
 # -*- coding: utf-8 -*-
 """
 ランキング（並び替え）と TopK 抽出。
 
-- 本番キー: EV_true_rakuten desc → qty_rakuten>0 → ml_rank → score_100 → last_close
+- 本番キー:
+    EV_true_rakuten desc → qty_rakuten>0 → confirm_score → ml_rank → score_100 → last_close
+  ※ EV_true 主キーは絶対に維持。confirm は “同EV帯の中で” 押し上げる役。
+
 - TopK: 原則 EV_true>0 & qty>0
 """
 
@@ -22,13 +26,17 @@ def sort_items_inplace(items: List[PickItem]) -> None:
         qty = int(x.qty_rakuten or 0)
         qty_ok = 1 if qty > 0 else 0
 
+        # ★追加：confirm_score（無ければ 0 扱い）
+        conf = int(x.confirm_score or 0)
+        conf_key = conf
+
         mr = as_float_or_none(x.ml_rank)
         mr_key = mr if mr is not None else -1e18
 
         sc = float(x.score_100) if x.score_100 is not None else -1e18
         lc = float(x.last_close) if x.last_close is not None else -1e18
 
-        return (ev_key, qty_ok, mr_key, sc, lc)
+        return (ev_key, qty_ok, conf_key, mr_key, sc, lc)
 
     items.sort(key=_rank_key, reverse=True)
 
