@@ -1,3 +1,4 @@
+# aiapp/services/picks_build/worker_service.py
 # -*- coding: utf-8 -*-
 """
 1銘柄処理（価格→特徴量→フィルタ→スコア→Entry/TP/SL→⭐️→ML→理由→Sizing→PickItem化）。
@@ -5,6 +6,9 @@
 重要:
 - ユーザーが不安に思った import 3つ（get_prices / make_features+FeatureConfig / compute_position_sizing）は
   “ここ/feature生成の責務側” が必ず持つ。
+
+今回追加:
+- confirm_score / confirm_flags を計算して PickItem に格納（ランキング補助）
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ from .utils import (
 from .chart_service import extract_chart_ohlc
 from .reasons_adapter import build_reasons_features
 from .entry_reason_service import classify_entry_reason
+from .confirm_service import compute_confirm  # ★追加
 
 # optional imports（無くても動く）
 try:
@@ -376,14 +381,27 @@ def work_one(
             reason_concern=reason_concern,
         )
 
+        # ★確実性（confirm）
+        confirm_score, confirm_flags = compute_confirm(
+            feat,
+            ma_short_col=ma_short_col,
+            ma_mid_col=ma_mid_col,
+            rsi_col=rsi_col,
+            last_close=nan_to_none(last),
+            atr=nan_to_none(atr),
+        )
+
         if BUILD_LOG:
             msg = (
                 f"[picks_build] {code_norm} last={last} atr={atr} "
                 f"score01={s01:.3f} score100={score100} stars={stars} "
-                f"(period={mode_period} aggr={mode_aggr}) entry_reason={entry_reason}"
+                f"(period={mode_period} aggr={mode_aggr}) entry_reason={entry_reason} "
+                f"confirm={confirm_score}"
             )
             if conf_meta:
                 msg += f" conf={conf_meta}"
+            if confirm_flags:
+                msg += f" flags={confirm_flags}"
             print(msg)
 
         item = PickItem(
@@ -405,6 +423,11 @@ def work_one(
             reason_lines=reason_lines,
             reason_concern=reason_concern,
             entry_reason=str(entry_reason),
+
+            # ★追加
+            confirm_score=int(confirm_score) if confirm_score is not None else None,
+            confirm_flags=list(confirm_flags) if confirm_flags else None,
+
             chart_open=chart_open,
             chart_high=chart_high,
             chart_low=chart_low,
