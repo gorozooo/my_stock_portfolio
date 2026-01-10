@@ -1,9 +1,14 @@
+# aiapp/services/picks_build/schema.py
 # -*- coding: utf-8 -*-
 """
 picks_build が生成する1銘柄分の出力スキーマ（JSONにそのまま落ちる）。
 
 - management command から emit_service で asdict される
 - UI（picks_debug.html 等）が参照するキーを集約
+
+今回追加:
+- confirm_score: “確実性” を 0..100 で持つ（ランキングの補助キー）
+- confirm_flags: 何が効いたかのタグ（デバッグ/納得感用）
 """
 
 from __future__ import annotations
@@ -19,6 +24,10 @@ class PickItem:
     sector_display: Optional[str] = None
 
     entry_reason: Optional[str] = None
+
+    # ★追加：確実性（テクニカルの追い風スコア）
+    confirm_score: Optional[int] = None
+    confirm_flags: Optional[List[str]] = None
 
     chart_open: Optional[List[float]] = None
     chart_high: Optional[List[float]] = None
