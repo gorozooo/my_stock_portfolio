@@ -264,7 +264,7 @@ def _select_filename(kind: str, variant: str) -> str:
 
     if kind == "top":
         return "latest_full_hybrid.json" if v == "B" else "latest_full.json"
-    return "latest_full_all_hybrid.json" if v == "B" else "latest_full_all.json"
+    return "latest_full_hybrid_all.json" if v == "B" else "latest_full_all.json"
 
 
 def _load_json(
