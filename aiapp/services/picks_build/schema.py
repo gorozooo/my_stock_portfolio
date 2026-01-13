@@ -5,10 +5,7 @@ picks_build が生成する1銘柄分の出力スキーマ（JSONにそのまま
 
 - management command から emit_service で asdict される
 - UI（picks_debug.html 等）が参照するキーを集約
-
-今回追加:
-- confirm_score: “確実性” を 0..100 で持つ（ランキングの補助キー）
-- confirm_flags: 何が効いたかのタグ（デバッグ/納得感用）
+- A(tech)でもB(hybrid)でも同じスキーマで出せるように、ファンダ系のキーは Optional で追加
 """
 
 from __future__ import annotations
@@ -24,10 +21,6 @@ class PickItem:
     sector_display: Optional[str] = None
 
     entry_reason: Optional[str] = None
-
-    # ★追加：確実性（テクニカルの追い風スコア）
-    confirm_score: Optional[int] = None
-    confirm_flags: Optional[List[str]] = None
 
     chart_open: Optional[List[float]] = None
     chart_high: Optional[List[float]] = None
@@ -100,3 +93,13 @@ class PickItem:
     reason_rakuten: Optional[str] = None
     reason_matsui: Optional[str] = None
     reason_sbi: Optional[str] = None
+
+    # =========================================================
+    # ★ Hybrid(B) 用：ファンダメンタル / 政策・社会情勢
+    # =========================================================
+    fund_score: Optional[float] = None          # 0..100
+    fund_flags: Optional[List[str]] = None      # 例: ["増収増益", "高ROE", ...]
+    policy_score: Optional[float] = None        # -30..+30 など（設計値）
+    policy_flags: Optional[List[str]] = None    # 例: ["防衛追い風", "規制逆風", ...]
+    hybrid_boost: Optional[float] = None        # EVに足した合成ブースト量
+    hybrid_score: Optional[float] = None        # EV_true_rakuten + hybrid_boost（表示/デバッグ用）
