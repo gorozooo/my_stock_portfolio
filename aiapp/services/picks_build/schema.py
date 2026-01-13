@@ -3,9 +3,10 @@
 """
 picks_build が生成する1銘柄分の出力スキーマ（JSONにそのまま落ちる）。
 
-- management command から emit_service で asdict される
-- UI（picks_debug.html 等）が参照するキーを集約
-- A(tech)でもB(hybrid)でも同じスキーマで出せるように、ファンダ系のキーは Optional で追加
+後方互換:
+- 既存UIは追加キーを無視できる
+- A側（テクニカルのみ）は新キーが None のままでもOK
+- B側（hybrid）は fund/policy/hybrid を埋める
 """
 
 from __future__ import annotations
@@ -94,12 +95,14 @@ class PickItem:
     reason_matsui: Optional[str] = None
     reason_sbi: Optional[str] = None
 
-    # =========================================================
-    # ★ Hybrid(B) 用：ファンダメンタル / 政策・社会情勢
-    # =========================================================
-    fund_score: Optional[float] = None          # 0..100
-    fund_flags: Optional[List[str]] = None      # 例: ["増収増益", "高ROE", ...]
-    policy_score: Optional[float] = None        # -30..+30 など（設計値）
-    policy_flags: Optional[List[str]] = None    # 例: ["防衛追い風", "規制逆風", ...]
-    hybrid_boost: Optional[float] = None        # EVに足した合成ブースト量
-    hybrid_score: Optional[float] = None        # EV_true_rakuten + hybrid_boost（表示/デバッグ用）
+    # =========================
+    # B側（hybrid）追加（後方互換）
+    # =========================
+    fund_score: Optional[float] = None
+    fund_flags: Optional[List[str]] = None
+
+    policy_score: Optional[float] = None
+    policy_flags: Optional[List[str]] = None
+
+    hybrid_bonus: Optional[float] = None
+    ev_true_rakuten_hybrid: Optional[float] = None
