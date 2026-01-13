@@ -3,23 +3,21 @@
 """
 財務ファンダスナップショットのスキーマ。
 
-- code: "7203" のような正規化済みコードを想定
-- fund_score: 0..100
-- flags: UI表示用の短い理由（最大10程度）
-- metrics: 生値（後で拡張しやすいように dict で保持）
+- fundamentals_build が input_fund.json を正規化し、fund_score/flags を付けて latest_fund.json に保存
+- picks_build_hybrid が code をキーに参照して “財務スコア/フラグ” を加点減点に使う想定
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 @dataclass
 class FundamentalRow:
     code: str
-    asof: str  # "YYYY-MM-DD"
-    fund_score: float
+    asof: str
+    fund_score: float  # 0..100（scoringで算出）
     flags: List[str]
     metrics: Dict[str, Any]
 
@@ -27,5 +25,5 @@ class FundamentalRow:
 @dataclass
 class FundamentalSnapshot:
     asof: str
-    rows: Dict[str, FundamentalRow]  # key=code
+    rows: Dict[str, FundamentalRow]  # key = code
     meta: Dict[str, Any]
