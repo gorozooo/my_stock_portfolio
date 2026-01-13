@@ -6,11 +6,11 @@ picks_build が生成する1銘柄分の出力スキーマ（JSONにそのまま
 後方互換:
 - 既存UIは追加キーを無視できる
 - A側（テクニカルのみ）は追加キーが None のままでもOK
-- B側（hybrid）は fund/policy/hybrid を埋める
+- B側（hybrid）は fund/policy/hybrid/confirm を埋める
 
 今回の修正:
-- worker_service が PickItem(confirm_score=...) を渡しているため
-  schema 側にも confirm_score を追加して互換を取る。
+- worker_service が PickItem(confirm_score=..., confirm_flags=...) を渡しているため
+  schema 側にも confirm_score / confirm_flags を追加して互換を取る。
 """
 
 from __future__ import annotations
@@ -28,9 +28,10 @@ class PickItem:
     entry_reason: Optional[str] = None
 
     # =========================
-    # “確実性” 系（既存worker互換）
+    # “確実性” 系（worker互換）
     # =========================
-    confirm_score: Optional[float] = None  # 0..1 or 0..100 のどちらでもOK（出力はそのまま）
+    confirm_score: Optional[float] = None
+    confirm_flags: Optional[List[str]] = None
 
     chart_open: Optional[List[float]] = None
     chart_high: Optional[List[float]] = None
