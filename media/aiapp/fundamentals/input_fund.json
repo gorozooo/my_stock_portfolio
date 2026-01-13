@@ -1,0 +1,28 @@
+{
+  "asof": "2026-01-13",
+  "meta": {
+    "note": "manual seed",
+    "source": "manual"
+  },
+  "rows": {
+    "7203": {
+      "metrics": {
+        "roe": 12.5,
+        "op_margin": 9.2,
+        "sales_yoy": 5.1,
+        "equity_ratio": 35.0,
+        "per": 11.8,
+        "debt_ratio": 90.0
+      }
+    },
+    "6758": {
+      "metrics": {
+        "roe": 7.0,
+        "op_margin": 6.0,
+        "sales_yoy": 2.0,
+        "equity_ratio": 40.0,
+        "per": 18.5
+      }
+    }
+  }
+}
