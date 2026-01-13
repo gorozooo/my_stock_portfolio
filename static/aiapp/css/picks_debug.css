@@ -49,6 +49,72 @@
 }
 
 /* ------------------------------
+   A/B Toggle（★追加）
+------------------------------ */
+.ab-row{
+  display:flex;
+  justify-content:flex-start;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-top:10px;
+  padding-top:10px;
+  border-top:1px solid rgba(148,163,184,.18);
+}
+
+.ab-title{
+  font-size:12px;
+  color: var(--sub);
+  font-weight:700;
+  letter-spacing:.02em;
+}
+
+.ab-group{
+  display:inline-flex;
+  gap:8px;
+  align-items:center;
+}
+
+.ab-btn{
+  appearance:none;
+  border:1px solid rgba(148,163,184,.35);
+  background: rgba(15,23,42,.55);
+  color: var(--fg);
+  padding:7px 12px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:.02em;
+  user-select:none;
+  cursor:pointer;
+  transition: transform .05s ease, border-color .12s ease, background .12s ease;
+}
+
+.ab-btn:active{
+  transform: scale(.98);
+}
+
+.ab-btn.is-active{
+  border-color: rgba(34,197,94,.55);
+  background: rgba(34,197,94,.10);
+}
+
+.ab-btn.is-hybrid{
+  border-color: rgba(59,130,246,.55);
+}
+
+.ab-btn.is-hybrid.is-active{
+  border-color: rgba(59,130,246,.70);
+  background: rgba(59,130,246,.12);
+}
+
+.ab-hint{
+  font-size:12px;
+  color: rgba(226,232,240,.78);
+  opacity:.92;
+}
+
+/* ------------------------------
    Filter
 ------------------------------ */
 .filter-row {
@@ -499,3 +565,12 @@
 #detailEntry { color: #eab308; } /* Entry → 黄色 */
 #detailTp    { color: #22c55e; } /* TP    → 緑 */
 #detailSl    { color: #ef4444; } /* SL    → 赤 */
+
+/* ------------------------------
+   Responsive（必要なら）
+------------------------------ */
+@media (max-width: 640px){
+  .detail-grid{
+    grid-template-columns: 1fr;
+  }
+}
