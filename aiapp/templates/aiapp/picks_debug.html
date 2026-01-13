@@ -5,7 +5,7 @@
 {% block title %}AI Picks 診断{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'aiapp/css/picks_debug.css' %}?v=21">
+<link rel="stylesheet" href="{% static 'aiapp/css/picks_debug.css' %}?v=22">
 
 <style>
   /* バナー最小CSS（picks_debug.cssに移してもOK） */
@@ -44,6 +44,63 @@
   .banner-badge.warn{ border-color:rgba(234,179,8,.45); }
   .banner-badge.bad{ border-color:rgba(239,68,68,.45); }
   .banner-badge.dim{ opacity:.85; }
+
+  /* ===== A/B トグル ===== */
+  .ab-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-top:10px;
+    padding-top:10px;
+    border-top:1px solid rgba(148,163,184,.18);
+  }
+  .ab-left{
+    display:flex;
+    gap:10px;
+    align-items:center;
+    flex-wrap:wrap;
+  }
+  .ab-title{
+    font-size:12px;
+    color:rgba(226,232,240,.9);
+    font-weight:800;
+    letter-spacing:.02em;
+  }
+  .ab-toggle{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:4px;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,.28);
+    background:rgba(15,23,42,.55);
+  }
+  .ab-btn{
+    appearance:none;
+    border:0;
+    background:transparent;
+    color:rgba(226,232,240,.9);
+    font-size:12px;
+    padding:6px 10px;
+    border-radius:999px;
+    font-weight:800;
+    cursor:pointer;
+  }
+  .ab-btn.is-active{
+    background:rgba(59,130,246,.22);
+    border:1px solid rgba(59,130,246,.35);
+  }
+  .ab-note{
+    font-size:12px;
+    color:rgba(148,163,184,.92);
+  }
+  .ab-warn{
+    margin-top:8px;
+    font-size:12px;
+    color:#fbbf24;
+  }
 </style>
 {% endblock %}
 
@@ -62,6 +119,14 @@
           <span>モード: {{ meta.style|default:"aggressive" }}/{{ meta.horizon|default:"short" }}</span>
           <span>ユニバース: {{ meta.universe|default:"(不明)" }}</span>
         </div>
+
+        <!-- A/B 表示 -->
+        <div class="meta">
+          表示: <b>{{ variant_label|default:"A：テクニカル" }}</b>
+        </div>
+        {% if variant_notice %}
+          <div class="ab-warn">{{ variant_notice }}</div>
+        {% endif %}
 
         <!-- 件数まわり（総件数 / 対象件数） -->
         <div class="meta">
@@ -84,6 +149,39 @@
         {% if source_file %}
           <div class="meta">ソース: <code style="font-size:11px">{{ source_file }}</code></div>
         {% endif %}
+
+        <!-- ===== A/B 切替（トグル） ===== -->
+        <div class="ab-row" data-kind="{{ kind|default:'all' }}">
+          <div class="ab-left">
+            <span class="ab-title">A/B 切替</span>
+            <div class="ab-toggle" role="tablist" aria-label="A/B switch">
+              <button
+                type="button"
+                class="ab-btn {% if variant == 'A' %}is-active{% endif %}"
+                data-ab="A"
+                aria-selected="{% if variant == 'A' %}true{% else %}false{% endif %}">
+                A（テク）
+              </button>
+              <button
+                type="button"
+                class="ab-btn {% if variant == 'B' %}is-active{% endif %}"
+                data-ab="B"
+                aria-selected="{% if variant == 'B' %}true{% else %}false{% endif %}">
+                B（テク×ファンダ）
+              </button>
+            </div>
+
+            <!-- all/top も維持 -->
+            <span class="ab-note">
+              {% if kind == 'top' %}
+                表示範囲: Top
+              {% else %}
+                表示範囲: All
+              {% endif %}
+            </span>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -424,5 +522,5 @@
 </div>
 
 <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js" defer></script>
-<script src="{% static 'aiapp/js/picks_debug.js' %}?v=48" defer></script>
+<script src="{% static 'aiapp/js/picks_debug.js' %}?v=49" defer></script>
 {% endblock %}
