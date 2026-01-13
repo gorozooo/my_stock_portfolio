@@ -1,8 +1,24 @@
 {
-  "asof":"2026-01-13",
-  "meta":{"note":"manual seed"},
-  "sector_rows":{
-    "輸送用機器":{"policy_score":5,"flags":["円安追い風(仮)"],"meta":{"source":"manual"}},
-    "医薬品":{"policy_score":-8,"flags":["薬価改定リスク(仮)"],"meta":{"source":"manual"}}
+  "asof": "2026-01-13",
+  "meta": {
+    "note": "manual seed",
+    "source": "manual"
+  },
+  "sector_rows": {
+    "輸送用機器": {
+      "policy_score": 6,
+      "flags": ["円安メリット(仮)", "国内景気(仮)"],
+      "meta": {"why": "仮置き"}
+    },
+    "電気機器": {
+      "policy_score": 2,
+      "flags": ["半導体サイクル(仮)"],
+      "meta": {"why": "仮置き"}
+    },
+    "医薬品": {
+      "policy_score": -6,
+      "flags": ["薬価改定リスク(仮)"],
+      "meta": {"why": "仮置き"}
+    }
   }
 }
