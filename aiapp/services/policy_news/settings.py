@@ -3,7 +3,8 @@
 """
 政策・社会情勢スナップショットの出力先。
 
-- 入力（手動/別ジョブ）→ スナップショット化 → picks_build_hybrid が読む
+- 入力（手動/別ジョブ）: media/aiapp/policy/input_policy.json
+- 出力（picks_build_hybridが読む）: media/aiapp/policy/latest_policy.json
 """
 
 from __future__ import annotations
@@ -14,4 +15,4 @@ POLICY_DIR = Path("media/aiapp/policy")
 POLICY_DIR.mkdir(parents=True, exist_ok=True)
 
 POLICY_LATEST = POLICY_DIR / "latest_policy.json"
-POLICY_INPUT = POLICY_DIR / "input_policy.json"  # まずはここを編集すれば回る
+POLICY_INPUT = POLICY_DIR / "input_policy.json"
