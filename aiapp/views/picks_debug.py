@@ -39,9 +39,6 @@ def _build_behavior_banner_summary_pro(days: int = 30, user_id: Optional[int] = 
         "unknown": 0,
     }
 
-    # 期間（ファイルのtsやdateが無い行もあるので、基本は “見るだけ” にして
-    # ここでは days フィルタを厳密にしない。必要なら将来サービス側で拡張。）
-    # ただし、SIM_DIR が無い・空でも落ちない。
     if not SIM_DIR.exists():
         return {"total": 0, "counts": counts}
 
@@ -54,10 +51,8 @@ def _build_behavior_banner_summary_pro(days: int = 30, user_id: Optional[int] = 
     }
 
     def _is_pro_only(rec: Dict[str, Any]) -> bool:
-        # PRO系キーが一つも無ければPROとして数えない
         if not any(k in rec for k in pro_keys):
             return False
-        # 旧キーが混ざってたら “旧データの名残” とみなして除外（PROに加算しない）
         if any(k in rec for k in legacy_keys):
             return False
         return True
@@ -70,8 +65,6 @@ def _build_behavior_banner_summary_pro(days: int = 30, user_id: Optional[int] = 
         except Exception:
             return ""
 
-    # jsonlを総なめ（件数は多くても days=30 相当なので実運用では問題になりにくい）
-    # 重ければ、後で “日付付きファイル名だけ” に絞る最適化を入れる。
     paths = sorted(SIM_DIR.glob("*.jsonl"))
     for p in paths:
         try:
@@ -94,10 +87,8 @@ def _build_behavior_banner_summary_pro(days: int = 30, user_id: Optional[int] = 
                     if not _is_pro_only(rec):
                         continue
 
-                    # --- 分類 ---
                     label = _safe_str(rec.get("eval_label_pro")).lower()
 
-                    # skip 判定（任意のフラグも拾う）
                     if label in ("skip", "skipped"):
                         counts["skip"] += 1
                         continue
@@ -105,17 +96,14 @@ def _build_behavior_banner_summary_pro(days: int = 30, user_id: Optional[int] = 
                         counts["skip"] += 1
                         continue
 
-                    # evaluated 判定
                     if label in ("win", "lose", "flat", "no_position"):
                         counts["evaluated"] += 1
                         continue
 
-                    # pending_future（将来判定がある場合だけ）
                     if bool(rec.get("pending_future_pro")) is True or bool(rec.get("is_future")) is True:
                         counts["pending_future"] += 1
                         continue
 
-                    # それ以外は unknown
                     counts["unknown"] += 1
 
         except Exception:
@@ -207,9 +195,6 @@ class PickDebugItem:
 # ヘルパ
 # =========================================================
 def _normalize_str_list(v: Any) -> Optional[List[str]]:
-    """
-    JSON 側から来る文字列 or 配列を「文字列リスト」に正規化。
-    """
     if v is None:
         return None
     if isinstance(v, str):
@@ -246,10 +231,6 @@ def _to_float(v: Any) -> Optional[float]:
 
 
 def _to_float_list(v: Any) -> Optional[List[float]]:
-    """
-    chart_open / chart_high / chart_low / chart_closes / MA / VWAP / RSI 用。
-    JSON から読み込んだ list を float list に正規化する。
-    """
     if not isinstance(v, (list, tuple)):
         return None
     out: List[float] = []
@@ -262,33 +243,68 @@ def _to_float_list(v: Any) -> Optional[List[float]]:
 
 
 # =========================================================
-# JSON ロード
+# JSON ロード（A/B 対応）
 # =========================================================
+def _select_filename(kind: str, variant: str) -> str:
+    """
+    kind:
+      all -> latest_full_all*.json
+      top -> latest_full*.json
+    variant:
+      A -> 従来（テクニカル）
+      B -> hybrid（テク×ファンダ）
+    """
+    kind = (kind or "all").lower()
+    if kind not in ("all", "top"):
+        kind = "all"
+
+    v = (variant or "A").upper()
+    if v not in ("A", "B"):
+        v = "A"
+
+    if kind == "top":
+        return "latest_full_hybrid.json" if v == "B" else "latest_full.json"
+    return "latest_full_all_hybrid.json" if v == "B" else "latest_full_all.json"
+
+
 def _load_json(
     kind: str = "all",
-) -> Tuple[Dict[str, Any], List[PickDebugItem], Optional[str], Optional[str]]:
+    variant: str = "A",
+) -> Tuple[Dict[str, Any], List[PickDebugItem], Optional[str], Optional[str], str, str]:
     """
-    latest_full_all.json / latest_full.json を読み込んで
-    (meta, items, updated_at_label, source_file) を返す。
-    kind:
-      "all" → latest_full_all.json
-      "top" → latest_full.json
-    """
-    if kind == "top":
-        filename = "latest_full.json"
-    else:
-        kind = "all"
-        filename = "latest_full_all.json"
+    A/B で読み込むファイルを切り替えて返す。
+    戻り値:
+      (meta, items, updated_at_label, source_file, variant_used, filename_used)
 
+    kind:
+      "all" → latest_full_all*.json
+      "top" → latest_full*.json
+    variant:
+      "A" → テクニカル
+      "B" → hybrid（テク×ファンダ）
+    """
+    filename = _select_filename(kind=kind, variant=variant)
     path = PICKS_DIR / filename
+
+    variant_used = (variant or "A").upper()
+    filename_used = filename
+
+    # Bが無い場合は A にフォールバック（運用で落とさない）
+    if not path.exists() and variant_used == "B":
+        filename_fallback = _select_filename(kind=kind, variant="A")
+        path_fb = PICKS_DIR / filename_fallback
+        if path_fb.exists():
+            path = path_fb
+            variant_used = "A"
+            filename_used = filename_fallback
+
     if not path.exists():
-        # ファイルが無いときは空を返す
-        return {}, [], None, str(path)
+        return {}, [], None, str(path), variant_used, filename_used
 
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
-        return {}, [], None, str(path)
+        return {}, [], None, str(path), variant_used, filename_used
 
     meta = data.get("meta") or {}
     raw_items = data.get("items") or []
@@ -296,12 +312,10 @@ def _load_json(
     items: List[PickDebugItem] = []
 
     for row in raw_items:
-        # row は picks_build の asdict(PickItem) 相当の dict
         if not isinstance(row, dict):
             continue
 
         try:
-            # ----- 理由系 -----
             reason_lines = _normalize_str_list(row.get("reason_lines"))
             reasons_text = _normalize_str_list(row.get("reasons_text"))
 
@@ -316,7 +330,6 @@ def _load_json(
             reason_matsui = str(reason_matsui_raw).strip() if reason_matsui_raw else None
             reason_sbi = str(reason_sbi_raw).strip() if reason_sbi_raw else None
 
-            # ----- 数量・PL -----
             qty_rakuten = _to_int(row.get("qty_rakuten"))
             qty_matsui = _to_int(row.get("qty_matsui"))
             qty_sbi = _to_int(row.get("qty_sbi"))
@@ -329,7 +342,6 @@ def _load_json(
             est_loss_matsui = _to_float(row.get("est_loss_matsui"))
             est_loss_sbi = _to_float(row.get("est_loss_sbi"))
 
-            # ----- ★追加：rank / EV_true（R/M/S） -----
             rank = _to_int(row.get("rank"))
             rank_group = (str(row.get("rank_group")).strip() if row.get("rank_group") else None)
 
@@ -337,14 +349,12 @@ def _load_json(
             ev_true_matsui = _to_float(row.get("ev_true_matsui"))
             ev_true_sbi = _to_float(row.get("ev_true_sbi"))
 
-            # ----- チャート用 OHLC -----
             chart_open = _to_float_list(row.get("chart_open"))
             chart_high = _to_float_list(row.get("chart_high"))
             chart_low = _to_float_list(row.get("chart_low"))
             chart_closes = _to_float_list(row.get("chart_closes") or row.get("chart_close"))
             chart_dates = _normalize_str_list(row.get("chart_dates"))
 
-            # ----- MA / VWAP / RSI -----
             chart_ma_5 = _to_float_list(
                 row.get("chart_ma_5") or
                 row.get("chart_ma_short") or
@@ -370,7 +380,6 @@ def _load_json(
             chart_vwap = _to_float_list(row.get("chart_vwap") or row.get("vwap"))
             chart_rsi = _to_float_list(row.get("chart_rsi") or row.get("rsi") or row.get("rsi14"))
 
-            # ----- 52週 / 上場来 高安値 -----
             hi_52w = _to_float(row.get("hi_52w") or row.get("high_52w"))
             lo_52w = _to_float(row.get("lo_52w") or row.get("low_52w"))
             hi_all_time = _to_float(row.get("hi_all_time") or row.get("high_all"))
@@ -381,11 +390,10 @@ def _load_json(
                 name=row.get("name") or row.get("name_norm") or None,
                 sector_display=row.get("sector_display") or None,
 
-                # ★追加
                 rank=rank,
                 rank_group=rank_group,
                 ev_true_rakuten=ev_true_rakuten,
-                ev_true_matsui=_db_true_matsui if False else ev_true_matsui,  # no-op（既存互換）
+                ev_true_matsui=ev_true_matsui,
                 ev_true_sbi=ev_true_sbi,
 
                 chart_open=chart_open,
@@ -432,7 +440,6 @@ def _load_json(
                 reason_sbi=reason_sbi,
             )
 
-            # ----- 合計値（ビュー側で計算） -----
             qr = qty_rakuten or 0
             qm = qty_matsui or 0
             qs = qty_sbi or 0
@@ -453,10 +460,8 @@ def _load_json(
 
             items.append(it)
         except Exception:
-            # 1行だけ壊れていても全体は落とさない
             continue
 
-    # 更新日時ラベル（ファイルの mtime ベース）
     try:
         mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=JST)
         youbi = "月火水木金土日"[mtime.weekday()]
@@ -464,7 +469,7 @@ def _load_json(
     except Exception:
         updated_at_label = None
 
-    return meta, items, updated_at_label, str(path)
+    return meta, items, updated_at_label, str(path), variant_used, filename_used
 
 
 # =========================================================
@@ -474,16 +479,21 @@ def _load_json(
 def picks_debug_view(request: HttpRequest) -> HttpResponse:
     """
     AI Picks 診断ビュー:
-    picks_build が出力した JSON（latest_full_all / latest_full）をそのまま一覧表示。
-    GET パラメータ:
-      ?kind=all  … latest_full_all.json（デフォルト）
-      ?kind=top  … latest_full.json
+    picks_build が出力した JSON をそのまま一覧表示。
+
+    GET:
+      ?kind=all|top
+      ?variant=A|B   （A=テクニカル / B=hybrid）
     """
     kind = request.GET.get("kind", "all").lower()
     if kind not in ("all", "top"):
         kind = "all"
 
-    meta, items, updated_at_label, source_file = _load_json(kind=kind)
+    variant = (request.GET.get("variant", "A") or "A").upper()
+    if variant not in ("A", "B"):
+        variant = "A"
+
+    meta, items, updated_at_label, source_file, variant_used, filename_used = _load_json(kind=kind, variant=variant)
 
     # ===== 総件数（ユニバース内） =====
     stockmaster_total = meta.get("stockmaster_total")
@@ -501,7 +511,6 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
             except Exception:
                 continue
 
-    # 理由コード → 日本語ラベル
     LABELS: Dict[str, str] = {
         "LOW_TURNOVER": "出来高が少なく除外",
         "TOO_VOLATILE": "価格変動が激しすぎて除外",
@@ -519,11 +528,15 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
         filter_stats_jp[label] = filter_stats_jp.get(label, 0) + cnt
 
     # ===== 行動データ（評価パイプライン）状況バナー =====
-    # 旧：全口座集計（残すけどテンプレでは使わない）
     behavior_banner = build_behavior_banner_summary(days=30)
-
-    # 新：PRO専用（テンプレはこっちだけ参照）
     behavior_banner_pro = _build_behavior_banner_summary_pro(days=30, user_id=request.user.id)
+
+    # variant 表示用（テンプレ側で使う）
+    variant_label = "A：テクニカル" if variant_used == "A" else "B：テク×ファンダ"
+    # フォールバックが起きた場合に分かるように
+    variant_notice = None
+    if variant == "B" and variant_used == "A":
+        variant_notice = "B（hybrid）の出力ファイルが見つからないため、A（テクニカル）を表示しました。"
 
     ctx: Dict[str, Any] = {
         "meta": meta,
@@ -533,10 +546,14 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
         "filter_stats": filter_stats_jp,
         "master_total": master_total,
 
-        # 旧（互換）
         "behavior_banner": behavior_banner,
-
-        # ★ PRO専用（テンプレはこちら）
         "behavior_banner_pro": behavior_banner_pro,
+
+        # ★A/B
+        "variant": variant_used,              # "A" or "B"（実際に使った方）
+        "variant_label": variant_label,       # 表示用
+        "variant_notice": variant_notice,     # フォールバック時だけ文言
+        "kind": kind,                         # "all" or "top"
+        "filename_used": filename_used,       # デバッグ用
     }
     return render(request, "aiapp/picks_debug.html", ctx)
