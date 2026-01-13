@@ -966,3 +966,28 @@
     }
   });
 })();
+
+// ===============================
+// A/B 切替（URLクエリ方式）
+// ===============================
+(function(){
+  const row = document.querySelector(".ab-row");
+  if(!row) return;
+
+  const kind = row.dataset.kind || "all"; // all / top
+  const buttons = row.querySelectorAll(".ab-btn");
+
+  buttons.forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const v = btn.dataset.ab; // "A" or "B"
+      if(!v) return;
+
+      const url = new URL(window.location.href);
+      url.searchParams.set("variant", v);
+      url.searchParams.set("kind", kind);
+
+      // 履歴を汚さずリロード
+      window.location.replace(url.toString());
+    });
+  });
+})();
