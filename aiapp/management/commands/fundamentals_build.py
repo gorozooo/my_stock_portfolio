@@ -1,7 +1,11 @@
-# fundamentals_build.py
 # -*- coding: utf-8 -*-
 """
 Fundamentals Build（A/B用：Hybridの“ファンダメンタル側”材料をJSON化）
+
+目的:
+- picks_build（テクニカル）とは別に、市場の空気（指数/先物など）を “材料JSON” として保存する
+- 後段の policy_build / picks_build_hybrid がこのJSONを読んで
+  「今はリスク落とす」「今は強気」などの判断材料にする
 
 いまは「仮JSONで動かす」前提なので、まずは市場コンテキスト（指数/先物）を確実に出す。
 - Nikkei 225 index: ^N225
@@ -11,10 +15,9 @@ Fundamentals Build（A/B用：Hybridの“ファンダメンタル側”材料�
 - media/aiapp/fundamentals/latest_fundamentals.json
 - media/aiapp/fundamentals/{timestamp}_fundamentals.json
 
-設計意図（初心者向けに超ざっくり）:
-- picks_build（テクニカル）とは別に、相場の空気（指数/先物）を “材料” として保存しておく
-- 後段の policy_build / picks_build_hybrid がこのJSONを読んで
-  「今はリスク落とす」「今は強気」みたいな判断材料にする
+重要（今回の修正点）:
+- Django管理コマンドとして動くように `class Command(BaseCommand)` を必ず定義する
+  → `python manage.py fundamentals_build` が動く
 """
 
 from __future__ import annotations
@@ -25,6 +28,8 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+from django.core.management.base import BaseCommand
 
 JST = timezone(timedelta(hours=9))
 
@@ -117,8 +122,9 @@ def build_market_context() -> Dict[str, Any]:
         "NIY=F",   # 日経225先物（代表的に参照されるシンボル）
     ]
 
+    asof = datetime.now(JST).isoformat()
     out: Dict[str, Any] = {
-        "asof": datetime.now(JST).isoformat(),
+        "asof": asof,
         "series": {},
         "errors": {},
     }
@@ -127,7 +133,7 @@ def build_market_context() -> Dict[str, Any]:
         r = _fetch_yahoo_last2(sym)
         if not r.get("ok"):
             out["errors"][sym] = r.get("error") or "unknown_error"
-            out["series"][sym] = asdict(MarketSeries(symbol=sym, updated_at=out["asof"]))
+            out["series"][sym] = asdict(MarketSeries(symbol=sym, updated_at=asof))
             continue
 
         last = _safe_float(r.get("last"))
@@ -144,7 +150,7 @@ def build_market_context() -> Dict[str, Any]:
             prev=prev,
             change=_safe_float(change),
             change_pct=_safe_float(change_pct),
-            updated_at=out["asof"],
+            updated_at=asof,
         )
         out["series"][sym] = asdict(ms)
 
@@ -162,28 +168,44 @@ def emit_json(payload: Dict[str, Any]) -> None:
     stamped.write_text(s, encoding="utf-8")
 
 
-def main() -> int:
-    nbars = _env_int("AIAPP_FUND_NBARS", 30)
-
+def build_payload(nbars_hint: int = 30) -> Dict[str, Any]:
+    """
+    fundamentals_build が吐く JSON 全体を組み立てる。
+    将来ここに：
+    - 政策/政治/社会情勢（ニュース要約→スコア化）
+    - 金利/為替/コモディティ
+    - セクター景気循環
+    などを追加していく。
+    """
+    now_iso = datetime.now(JST).isoformat()
     payload: Dict[str, Any] = {
         "meta": {
             "engine": "fundamentals_build",
-            "asof": datetime.now(JST).isoformat(),
-            "nbars_hint": nbars,
+            "asof": now_iso,
+            "nbars_hint": int(nbars_hint),
             "note": "This is a lightweight fundamentals context JSON for hybrid A/B.",
         },
         "market_context": build_market_context(),
-        # ここに将来:
-        # - 政策/政治/社会情勢（ニュース要約→スコア化）
-        # - 金利/為替/コモディティ
-        # - セクター景気循環
-        # を足していく
     }
-
-    emit_json(payload)
-    print("[fundamentals_build] wrote:", str(OUT_DIR / "latest_fundamentals.json"))
-    return 0
+    return payload
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+class Command(BaseCommand):
+    help = "Fundamentals Build（指数/先物などの市場コンテキストをJSON化）"
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--nbars",
+            type=int,
+            default=_env_int("AIAPP_FUND_NBARS", 30),
+            help="将来拡張用のヒント値（現状はpayloadのmetaに入れるだけ）",
+        )
+
+    def handle(self, *args, **options):
+        nbars = int(options.get("nbars") or _env_int("AIAPP_FUND_NBARS", 30))
+
+        payload = build_payload(nbars_hint=nbars)
+        emit_json(payload)
+
+        out_path = OUT_DIR / "latest_fundamentals.json"
+        self.stdout.write(self.style.SUCCESS(f"[fundamentals_build] wrote: {out_path}"))
