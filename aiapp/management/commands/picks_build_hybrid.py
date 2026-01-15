@@ -145,7 +145,7 @@ class Command(BaseCommand):
     help = "AIピック生成（B側: テクニカル×ファンダ×政策）"
 
     def add_arguments(self, parser):
-        parser.add_argument("--universe", type=str, default="nk225", help="all_jpx / nk225 / nikkei_225 / <file name> など")
+        parser.add_argument("--universe", type=str, default="all_jpx", help="all_jpx / nk225 / nikkei_225 / <file name> など")
         parser.add_argument("--nbars", type=int, default=260)
         parser.add_argument("--style", type=str, default="aggressive")
         parser.add_argument("--horizon", type=str, default="short")
