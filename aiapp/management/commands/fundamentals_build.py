@@ -1,37 +1,29 @@
 # aiapp/management/commands/fundamentals_build.py
 # -*- coding: utf-8 -*-
 """
-Fundamentals Build（A/B用：Hybridの“ファンダメンタル側”材料をJSON化）
-
-目的:
-- picks_build（テクニカル）とは別に、相場の空気（指数/先物/為替/金利など）を “材料” として保存しておく
-- 後段の policy_build / picks_build_hybrid がこのJSONを読んで
-  「今はリスク落とす」「今は強気」みたいな判断材料にする
+これは何のファイル？
+- Django管理コマンド `python manage.py fundamentals_build` の本体。
+- Hybrid（テクニカル×ファンダ×政策）の “ファンダ側材料” を JSON に書き出す。
 
 出力:
 - media/aiapp/fundamentals/latest_fundamentals.json
 - media/aiapp/fundamentals/{timestamp}_fundamentals.json
 
-今回追加するもの（できるだけ確実に取れる系）:
-- Nikkei 225 index        : ^N225
-- Nikkei 225 futures      : NIY=F
-- USD/JPY                 : USDJPY=X
-- US Dollar Index (DXY)   : DX-Y.NYB
-- US 10Y Yield (CBOE TNX) : ^TNX
-
-日本10年金利（JGB10Y）について:
-- Yahoo/yfinance のシンボルが環境で取れない場合が多いので
-  “候補を試して取れたものだけ採用” し、取れなければ errors に載せる。
+今回の対応:
+- JGB10Y=RR（日本10年金利）だけ Yahoo 側がコケやすいので、
+  まず yfinance を試し、ダメなら YCharts をスクレイピングして埋める。
+  （MarketWatchは環境/ブロックで取りづらいことがあるので、まずは確実に動くルートを優先）
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional, List, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from django.core.management.base import BaseCommand
 
@@ -67,6 +59,32 @@ def _env_int(key: str, default: int) -> int:
         return default
 
 
+def _http_get_text(url: str, timeout: int = 12) -> Tuple[bool, str, Optional[str]]:
+    """
+    (ok, text, error)
+    """
+    try:
+        import requests  # type: ignore
+    except Exception:
+        return False, "", "requests_not_available"
+
+    try:
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+        r = requests.get(url, headers=headers, timeout=timeout)
+        if r.status_code != 200:
+            return False, "", f"http_status:{r.status_code}"
+        return True, r.text, None
+    except Exception as ex:
+        return False, "", f"http_error:{ex}"
+
+
 @dataclass
 class MarketSeries:
     symbol: str
@@ -75,13 +93,13 @@ class MarketSeries:
     change: Optional[float] = None
     change_pct: Optional[float] = None
     updated_at: Optional[str] = None  # ISO
+    source: Optional[str] = None      # "yfinance" / "ycharts" etc
 
 
 def _fetch_yahoo_last2(symbol: str) -> Dict[str, Any]:
     """
-    Yahoo Finance 系（yfinance）から直近2本を取って last/prev を作る。
-    - yfinance が無い/落ちても “欠損でも動く”
-    - period は数日分を取り、営業日ズレを吸収
+    yfinance で直近2本（終値）を拾って last/prev を作る。
+    落ちても上位で握って “欠損でも動く” 前提。
     """
     try:
         import yfinance as yf  # type: ignore
@@ -94,9 +112,8 @@ def _fetch_yahoo_last2(symbol: str) -> Dict[str, Any]:
         if hist is None or len(hist) < 1:
             return {"ok": False, "error": "empty_history"}
 
-        closes: List[float] = []
-        # 念のため tail 多め
-        for _, row in hist.tail(5).iterrows():
+        closes = []
+        for _, row in hist.tail(4).iterrows():
             c = row.get("Close", None)
             fv = _safe_float(c)
             if fv is not None:
@@ -107,24 +124,79 @@ def _fetch_yahoo_last2(symbol: str) -> Dict[str, Any]:
 
         last = closes[-1]
         prev = closes[-2] if len(closes) >= 2 else None
-        return {"ok": True, "last": last, "prev": prev}
+        return {"ok": True, "last": last, "prev": prev, "source": "yfinance"}
 
     except Exception as ex:
         return {"ok": False, "error": f"yfinance_error:{ex}"}
 
 
-def _mk_series(sym: str, asof_iso: str) -> Tuple[Dict[str, Any], Optional[str]]:
+def _fetch_jgb10y_from_ycharts() -> Dict[str, Any]:
     """
-    sym を取って MarketSeries dict を返す。
-    失敗時は “空の series + error文字列” を返す。
+    YCharts: "Japan 10 Year Government Bond Interest Rate is at X%"
+    から X を抜く（% → 数値のまま返す）。
     """
+    url = "https://ycharts.com/indicators/japan_10_year_government_bond_interest_rate"
+    ok, text, err = _http_get_text(url)
+    if not ok:
+        return {"ok": False, "error": f"ycharts_fetch_failed:{err}", "source": "ycharts"}
+
+    # 例: "... is at 2.18%, compared to ..."
+    m = re.search(r"is at\s+([0-9]+(?:\.[0-9]+)?)\s*%", text)
+    if not m:
+        return {"ok": False, "error": "ycharts_parse_failed", "source": "ycharts"}
+
+    last = _safe_float(m.group(1))
+    if last is None:
+        return {"ok": False, "error": "ycharts_value_nan", "source": "ycharts"}
+
+    # prev はページから拾える時もあるが、壊れやすいので今回は無理に作らない
+    return {"ok": True, "last": last, "prev": None, "source": "ycharts"}
+
+
+def _build_one_series(sym: str, asof_iso: str, *, special_jgb10y: bool = False) -> Tuple[Dict[str, Any], Optional[str]]:
+    """
+    returns: (series_dict, error_str)
+    """
+    if special_jgb10y:
+        r = _fetch_yahoo_last2(sym)
+        if not r.get("ok"):
+            # Yahooがダメなら YCharts へ
+            r2 = _fetch_jgb10y_from_ycharts()
+            if not r2.get("ok"):
+                # 両方ダメ
+                ms = MarketSeries(symbol=sym, updated_at=asof_iso, source="none")
+                return asdict(ms), (r2.get("error") or r.get("error") or "unknown_error")
+            r = r2
+
+        last = _safe_float(r.get("last"))
+        prev = _safe_float(r.get("prev"))
+
+        change = None
+        change_pct = None
+        if last is not None and prev is not None and prev != 0:
+            change = last - prev
+            change_pct = (last - prev) / prev * 100.0
+
+        ms = MarketSeries(
+            symbol=sym,
+            last=last,
+            prev=prev,
+            change=_safe_float(change),
+            change_pct=_safe_float(change_pct),
+            updated_at=asof_iso,
+            source=str(r.get("source") or "unknown"),
+        )
+        return asdict(ms), None
+
+    # 通常ルート（yfinance）
     r = _fetch_yahoo_last2(sym)
     if not r.get("ok"):
-        ms = MarketSeries(symbol=sym, updated_at=asof_iso)
+        ms = MarketSeries(symbol=sym, updated_at=asof_iso, source="yfinance")
         return asdict(ms), (r.get("error") or "unknown_error")
 
     last = _safe_float(r.get("last"))
     prev = _safe_float(r.get("prev"))
+
     change = None
     change_pct = None
     if last is not None and prev is not None and prev != 0:
@@ -138,6 +210,7 @@ def _mk_series(sym: str, asof_iso: str) -> Tuple[Dict[str, Any], Optional[str]]:
         change=_safe_float(change),
         change_pct=_safe_float(change_pct),
         updated_at=asof_iso,
+        source=str(r.get("source") or "yfinance"),
     )
     return asdict(ms), None
 
@@ -145,56 +218,38 @@ def _mk_series(sym: str, asof_iso: str) -> Tuple[Dict[str, Any], Optional[str]]:
 def build_market_context() -> Dict[str, Any]:
     """
     市場コンテキスト（指数/先物/為替/金利など）。
-    “取れなくても落ちない” のが最優先。
+    “取れないものがあっても落ちない” を最優先にする。
     """
-    asof = datetime.now(JST).isoformat()
-
-    # まずは確実性が高いところを固定で
-    base_symbols = [
-        "^N225",      # 日経平均
-        "NIY=F",      # 日経225先物（代表）
-        "USDJPY=X",   # ドル円
-        "DX-Y.NYB",   # ドル指数（DXY）
-        "^TNX",       # 米10年金利（CBOE TNX）
+    symbols = [
+        "^N225",       # 日経平均
+        "NIY=F",       # 日経225先物
+        "USDJPY=X",    # USDJPY
+        "DX-Y.NYB",    # ドルインデックス
+        "^TNX",        # 米10年金利（%）
+        "JGB10Y=RR",   # ★日本10年（ここだけ特別扱い）
     ]
 
-    # 日本10年金利（環境で取れない可能性があるので候補を試す）
-    # 取れたものだけ “採用扱い” にする
-    jgb10y_candidates = [
-        "JP10Y=RR",
-        "^JP10Y",
-        "JPY10Y=RR",
-        "JGB10Y=RR",
-    ]
+    asof_iso = datetime.now(JST).isoformat()
 
     out: Dict[str, Any] = {
-        "asof": asof,
+        "asof": asof_iso,
         "series": {},
         "errors": {},
-        "notes": {
-            "jgb10y_candidates": jgb10y_candidates,
-            "hint": "series は Yahoo/yfinance のシンボルで last/prev を出す。取れないものは errors に入る。",
-        },
+        "notes": {},
     }
 
-    # base は全部試す（失敗しても errors に落とすだけ）
-    for sym in base_symbols:
-        s, err = _mk_series(sym, asof)
+    for sym in symbols:
+        is_jgb10y_special = (sym == "JGB10Y=RR")
+
+        s, err = _build_one_series(sym, asof_iso, special_jgb10y=is_jgb10y_special)
         out["series"][sym] = s
+
         if err:
             out["errors"][sym] = err
 
-    # JGB10Y は “取れた最初の1つ” を使う（取れなければ全部 errors へ）
-    jgb_ok = None
-    for sym in jgb10y_candidates:
-        s, err = _mk_series(sym, asof)
-        out["series"][sym] = s
-        if not err:
-            jgb_ok = sym
-            break
-        out["errors"][sym] = err
+        if is_jgb10y_special:
+            out["notes"]["jgb10y_selected"] = s.get("source")
 
-    out["notes"]["jgb10y_selected"] = jgb_ok  # None なら取れてない
     return out
 
 
@@ -209,33 +264,29 @@ def emit_json(payload: Dict[str, Any]) -> None:
     stamped.write_text(s, encoding="utf-8")
 
 
-def build_payload() -> Dict[str, Any]:
-    nbars = _env_int("AIAPP_FUND_NBARS", 30)
-
-    payload: Dict[str, Any] = {
-        "meta": {
-            "engine": "fundamentals_build",
-            "asof": datetime.now(JST).isoformat(),
-            "nbars_hint": nbars,
-            "note": "Lightweight fundamentals context JSON for hybrid A/B.",
-        },
-        "market_context": build_market_context(),
-        # 将来ここに追加:
-        # - 政策/政治/社会情勢（ニュース要約→スコア化）
-        # - 金利/為替/コモディティの拡張
-        # - セクター景気循環
-    }
-    return payload
-
-
 class Command(BaseCommand):
-    help = "Fundamentals Build（Hybrid用：市場コンテキストJSON生成）"
+    help = "Fundamentals Build（Hybrid用の“材料JSON”を生成）"
 
     def handle(self, *args, **opts):
-        payload = build_payload()
+        nbars = _env_int("AIAPP_FUND_NBARS", 30)
+
+        payload: Dict[str, Any] = {
+            "meta": {
+                "engine": "fundamentals_build",
+                "asof": datetime.now(JST).isoformat(),
+                "nbars_hint": nbars,
+                "note": "This is a lightweight fundamentals context JSON for hybrid A/B.",
+            },
+            "market_context": build_market_context(),
+            # 将来拡張:
+            # - 政策/政治/社会（ニュース要約→スコア）
+            # - セクター循環
+            # - クレジットスプレッド、コモディティ等
+        }
+
         emit_json(payload)
-        self.stdout.write(self.style.SUCCESS(f"[fundamentals_build] wrote: {OUT_DIR / 'latest_fundamentals.json'}"))
-        # 取れなかったものがあれば軽く表示
-        errs = (payload.get("market_context") or {}).get("errors") or {}
-        if isinstance(errs, dict) and errs:
-            self.stdout.write(self.style.WARNING(f"[fundamentals_build] warnings: errors={list(errs.keys())}"))
+
+        errors = list((payload.get("market_context") or {}).get("errors", {}).keys())
+        self.stdout.write(self.style.SUCCESS("[fundamentals_build] wrote: media/aiapp/fundamentals/latest_fundamentals.json"))
+        if errors:
+            self.stdout.write(self.style.WARNING(f"[fundamentals_build] warnings: errors={errors}"))
