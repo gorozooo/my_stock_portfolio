@@ -7,6 +7,10 @@ B側：AIピック生成（テクニカル×ファンダ×政策）。
 - 出力ファイルは別名:
     - media/aiapp/picks/latest_full_hybrid_all.json
     - media/aiapp/picks/latest_full_hybrid.json
+
+追加（運用で迷子防止）:
+- この実行で読んだ fundamentals / policy の “asof” を meta に埋め込む
+  → picks_debug 側で「材料がいつのものか」が見えるようになる
 """
 
 from __future__ import annotations
@@ -15,6 +19,8 @@ import json
 import os
 from dataclasses import asdict
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
@@ -36,6 +42,103 @@ try:
     from aiapp.models.macro import MacroRegimeSnapshot
 except Exception:  # pragma: no cover
     MacroRegimeSnapshot = None  # type: ignore
+
+
+FUND_LATEST = Path("media/aiapp/fundamentals/latest_fundamentals.json")
+POLICY_LATEST = Path("media/aiapp/policy/latest_policy.json")
+
+
+def _safe_float(v: Any) -> Optional[float]:
+    try:
+        if v is None:
+            return None
+        x = float(v)
+        if x != x:  # NaN
+            return None
+        return x
+    except Exception:
+        return None
+
+
+def _read_json(path: Path) -> Optional[Dict[str, Any]]:
+    try:
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _extract_fund_meta() -> Dict[str, Any]:
+    """
+    fundamentals の asof / N225・先物の変化率などを meta に入れる。
+    失敗しても落とさない（欠損でも動く）。
+    """
+    out: Dict[str, Any] = {
+        "fund_source": str(FUND_LATEST),
+        "fund_meta_asof": None,          # ISO
+        "fund_asof_date": None,          # YYYY-MM-DD（policyと揃える用）
+        "fund_n225_change_pct": None,    # %
+        "fund_nif_change_pct": None,     # %
+        "fund_errors": None,
+    }
+
+    j = _read_json(FUND_LATEST)
+    if not j:
+        out["fund_errors"] = "missing_or_invalid"
+        return out
+
+    meta = j.get("meta") or {}
+    asof = meta.get("asof")
+    if isinstance(asof, str) and asof.strip():
+        out["fund_meta_asof"] = asof.strip()
+        out["fund_asof_date"] = asof.strip()[:10]
+
+    mc = j.get("market_context") or {}
+    series = mc.get("series") or {}
+    errs = mc.get("errors") or {}
+
+    def _pct(sym: str) -> Optional[float]:
+        s = series.get(sym) or {}
+        return _safe_float(s.get("change_pct"))
+
+    out["fund_n225_change_pct"] = _pct("^N225")
+    out["fund_nif_change_pct"] = _pct("NIY=F")
+
+    if isinstance(errs, dict) and errs:
+        # そのまま入れる（表示側で “取得失敗” を見れる）
+        out["fund_errors"] = errs
+
+    return out
+
+
+def _extract_policy_meta() -> Dict[str, Any]:
+    """
+    policy の asof / meta を meta に入れる。
+    失敗しても落とさない。
+    """
+    out: Dict[str, Any] = {
+        "policy_source": str(POLICY_LATEST),
+        "policy_asof": None,               # YYYY-MM-DD
+        "policy_meta": None,               # dict（軽い情報だけ想定）
+        "policy_errors": None,
+    }
+
+    j = _read_json(POLICY_LATEST)
+    if not j:
+        out["policy_errors"] = "missing_or_invalid"
+        return out
+
+    asof = j.get("asof")
+    if isinstance(asof, str) and asof.strip():
+        out["policy_asof"] = asof.strip()
+
+    meta = j.get("meta")
+    if isinstance(meta, dict):
+        # 長くなりすぎないよう “そのまま” だが、ここは軽量な前提
+        out["policy_meta"] = meta
+
+    return out
 
 
 class Command(BaseCommand):
@@ -82,8 +185,24 @@ class Command(BaseCommand):
         user = User.objects.first()
 
         items = []
-        meta_extra = {}
-        filter_stats = {}
+        meta_extra: Dict[str, Any] = {}
+        filter_stats: Dict[str, Any] = {}
+
+        # ★ 追加：この実行が参照した材料（fund / policy）を meta に埋める
+        fund_meta = _extract_fund_meta()
+        policy_meta = _extract_policy_meta()
+
+        meta_extra.update(fund_meta)
+        meta_extra.update(policy_meta)
+
+        # 参考：日付ズレがあれば meta で分かるようにする（落とさない）
+        try:
+            f_date = fund_meta.get("fund_asof_date")
+            p_date = policy_meta.get("policy_asof")
+            if f_date and p_date and f_date != p_date:
+                meta_extra["asof_mismatch"] = {"fund_asof_date": f_date, "policy_asof": p_date}
+        except Exception:
+            pass
 
         behavior_cache = load_behavior_cache(codes)
         if BUILD_LOG:
@@ -125,19 +244,19 @@ class Command(BaseCommand):
 
         # ★ B側ランキング：hybrid EV を主キーにする（なければ base）
         def _rank_key_b(x):
-            ev = x.ev_true_rakuten_hybrid
+            ev = getattr(x, "ev_true_rakuten_hybrid", None)
             if ev is None:
-                ev = x.ev_true_rakuten
+                ev = getattr(x, "ev_true_rakuten", None)
             ev_key = float(ev) if ev is not None else -1e18
 
-            qty = int(x.qty_rakuten or 0)
+            qty = int(getattr(x, "qty_rakuten", 0) or 0)
             qty_ok = 1 if qty > 0 else 0
 
-            mr = x.ml_rank
+            mr = getattr(x, "ml_rank", None)
             mr_key = float(mr) if mr is not None else -1e18
 
-            sc = float(x.score_100) if x.score_100 is not None else -1e18
-            lc = float(x.last_close) if x.last_close is not None else -1e18
+            sc = float(getattr(x, "score_100", None)) if getattr(x, "score_100", None) is not None else -1e18
+            lc = float(getattr(x, "last_close", None)) if getattr(x, "last_close", None) is not None else -1e18
 
             return (ev_key, qty_ok, mr_key, sc, lc)
 
@@ -146,10 +265,10 @@ class Command(BaseCommand):
         # TopK（B側）：hybrid EV > 0 かつ qty > 0 を優先。なければフォールバック。
         top_candidates = []
         for it in items:
-            ev = it.ev_true_rakuten_hybrid
+            ev = getattr(it, "ev_true_rakuten_hybrid", None)
             if ev is None:
-                ev = it.ev_true_rakuten
-            qty = int(it.qty_rakuten or 0)
+                ev = getattr(it, "ev_true_rakuten", None)
+            qty = int(getattr(it, "qty_rakuten", 0) or 0)
             if ev is not None and float(ev) > 0 and qty > 0:
                 top_candidates.append(it)
 
