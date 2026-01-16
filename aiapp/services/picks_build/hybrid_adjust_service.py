@@ -160,20 +160,6 @@ def _safe_float(v: Any) -> Optional[float]:
         return None
 
 
-def _norm_text(s: Any) -> str:
-    """
-    文字崩れ/不可視文字（Cfなど）を除去して比較しやすくする。
-    - 例: 輸送用機器 → 輸送用機器
-    """
-    if s is None:
-        return ""
-    t = str(s)
-    t = unicodedata.normalize("NFKC", t)
-    # remove format chars (Cf) and other control-ish
-    t = "".join(ch for ch in t if unicodedata.category(ch) not in ("Cf", "Cc"))
-    return t.strip()
-
-
 def _pick_policy_components(pr: Any) -> Tuple[Optional[float], Optional[Dict[str, float]], List[str]]:
     """
     policy row から “中間スコア components” を拾う。
