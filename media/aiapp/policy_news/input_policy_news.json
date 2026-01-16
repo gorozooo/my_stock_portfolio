@@ -1,0 +1,32 @@
+// media/aiapp/policy_news/input_policy_news.json
+{
+  "meta": {
+    "note": "manual seed (temporary)",
+    "source": "manual"
+  },
+  "items": [
+    {
+      "id": "seed_fx_weak_jpy",
+      "category": "fx",
+      "title": "円安寄り（仮seed）",
+      "impact": {"fx": 0.8, "rates": 0.0, "risk": 0.0},
+      "sector_delta": {
+        "輸送用機器": 0.6,
+        "電気機器": 0.3
+      },
+      "reason": "為替が輸出系に追い風（seed）",
+      "source": "manual"
+    },
+    {
+      "id": "seed_risk_off",
+      "category": "risk",
+      "title": "リスクオフ寄り（仮seed）",
+      "impact": {"fx": 0.0, "rates": 0.0, "risk": 0.7},
+      "sector_delta": {
+        "医薬品": 0.5
+      },
+      "reason": "地政学/政策不透明感（seed）",
+      "source": "manual"
+    }
+  ]
+}
