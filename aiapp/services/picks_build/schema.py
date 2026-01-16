@@ -8,15 +8,14 @@ picks_build が生成する1銘柄分の出力スキーマ（JSONにそのまま
 - A側（テクニカルのみ）は追加キーが None のままでもOK
 - B側（hybrid）は fund/policy/hybrid/confirm を埋める
 
-今回の修正:
-- worker_service が PickItem(confirm_score=..., confirm_flags=...) を渡しているため
-  schema 側にも confirm_score / confirm_flags を追加して互換を取る。
+今回の方針（B: 将来拡張前提）:
+- 係数テーブル（dict）/ セクター別 weight / 寄与内訳 / 理由ログ を保存できるようにする
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -114,5 +113,20 @@ class PickItem:
     policy_score: Optional[float] = None
     policy_flags: Optional[List[str]] = None
 
+    # 旧互換（前からあるキー）
     hybrid_bonus: Optional[float] = None
     ev_true_rakuten_hybrid: Optional[float] = None
+
+    # 拡張前提（A/Bの検証ログを残す）
+    hybrid_bonus_total: Optional[float] = None
+    hybrid_bonus_fund: Optional[float] = None
+    hybrid_bonus_policy: Optional[float] = None
+
+    # セクター別weight（実際に使ったもの）
+    hybrid_sector_weights: Optional[Dict[str, float]] = None
+
+    # policyの中間スコア/寄与内訳（fx/rates/risk など + weights + mixed）
+    hybrid_policy_components: Optional[Dict[str, Any]] = None
+
+    # ログ用（短文）: UIで見せても良いし、後で集計にも使える
+    hybrid_reason_lines: Optional[List[str]] = None
