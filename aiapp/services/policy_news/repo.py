@@ -1,56 +1,149 @@
 # aiapp/services/policy_news/repo.py
 # -*- coding: utf-8 -*-
 """
-政策スナップショットの保存/読み込み。
+これは何のファイル？
+- policy_news の JSON を「読む」だけの層（repo）。
 
-- 書き込み: latest_policy.json（必須） + timestampファイル（任意）
-- 読み込み: latest_policy.json（無ければ空で返す）
+方針:
+- 読めなくても落とさない（欠損でもhybrid全体が止まらないため）
+- 読めたら schema に沿って PolicyNewsSnapshot を返す
 """
 
 from __future__ import annotations
 
 import json
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any, Dict, Optional
 
-from .schema import PolicySectorRow, PolicySnapshot
-from .settings import POLICY_DIR, POLICY_LATEST
+from .schema import PolicyNewsItem, PolicyNewsSnapshot
+from .settings import LATEST_POLICY_NEWS
 
 
-def save_policy_snapshot(snap: PolicySnapshot, *, stamp_name: Optional[str] = None) -> None:
-    POLICY_DIR.mkdir(parents=True, exist_ok=True)
+def _safe_float(x) -> Optional[float]:
+    try:
+        if x is None:
+            return None
+        v = float(x)
+        if v != v:  # NaN
+            return None
+        return v
+    except Exception:
+        return None
 
-    payload = asdict(snap)
-    POLICY_LATEST.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
-    if stamp_name:
-        p = POLICY_DIR / stamp_name
-        p.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+def _safe_dict(v) -> Dict[str, Any]:
+    return v if isinstance(v, dict) else {}
 
 
-def load_policy_snapshot() -> PolicySnapshot:
-    if not POLICY_LATEST.exists():
-        return PolicySnapshot(asof="", sector_rows={}, meta={"source": "missing_latest"})
+def _safe_list(v):
+    return v if isinstance(v, list) else []
+
+
+def _norm_text(s: Any) -> str:
+    return str(s or "").strip()
+
+
+def _parse_item(d: Dict[str, Any]) -> Optional[PolicyNewsItem]:
+    if not isinstance(d, dict):
+        return None
+
+    _id = _norm_text(d.get("id"))
+    if not _id:
+        return None
+
+    impact_in = _safe_dict(d.get("impact"))
+    impact: Dict[str, float] = {}
+    for k in ("fx", "rates", "risk"):
+        fv = _safe_float(impact_in.get(k))
+        if fv is not None:
+            impact[k] = float(fv)
+
+    sector_in = _safe_dict(d.get("sector_delta"))
+    sector_delta: Dict[str, float] = {}
+    for k, v in sector_in.items():
+        kk = _norm_text(k)
+        fv = _safe_float(v)
+        if kk and fv is not None:
+            sector_delta[kk] = float(fv)
+
+    return PolicyNewsItem(
+        id=_id,
+        category=_norm_text(d.get("category")) or "misc",
+        title=_norm_text(d.get("title")) or None,
+        impact=impact,
+        sector_delta=sector_delta,
+        reason=_norm_text(d.get("reason")) or None,
+        source=_norm_text(d.get("source")) or None,
+        url=_norm_text(d.get("url")) or None,
+    )
+
+
+def load_policy_news_snapshot(path: Optional[Path] = None) -> PolicyNewsSnapshot:
+    """
+    latest_policy_news.json を読み、PolicyNewsSnapshot を返す。
+    読めない場合でも「空のsnapshot」を返して落とさない。
+    """
+    p = path or LATEST_POLICY_NEWS
+
+    if not p.exists():
+        return PolicyNewsSnapshot(
+            asof="1970-01-01",
+            items=[],
+            meta={"error": "missing", "source": str(p)},
+            factors_sum={},
+            sector_sum={},
+        )
 
     try:
-        j = json.loads(POLICY_LATEST.read_text(encoding="utf-8"))
-    except Exception:
-        return PolicySnapshot(asof="", sector_rows={}, meta={"source": "json_error"})
+        j = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as ex:
+        return PolicyNewsSnapshot(
+            asof="1970-01-01",
+            items=[],
+            meta={"error": f"invalid_json:{ex}", "source": str(p)},
+            factors_sum={},
+            sector_sum={},
+        )
 
-    asof = str(j.get("asof") or "")
-    meta = dict(j.get("meta") or {})
+    asof = _norm_text(j.get("asof")) or "1970-01-01"
+    meta = _safe_dict(j.get("meta"))
 
-    rows_in = dict(j.get("sector_rows") or {})
-    rows: Dict[str, PolicySectorRow] = {}
+    items: list[PolicyNewsItem] = []
+    for raw in _safe_list(j.get("items")):
+        it = _parse_item(raw if isinstance(raw, dict) else {})
+        if it is not None:
+            items.append(it)
 
-    for sec, v in rows_in.items():
-        sector = str(sec or "").strip()
-        if not sector:
-            continue
-        vv = dict(v or {})
-        policy_score = float(vv.get("policy_score") or 0.0)
-        flags = list(vv.get("flags") or [])[:10]
-        m = dict(vv.get("meta") or {})
-        rows[sector] = PolicySectorRow(sector_display=sector, policy_score=policy_score, flags=flags, meta=m)
+    # 集計（repoの責務として“読みやすさ”優先で軽く付ける）
+    factors_sum: Dict[str, float] = {"fx": 0.0, "rates": 0.0, "risk": 0.0}
+    sector_sum: Dict[str, float] = {}
 
-    return PolicySnapshot(asof=asof, sector_rows=rows, meta=meta)
+    for it in items:
+        for k, v in (it.impact or {}).items():
+            if k in factors_sum and v is not None:
+                factors_sum[k] += float(v)
+
+        for sec, dv in (it.sector_delta or {}).items():
+            sector_sum[sec] = float(sector_sum.get(sec, 0.0)) + float(dv)
+
+    return PolicyNewsSnapshot(
+        asof=asof,
+        items=items,
+        meta=meta,
+        factors_sum=factors_sum,
+        sector_sum=sector_sum,
+    )
+
+
+def dump_policy_news_snapshot(snap: PolicyNewsSnapshot) -> Dict[str, Any]:
+    """
+    dataclass → JSON dict（emit用）。
+    """
+    return {
+        "asof": snap.asof,
+        "items": [asdict(x) for x in (snap.items or [])],
+        "meta": snap.meta or {},
+        "factors_sum": snap.factors_sum or {},
+        "sector_sum": snap.sector_sum or {},
+    }
