@@ -381,7 +381,6 @@ def apply_hybrid_adjust(items: List[PickItem]) -> Dict[str, int]:
                     f"policy_bonus={policy_bonus:.3f} (policy_score={policy_score} * k={COEF['policy_total_k']})"
                 )
 
-        for x in policy_reason
         # policy側の短文も少し
         for x in policy_reason_lines[:3]:
             if x:
