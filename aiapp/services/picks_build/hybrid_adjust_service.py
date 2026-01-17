@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import unicodedata
 
 from aiapp.services.fundamentals.repo import load_fund_snapshot
-from aiapp.services.policy_news.repo import load_policy_snapshot
+from aiapp.services.policy_build.repo import load_policy_snapshot
 
 from .schema import PickItem
 
