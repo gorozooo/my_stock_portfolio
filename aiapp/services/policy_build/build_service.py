@@ -1,8 +1,8 @@
 # aiapp/services/policy_build/build_service.py
 # -*- coding: utf-8 -*-
 """
-【このファイルは何？】
 policy_build の“本体サービス”。
+
 fundamentals（市場データ）と policy_news（政策/社会情勢ニュース）と seed（手動ベース）を合成して、
 33業種それぞれの「その日の方針スコア（policy_score）」を JSON に保存する。
 
@@ -11,7 +11,7 @@ fundamentals（市場データ）と policy_news（政策/社会情勢ニュー�
 - 33業種すべてに sector_weight を定義し、セクターごとに効き方を変える
 - ログ用に reason（なぜ増減したか）を sector_rows[].meta に保存する
 - input_policy.json（手動seed）は “ベース” として残しつつ、上書きではなく「上乗せ」する
-- 追加：policy_news_build の結果（ニュース要因）も合流し、delta_news と reasons に反映する
+- policy_news_build の結果（ニュース要因）も合流し、delta_news と reasons に反映する
 
 入力:
 - media/aiapp/fundamentals/latest_fundamentals.json
@@ -31,7 +31,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# policy_news（ニュース材料）
 from aiapp.services.policy_news.repo import load_policy_news_snapshot
 
 JST = timezone(timedelta(hours=9))
@@ -56,22 +55,13 @@ COEFS: Dict[str, Any] = {
     "jp_rates_baseline": 1.0,     # 1.0% を基準にする
 
     # clamp（暴れ防止）
-    "component_clamp": (-3.0, 3.0),   # fx/risk/us_rates/jp_rates 各component
-    "sector_delta_clamp": (-6.0, 6.0),# セクターに合成した “上乗せ分”
-    "policy_score_clamp": (-10.0, 10.0), # 最終policy_score（seed + delta）
+    "component_clamp": (-3.0, 3.0),       # fx/risk/us_rates/jp_rates 各component
+    "sector_delta_clamp": (-6.0, 6.0),    # セクターに合成した “上乗せ分”
+    "policy_score_clamp": (-10.0, 10.0),  # 最終policy_score（seed + delta）
 
     # news 合流（policy_news）
-    # policy_news は build 時点で「factors_sum（fx/rates/risk）」と「sector_sum（セクター別delta）」を持つ前提。
-    # - sector_sum を優先して delta_news に反映
-    # - factors_sum も「セクターweight」で増幅/減衰して delta_news に少し足す（将来拡張しやすくする）
-    #   ※ policy_news の "rates" はここでは jp_rates に寄せる（日本金利・政策寄りの扱い）
     "news_factor_k": 0.50,        # news の factors_sum を混ぜる強さ（小さめ）
     "news_delta_clamp": (-6.0, 6.0),
-
-    # ★互換キー：picks_build_hybrid 側は components の key に "rates" を期待する
-    #   policy_build 内部は us_rates / jp_rates を持つので、
-    #   rates = jp_rates + us_rates * us_into_rates_k の形で “合成rates” を作って meta["components"] に入れる
-    "us_into_rates_k": 0.50,
 }
 
 
@@ -164,13 +154,12 @@ def _clamp(x: Optional[float], lo: float, hi: float) -> Optional[float]:
 def _norm_key(s: str) -> str:
     """
     セクター名やキー照合用の正規化。
-    “不可視文字”が混ざっても照合できるようにする。
+    不可視文字が混ざっても照合できるようにする。
     """
     if s is None:
         return ""
     t = str(s)
 
-    # よくある不可視/制御系を削る
     bad = [
         "\u200b", "\u200c", "\u200d", "\ufeff",
         "\u2060", "\u00ad",
@@ -178,17 +167,12 @@ def _norm_key(s: str) -> str:
     for b in bad:
         t = t.replace(b, "")
 
-    # 全角スペース/半角スペース/改行タブ除去
     t = t.replace("\u3000", " ")
     t = " ".join(t.split())
     return t.strip()
 
 
 def _extract_fund_asof_date(fund: Dict[str, Any]) -> str:
-    """
-    fundamentals の meta.asof（ISO: 2026-01-15T...）から YYYY-MM-DD を作る。
-    取れない場合は “今日(JST)”。
-    """
     iso = None
     try:
         iso = (fund.get("meta") or {}).get("asof")
@@ -208,27 +192,20 @@ def _get_series_item(fund: Dict[str, Any], sym: str) -> Dict[str, Any]:
 
 
 def _build_market_inputs(fund: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    policy_build が参照する “材料” を抜き出す（欠損でも落とさない）。
-    """
     inputs: Dict[str, Any] = {}
 
-    # 為替/ドル
     inputs["usd_jpy_pct"] = _safe_float(_get_series_item(fund, "USDJPY=X").get("change_pct"))
     inputs["dxy_pct"] = _safe_float(_get_series_item(fund, "DX-Y.NYB").get("change_pct"))
 
-    # 金利（米/日）
     inputs["tnx_pct"] = _safe_float(_get_series_item(fund, "^TNX").get("change_pct"))
 
     jgb_item = _get_series_item(fund, "JGB10Y=RR")
     inputs["jgb10y_last"] = _safe_float(jgb_item.get("last"))
     inputs["jgb10y_source"] = jgb_item.get("source")
 
-    # 日経（参考）
     inputs["n225_pct"] = _safe_float(_get_series_item(fund, "^N225").get("change_pct"))
     inputs["nif_pct"] = _safe_float(_get_series_item(fund, "NIY=F").get("change_pct"))
 
-    # errors（取得失敗の可視化）
     mc = fund.get("market_context") or {}
     errs = mc.get("errors") or {}
     inputs["fund_errors"] = errs if isinstance(errs, dict) and errs else None
@@ -242,12 +219,8 @@ def _build_market_inputs(fund: Dict[str, Any]) -> Dict[str, Any]:
 def _compute_components(inputs: Dict[str, Any]) -> Tuple[Dict[str, float], List[str]]:
     """
     市場→中間スコア（fx/risk/us_rates/jp_rates）。
-    戻り:
-      components: dict
-      warnings: list[str]
     """
     warnings: List[str] = []
-
     lo_c, hi_c = COEFS["component_clamp"]
 
     usd_jpy_pct = inputs.get("usd_jpy_pct")
@@ -280,61 +253,30 @@ def _compute_components(inputs: Dict[str, Any]) -> Tuple[Dict[str, float], List[
     else:
         warnings.append("missing:JGB10Y=RR.last")
 
-    # 欠損は 0 として扱う（落とさない）
-    comp: Dict[str, float] = {
+    comp_full: Dict[str, float] = {
         "fx": float(fx) if fx is not None else 0.0,
         "risk": float(risk) if risk is not None else 0.0,
         "us_rates": float(us_rates) if us_rates is not None else 0.0,
         "jp_rates": float(jp_rates) if jp_rates is not None else 0.0,
     }
-    return comp, warnings
-
-
-def _components_compact(full: Dict[str, float]) -> Dict[str, float]:
-    """
-    ★互換用（picks_build_hybrid / hybrid_adjust_service が期待する keys）
-    full: fx / risk / us_rates / jp_rates
-    compact: fx / risk / rates
-    rates は jp_rates を主軸にしつつ、us_rates を少し混ぜる（kで調整）
-    """
-    fx = float(full.get("fx", 0.0) or 0.0)
-    risk = float(full.get("risk", 0.0) or 0.0)
-    us_rates = float(full.get("us_rates", 0.0) or 0.0)
-    jp_rates = float(full.get("jp_rates", 0.0) or 0.0)
-
-    k = float(COEFS.get("us_into_rates_k", 0.5))
-    rates = jp_rates + (us_rates * k)
-
-    return {
-        "fx": float(fx),
-        "risk": float(risk),
-        "rates": float(rates),
-    }
+    return comp_full, warnings
 
 
 def _sector_reason_lines(
     sector: str,
     weights: Dict[str, float],
-    comps: Dict[str, float],
+    comps_full: Dict[str, float],
     inputs: Dict[str, Any],
 ) -> Tuple[List[str], List[str], Dict[str, float]]:
-    """
-    セクターの理由文と flags を作る。
-    - lines: 1行理由（複数）
-    - flags: UI向け短いタグ
-    - comp_detail: どの要因が何点効いたか（full: fx/risk/us_rates/jp_rates）
-    """
     lines: List[str] = []
     flags: List[str] = []
     comp_detail: Dict[str, float] = {}
 
-    # 各要因の寄与（component * weight）
     for k in ("fx", "risk", "us_rates", "jp_rates"):
         w = float(weights.get(k, 0.0))
-        c = float(comps.get(k, 0.0))
+        c = float(comps_full.get(k, 0.0))
         comp_detail[k] = c * w
 
-    # FX（円安/円高）
     usd_jpy_pct = inputs.get("usd_jpy_pct")
     if usd_jpy_pct is not None:
         if usd_jpy_pct > 0.2:
@@ -348,7 +290,6 @@ def _sector_reason_lines(
             elif usd_jpy_pct < -0.2:
                 flags.append("円高逆風")
 
-    # DXY（ざっくり risk-off 方向）
     dxy_pct = inputs.get("dxy_pct")
     if dxy_pct is not None:
         if dxy_pct > 0.2:
@@ -361,7 +302,6 @@ def _sector_reason_lines(
         if weights.get("risk", 0.0) <= -0.4 and dxy_pct > 0.2:
             flags.append("リスクオフ逆風")
 
-    # 米金利
     tnx_pct = inputs.get("tnx_pct")
     if tnx_pct is not None:
         if tnx_pct > 0.2:
@@ -372,7 +312,6 @@ def _sector_reason_lines(
         if weights.get("us_rates", 0.0) <= -0.6 and tnx_pct > 0.2:
             flags.append("米金利上昇逆風")
 
-    # 日金利（JGB10Y 水準）
     jgb10y_last = inputs.get("jgb10y_last")
     if jgb10y_last is not None:
         if jgb10y_last >= 1.5:
@@ -385,7 +324,6 @@ def _sector_reason_lines(
         if weights.get("jp_rates", 0.0) >= 1.2 and jgb10y_last >= 1.5:
             flags.append("金利追い風")
 
-    # セクター名を先頭に付けた短いまとめ（最後に1行）
     ranked = sorted(comp_detail.items(), key=lambda kv: abs(float(kv[1])), reverse=True)
     top = [f"{k}:{v:+.2f}" for k, v in ranked[:2]]
     if top:
@@ -410,17 +348,8 @@ def _news_sector_delta(
     news_sector_sum: Dict[str, float],
     news_factors_sum: Dict[str, float],
 ) -> Tuple[float, Dict[str, float]]:
-    """
-    policy_news の結果から delta_news を作る（将来拡張しやすい形）。
-
-    ルール（現時点）:
-    - sector_sum[sector] を主役として採用（ニュースが「どのセクターに効くか」）
-    - さらに factors_sum（fx/risk/rates）を sector_weight で増幅/減衰して少し足す
-      * policy_news の "rates" は、ここでは jp_rates として扱う（日本政策・金利寄りの影響）
-    """
     base = float(news_sector_sum.get(sector_norm, 0.0) or 0.0)
 
-    # factors_sum の混ぜ（小さめ）
     k = float(COEFS.get("news_factor_k", 0.5))
     fx = float(news_factors_sum.get("fx", 0.0) or 0.0)
     risk = float(news_factors_sum.get("risk", 0.0) or 0.0)
@@ -452,29 +381,6 @@ def _news_sector_delta(
     return float(delta2), detail
 
 
-def _it_get(it: Any, key: str, default: Any = None) -> Any:
-    """
-    policy_news.items が dict でも dataclass/object でも動くようにする。
-    """
-    if isinstance(it, dict):
-        return it.get(key, default)
-    return getattr(it, key, default)
-
-
-def _it_get_factors(it: Any) -> Dict[str, Any]:
-    """
-    it.factors が dict でも object でも吸えるようにする。
-    """
-    f = _it_get(it, "factors", {}) or {}
-    if isinstance(f, dict):
-        return f
-    return {
-        "fx": getattr(f, "fx", None),
-        "rates": getattr(f, "rates", None),
-        "risk": getattr(f, "risk", None),
-    }
-
-
 # =========================
 # 生成結果スキーマ
 # =========================
@@ -489,14 +395,6 @@ class PolicySnapshot:
 # メイン処理
 # =========================
 def build_policy_snapshot() -> PolicySnapshot:
-    """
-    B案のpolicy生成:
-    - seed（input_policy.json）を読み、policy_score/flags をベースとして残す
-    - fundamentals 由来の中間スコア（fx/risk/us_rates/jp_rates）を作る
-    - 33業種すべてに sector_weight を適用し “上乗せ分delta_market” を作る
-    - policy_news 由来の “delta_news” を加算する（sector_sum + factors_sum*weights）
-    - reasons（内訳/材料）を sector_rows[].meta に保存
-    """
     POLICY_DIR.mkdir(parents=True, exist_ok=True)
 
     seed = _safe_json_load(INPUT_POLICY)
@@ -506,12 +404,16 @@ def build_policy_snapshot() -> PolicySnapshot:
     fund = _safe_json_load(LATEST_FUND)
     asof = _extract_fund_asof_date(fund)
 
-    # 材料抽出（市場）
     inputs = _build_market_inputs(fund)
     comps_full, warnings = _compute_components(inputs)
-    comps_compact = _components_compact(comps_full)
 
-    # policy_news（ニュース材料）をロード（欠損でも落とさない）
+    # hybrid側互換の compact（fx/risk/rates）もメタに載せる
+    comps_compact = {
+        "fx": float(comps_full.get("fx", 0.0) or 0.0),
+        "risk": float(comps_full.get("risk", 0.0) or 0.0),
+        "rates": float((comps_full.get("us_rates", 0.0) or 0.0) + (comps_full.get("jp_rates", 0.0) or 0.0)),
+    }
+
     news_snap = load_policy_news_snapshot()
     news_asof = getattr(news_snap, "asof", None)
     news_items = getattr(news_snap, "items", None) or []
@@ -519,7 +421,6 @@ def build_policy_snapshot() -> PolicySnapshot:
     news_factors_sum = getattr(news_snap, "factors_sum", None) or {}
     news_sector_sum_raw = getattr(news_snap, "sector_sum", None) or {}
 
-    # セクターキー照合（不可視対策）
     weights_norm = {_norm_key(k): v for k, v in SECTOR_WEIGHTS_33.items()}
 
     seed_norm_map: Dict[str, Tuple[str, Dict[str, Any]]] = {}
@@ -528,7 +429,6 @@ def build_policy_snapshot() -> PolicySnapshot:
             continue
         seed_norm_map[_norm_key(k)] = (k, v)
 
-    # news の sector_sum も正規化して合わせる
     news_sector_sum: Dict[str, float] = {}
     if isinstance(news_sector_sum_raw, dict):
         for k, v in news_sector_sum_raw.items():
@@ -537,7 +437,6 @@ def build_policy_snapshot() -> PolicySnapshot:
             if nk:
                 news_sector_sum[nk] = float(fv) if fv is not None else 0.0
 
-    # 全33業種の出力を作る
     lo_d, hi_d = COEFS["sector_delta_clamp"]
     lo_p, hi_p = COEFS["policy_score_clamp"]
 
@@ -547,9 +446,8 @@ def build_policy_snapshot() -> PolicySnapshot:
     delta_total_stats: List[float] = []
 
     for sector_display_norm, w in weights_norm.items():
-        sector_display = sector_display_norm  # 正規化後を表示名にする（変な空白を落とす）
+        sector_display = sector_display_norm
 
-        # seed（あれば）
         seed_key, seed_row = seed_norm_map.get(sector_display_norm, (None, None))
         seed_score = None
         seed_flags: List[str] = []
@@ -564,15 +462,13 @@ def build_policy_snapshot() -> PolicySnapshot:
             if isinstance(m, dict):
                 seed_why = m.get("why")
 
-        # reasons / flags / 内訳（市場）
         reason_lines_market, gen_flags_market, comp_detail_market = _sector_reason_lines(
             sector=sector_display,
             weights=w,
-            comps=comps_full,
+            comps_full=comps_full,
             inputs=inputs,
         )
 
-        # delta_market（市場の上乗せ）
         delta_market_raw = (
             comps_full["fx"] * float(w.get("fx", 0.0))
             + comps_full["risk"] * float(w.get("risk", 0.0))
@@ -583,7 +479,6 @@ def build_policy_snapshot() -> PolicySnapshot:
         delta_market_val = float(delta_market) if delta_market is not None else 0.0
         delta_market_stats.append(delta_market_val)
 
-        # delta_news（ニュースの上乗せ）
         delta_news_val, delta_news_detail = _news_sector_delta(
             sector_norm=sector_display_norm,
             weights=w,
@@ -592,14 +487,12 @@ def build_policy_snapshot() -> PolicySnapshot:
         )
         delta_news_stats.append(float(delta_news_val))
 
-        # 最終スコア（seed + delta_market + delta_news）
         base = float(seed_score) if seed_score is not None else 0.0
         delta_total_raw = base + delta_market_val + float(delta_news_val)
         final_score = _clamp(delta_total_raw, lo_p, hi_p)
         final_score_val = float(final_score) if final_score is not None else 0.0
         delta_total_stats.append(float(final_score_val - base))
 
-        # flags は seed + generated を合成（重複削除）
         flags_all: List[str] = []
         for x in seed_flags + gen_flags_market:
             if not x:
@@ -608,35 +501,32 @@ def build_policy_snapshot() -> PolicySnapshot:
                 continue
             flags_all.append(x)
 
-        # reasons は「市場→ニュース」の順で入れる（見た時に理解しやすい）
         reasons_all: List[str] = []
         for x in reason_lines_market:
             if x and x not in reasons_all:
                 reasons_all.append(x)
 
-        # news由来の reasons（policy_news.items の要約を軽く入れる）
-        # - sectorに対して効いた items を最大3つだけ足す（長くしない）
+        # news由来の reasons（itemsに sectors/factors が入ってる場合のみ拾う）
         news_lines: List[str] = []
         try:
             if isinstance(news_items, list) and news_items:
-                hit: List[Tuple[str, Optional[float], Optional[float], Optional[float]]] = []
+                hit = []
                 for it in news_items:
-                    sectors = _it_get(it, "sectors", None)
-                    if not isinstance(sectors, list):
+                    if not isinstance(it, dict):
                         continue
-
-                    # sectors 側も正規化して比較
+                    sectors = it.get("sectors")
+                    factors = it.get("factors")
+                    if not isinstance(sectors, list) or not isinstance(factors, dict):
+                        continue
                     sec_norms = [_norm_key(s) for s in sectors]
                     if sector_display_norm in sec_norms:
-                        title = _it_get(it, "title", None) or _it_get(it, "id", None) or "news_item"
-                        factors = _it_get_factors(it)
+                        title = it.get("title") or it.get("id") or "news_item"
                         fxv = factors.get("fx")
                         rv = factors.get("risk")
                         pv = factors.get("rates")
                         hit.append((str(title), _safe_float(fxv), _safe_float(pv), _safe_float(rv)))
-
                 for title, fxv, pv, rv in hit[:3]:
-                    parts: List[str] = []
+                    parts = []
                     if fxv is not None and abs(float(fxv)) > 0:
                         parts.append(f"fx:{float(fxv):+.2f}")
                     if pv is not None and abs(float(pv)) > 0:
@@ -650,10 +540,9 @@ def build_policy_snapshot() -> PolicySnapshot:
         except Exception:
             news_lines = []
 
-        if news_lines:
-            for x in news_lines:
-                if x and x not in reasons_all:
-                    reasons_all.append(x)
+        for x in news_lines:
+            if x and x not in reasons_all:
+                reasons_all.append(x)
 
         out_rows[sector_display] = {
             "sector_display": sector_display,
@@ -667,10 +556,9 @@ def build_policy_snapshot() -> PolicySnapshot:
                 "delta": float(delta_market_val + float(delta_news_val)),
                 "weights": w,
 
-                # ★互換：hybrid_adjust_service は meta["components"] に fx/risk/rates を期待
-                "components": comps_compact,
-                # 詳細は full で残す（解析用）
-                "components_full": comps_full,
+                # 互換のため両方持つ
+                "components": comps_compact,      # fx/risk/rates（hybrid側が見る想定）
+                "components_full": comps_full,    # fx/risk/us_rates/jp_rates（policy側の本体）
 
                 "component_detail": comp_detail_market,
                 "news": {
@@ -678,7 +566,6 @@ def build_policy_snapshot() -> PolicySnapshot:
                     "items_total": len(news_items) if isinstance(news_items, list) else 0,
                     "factors_sum": news_factors_sum if isinstance(news_factors_sum, dict) else {},
                     "sector_sum": {
-                        # このセクターの値だけ入れる（全部入れると重い）
                         sector_display: float(news_sector_sum.get(sector_display_norm, 0.0) or 0.0)
                     },
                     "delta_news_detail": delta_news_detail,
@@ -694,7 +581,7 @@ def build_policy_snapshot() -> PolicySnapshot:
             },
         }
 
-    # seed に “33業種以外” があったら、落とさずに末尾で引き継ぐ（将来拡張用）
+    # seed に 33業種外があっても保持
     for seed_key_raw, seed_row in seed_rows.items():
         if not isinstance(seed_row, dict):
             continue
@@ -711,7 +598,6 @@ def build_policy_snapshot() -> PolicySnapshot:
             },
         }
 
-    # meta（全体ログ）
     meta: Dict[str, Any] = dict(seed_meta)
     meta["source"] = "fundamentals+policy_news+seed"
     meta["asof_source"] = "fundamentals/latest_fundamentals.json"
@@ -737,7 +623,7 @@ def build_policy_snapshot() -> PolicySnapshot:
         "fund_notes": inputs.get("fund_notes"),
     }
 
-    # ★互換：top-level も "components" は fx/risk/rates を入れる
+    # 互換のため両方載せる
     meta["components"] = comps_compact
     meta["components_full"] = comps_full
     meta["warnings"] = warnings
@@ -761,7 +647,6 @@ def build_policy_snapshot() -> PolicySnapshot:
             "avg": float(sum(delta_total_stats) / max(1, len(delta_total_stats))),
         }
 
-    # 日付ズレがあれば残す（落とさない）
     try:
         if isinstance(news_asof, str) and len(news_asof) >= 10:
             if news_asof[:10] != asof:
@@ -787,9 +672,7 @@ def emit_policy_json(snap: PolicySnapshot) -> None:
 
     s = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
-    # latest
     LATEST_POLICY.write_text(s, encoding="utf-8")
 
-    # stamped
     stamped = POLICY_DIR / f"{_dt_now_stamp()}_policy.json"
     stamped.write_text(s, encoding="utf-8")
