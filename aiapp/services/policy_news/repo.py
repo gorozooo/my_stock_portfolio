@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -52,20 +51,32 @@ def _parse_item(d: Dict[str, Any]) -> Optional[PolicyNewsItem]:
     if not _id:
         return None
 
-    impact_in = _safe_dict(d.get("impact"))
+    # 互換対応:
+    # - 新: factors/sectors
+    # - 旧: impact/sector_delta
+    factors_in = _safe_dict(d.get("factors")) or _safe_dict(d.get("impact"))
     impact: Dict[str, float] = {}
     for k in ("fx", "rates", "risk"):
-        fv = _safe_float(impact_in.get(k))
+        fv = _safe_float(factors_in.get(k))
         if fv is not None:
             impact[k] = float(fv)
 
-    sector_in = _safe_dict(d.get("sector_delta"))
     sector_delta: Dict[str, float] = {}
-    for k, v in sector_in.items():
-        kk = _norm_text(k)
-        fv = _safe_float(v)
-        if kk and fv is not None:
-            sector_delta[kk] = float(fv)
+
+    sector_delta_in = d.get("sector_delta")
+    if isinstance(sector_delta_in, dict) and sector_delta_in:
+        for k, v in sector_delta_in.items():
+            kk = _norm_text(k)
+            fv = _safe_float(v)
+            if kk and fv is not None:
+                sector_delta[kk] = float(fv)
+    else:
+        sectors_in = d.get("sectors")
+        if isinstance(sectors_in, list):
+            for s in sectors_in:
+                ss = _norm_text(s)
+                if ss and ss not in sector_delta:
+                    sector_delta[ss] = 0.0
 
     return PolicyNewsItem(
         id=_id,
@@ -139,10 +150,34 @@ def load_policy_news_snapshot(path: Optional[Path] = None) -> PolicyNewsSnapshot
 def dump_policy_news_snapshot(snap: PolicyNewsSnapshot) -> Dict[str, Any]:
     """
     dataclass → JSON dict（emit用）。
+    JSON上は互換のため、必ず sectors/factors を持たせる。
+    旧フィールド（impact/sector_delta）も残す。
     """
+    out_items: list[Dict[str, Any]] = []
+    for it in (snap.items or []):
+        impact = it.impact if isinstance(it.impact, dict) else {}
+        sector_delta = it.sector_delta if isinstance(it.sector_delta, dict) else {}
+
+        out_items.append(
+            {
+                "id": it.id,
+                "category": it.category,
+                "title": it.title,
+                "reason": it.reason,
+                "source": it.source,
+                "url": it.url,
+                # 互換フィールド
+                "factors": impact,
+                "sectors": list(sector_delta.keys()),
+                # 旧フィールド（内部集計用に残す）
+                "impact": impact,
+                "sector_delta": sector_delta,
+            }
+        )
+
     return {
         "asof": snap.asof,
-        "items": [asdict(x) for x in (snap.items or [])],
+        "items": out_items,
         "meta": snap.meta or {},
         "factors_sum": snap.factors_sum or {},
         "sector_sum": snap.sector_sum or {},
