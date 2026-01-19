@@ -1,17 +1,21 @@
 # aiapp/services/policy_news/repo.py
 # -*- coding: utf-8 -*-
 """
-これは何のファイル？
-- policy_news の JSON を「読む」だけの層（repo）。
+policy_news の JSON を読む層（repo）。
 
 方針:
-- 読めなくても落とさない（欠損でもhybrid全体が止まらないため）
-- 読めたら schema に沿って PolicyNewsSnapshot を返す
-- factors_sum / sector_sum は repo 側で軽く集計して返す
+- 読めなくても落とさない
+- items を PolicyNewsItem に復元
+- factors_sum / sector_sum を集計して返す
+
+注意:
+- PolicyNewsItem のスキーマは今後揺れる可能性があるため、
+  __init__ が受け取れるキーだけを自動選別して渡す。
 """
 
 from __future__ import annotations
 
+import inspect
 import json
 from dataclasses import asdict
 from pathlib import Path
@@ -45,6 +49,13 @@ def _norm_text(s: Any) -> str:
     return str(s or "").strip()
 
 
+def _make_policy_news_item(**kwargs) -> PolicyNewsItem:
+    sig = inspect.signature(PolicyNewsItem)
+    allowed = set(sig.parameters.keys())
+    filtered = {k: v for k, v in kwargs.items() if k in allowed}
+    return PolicyNewsItem(**filtered)
+
+
 def _parse_item(d: Dict[str, Any]) -> Optional[PolicyNewsItem]:
     if not isinstance(d, dict):
         return None
@@ -53,7 +64,17 @@ def _parse_item(d: Dict[str, Any]) -> Optional[PolicyNewsItem]:
     if not _id:
         return None
 
-    # factors は factors / impact のどちらでも受ける（互換）
+    title = _norm_text(d.get("title")) or None
+    category = _norm_text(d.get("category")) or "misc"
+    reason = _norm_text(d.get("reason")) or None
+    src = _norm_text(d.get("source")) or None
+    url = _norm_text(d.get("url")) or None
+
+    # sectors（あれば）
+    sectors_in = _safe_list(d.get("sectors"))
+    sectors = [str(x).strip() for x in sectors_in if str(x).strip()]
+
+    # factors は factors / impact どちらでも拾う（互換）
     factors_in = _safe_dict(d.get("factors")) or _safe_dict(d.get("impact"))
     factors: Dict[str, float] = {}
     for k in ("fx", "rates", "risk"):
@@ -70,26 +91,23 @@ def _parse_item(d: Dict[str, Any]) -> Optional[PolicyNewsItem]:
         if kk and fv is not None:
             sector_delta[kk] = float(fv)
 
-    # meta（任意）
-    meta = _safe_dict(d.get("meta"))
-
-    return PolicyNewsItem(
+    return _make_policy_news_item(
         id=_id,
-        category=_norm_text(d.get("category")) or "misc",
-        title=_norm_text(d.get("title")) or None,
-        impact=factors,          # schema上は impact として保持（中身は factors）
+        category=category,
+        title=title,
+        sectors=sectors,
+        factors=factors,
         sector_delta=sector_delta,
-        reason=_norm_text(d.get("reason")) or None,
-        source=_norm_text(d.get("source")) or None,
-        url=_norm_text(d.get("url")) or None,
-        meta=meta,
+        reason=reason,
+        source=src,
+        url=url,
     )
 
 
 def load_policy_news_snapshot(path: Optional[Path] = None) -> PolicyNewsSnapshot:
     """
     latest_policy_news.json を読み、PolicyNewsSnapshot を返す。
-    読めない場合でも「空のsnapshot」を返して落とさない。
+    読めない場合でも空を返して落とさない。
     """
     p = path or LATEST_POLICY_NEWS
 
@@ -127,12 +145,30 @@ def load_policy_news_snapshot(path: Optional[Path] = None) -> PolicyNewsSnapshot
     sector_sum: Dict[str, float] = {}
 
     for it in items:
-        for k, v in (it.impact or {}).items():
-            if k in factors_sum and v is not None:
-                factors_sum[k] += float(v)
+        # factors / impact どちらのフィールド名でも対応できるように getattr で拾う
+        fx_dict = getattr(it, "factors", None)
+        if not isinstance(fx_dict, dict):
+            fx_dict = getattr(it, "impact", None)
+        if not isinstance(fx_dict, dict):
+            fx_dict = {}
 
-        for sec, dv in (it.sector_delta or {}).items():
-            sector_sum[sec] = float(sector_sum.get(sec, 0.0)) + float(dv)
+        for k, v in fx_dict.items():
+            if k in factors_sum and v is not None:
+                try:
+                    factors_sum[k] += float(v)
+                except Exception:
+                    pass
+
+        sd = getattr(it, "sector_delta", None)
+        if isinstance(sd, dict):
+            for sec, dv in sd.items():
+                try:
+                    k = _norm_text(sec)
+                    if not k:
+                        continue
+                    sector_sum[k] = float(sector_sum.get(k, 0.0)) + float(dv)
+                except Exception:
+                    pass
 
     return PolicyNewsSnapshot(
         asof=asof,
