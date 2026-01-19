@@ -7,13 +7,15 @@
 方針:
 - 読めなくても落とさない（欠損でもhybrid全体が止まらないため）
 - 読めたら schema に沿って PolicyNewsSnapshot を返す
+- factors_sum / sector_sum は repo 側で軽く集計して返す
 """
 
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from .schema import PolicyNewsItem, PolicyNewsSnapshot
 from .settings import LATEST_POLICY_NEWS
@@ -24,7 +26,7 @@ def _safe_float(x) -> Optional[float]:
         if x is None:
             return None
         v = float(x)
-        if v != v:  # NaN
+        if v != v:
             return None
         return v
     except Exception:
@@ -35,7 +37,7 @@ def _safe_dict(v) -> Dict[str, Any]:
     return v if isinstance(v, dict) else {}
 
 
-def _safe_list(v):
+def _safe_list(v) -> List[Any]:
     return v if isinstance(v, list) else []
 
 
@@ -51,42 +53,36 @@ def _parse_item(d: Dict[str, Any]) -> Optional[PolicyNewsItem]:
     if not _id:
         return None
 
-    # 互換対応:
-    # - 新: factors/sectors
-    # - 旧: impact/sector_delta
+    # factors は factors / impact のどちらでも受ける（互換）
     factors_in = _safe_dict(d.get("factors")) or _safe_dict(d.get("impact"))
-    impact: Dict[str, float] = {}
+    factors: Dict[str, float] = {}
     for k in ("fx", "rates", "risk"):
         fv = _safe_float(factors_in.get(k))
         if fv is not None:
-            impact[k] = float(fv)
+            factors[k] = float(fv)
 
+    # sector_delta
+    sector_in = _safe_dict(d.get("sector_delta"))
     sector_delta: Dict[str, float] = {}
+    for k, v in sector_in.items():
+        kk = _norm_text(k)
+        fv = _safe_float(v)
+        if kk and fv is not None:
+            sector_delta[kk] = float(fv)
 
-    sector_delta_in = d.get("sector_delta")
-    if isinstance(sector_delta_in, dict) and sector_delta_in:
-        for k, v in sector_delta_in.items():
-            kk = _norm_text(k)
-            fv = _safe_float(v)
-            if kk and fv is not None:
-                sector_delta[kk] = float(fv)
-    else:
-        sectors_in = d.get("sectors")
-        if isinstance(sectors_in, list):
-            for s in sectors_in:
-                ss = _norm_text(s)
-                if ss and ss not in sector_delta:
-                    sector_delta[ss] = 0.0
+    # meta（任意）
+    meta = _safe_dict(d.get("meta"))
 
     return PolicyNewsItem(
         id=_id,
         category=_norm_text(d.get("category")) or "misc",
         title=_norm_text(d.get("title")) or None,
-        impact=impact,
+        impact=factors,          # schema上は impact として保持（中身は factors）
         sector_delta=sector_delta,
         reason=_norm_text(d.get("reason")) or None,
         source=_norm_text(d.get("source")) or None,
         url=_norm_text(d.get("url")) or None,
+        meta=meta,
     )
 
 
@@ -120,13 +116,13 @@ def load_policy_news_snapshot(path: Optional[Path] = None) -> PolicyNewsSnapshot
     asof = _norm_text(j.get("asof")) or "1970-01-01"
     meta = _safe_dict(j.get("meta"))
 
-    items: list[PolicyNewsItem] = []
+    items: List[PolicyNewsItem] = []
     for raw in _safe_list(j.get("items")):
         it = _parse_item(raw if isinstance(raw, dict) else {})
         if it is not None:
             items.append(it)
 
-    # 集計（repoの責務として“読みやすさ”優先で軽く付ける）
+    # 集計
     factors_sum: Dict[str, float] = {"fx": 0.0, "rates": 0.0, "risk": 0.0}
     sector_sum: Dict[str, float] = {}
 
@@ -150,34 +146,10 @@ def load_policy_news_snapshot(path: Optional[Path] = None) -> PolicyNewsSnapshot
 def dump_policy_news_snapshot(snap: PolicyNewsSnapshot) -> Dict[str, Any]:
     """
     dataclass → JSON dict（emit用）。
-    JSON上は互換のため、必ず sectors/factors を持たせる。
-    旧フィールド（impact/sector_delta）も残す。
     """
-    out_items: list[Dict[str, Any]] = []
-    for it in (snap.items or []):
-        impact = it.impact if isinstance(it.impact, dict) else {}
-        sector_delta = it.sector_delta if isinstance(it.sector_delta, dict) else {}
-
-        out_items.append(
-            {
-                "id": it.id,
-                "category": it.category,
-                "title": it.title,
-                "reason": it.reason,
-                "source": it.source,
-                "url": it.url,
-                # 互換フィールド
-                "factors": impact,
-                "sectors": list(sector_delta.keys()),
-                # 旧フィールド（内部集計用に残す）
-                "impact": impact,
-                "sector_delta": sector_delta,
-            }
-        )
-
     return {
         "asof": snap.asof,
-        "items": out_items,
+        "items": [asdict(x) for x in (snap.items or [])],
         "meta": snap.meta or {},
         "factors_sum": snap.factors_sum or {},
         "sector_sum": snap.sector_sum or {},
