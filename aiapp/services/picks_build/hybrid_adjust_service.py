@@ -4,7 +4,7 @@
 B側（テクニカル×ファンダ×政策）の “合成” を行うサービス（拡張前提版）。
 
 狙い:
-- テクニカルの EV_true_rakuten を “ベース” として尊重
+- テクニカルの ev_true_rakuten を “ベース” として尊重
 - そこに「ファンダ(0..100)」「政策（セクター別に効き方を変える）」を小さめに混ぜる
 - 混ぜた結果を ev_true_rakuten_hybrid に置く（元は保持）
 - ログ（理由/寄与内訳）を item に保存し、A/B運用で検証できるようにする
@@ -12,13 +12,13 @@ B側（テクニカル×ファンダ×政策）の “合成” を行うサー�
 混ぜ方（初期: 安全に小さめ）
 - fund_bonus = (fund_score - 50) * 0.04   → だいたい -2 .. +2
 - policy_bonus は “政策の中間スコア（fx/risk/rates...）× セクター別weight” を合成して作る
+- policy の news（delta_news）がある場合は mixed_policy_score に加算して反映する（最小の形）
 - total_bonus = clamp(fund_bonus + policy_bonus, -6, +6)
 
-重要（今回の修正点）:
-- policy_snapshot の sector_rows の値(pr)が dict の場合でも動くようにする（getattr前提を撤去）
-- policy_build の components は fx/risk/us_rates/jp_rates なので、
-  rates は (us_rates + jp_rates) にフォールバックして作る
-- sector_display の文字が崩れても一致できるよう、正規化してから参照する
+注意:
+- policy_snapshot 側に components（fx/risk/rates...）が無い場合は、
+  policy_score をそのまま “policy_total” として扱い、旧ロジック互換で動く。
+- sector_display の文字が崩れても一致できるよう、正規化してから参照する。
 """
 
 from __future__ import annotations
@@ -58,8 +58,7 @@ def _safe_float(v: Any) -> Optional[float]:
 
 def _norm_text(s: Any) -> str:
     """
-    文字崩れ/不可視文字（Cf/Ccなど）を除去して比較しやすくする。
-    - 例: 輸送用機器 → 輸送用機器
+    文字崩れ/不可視文字（Cfなど）を除去して比較しやすくする。
     """
     if s is None:
         return ""
@@ -67,19 +66,6 @@ def _norm_text(s: Any) -> str:
     t = unicodedata.normalize("NFKC", t)
     t = "".join(ch for ch in t if unicodedata.category(ch) not in ("Cf", "Cc"))
     return t.strip()
-
-
-def _get(pr: Any, key: str, default=None):
-    """
-    policy row(pr) は dict で来ることがある（＝sector_rowsの値がdict）。
-    dataclass/obj で来ても動くように “両対応” にする。
-    """
-    try:
-        if isinstance(pr, dict):
-            return pr.get(key, default)
-        return getattr(pr, key, default)
-    except Exception:
-        return default
 
 
 # =========================================================
@@ -90,8 +76,8 @@ COEF: Dict[str, float] = {
     "fund_center": 50.0,
     "fund_k": 0.04,  # (fund_score-50)*0.04  => -2..+2くらい
 
-    # policy_total(mixed score) -> bonus
-    "policy_total_k": 0.20,  # -4..+4くらい
+    # policy_score（旧互換） -> bonus
+    "policy_total_k": 0.20,  # policy_score*0.20 => -4..+4くらい
 
     # clamp
     "bonus_clamp_lo": -6.0,
@@ -141,7 +127,6 @@ JPX33_SECTORS: List[str] = [
 
 
 def _default_sector_weights() -> Dict[str, float]:
-    # 初期の “無難” なデフォ
     return {
         "fx": 0.2,
         "rates": -0.4,
@@ -173,32 +158,44 @@ def _build_sector_weight_table() -> Dict[str, Dict[str, float]]:
 SECTOR_WEIGHTS: Dict[str, Dict[str, float]] = _build_sector_weight_table()
 
 
-def _pick_policy_components(pr: Any) -> Tuple[Optional[float], Optional[Dict[str, float]], List[str]]:
+def _pick_policy_components(pr: Any) -> Tuple[Optional[float], Optional[Dict[str, float]], List[str], Optional[float]]:
     """
-    policy row(pr) から “中間スコア components” を拾う（dict/obj両対応）。
+    policy row から “中間スコア components” と news の delta_news を拾う。
+
     戻り:
       - policy_score（旧互換の合計スコア）
-      - components（fx/risk/us_rates/jp_rates...）なければ None
+      - components（fx/risk/rates...）なければ None
       - reason_lines（短いログ行）
+      - delta_news（policy_build が sector meta に入れているニュース上乗せ）
     """
-    policy_score: Optional[float] = None
+    policy_score = None
     components: Optional[Dict[str, float]] = None
     reason_lines: List[str] = []
+    delta_news: Optional[float] = None
 
-    # policy_score（dictでも取れるように）
-    policy_score = _safe_float(_get(pr, "policy_score", None))
+    try:
+        policy_score = _safe_float(getattr(pr, "policy_score", None))
+    except Exception:
+        policy_score = None
 
     # flags（短文）
-    flags = _get(pr, "flags", None) or []
-    if isinstance(flags, list):
-        for x in flags[:5]:
-            if x:
-                reason_lines.append(str(x))
+    try:
+        flags = getattr(pr, "flags", None) or []
+        if isinstance(flags, list):
+            for x in flags[:5]:
+                if x:
+                    reason_lines.append(str(x))
+    except Exception:
+        pass
 
-    meta = _get(pr, "meta", None)
+    meta = None
+    try:
+        meta = getattr(pr, "meta", None)
+    except Exception:
+        meta = None
 
-    # meta.components（policy_build側: fx/risk/us_rates/jp_rates）
     if isinstance(meta, dict):
+        # components
         comp = meta.get("components")
         if isinstance(comp, dict) and comp:
             c2: Dict[str, float] = {}
@@ -210,18 +207,23 @@ def _pick_policy_components(pr: Any) -> Tuple[Optional[float], Optional[Dict[str
             if c2:
                 components = c2
 
+        # reasons
         rs = meta.get("reasons")
         if isinstance(rs, list) and rs:
             for x in rs[:5]:
                 if x:
                     reason_lines.append(str(x))
 
-    # 整形
+        # news delta
+        dn = _safe_float(meta.get("delta_news"))
+        if dn is not None:
+            delta_news = float(dn)
+
     reason_lines = [x.strip() for x in reason_lines if str(x).strip()]
     if len(reason_lines) > 6:
         reason_lines = reason_lines[:6]
 
-    return policy_score, components, reason_lines
+    return policy_score, components, reason_lines, delta_news
 
 
 def apply_hybrid_adjust(items: List[PickItem]) -> Dict[str, int]:
@@ -256,39 +258,45 @@ def apply_hybrid_adjust(items: List[PickItem]) -> Dict[str, int]:
         sec_raw = getattr(it, "sector_display", None)
         sec = _norm_text(sec_raw)
 
-        # -------------------------
         # fund
-        # -------------------------
         fund_score: Optional[float] = None
         fund_flags: Optional[List[str]] = None
         if code and code in fund_map:
             fr = fund_map[code]
-            fund_score = _safe_float(getattr(fr, "fund_score", None))
-            if fund_score is not None:
-                fund_score = float(fund_score)
+            try:
+                fund_score = _safe_float(getattr(fr, "fund_score", None))
+                if fund_score is not None:
+                    fund_score = float(fund_score)
+            except Exception:
+                fund_score = None
 
-            flags = getattr(fr, "flags", None) or []
-            if isinstance(flags, list):
-                fund_flags = list(flags)[:10]
+            try:
+                flags = getattr(fr, "flags", None) or []
+                if isinstance(flags, list):
+                    fund_flags = list(flags)[:10]
+            except Exception:
+                fund_flags = None
 
             if fund_score is not None:
                 stats["fund_hit"] += 1
 
-        # -------------------------
         # policy（sector）
-        # -------------------------
         policy_score: Optional[float] = None
         policy_flags: Optional[List[str]] = None
         policy_components: Optional[Dict[str, float]] = None
         policy_reason_lines: List[str] = []
+        policy_delta_news: Optional[float] = None
 
         pr = policy_map.get(sec) if sec else None
         if pr is not None:
-            policy_score, policy_components, policy_reason_lines = _pick_policy_components(pr)
+            policy_score, policy_components, policy_reason_lines, policy_delta_news = _pick_policy_components(pr)
 
-            fl = _get(pr, "flags", None) or []
-            if isinstance(fl, list):
-                policy_flags = list(fl)[:10]
+            try:
+                fl = getattr(pr, "flags", None) or []
+                if isinstance(fl, list):
+                    policy_flags = list(fl)[:10]
+            except Exception:
+                policy_flags = None
 
             if policy_score is not None:
                 stats["policy_hit"] += 1
@@ -300,9 +308,7 @@ def apply_hybrid_adjust(items: List[PickItem]) -> Dict[str, int]:
         elif fund_score is None and policy_score is None:
             stats["none_hit"] += 1
 
-        # -------------------------
         # sector weights
-        # -------------------------
         w = SECTOR_WEIGHTS.get(sec)
         if w is not None:
             stats["sector_weight_hit"] += 1
@@ -310,39 +316,33 @@ def apply_hybrid_adjust(items: List[PickItem]) -> Dict[str, int]:
             stats["sector_weight_miss"] += 1
             w = _default_sector_weights()
 
-        # -------------------------
         # fund_bonus
-        # -------------------------
         fund_bonus = 0.0
         fund_bonus_used = False
         if fund_score is not None:
             fund_bonus = (float(fund_score) - float(COEF["fund_center"])) * float(COEF["fund_k"])
             fund_bonus_used = True
 
-        # -------------------------
         # policy_bonus
-        # -------------------------
         policy_bonus = 0.0
         policy_bonus_used = False
         policy_detail: Dict[str, float] = {}
 
-        if policy_components is not None:
-            # policy_build側: fx/risk/us_rates/jp_rates
-            fx = float(_safe_float(policy_components.get("fx")) or 0.0)
-            risk = float(_safe_float(policy_components.get("risk")) or 0.0)
+        # news delta（policy_build の meta.delta_news）
+        dn = float(policy_delta_news) if policy_delta_news is not None else 0.0
+        policy_detail["delta_news"] = float(dn)
 
-            # rates はキーが無い可能性があるのでフォールバック:
-            # - rates があればそれ
-            # - 無ければ us_rates + jp_rates
-            rates_v = _safe_float(policy_components.get("rates"))
-            if rates_v is None:
-                us_rates = float(_safe_float(policy_components.get("us_rates")) or 0.0)
-                jp_rates = float(_safe_float(policy_components.get("jp_rates")) or 0.0)
-                rates = us_rates + jp_rates
-                policy_detail["us_rates"] = us_rates
-                policy_detail["jp_rates"] = jp_rates
-            else:
-                rates = float(rates_v)
+        if policy_components is not None:
+            # policy_components は policy_build の meta.components 由来（fx/risk/rates/us_rates/jp_rates など混在可）
+            fx = float(_safe_float(policy_components.get("fx")) or 0.0)
+
+            # ここは hybrid 側の簡易3要素に寄せる（rates は jp_rates を優先）
+            rates_src = policy_components.get("rates")
+            if rates_src is None:
+                rates_src = policy_components.get("jp_rates")
+            rates = float(_safe_float(rates_src) or 0.0)
+
+            risk = float(_safe_float(policy_components.get("risk")) or 0.0)
 
             policy_detail["fx"] = fx
             policy_detail["rates"] = rates
@@ -356,17 +356,25 @@ def apply_hybrid_adjust(items: List[PickItem]) -> Dict[str, int]:
             policy_detail["w_rates"] = wr
             policy_detail["w_risk"] = wk
 
-            mixed_policy_score = fx * wf + rates * wr + risk * wk
+            mixed_market_score = fx * wf + rates * wr + risk * wk
+            policy_detail["mixed_market_score"] = mixed_market_score
+
+            # news の delta_news を合成（まずは単純加算で検証しやすく）
+            mixed_policy_score = mixed_market_score + dn
             policy_detail["mixed_policy_score"] = mixed_policy_score
 
             policy_bonus = mixed_policy_score * float(COEF["policy_total_k"])
             policy_bonus_used = True
 
         elif policy_score is not None:
-            # 旧互換（components が無い場合）
+            # 旧互換（components 無い場合）
             policy_detail["policy_score"] = float(policy_score)
-            policy_detail["mode"] = 0.0  # marker
-            policy_bonus = float(policy_score) * float(COEF["policy_total_k"])
+
+            # news を足す（旧互換でも news は反映したい）
+            mixed_policy_score = float(policy_score) + dn
+            policy_detail["mixed_policy_score"] = mixed_policy_score
+
+            policy_bonus = mixed_policy_score * float(COEF["policy_total_k"])
             policy_bonus_used = True
 
         total_bonus = _clamp(
@@ -375,9 +383,7 @@ def apply_hybrid_adjust(items: List[PickItem]) -> Dict[str, int]:
             float(COEF["bonus_clamp_hi"]),
         )
 
-        # -------------------------
-        # write back（既存キーは壊さず、追加で保存）
-        # -------------------------
+        # write back
         it.fund_score = fund_score
         it.fund_flags = fund_flags
 
@@ -395,18 +401,25 @@ def apply_hybrid_adjust(items: List[PickItem]) -> Dict[str, int]:
         reason_lines: List[str] = []
         if fund_bonus_used:
             reason_lines.append(f"fund_bonus={fund_bonus:.3f} (fund_score={fund_score})")
+
         if policy_bonus_used:
-            if policy_components is not None:
-                mps = float(policy_detail.get("mixed_policy_score", 0.0) or 0.0)
+            dn_disp = float(policy_detail.get("delta_news", 0.0) or 0.0)
+            if abs(dn_disp) > 1e-12:
+                reason_lines.append(f"news_delta={dn_disp:+.3f}")
+
+            if "mixed_market_score" in policy_detail:
+                mkt = float(policy_detail.get("mixed_market_score") or 0.0)
+                mps = float(policy_detail.get("mixed_policy_score") or 0.0)
+                reason_lines.append(
+                    f"policy_bonus={policy_bonus:.3f} (market={mkt:.3f} + news={dn_disp:.3f} => mixed={mps:.3f} * k={COEF['policy_total_k']})"
+                )
+            else:
+                mps = float(policy_detail.get("mixed_policy_score") or 0.0)
                 reason_lines.append(
                     f"policy_bonus={policy_bonus:.3f} (mixed_policy_score={mps:.3f} * k={COEF['policy_total_k']})"
                 )
-            else:
-                reason_lines.append(
-                    f"policy_bonus={policy_bonus:.3f} (policy_score={policy_score} * k={COEF['policy_total_k']})"
-                )
 
-        # policy側の短文も少し（flags/reasons）
+        # policy側の短文も少し
         for x in policy_reason_lines[:3]:
             if x:
                 reason_lines.append(str(x))
@@ -415,11 +428,10 @@ def apply_hybrid_adjust(items: List[PickItem]) -> Dict[str, int]:
             reason_lines.append(f"sector={sec}")
 
         reason_lines = [x.strip() for x in reason_lines if str(x).strip()]
-        if len(reason_lines) > 8:
-            reason_lines = reason_lines[:8]
+        if len(reason_lines) > 10:
+            reason_lines = reason_lines[:10]
         it.hybrid_reason_lines = reason_lines if reason_lines else None
 
-        # EV
         base_ev = getattr(it, "ev_true_rakuten", None)
         if base_ev is None:
             it.ev_true_rakuten_hybrid = None
