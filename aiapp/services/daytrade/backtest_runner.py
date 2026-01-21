@@ -3,33 +3,31 @@
 ファイル: aiapp/services/daytrade/backtest_runner.py
 
 これは何？
-- 1日分のローソク（バー）を上から順に再生して、
-  “本番と同じ前提”でトレードした場合の結果を集計する「バックテストの心臓（骨格）」です。
+- デイトレ全自動売買の「バックテスト実行エンジン（心臓部）」です。
+- 1日分のローソク足（1分足など）を時系列に1本ずつ再生し、
+  本番と同じ前提（次足始値約定・スリッページ・デイリミット）で
+  トレードした結果を集計します。
 
-このファイルが担当すること（フェーズ3）
-- バー列（1分足など）を時系列に処理
-- 取引できる時間帯（time_filter）を尊重
-- 最大ポジション数（基本1）を尊重
-- デイリミット（1日の最大損失）に到達したら当日停止
-- 取引結果（確定損益のみ）を集計して返す
+このファイルが担当すること
+- 時間帯フィルタ（取引開始/終了、除外時間）
+- エントリー/イグジットの実行（戦略からの指示に従う）
+- 約定価格の決定（execution_sim を使用）
+- 確定損益の集計
+- デイリミット（1日の最大損失）判定
+- ドローダウン、連敗数の計算
+- 引け時の強制クローズ
 
-このファイルが“まだ”担当しないこと（次のステップで実装）
-- VWAP押し目の細かいエントリー条件
-- 銘柄ユニバース選定
-- ATRなどの指標計算
-- 複数日・複数銘柄の外側ループ（後で追加）
+このファイルが担当しないこと
+- 戦略ロジックそのもの（VWAP押し目など）
+  → strategies.py に分離
+- 数量・損失計算の詳細
+  → risk_math.py に分離
+- データ取得（DB/API）
+  → 別サービスで実装
 
 置き場所（重要）
 - プロジェクトルート（manage.py がある階層）から見て:
   aiapp/services/daytrade/backtest_runner.py
-
-入力データの形（フェーズ3）
-- まずは「すでに用意されたバー列（Barのリスト）」を受け取る形にする。
-  → データ取得は別サービスで後から足す（責任分離で壊れにくい）。
-
-用語
-- Bar: 1本の足（1分足など）
-- Trade: 1回の売買（エントリー〜イグジットの確定損益）
 """
 
 from __future__ import annotations
@@ -40,6 +38,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from .execution_sim import Fill, market_fill
 from .risk_math import RiskBudget, calc_r, calc_risk_budget_yen
+from .strategies import VWAPPullbackLongStrategy
 
 
 Side = Literal["long"]
@@ -49,20 +48,23 @@ class BacktestError(RuntimeError):
     """バックテスト実行中に前提が崩れた場合の例外。"""
 
 
+# =========================
+# データ構造
+# =========================
+
 @dataclass(frozen=True)
 class Bar:
     """
-    1本の足（最小限のフィールド）
+    1本の足（最小構成）
 
     dt:
-      その足の時刻（datetime）
-      ※タイムゾーンはアプリ内で統一して扱う（まずは naive でもOK）
+      足の時刻（datetime）
 
     open/high/low/close:
       価格
 
     vwap:
-      VWAP（将来、計算して付与してもOK。今は入力に含める設計）
+      VWAP（事前計算済みを渡す前提）
 
     volume:
       出来高
@@ -85,16 +87,16 @@ class Trade:
       エントリー/イグジット時刻
 
     entry_price / exit_price:
-      約定価格（スリッページ反映済み）
+      約定価格（スリッページ反映後）
 
     qty:
       株数
 
     pnl_yen:
-      損益（円）※確定のみ
+      損益（円・確定のみ）
 
     r:
-      損益をR換算したもの
+      R換算（pnl_yen / 1トレード最大損失）
     """
     entry_dt: datetime
     exit_dt: datetime
@@ -108,7 +110,7 @@ class Trade:
 @dataclass
 class DayResult:
     """
-    1日分の結果（集計用）
+    1日分のバックテスト結果（集計用）
     """
     date_str: str
     trades: List[Trade]
@@ -117,6 +119,10 @@ class DayResult:
     max_drawdown_yen: int
     max_consecutive_losses: int
 
+
+# =========================
+# 内部ユーティリティ
+# =========================
 
 def _parse_hhmm(s: str) -> time:
     hh, mm = s.split(":")
@@ -134,16 +140,20 @@ def _in_exclude_ranges(t: time, ranges: List[Tuple[time, time]]) -> bool:
     return False
 
 
+# =========================
+# 戦略インターフェース
+# =========================
+
 @dataclass(frozen=True)
 class StrategySignal:
     """
-    戦略が返す「次のアクション」。
+    戦略が返すアクション
 
     action:
-      "enter" か "exit" か "hold"
+      "enter" / "exit" / "hold"
 
     reason:
-      デバッグ用（UIの“理由”にも使える）
+      デバッグ・UI表示用の理由
     """
     action: Literal["enter", "exit", "hold"]
     reason: str = ""
@@ -151,15 +161,26 @@ class StrategySignal:
 
 class BaseStrategy:
     """
-    戦略インターフェース（フェーズ3では骨格のみ）
+    戦略の基底クラス（インターフェース）
 
-    - on_bar() が毎バー呼ばれる
-    - エントリー/イグジットの指示を返す
+    on_bar():
+      各バーごとに呼ばれ、
+      エントリー/イグジット/ホールドを返す
     """
 
-    def on_bar(self, i: int, bars: List[Bar], has_position: bool, policy: Dict[str, Any]) -> StrategySignal:
+    def on_bar(
+        self,
+        i: int,
+        bars: List[Bar],
+        has_position: bool,
+        policy: Dict[str, Any],
+    ) -> StrategySignal:
         return StrategySignal(action="hold", reason="base strategy (no-op)")
 
+
+# =========================
+# メイン：1日バックテスト
+# =========================
 
 def run_backtest_one_day(
     bars: List[Bar],
@@ -167,18 +188,21 @@ def run_backtest_one_day(
     strategy: Optional[BaseStrategy] = None,
 ) -> DayResult:
     """
-    1日分のバー列を再生してバックテストする（確定損益のみ）。
+    1日分のバー列を再生してバックテストを実行する。
 
-    注意:
-    - フェーズ3では「戦略は差し替え可能」にして、まずエンジンを固める。
-    - 具体戦略（VWAP押し目ロング）は次のステップで実装する。
+    重要な前提
+    - 次足始値約定（i+1 の open）
+    - スリッページあり
+    - 確定損益のみ集計
+    - デイリミット到達で当日停止
     """
     if not bars:
         raise BacktestError("bars is empty.")
 
-    strategy = strategy or BaseStrategy()
+    # 戦略が指定されていなければVWAP押し目ロングを使う
+    strategy = strategy or VWAPPullbackLongStrategy()
 
-    # --- policy から必要値を取得 ---
+    # --- policy から設定を取得 ---
     base_capital = int(policy["capital"]["base_capital"])
     trade_loss_pct = float(policy["risk"]["trade_loss_pct"])
     day_loss_pct = float(policy["risk"]["day_loss_pct"])
@@ -195,9 +219,13 @@ def run_backtest_one_day(
     slippage_pct = float(policy["strategy"]["slippage_pct"])
     max_trades_per_day = int(policy["limits"]["max_trades_per_day"])
 
-    budget: RiskBudget = calc_risk_budget_yen(base_capital, trade_loss_pct, day_loss_pct)
+    budget: RiskBudget = calc_risk_budget_yen(
+        base_capital,
+        trade_loss_pct,
+        day_loss_pct,
+    )
 
-    # --- 状態 ---
+    # --- 状態変数 ---
     trades: List[Trade] = []
     has_position = False
     entry_dt: Optional[datetime] = None
@@ -207,75 +235,77 @@ def run_backtest_one_day(
     day_pnl = 0
     day_limit_hit = False
 
-    # ドローダウン計算（確定損益ベース）
+    # ドローダウン（確定損益ベース）
     equity = 0
     peak = 0
     max_dd = 0
 
-    # 連敗
+    # 連敗数
     consecutive_losses = 0
     max_consecutive_losses = 0
 
-    # 日付文字列（bars[0] の日付を使う）
     date_str = bars[0].dt.date().isoformat()
 
-    # --- ループ ---
-    # 次足始値約定なので i は 0..n-2 まで使う（i+1 が必要）
+    # =========================
+    # バーを1本ずつ再生
+    # =========================
     for i in range(len(bars) - 1):
         bar = bars[i]
         next_bar = bars[i + 1]
-
         t = bar.dt.time()
 
-        # 取引時間外／除外時間帯なら戦略を呼ばない（事故防止）
+        # 取引時間外・除外時間帯はスキップ
         if not _in_time_range(t, session_start, session_end):
             continue
         if _in_exclude_ranges(t, exclude_ranges):
             continue
 
-        # デイリミットに当たったら当日停止
+        # デイリミット到達で当日終了
         if day_limit_hit:
             break
 
-        # トレード上限（事故防止）
-        if len(trades) >= max_trades_per_day and (not has_position):
+        # トレード回数制限
+        if len(trades) >= max_trades_per_day and not has_position:
             break
 
-        # 戦略からアクションを受け取る
-        sig = strategy.on_bar(i=i, bars=bars, has_position=has_position, policy=policy)
-
-        # 最大ポジション数（通常1）を守る
-        if has_position and max_positions <= 0:
-            raise BacktestError("invalid max_positions in policy.")
-        if (not has_position) and (max_positions < 1):
-            raise BacktestError("max_positions must be >= 1 for trading.")
+        # 戦略判断
+        sig = strategy.on_bar(
+            i=i,
+            bars=bars,
+            has_position=has_position,
+            policy=policy,
+        )
 
         # --- エントリー ---
-        if (not has_position) and sig.action == "enter":
-            fill: Fill = market_fill(next_bar_open=next_bar.open, side="buy", slippage_pct=slippage_pct)
+        if not has_position and sig.action == "enter":
+            fill: Fill = market_fill(
+                next_bar_open=next_bar.open,
+                side="buy",
+                slippage_pct=slippage_pct,
+            )
             has_position = True
             entry_dt = next_bar.dt
             entry_price = float(fill.price)
 
-            # フェーズ3では qty を最小限の安全設計にする：
-            # “1株あたりの損失幅”は次フェーズで戦略側が決める（ATRなど）。
-            # ここでは暫定として「1株の許容損失=entry_price*0.005（0.5%）」を仮置きして、
-            # qtyが過大にならないようにする。※次のフェーズで正式化する。
+            # フェーズ3では暫定的な数量計算
+            # （次フェーズで risk_math に完全統合）
             per_share_loss = max(entry_price * 0.005, 1.0)
             qty = int(budget.trade_loss_yen // per_share_loss)
             qty = max(qty, 1)
-
             continue
 
         # --- イグジット ---
         if has_position and sig.action == "exit":
-            fill = market_fill(next_bar_open=next_bar.open, side="sell", slippage_pct=slippage_pct)
+            fill = market_fill(
+                next_bar_open=next_bar.open,
+                side="sell",
+                slippage_pct=slippage_pct,
+            )
             exit_price = float(fill.price)
             exit_dt = next_bar.dt
 
             pnl = int((exit_price - entry_price) * qty)
             day_pnl += pnl
-
             r = calc_r(pnl_yen=pnl, trade_loss_yen=budget.trade_loss_yen)
 
             trades.append(
@@ -290,18 +320,16 @@ def run_backtest_one_day(
                 )
             )
 
-            # 連敗カウント更新
+            # 連敗・DD更新
             if pnl < 0:
                 consecutive_losses += 1
                 max_consecutive_losses = max(max_consecutive_losses, consecutive_losses)
             else:
                 consecutive_losses = 0
 
-            # ドローダウン更新（確定損益ベース）
             equity += pnl
             peak = max(peak, equity)
-            dd = equity - peak  # 0以下
-            max_dd = min(max_dd, dd)  # 最もマイナスが大きいもの
+            max_dd = min(max_dd, equity - peak)
 
             # デイリミット判定（確定損益のみ）
             if day_pnl <= -budget.day_loss_yen:
@@ -312,19 +340,44 @@ def run_backtest_one_day(
             entry_dt = None
             entry_price = 0.0
             qty = 0
-
             continue
 
         # hold は何もしない
 
-    # もし日中最後まで持ってたら（フェーズ3では安全側に倒して強制クローズは次で実装）
-    # 次フェーズで「14:30以降は成行クローズ」などを正式に入れる。
+    # =========================
+    # 引け強制クローズ
+    # =========================
+    if has_position and entry_dt is not None:
+        last_bar = bars[-1]
+        fill = market_fill(
+            next_bar_open=last_bar.close,
+            side="sell",
+            slippage_pct=slippage_pct,
+        )
+        exit_price = float(fill.price)
+        exit_dt = last_bar.dt
+
+        pnl = int((exit_price - entry_price) * qty)
+        day_pnl += pnl
+        r = calc_r(pnl_yen=pnl, trade_loss_yen=budget.trade_loss_yen)
+
+        trades.append(
+            Trade(
+                entry_dt=entry_dt,
+                exit_dt=exit_dt,
+                entry_price=entry_price,
+                exit_price=exit_price,
+                qty=qty,
+                pnl_yen=pnl,
+                r=r,
+            )
+        )
 
     return DayResult(
         date_str=date_str,
         trades=trades,
         pnl_yen=day_pnl,
         day_limit_hit=day_limit_hit,
-        max_drawdown_yen=max_dd,  # マイナス値（例：-8000）
+        max_drawdown_yen=max_dd,
         max_consecutive_losses=max_consecutive_losses,
     )
