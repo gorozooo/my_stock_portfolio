@@ -17,13 +17,9 @@
 - ドローダウン、連敗数の計算
 - 引け時の強制クローズ
 
-このファイルが担当しないこと
-- 戦略ロジックそのもの（VWAP押し目など）
-  → strategies.py に分離
-- 数量・損失計算の詳細
-  → risk_math.py に分離
-- データ取得（DB/API）
-  → 別サービスで実装
+循環import対策（重要）
+- strategies.py と相互 import しないため、共通型（Bar/Trade/DayResult/StrategySignal/BaseStrategy）は
+  types.py に分離しました。
 
 置き場所（重要）
 - プロジェクトルート（manage.py がある階層）から見て:
@@ -33,91 +29,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, time
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from datetime import time
+from typing import Any, Dict, List, Optional, Tuple
 
 from .execution_sim import Fill, market_fill
 from .risk_math import RiskBudget, calc_r, calc_risk_budget_yen
 from .strategies import VWAPPullbackLongStrategy
-
-
-Side = Literal["long"]
+from .types import Bar, BaseStrategy, DayResult, StrategySignal, Trade
 
 
 class BacktestError(RuntimeError):
     """バックテスト実行中に前提が崩れた場合の例外。"""
-
-
-# =========================
-# データ構造
-# =========================
-
-@dataclass(frozen=True)
-class Bar:
-    """
-    1本の足（最小構成）
-
-    dt:
-      足の時刻（datetime）
-
-    open/high/low/close:
-      価格
-
-    vwap:
-      VWAP（事前計算済みを渡す前提）
-
-    volume:
-      出来高
-    """
-    dt: datetime
-    open: float
-    high: float
-    low: float
-    close: float
-    vwap: float
-    volume: float
-
-
-@dataclass
-class Trade:
-    """
-    1回のトレード結果（確定損益）
-
-    entry_dt / exit_dt:
-      エントリー/イグジット時刻
-
-    entry_price / exit_price:
-      約定価格（スリッページ反映後）
-
-    qty:
-      株数
-
-    pnl_yen:
-      損益（円・確定のみ）
-
-    r:
-      R換算（pnl_yen / 1トレード最大損失）
-    """
-    entry_dt: datetime
-    exit_dt: datetime
-    entry_price: float
-    exit_price: float
-    qty: int
-    pnl_yen: int
-    r: float
-
-
-@dataclass
-class DayResult:
-    """
-    1日分のバックテスト結果（集計用）
-    """
-    date_str: str
-    trades: List[Trade]
-    pnl_yen: int
-    day_limit_hit: bool
-    max_drawdown_yen: int
-    max_consecutive_losses: int
 
 
 # =========================
@@ -138,44 +60,6 @@ def _in_exclude_ranges(t: time, ranges: List[Tuple[time, time]]) -> bool:
         if t >= a and t <= b:
             return True
     return False
-
-
-# =========================
-# 戦略インターフェース
-# =========================
-
-@dataclass(frozen=True)
-class StrategySignal:
-    """
-    戦略が返すアクション
-
-    action:
-      "enter" / "exit" / "hold"
-
-    reason:
-      デバッグ・UI表示用の理由
-    """
-    action: Literal["enter", "exit", "hold"]
-    reason: str = ""
-
-
-class BaseStrategy:
-    """
-    戦略の基底クラス（インターフェース）
-
-    on_bar():
-      各バーごとに呼ばれ、
-      エントリー/イグジット/ホールドを返す
-    """
-
-    def on_bar(
-        self,
-        i: int,
-        bars: List[Bar],
-        has_position: bool,
-        policy: Dict[str, Any],
-    ) -> StrategySignal:
-        return StrategySignal(action="hold", reason="base strategy (no-op)")
 
 
 # =========================
@@ -228,7 +112,7 @@ def run_backtest_one_day(
     # --- 状態変数 ---
     trades: List[Trade] = []
     has_position = False
-    entry_dt: Optional[datetime] = None
+    entry_dt = None
     entry_price: float = 0.0
     qty: int = 0
 
@@ -264,12 +148,16 @@ def run_backtest_one_day(
         if day_limit_hit:
             break
 
-        # トレード回数制限
+        # トレード回数制限（ポジション無しのときだけ効かせる）
         if len(trades) >= max_trades_per_day and not has_position:
             break
 
+        # 最大ポジション数（通常1）
+        if (not has_position) and (max_positions < 1):
+            raise BacktestError("max_positions must be >= 1 for trading.")
+
         # 戦略判断
-        sig = strategy.on_bar(
+        sig: StrategySignal = strategy.on_bar(
             i=i,
             bars=bars,
             has_position=has_position,
@@ -279,7 +167,7 @@ def run_backtest_one_day(
         # --- エントリー ---
         if not has_position and sig.action == "enter":
             fill: Fill = market_fill(
-                next_bar_open=next_bar.open,
+                next_bar_open=float(next_bar.open),
                 side="buy",
                 slippage_pct=slippage_pct,
             )
@@ -288,16 +176,18 @@ def run_backtest_one_day(
             entry_price = float(fill.price)
 
             # フェーズ3では暫定的な数量計算
-            # （次フェーズで risk_math に完全統合）
-            per_share_loss = max(entry_price * 0.005, 1.0)
+            # 次フェーズで「損切り価格と数量」を risk_math に完全統合し、
+            # -3000円（0.3%）を厳密に守る形にします。
+            per_share_loss = max(entry_price * 0.005, 1.0)  # 0.5%相当（仮）
             qty = int(budget.trade_loss_yen // per_share_loss)
             qty = max(qty, 1)
+
             continue
 
         # --- イグジット ---
         if has_position and sig.action == "exit":
             fill = market_fill(
-                next_bar_open=next_bar.open,
+                next_bar_open=float(next_bar.open),
                 side="sell",
                 slippage_pct=slippage_pct,
             )
@@ -340,6 +230,7 @@ def run_backtest_one_day(
             entry_dt = None
             entry_price = 0.0
             qty = 0
+
             continue
 
         # hold は何もしない
@@ -350,7 +241,7 @@ def run_backtest_one_day(
     if has_position and entry_dt is not None:
         last_bar = bars[-1]
         fill = market_fill(
-            next_bar_open=last_bar.close,
+            next_bar_open=float(last_bar.close),
             side="sell",
             slippage_pct=slippage_pct,
         )
