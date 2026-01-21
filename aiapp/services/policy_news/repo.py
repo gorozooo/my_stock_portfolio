@@ -1,25 +1,20 @@
 # aiapp/services/policy_news/repo.py
 # -*- coding: utf-8 -*-
 """
-policy_news の JSON を読む層（repo）。
+policy_news の JSON を読む(repo層)
 
 方針:
-- 読めなくても落とさない
-- items を PolicyNewsItem に復元
-- factors_sum / sector_sum を集計して返す
-
-注意:
-- PolicyNewsItem のスキーマは今後揺れる可能性があるため、
-  __init__ が受け取れるキーだけを自動選別して渡す。
+- 読めなくても落とさない（欠損でもhybrid全体が止まらないため）
+- 読めたら schema に沿って PolicyNewsSnapshot を返す
+- factors_sum / sector_sum は repo 側で集計して付与
 """
 
 from __future__ import annotations
 
-import inspect
 import json
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional
 
 from .schema import PolicyNewsItem, PolicyNewsSnapshot
 from .settings import LATEST_POLICY_NEWS
@@ -30,7 +25,7 @@ def _safe_float(x) -> Optional[float]:
         if x is None:
             return None
         v = float(x)
-        if v != v:
+        if v != v:  # NaN
             return None
         return v
     except Exception:
@@ -41,19 +36,12 @@ def _safe_dict(v) -> Dict[str, Any]:
     return v if isinstance(v, dict) else {}
 
 
-def _safe_list(v) -> List[Any]:
+def _safe_list(v):
     return v if isinstance(v, list) else []
 
 
 def _norm_text(s: Any) -> str:
     return str(s or "").strip()
-
-
-def _make_policy_news_item(**kwargs) -> PolicyNewsItem:
-    sig = inspect.signature(PolicyNewsItem)
-    allowed = set(sig.parameters.keys())
-    filtered = {k: v for k, v in kwargs.items() if k in allowed}
-    return PolicyNewsItem(**filtered)
 
 
 def _parse_item(d: Dict[str, Any]) -> Optional[PolicyNewsItem]:
@@ -65,17 +53,16 @@ def _parse_item(d: Dict[str, Any]) -> Optional[PolicyNewsItem]:
         return None
 
     title = _norm_text(d.get("title")) or None
-    category = _norm_text(d.get("category")) or "misc"
-    reason = _norm_text(d.get("reason")) or None
-    src = _norm_text(d.get("source")) or None
-    url = _norm_text(d.get("url")) or None
+    category = _norm_text(d.get("category")) or "market"
 
-    # sectors（あれば）
-    sectors_in = _safe_list(d.get("sectors"))
-    sectors = [str(x).strip() for x in sectors_in if str(x).strip()]
+    # sectors
+    sectors_in = d.get("sectors")
+    sectors = None
+    if isinstance(sectors_in, list):
+        sectors = [_norm_text(x) for x in sectors_in if _norm_text(x)]
 
-    # factors は factors / impact どちらでも拾う（互換）
-    factors_in = _safe_dict(d.get("factors")) or _safe_dict(d.get("impact"))
+    # factors
+    factors_in = _safe_dict(d.get("factors"))
     factors: Dict[str, float] = {}
     for k in ("fx", "rates", "risk"):
         fv = _safe_float(factors_in.get(k))
@@ -83,31 +70,32 @@ def _parse_item(d: Dict[str, Any]) -> Optional[PolicyNewsItem]:
             factors[k] = float(fv)
 
     # sector_delta
-    sector_in = _safe_dict(d.get("sector_delta"))
+    sec_in = _safe_dict(d.get("sector_delta"))
     sector_delta: Dict[str, float] = {}
-    for k, v in sector_in.items():
+    for k, v in sec_in.items():
         kk = _norm_text(k)
         fv = _safe_float(v)
         if kk and fv is not None:
             sector_delta[kk] = float(fv)
 
-    return _make_policy_news_item(
+    return PolicyNewsItem(
         id=_id,
-        category=category,
         title=title,
+        category=category,
         sectors=sectors,
-        factors=factors,
-        sector_delta=sector_delta,
-        reason=reason,
-        source=src,
-        url=url,
+        factors=factors if factors else {},
+        sector_delta=sector_delta if sector_delta else {},
+        reason=_norm_text(d.get("reason")) or None,
+        source=_norm_text(d.get("source")) or None,
+        url=_norm_text(d.get("url")) or None,
+        extra=_safe_dict(d.get("extra")) if isinstance(d.get("extra"), dict) else None,
     )
 
 
 def load_policy_news_snapshot(path: Optional[Path] = None) -> PolicyNewsSnapshot:
     """
     latest_policy_news.json を読み、PolicyNewsSnapshot を返す。
-    読めない場合でも空を返して落とさない。
+    読めない場合でも「空のsnapshot」を返して落とさない。
     """
     p = path or LATEST_POLICY_NEWS
 
@@ -134,41 +122,28 @@ def load_policy_news_snapshot(path: Optional[Path] = None) -> PolicyNewsSnapshot
     asof = _norm_text(j.get("asof")) or "1970-01-01"
     meta = _safe_dict(j.get("meta"))
 
-    items: List[PolicyNewsItem] = []
+    items: list[PolicyNewsItem] = []
     for raw in _safe_list(j.get("items")):
         it = _parse_item(raw if isinstance(raw, dict) else {})
         if it is not None:
             items.append(it)
 
-    # 集計
+    # 集計（repoの責務）
     factors_sum: Dict[str, float] = {"fx": 0.0, "rates": 0.0, "risk": 0.0}
     sector_sum: Dict[str, float] = {}
 
     for it in items:
-        # factors / impact どちらのフィールド名でも対応できるように getattr で拾う
-        fx_dict = getattr(it, "factors", None)
-        if not isinstance(fx_dict, dict):
-            fx_dict = getattr(it, "impact", None)
-        if not isinstance(fx_dict, dict):
-            fx_dict = {}
-
-        for k, v in fx_dict.items():
-            if k in factors_sum and v is not None:
-                try:
+        # factors_sum
+        if isinstance(it.factors, dict):
+            for k, v in it.factors.items():
+                if k in factors_sum and v is not None:
                     factors_sum[k] += float(v)
-                except Exception:
-                    pass
 
-        sd = getattr(it, "sector_delta", None)
-        if isinstance(sd, dict):
-            for sec, dv in sd.items():
-                try:
-                    k = _norm_text(sec)
-                    if not k:
-                        continue
-                    sector_sum[k] = float(sector_sum.get(k, 0.0)) + float(dv)
-                except Exception:
-                    pass
+        # sector_sum（sector_delta があればそれを優先）
+        if isinstance(it.sector_delta, dict) and it.sector_delta:
+            for sec, dv in it.sector_delta.items():
+                if sec:
+                    sector_sum[sec] = float(sector_sum.get(sec, 0.0)) + float(dv)
 
     return PolicyNewsSnapshot(
         asof=asof,
