@@ -1,22 +1,18 @@
 # aiapp/services/policy_news/build_service.py
 # -*- coding: utf-8 -*-
 """
-policy_news（ニュース/政策/社会情勢）の生成サービス（build層）。
+policy_news（ニュース/政策/社会情勢）の“生成”サービス（build層）
 
-やること:
-- input_policy_news.json を読む（無ければ空）
-- items を schema(PolicyNewsItem) に合わせて復元
-- sector_delta が無い/全0 の場合、sectors + factors から自動生成（B案）
-- latest_policy_news.json / stamp を出力
+A案（人間更新ゼロ）:
+- input_policy_news.json は使わない（完全自動）
+- fundamentals（市場データ）からイベントを自動検出して items を生成
+- repo の集計ロジックで factors_sum / sector_sum を付与した snapshot を出力
 
-注意:
-- PolicyNewsItem のスキーマは今後揺れる可能性があるため、
-  __init__ が受け取れるキーだけを自動選別して渡す。
+イベントは「定量条件 + 固定マップ」で決める（再現性ファースト）。
 """
 
 from __future__ import annotations
 
-import inspect
 import json
 from datetime import datetime
 from pathlib import Path
@@ -26,12 +22,7 @@ from .schema import PolicyNewsItem, PolicyNewsSnapshot
 from .repo import dump_policy_news_snapshot, load_policy_news_snapshot
 from .settings import JST, POLICY_NEWS_DIR, LATEST_POLICY_NEWS, dt_now_stamp
 
-INPUT_POLICY_NEWS = POLICY_NEWS_DIR / "input_policy_news.json"
-
-# 自動 sector_delta 生成の強さ（小さめ）
-AUTO_SECTOR_K = 0.30
-# 1セクターあたり上限（暴れ防止）
-AUTO_SECTOR_CLAMP = (-1.0, 1.0)
+FUND_LATEST = Path("media/aiapp/fundamentals/latest_fundamentals.json")
 
 
 def _safe_json_load(path: Path) -> Dict[str, Any]:
@@ -55,161 +46,277 @@ def _safe_float(x) -> Optional[float]:
         return None
 
 
-def _clamp(x: float, lo: float, hi: float) -> float:
+def _get_series_item(fund: Dict[str, Any], sym: str) -> Dict[str, Any]:
+    mc = fund.get("market_context") or {}
+    series = mc.get("series") or {}
+    v = series.get(sym)
+    return v if isinstance(v, dict) else {}
+
+
+def _extract_fund_asof_date(fund: Dict[str, Any]) -> str:
+    iso = None
     try:
-        v = float(x)
+        iso = (fund.get("meta") or {}).get("asof")
     except Exception:
-        return 0.0
-    if v != v:
-        return 0.0
-    return max(lo, min(hi, v))
+        iso = None
+    if isinstance(iso, str) and len(iso) >= 10:
+        return iso[:10]
+    return datetime.now(JST).strftime("%Y-%m-%d")
 
 
 def _norm_text(s: Any) -> str:
     return str(s or "").strip()
 
 
-def _safe_list(v) -> List[Any]:
-    return v if isinstance(v, list) else []
+def _mk_item(
+    *,
+    _id: str,
+    title: str,
+    category: str,
+    sectors: List[str],
+    factors: Dict[str, float],
+    sector_delta: Dict[str, float],
+    reason: str,
+    extra: Optional[Dict[str, Any]] = None,
+) -> PolicyNewsItem:
+    return PolicyNewsItem(
+        id=_id,
+        title=title,
+        category=category,
+        sectors=[_norm_text(x) for x in sectors if _norm_text(x)],
+        factors={k: float(v) for k, v in (factors or {}).items()},
+        sector_delta={_norm_text(k): float(v) for k, v in (sector_delta or {}).items() if _norm_text(k)},
+        reason=reason,
+        source="auto_market",
+        url=None,
+        extra=extra or {},
+    )
 
 
-def _safe_dict(v) -> Dict[str, Any]:
-    return v if isinstance(v, dict) else {}
+# =========================
+# 固定マップ（再現性の核）
+# =========================
+# ここは「毎日人間が触る場所」ではない。
+# ルールとしてコード管理し、将来はログ学習で調整する。
+EVENT_LIBRARY: Dict[str, Dict[str, Any]] = {
+    # 円安（輸出寄り）
+    "yen_weak": {
+        "title": "円安方向",
+        "category": "fx",
+        "sectors": ["輸送用機器", "電気機器", "機械", "精密機器", "化学"],
+        "factors": {"fx": +0.8, "rates": 0.0, "risk": 0.0},
+        "sector_delta_each": +0.12,
+    },
+    # 円高（逆風）
+    "yen_strong": {
+        "title": "円高方向",
+        "category": "fx",
+        "sectors": ["輸送用機器", "電気機器", "機械", "精密機器", "化学"],
+        "factors": {"fx": -0.8, "rates": 0.0, "risk": 0.0},
+        "sector_delta_each": -0.12,
+    },
+    # リスクオフ（ディフェンシブ）
+    "risk_off": {
+        "title": "リスクオフ寄り",
+        "category": "risk",
+        "sectors": ["医薬品", "食料品", "電気・ガス業"],
+        "factors": {"fx": 0.0, "rates": 0.0, "risk": +0.7},
+        "sector_delta_each": +0.21,
+    },
+    # リスクオン（景気敏感）
+    "risk_on": {
+        "title": "リスクオン寄り",
+        "category": "risk",
+        "sectors": ["鉄鋼", "非鉄金属", "海運業", "機械", "電気機器", "輸送用機器"],
+        "factors": {"fx": 0.0, "rates": 0.0, "risk": -0.7},
+        "sector_delta_each": +0.12,
+    },
+    # 金利上昇（株式のグロース逆風っぽい扱い）
+    "rates_up": {
+        "title": "金利上昇寄り",
+        "category": "rates",
+        "sectors": ["銀行業", "保険業", "不動産業", "情報・通信業"],
+        "factors": {"fx": 0.0, "rates": +0.6, "risk": 0.0},
+        "sector_delta_each": +0.10,
+    },
+    # 金利低下
+    "rates_down": {
+        "title": "金利低下寄り",
+        "category": "rates",
+        "sectors": ["不動産業", "情報・通信業", "サービス業"],
+        "factors": {"fx": 0.0, "rates": -0.6, "risk": 0.0},
+        "sector_delta_each": +0.10,
+    },
+}
 
 
-def _sector_delta_all_zero(d: Dict[str, Any]) -> bool:
-    if not isinstance(d, dict) or not d:
-        return True
-    for _, v in d.items():
-        fv = _safe_float(v)
-        if fv is None:
-            continue
-        if abs(float(fv)) > 0.0:
-            return False
-    return True
+# =========================
+# 検出ルール（定量）
+# =========================
+# ここも毎日いじらない。ルールとして固定。
+THRESHOLDS = {
+    "usd_jpy_pct": 0.35,   # 1日で±0.35%超
+    "dxy_pct": 0.30,       # 1日で±0.30%超（簡易リスク指標として）
+    "tnx_pct": 0.60,       # ^TNX change_pct（供給元によりスケール差が出やすいのでやや広め）
+    "jgb10y_level_hi": 1.50,
+    "jgb10y_level_lo": 0.70,
+}
 
 
-def _auto_build_sector_delta(*, sectors: List[str], factors: Dict[str, Any]) -> Dict[str, float]:
+def build_policy_news_snapshot(*, asof: Optional[str] = None, source: str = "auto_market") -> PolicyNewsSnapshot:
     """
-    sectors + factors から sector_delta を自動生成（均等割り）。
-    strength = fx + rates + risk
-    per = strength * AUTO_SECTOR_K / n
-    """
-    secs = [s for s in (str(x).strip() for x in (sectors or [])) if s]
-    if not secs:
-        return {}
+    policy_news snapshot を「完全自動」で生成する。
 
-    fx = _safe_float(factors.get("fx")) or 0.0
-    rates = _safe_float(factors.get("rates")) or 0.0
-    risk = _safe_float(factors.get("risk")) or 0.0
+    入力:
+    - media/aiapp/fundamentals/latest_fundamentals.json
 
-    strength = float(fx) + float(rates) + float(risk)
-    n = max(1, len(secs))
-    per = (strength * float(AUTO_SECTOR_K)) / float(n)
-
-    lo, hi = AUTO_SECTOR_CLAMP
-    per2 = _clamp(per, lo, hi)
-
-    out: Dict[str, float] = {}
-    for s in secs:
-        out[s] = float(per2)
-    return out
-
-
-def _make_policy_news_item(**kwargs) -> PolicyNewsItem:
-    """
-    PolicyNewsItem の __init__ が受け取れるキーだけを残して生成する。
-    スキーマ揺れ対策。
-    """
-    sig = inspect.signature(PolicyNewsItem)
-    allowed = set(sig.parameters.keys())
-    filtered = {k: v for k, v in kwargs.items() if k in allowed}
-    return PolicyNewsItem(**filtered)
-
-
-def build_policy_news_snapshot(*, asof: str, source: str = "manual_seed") -> PolicyNewsSnapshot:
-    """
-    input_policy_news.json から policy_news snapshot を作る。
-    - asof は policy_build と揃える
-    - sector_delta が空/全0なら、sectors+factors から自動生成（B案）
+    出力:
+    - items: 市場イベント（円安/円高、リスクオン/オフ、金利上昇/低下）
+    - repo集計により factors_sum / sector_sum が付与される
     """
     POLICY_NEWS_DIR.mkdir(parents=True, exist_ok=True)
 
-    seed = _safe_json_load(INPUT_POLICY_NEWS)
+    fund = _safe_json_load(FUND_LATEST)
+    asof2 = str(asof or _extract_fund_asof_date(fund))
 
-    items_in = seed.get("items")
+    # 市場入力
+    usd_jpy_pct = _safe_float(_get_series_item(fund, "USDJPY=X").get("change_pct"))
+    dxy_pct = _safe_float(_get_series_item(fund, "DX-Y.NYB").get("change_pct"))
+    tnx_pct = _safe_float(_get_series_item(fund, "^TNX").get("change_pct"))
+    jgb10y_last = _safe_float(_get_series_item(fund, "JGB10Y=RR").get("last"))
+
     items: List[PolicyNewsItem] = []
 
-    if isinstance(items_in, list):
-        for d in items_in:
-            if not isinstance(d, dict):
-                continue
-
-            _id = _norm_text(d.get("id"))
-            if not _id:
-                continue
-
-            title = _norm_text(d.get("title")) or None
-            category = _norm_text(d.get("category")) or "misc"
-            reason = _norm_text(d.get("reason")) or None
-            src = _norm_text(d.get("source")) or None
-            url = _norm_text(d.get("url")) or None
-
-            # sectors / factors（入力に合わせる）
-            sectors_raw = _safe_list(d.get("sectors"))
-            sectors = [str(x).strip() for x in sectors_raw if str(x).strip()]
-
-            factors_in = _safe_dict(d.get("factors"))
-            factors: Dict[str, float] = {}
-            for k in ("fx", "rates", "risk"):
-                fv = _safe_float(factors_in.get(k))
-                if fv is not None:
-                    factors[k] = float(fv)
-
-            # sector_delta（任意）
-            sector_delta_in = _safe_dict(d.get("sector_delta"))
-            sector_delta: Dict[str, float] = {}
-            for k, v in sector_delta_in.items():
-                kk = _norm_text(k)
-                fv = _safe_float(v)
-                if kk and fv is not None:
-                    sector_delta[kk] = float(fv)
-
-            # B案：sector_delta が空/全0なら自動生成
-            if _sector_delta_all_zero(sector_delta):
-                auto = _auto_build_sector_delta(sectors=sectors, factors=factors)
-                if auto:
-                    sector_delta = auto
-
-            it = _make_policy_news_item(
-                id=_id,
-                category=category,
-                title=title,
-                sectors=sectors,
-                factors=factors,
-                sector_delta=sector_delta,
-                reason=reason,
-                source=src,
-                url=url,
+    # 1) FX（円安/円高）
+    if usd_jpy_pct is not None:
+        if usd_jpy_pct >= THRESHOLDS["usd_jpy_pct"]:
+            lib = EVENT_LIBRARY["yen_weak"]
+            sd = {s: float(lib["sector_delta_each"]) for s in lib["sectors"]}
+            items.append(
+                _mk_item(
+                    _id="evt_yen_weak",
+                    title=f'{lib["title"]} (USDJPY {usd_jpy_pct:+.2f}%)',
+                    category=lib["category"],
+                    sectors=list(lib["sectors"]),
+                    factors=dict(lib["factors"]),
+                    sector_delta=sd,
+                    reason="USDJPY change_pct が閾値を超過",
+                    extra={"usd_jpy_pct": usd_jpy_pct},
+                )
             )
-            items.append(it)
+        elif usd_jpy_pct <= -THRESHOLDS["usd_jpy_pct"]:
+            lib = EVENT_LIBRARY["yen_strong"]
+            sd = {s: float(lib["sector_delta_each"]) for s in lib["sectors"]}
+            items.append(
+                _mk_item(
+                    _id="evt_yen_strong",
+                    title=f'{lib["title"]} (USDJPY {usd_jpy_pct:+.2f}%)',
+                    category=lib["category"],
+                    sectors=list(lib["sectors"]),
+                    factors=dict(lib["factors"]),
+                    sector_delta=sd,
+                    reason="USDJPY change_pct が閾値を超過",
+                    extra={"usd_jpy_pct": usd_jpy_pct},
+                )
+            )
 
-    meta = seed.get("meta") if isinstance(seed.get("meta"), dict) else {}
-    meta2: Dict[str, Any] = dict(meta)
-    meta2.update(
-        {
-            "engine": "policy_news_build",
-            "source": source,
-            "built_at": datetime.now(JST).isoformat(),
-            "input_path": str(INPUT_POLICY_NEWS),
-            "auto_sector_k": float(AUTO_SECTOR_K),
-            "auto_sector_clamp": list(AUTO_SECTOR_CLAMP),
-        }
-    )
+    # 2) RISK（DXYを簡易 proxy）
+    if dxy_pct is not None:
+        if dxy_pct >= THRESHOLDS["dxy_pct"]:
+            lib = EVENT_LIBRARY["risk_off"]
+            sd = {s: float(lib["sector_delta_each"]) for s in lib["sectors"]}
+            items.append(
+                _mk_item(
+                    _id="evt_risk_off",
+                    title=f'{lib["title"]} (DXY {dxy_pct:+.2f}%)',
+                    category=lib["category"],
+                    sectors=list(lib["sectors"]),
+                    factors=dict(lib["factors"]),
+                    sector_delta=sd,
+                    reason="DXY change_pct が閾値を超過（簡易リスクオフ判定）",
+                    extra={"dxy_pct": dxy_pct},
+                )
+            )
+        elif dxy_pct <= -THRESHOLDS["dxy_pct"]:
+            lib = EVENT_LIBRARY["risk_on"]
+            sd = {s: float(lib["sector_delta_each"]) for s in lib["sectors"]}
+            items.append(
+                _mk_item(
+                    _id="evt_risk_on",
+                    title=f'{lib["title"]} (DXY {dxy_pct:+.2f}%)',
+                    category=lib["category"],
+                    sectors=list(lib["sectors"]),
+                    factors=dict(lib["factors"]),
+                    sector_delta=sd,
+                    reason="DXY change_pct が閾値を超過（簡易リスクオン判定）",
+                    extra={"dxy_pct": dxy_pct},
+                )
+            )
 
-    snap = PolicyNewsSnapshot(asof=str(asof), items=items, meta=meta2)
+    # 3) RATES（^TNX / JGB10Y）
+    rates_signal = 0
+    if tnx_pct is not None:
+        if tnx_pct >= THRESHOLDS["tnx_pct"]:
+            rates_signal += 1
+        elif tnx_pct <= -THRESHOLDS["tnx_pct"]:
+            rates_signal -= 1
 
-    # dump→repo再ロードで factors_sum/sector_sum を repo と同一ロジックで付与
+    if jgb10y_last is not None:
+        if jgb10y_last >= THRESHOLDS["jgb10y_level_hi"]:
+            rates_signal += 1
+        elif jgb10y_last <= THRESHOLDS["jgb10y_level_lo"]:
+            rates_signal -= 1
+
+    if rates_signal >= 2:
+        lib = EVENT_LIBRARY["rates_up"]
+        sd = {s: float(lib["sector_delta_each"]) for s in lib["sectors"]}
+        items.append(
+            _mk_item(
+                _id="evt_rates_up",
+                title=f'{lib["title"]} (TNX={tnx_pct if tnx_pct is not None else "na"} / JGB10Y={jgb10y_last if jgb10y_last is not None else "na"})',
+                category=lib["category"],
+                sectors=list(lib["sectors"]),
+                factors=dict(lib["factors"]),
+                sector_delta=sd,
+                reason="米金利変動と国内金利水準の合算シグナルが上向き",
+                extra={"tnx_pct": tnx_pct, "jgb10y_last": jgb10y_last, "rates_signal": rates_signal},
+            )
+        )
+    elif rates_signal <= -2:
+        lib = EVENT_LIBRARY["rates_down"]
+        sd = {s: float(lib["sector_delta_each"]) for s in lib["sectors"]}
+        items.append(
+            _mk_item(
+                _id="evt_rates_down",
+                title=f'{lib["title"]} (TNX={tnx_pct if tnx_pct is not None else "na"} / JGB10Y={jgb10y_last if jgb10y_last is not None else "na"})',
+                category=lib["category"],
+                sectors=list(lib["sectors"]),
+                factors=dict(lib["factors"]),
+                sector_delta=sd,
+                reason="米金利変動と国内金利水準の合算シグナルが下向き",
+                extra={"tnx_pct": tnx_pct, "jgb10y_last": jgb10y_last, "rates_signal": rates_signal},
+            )
+        )
+
+    meta: Dict[str, Any] = {
+        "engine": "policy_news_build",
+        "schema": "policy_news_v1",
+        "source": source,
+        "built_at": datetime.now(JST).isoformat(),
+        "fund_source": str(FUND_LATEST),
+        "fund_asof": (fund.get("meta") or {}).get("asof") if isinstance(fund.get("meta"), dict) else None,
+        "inputs": {
+            "usd_jpy_pct": usd_jpy_pct,
+            "dxy_pct": dxy_pct,
+            "tnx_pct": tnx_pct,
+            "jgb10y_last": jgb10y_last,
+        },
+        "thresholds": dict(THRESHOLDS),
+    }
+
+    snap = PolicyNewsSnapshot(asof=asof2, items=items, meta=meta)
+
+    # 一度 dump→repoで再ロードして、repoの集計ロジックで factors_sum/sector_sum を確実に付ける
     tmp = dump_policy_news_snapshot(snap)
     s = json.dumps(tmp, ensure_ascii=False, separators=(",", ":"))
     _tmp_path = POLICY_NEWS_DIR / "__tmp_policy_news_build.json"
@@ -220,9 +327,9 @@ def build_policy_news_snapshot(*, asof: str, source: str = "manual_seed") -> Pol
     except Exception:
         pass
 
-    # build側 meta を優先
-    snap2.meta = meta2
-    snap2.asof = str(asof)
+    # build側のmeta/asofを優先
+    snap2.meta = meta
+    snap2.asof = asof2
     return snap2
 
 
