@@ -1,0 +1,53 @@
+meta:
+  policy_id: "daytrade_2026-01-21_v1"
+  created_at: "2026-01-21T00:00:00+09:00"
+  based_on: null
+  note: "initial baseline for full-auto daytrade"
+
+capital:
+  base_capital: 1000000
+
+risk:
+  trade_loss_pct: 0.003
+  day_loss_pct: 0.01
+  max_positions: 1
+
+time_filter:
+  session_start: "09:15"
+  session_end: "14:30"
+  exclude_ranges:
+    - ["11:30", "12:30"]
+
+universe_filter:
+  min_volume_rank_pct: 30
+  min_atr_pct: 0.8
+  max_spread_pct: 0.15
+  exclude_price_gt: 15000
+
+strategy:
+  name: "vwap_pullback_long"
+  timeframe: "1m"
+  order_type: "market"
+  slippage_pct: 0.0005
+
+entry:
+  require:
+    - price_above_vwap: true
+    - pullback_pct_range: [0.3, 0.8]
+    - near_vwap_pct: 0.2
+    - rebound_confirm: true
+    - volume_increase: false
+
+exit:
+  take_profit_r: 1.5
+  max_hold_minutes: 15
+  exit_on_vwap_break: true
+
+limits:
+  max_trades_per_day: 3
+
+judge_thresholds:
+  max_dd_pct: 0.02
+  max_consecutive_losses: 5
+  max_daylimit_days_pct: 0.10
+  min_avg_r: 0.3
