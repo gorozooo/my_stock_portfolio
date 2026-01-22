@@ -25,12 +25,6 @@ universe_filter:
   max_spread_pct: 0.15
   exclude_price_gt: 15000
 
-strategy:
-  name: "vwap_pullback_long"
-  timeframe: "1m"
-  order_type: "market"
-  slippage_pct: 0.0005
-
 entry:
   require:
     - price_above_vwap: true
@@ -52,3 +46,24 @@ judge_thresholds:
   max_consecutive_losses: 5
   max_daylimit_days_pct: 0.10
   min_avg_r: 0.3
+
+strategy:
+  name: "vwap_pullback_long"
+  signal_timeframe: "5m"   # 検証・判定は5分足
+  exec_timeframe: "1m"     # 執行は1分足
+  order_type: "market"
+  slippage_pct: 0.0005
+
+exec_guards:
+  enable: true
+  volume_filters:
+    enable: true
+    mode: "NO_FILTER"          # 出来高は「入らない条件」にのみ使う
+    min_ratio_vs_avg: 0.3      # 直近が薄すぎたら入らない
+    max_spike_ratio: 3.0       # 急増しすぎ（ニュース等）は入らない
+  price_filters:
+    require_above_vwap: true
+    fake_breakout_bars: 2      # 直近n本でブレイク確認
+  early_stop:
+    enable: true
+    max_adverse_r: 0.5         # 逆行初動で即撤退（DD削減）
