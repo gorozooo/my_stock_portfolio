@@ -15,7 +15,8 @@ risk:
 
 time_filter:
   session_start: "09:15"
-  session_end: "14:30"
+  session_end: "15:30"
+  last_entry_time: "14:45"
   exclude_ranges:
     - ["11:30", "12:30"]
 
