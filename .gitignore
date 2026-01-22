@@ -38,6 +38,6 @@ aiapp/policies/*.runtime.yml
 aiapp/policies/*.runtime.yaml
 
 # Daytrade runtime policies (do not version)
-#policies/daytrade/active.yml
-#policies/daytrade/snapshots/
+policies/daytrade/active.yml
+policies/daytrade/snapshots/
 policies/
