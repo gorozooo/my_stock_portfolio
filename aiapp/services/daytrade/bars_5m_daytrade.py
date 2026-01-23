@@ -20,7 +20,6 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from datetime import date as _date, datetime as _dt, time as _time, timedelta as _td
 from pathlib import Path
 from typing import Optional
@@ -66,6 +65,104 @@ def _ensure_jst_index(idx) -> pd.DatetimeIndex:
         return pd.DatetimeIndex(idx)
 
 
+def _normalize_yf_df(yf_df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    """
+    yfinanceの戻りが環境差で以下の揺れ方をするのを吸収する：
+    - columns が MultiIndex（例：('Open','3023.T') / ('3023.T','Open')）
+    - 何らかの理由で同名列が重複（df['Volume'] が DataFrame になる等）
+
+    ここで「Open/High/Low/Close/Volume の単層カラムDataFrame」に正規化する。
+    """
+    if yf_df is None or yf_df.empty:
+        return pd.DataFrame()
+
+    df = yf_df
+
+    # 1) MultiIndex columns を単層に落とす
+    if isinstance(df.columns, pd.MultiIndex):
+        # まず「どのレベルに Open/High... が居るか」を見て剥がす
+        cols = df.columns
+
+        # 代表的パターンA: (PriceField, Ticker)
+        # 例: ('Open','3023.T') なら level0 が PriceField
+        if {"Open", "High", "Low", "Close", "Volume"}.issubset(set(cols.get_level_values(0))):
+            # tickerはlevel1にある想定。もし symbol 列があればそれを選ぶ
+            try:
+                if symbol in set(cols.get_level_values(1)):
+                    df = df.xs(symbol, axis=1, level=1, drop_level=True)
+                else:
+                    # symbolが見つからない場合は、とりあえず先頭ティッカーを使う（安全側）
+                    first = list(dict.fromkeys(cols.get_level_values(1)))[0]
+                    df = df.xs(first, axis=1, level=1, drop_level=True)
+            except Exception:
+                # 失敗したら平坦化して後段で拾う
+                df = df.copy()
+                df.columns = [str(a) for a in df.columns]
+
+        # 代表的パターンB: (Ticker, PriceField)
+        # 例: ('3023.T','Open') なら level1 が PriceField
+        elif {"Open", "High", "Low", "Close", "Volume"}.issubset(set(cols.get_level_values(1))):
+            try:
+                if symbol in set(cols.get_level_values(0)):
+                    df = df.xs(symbol, axis=1, level=0, drop_level=True)
+                else:
+                    first = list(dict.fromkeys(cols.get_level_values(0)))[0]
+                    df = df.xs(first, axis=1, level=0, drop_level=True)
+            except Exception:
+                df = df.copy()
+                df.columns = [str(a) for a in df.columns]
+
+        else:
+            # よく分からないMultiIndexは文字列化して落とす
+            df = df.copy()
+            df.columns = [f"{a}_{b}" for a, b in df.columns.to_list()]
+
+    # 2) 必須列を揃える（余計な列があってもOK）
+    need = ["Open", "High", "Low", "Close", "Volume"]
+    # yfinanceが小文字などで来る可能性もゼロではないので補助
+    col_map = {c: c for c in df.columns}
+
+    # 単純に need が全部あるならそのまま
+    if all(n in df.columns for n in need):
+        return df[need].copy()
+
+    # 代替候補（ケース保険）
+    # 例: "Adj Close" とかが混じることがあるが、5m用途では Close を最優先
+    # ここは拡張できるようにしておく
+    def pick(name: str) -> Optional[str]:
+        if name in df.columns:
+            return name
+        # 大小文字違い
+        for c in df.columns:
+            if str(c).lower() == name.lower():
+                return c
+        return None
+
+    picked = []
+    for n in need:
+        c = pick(n)
+        if c is None:
+            return pd.DataFrame()
+        picked.append(c)
+
+    out = df[picked].copy()
+    out.columns = need
+    return out
+
+
+def _as_series(x) -> pd.Series:
+    """
+    df['col'] が DataFrame（重複列）になるケースを吸収して Series に落とす。
+    """
+    if isinstance(x, pd.DataFrame):
+        # 同名列が複数ある → 先頭を採用（安全側）
+        return x.iloc[:, 0]
+    if isinstance(x, pd.Series):
+        return x
+    # それ以外はSeries化を試みる
+    return pd.Series(x)
+
+
 def _calc_intraday_vwap(df: pd.DataFrame) -> pd.Series:
     """
     その日の累積VWAP（近似）を作る。
@@ -78,10 +175,15 @@ def _calc_intraday_vwap(df: pd.DataFrame) -> pd.Series:
     if "volume" not in df.columns:
         return pd.Series([None] * len(df), index=df.index, dtype="float64")
 
-    vol = pd.to_numeric(df["volume"], errors="coerce").fillna(0.0)
-    tp = (pd.to_numeric(df["high"], errors="coerce") +
-          pd.to_numeric(df["low"], errors="coerce") +
-          pd.to_numeric(df["close"], errors="coerce")) / 3.0
+    vol = _as_series(df["volume"])
+    high = _as_series(df["high"])
+    low = _as_series(df["low"])
+    close = _as_series(df["close"])
+
+    vol = pd.to_numeric(vol, errors="coerce").fillna(0.0)
+    tp = (pd.to_numeric(high, errors="coerce") +
+          pd.to_numeric(low, errors="coerce") +
+          pd.to_numeric(close, errors="coerce")) / 3.0
 
     pv = (tp * vol).fillna(0.0)
     cum_vol = vol.cumsum()
@@ -151,6 +253,12 @@ def load_daytrade_5m_bars(code: str, trade_date: _date, force_refresh: bool = Fa
         logger.info(f"[daytrade_bars_5m] no data from yfinance for {symbol} {trade_date}")
         return pd.DataFrame()
 
+    # yfinance戻りを正規化（MultiIndex/重複列対策）
+    yf_df = _normalize_yf_df(yf_df, symbol)
+    if yf_df is None or yf_df.empty:
+        logger.info(f"[daytrade_bars_5m] normalize failed or empty for {symbol} {trade_date}")
+        return pd.DataFrame()
+
     idx = _ensure_jst_index(yf_df.index)
 
     df = yf_df[["Open", "High", "Low", "Close", "Volume"]].copy()
@@ -167,6 +275,10 @@ def load_daytrade_5m_bars(code: str, trade_date: _date, force_refresh: bool = Fa
         df = df[(df["dt"] >= d0) & (df["dt"] < d1)]
     except Exception:
         pass
+
+    if df.empty:
+        logger.info(f"[daytrade_bars_5m] empty after date filter for {symbol} {trade_date}")
+        return pd.DataFrame()
 
     # vwap（累積近似）付与
     df["vwap"] = _calc_intraday_vwap(df)
