@@ -13,6 +13,12 @@
 - 1つでも NG が出たら「入らない」。
 - 出来高は GO 条件に使わない。NO 条件のみ。
 - 無料データ／欠損前提で安全側に倒す。
+
+今回の修正（重要・仕様は変えない）
+- early_stop（早期撤退）の単位ズレを修正。
+  これまでは「価格差（円/株）」を「planned_risk_yen（円）」で割っていたため、
+  ほぼ発動しない可能性があった。
+- qty（株数）を受け取り「含み損（円）= 価格差 × qty」で比率を計算する。
 """
 
 from __future__ import annotations
@@ -142,7 +148,7 @@ class ExecutionGuard1m:
         if time(11, 25) <= t < time(12, 35):
             return GuardResult(False, "lunch_range")
 
-        # 引け前
+        # 引け前（新規エントリー停止）
         if t >= time(14, 25):
             return GuardResult(False, "close_range")
 
@@ -219,9 +225,18 @@ class ExecutionGuard1m:
         current_price: float,
         planned_risk_yen: float,
         side: str,
+        qty: int,
     ) -> bool:
         """
         エントリー後の即撤退判定。
+
+        仕様（そのまま）
+        - max_adverse_r は「planned_risk_yen に対して何割逆行したら撤退するか」。
+
+        修正点（単位合わせ）
+        - 逆行は「価格差（円/株）」ではなく「含み損（円）」で評価する。
+          adverse_yen = 価格差 × qty
+          r = adverse_yen / planned_risk_yen
         """
         if not self.early_stop_enable:
             return False
@@ -229,11 +244,20 @@ class ExecutionGuard1m:
         if planned_risk_yen <= 0:
             return False
 
+        if qty is None or qty <= 0:
+            # 株数が無いなら円換算できないので発動させない（安全側）
+            return False
+
         if side == "long":
             adverse = entry_price - current_price
         else:
             adverse = current_price - entry_price
 
-        r = adverse / planned_risk_yen
+        # 逆行していない（含み益/同値）なら撤退しない
+        if adverse <= 0:
+            return False
 
-        return r >= self.max_adverse_r
+        adverse_yen = float(adverse) * float(qty)
+        r = adverse_yen / float(planned_risk_yen)
+
+        return r >= float(self.max_adverse_r)
