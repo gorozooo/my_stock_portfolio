@@ -18,9 +18,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from .execution_guard import ExecutionGuard1m, MinuteBar
+from .execution_guard import ExecutionGuard1m, MinuteBar, GuardResult
 
 
 # ====== シグナル結果（5分足側から来る） ======
@@ -69,10 +69,25 @@ class LiveRunner:
         self.position_side: Optional[str] = None
         self.entry_price: Optional[float] = None
         self.entry_time: Optional[datetime] = None
-        self.position_qty: int = 0  # ★ 追加：実際に建てた数量を保持
-
         self.signal: Optional[Signal] = None
+
         self.bars_1m: List[MinuteBar] = []
+
+        # --- stop幅下限（浅すぎるstopを弾く：補正しない） ---
+        risk = self.policy.get("risk", {}) or {}
+        try:
+            self.min_stop_pct = float(risk.get("min_stop_pct", 0.0) or 0.0)
+        except Exception:
+            self.min_stop_pct = 0.0
+        try:
+            self.min_stop_yen = float(risk.get("min_stop_yen", 0.0) or 0.0)
+        except Exception:
+            self.min_stop_yen = 0.0
+
+        if self.min_stop_pct < 0:
+            self.min_stop_pct = 0.0
+        if self.min_stop_yen < 0:
+            self.min_stop_yen = 0.0
 
     # ---------- 5分足シグナル受信 ----------
 
@@ -118,26 +133,44 @@ class LiveRunner:
         """
         成行エントリー。
         """
+        # --- stop幅が浅すぎる場合は見送り（補正しない） ---
         if self.signal is None:
             return
 
+        entry_px = float(bar.close)
+        stop_px = float(self.signal.stop_price)
+
+        min_stop = max(entry_px * self.min_stop_pct, self.min_stop_yen)
+        if min_stop > 0:
+            if abs(entry_px - stop_px) < min_stop:
+                print(
+                    f"[ENTRY] skip: stop_too_tight "
+                    f"entry={entry_px:.4f} stop={stop_px:.4f} "
+                    f"stop_width={abs(entry_px-stop_px):.4f} < min_stop={min_stop:.4f}"
+                )
+                # このシグナルは無効化して次を待つ（1回の候補に固執しない）
+                self.signal = None
+                self.bars_1m.clear()
+                return
+
         qty = self._calc_qty(
             planned_risk_yen=self.signal.planned_risk_yen,
-            entry_price=bar.close,
-            stop_price=self.signal.stop_price,
+            entry_price=entry_px,
+            stop_price=stop_px,
         )
 
         if qty <= 0:
             print("[ENTRY] qty=0 skip")
+            self.signal = None
+            self.bars_1m.clear()
             return
 
         self.executor.place_market_order(self.signal.side, qty)
 
         self.position_open = True
         self.position_side = self.signal.side
-        self.entry_price = bar.close
+        self.entry_price = entry_px
         self.entry_time = bar.dt
-        self.position_qty = qty  # ★ 追加：保持
 
         print(
             f"[ENTRY] side={self.position_side} "
@@ -152,24 +185,24 @@ class LiveRunner:
         """
         if not self.position_open:
             return
+
         if self.signal is None:
             return
-        if self.entry_price is None:
-            return
-        if self.position_side is None:
-            return
 
-        # 早期撤退チェック（★ qty を渡す）
-        if self.guard.should_early_exit(
-            entry_price=self.entry_price,
-            current_price=bar.close,
-            planned_risk_yen=self.signal.planned_risk_yen,
-            side=self.position_side,
-            qty=self.position_qty,
-        ):
-            print("[EXIT] early_stop")
-            self._exit_position()
-            return
+        # 早期撤退チェック
+        # NOTE: ExecutionGuard1m.should_early_exit は qty を受ける実装になっている前提
+        # ここでは「想定損失円 planned_risk_yen」を基準に、qty込みの逆行円で判定する
+        if self.entry_price is not None:
+            if self.guard.should_early_exit(
+                entry_price=self.entry_price,
+                current_price=bar.close,
+                planned_risk_yen=self.signal.planned_risk_yen,
+                side=self.position_side,
+                qty=self._current_qty_like_live_runner(),
+            ):
+                print("[EXIT] early_stop")
+                self._exit_position()
+                return
 
         # 時間切れ
         if self.entry_time is not None:
@@ -208,8 +241,6 @@ class LiveRunner:
         self.position_side = None
         self.entry_price = None
         self.entry_time = None
-        self.position_qty = 0  # ★ 追加：クリア
-
         self.signal = None
         self.bars_1m.clear()
 
@@ -230,3 +261,22 @@ class LiveRunner:
 
         qty = int(planned_risk_yen / per_share_risk)
         return max(qty, 0)
+
+    def _current_qty_like_live_runner(self) -> int:
+        """
+        早期撤退判定に渡すqty（LiveRunnerの計算方式と同型）。
+        ここでは「entry_price と stop_price から qty を再計算」する。
+        - 実運用で約定数量が取れるようになったら、それを使うのが最終形。
+        """
+        if not self.position_open:
+            return 0
+        if self.signal is None:
+            return 0
+        if self.entry_price is None:
+            return 0
+
+        return self._calc_qty(
+            planned_risk_yen=self.signal.planned_risk_yen,
+            entry_price=float(self.entry_price),
+            stop_price=float(self.signal.stop_price),
+        )
