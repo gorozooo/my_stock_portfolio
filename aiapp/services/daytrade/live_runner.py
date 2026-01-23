@@ -12,19 +12,15 @@
 - 1分足を数本集めて ExecutionGuard1m に渡す
 - OKなら発注、NGなら見送り
 - 判断ログを残す（後追い可能）
-
-今回の修正（重要・仕様は変えない）
-- early_stop（早期撤退）の単位ズレを解消するため、
-  エントリー時の qty を保持し、ExecutionGuard1m.should_early_exit に渡す。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from .execution_guard import ExecutionGuard1m, MinuteBar, GuardResult
+from .execution_guard import ExecutionGuard1m, MinuteBar
 
 
 # ====== シグナル結果（5分足側から来る） ======
@@ -73,10 +69,9 @@ class LiveRunner:
         self.position_side: Optional[str] = None
         self.entry_price: Optional[float] = None
         self.entry_time: Optional[datetime] = None
-        self.position_qty: int = 0
+        self.position_qty: int = 0  # ★ 追加：実際に建てた数量を保持
 
         self.signal: Optional[Signal] = None
-
         self.bars_1m: List[MinuteBar] = []
 
     # ---------- 5分足シグナル受信 ----------
@@ -123,6 +118,9 @@ class LiveRunner:
         """
         成行エントリー。
         """
+        if self.signal is None:
+            return
+
         qty = self._calc_qty(
             planned_risk_yen=self.signal.planned_risk_yen,
             entry_price=bar.close,
@@ -139,7 +137,7 @@ class LiveRunner:
         self.position_side = self.signal.side
         self.entry_price = bar.close
         self.entry_time = bar.dt
-        self.position_qty = qty
+        self.position_qty = qty  # ★ 追加：保持
 
         print(
             f"[ENTRY] side={self.position_side} "
@@ -154,8 +152,14 @@ class LiveRunner:
         """
         if not self.position_open:
             return
+        if self.signal is None:
+            return
+        if self.entry_price is None:
+            return
+        if self.position_side is None:
+            return
 
-        # 早期撤退チェック（単位ズレ修正：qty を渡す）
+        # 早期撤退チェック（★ qty を渡す）
         if self.guard.should_early_exit(
             entry_price=self.entry_price,
             current_price=bar.close,
@@ -204,7 +208,7 @@ class LiveRunner:
         self.position_side = None
         self.entry_price = None
         self.entry_time = None
-        self.position_qty = 0
+        self.position_qty = 0  # ★ 追加：クリア
 
         self.signal = None
         self.bars_1m.clear()
