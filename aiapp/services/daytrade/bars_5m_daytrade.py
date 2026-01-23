@@ -24,6 +24,7 @@ from datetime import date as _date, datetime as _dt, time as _time, timedelta as
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 import yfinance as yf
 from django.conf import settings
@@ -61,7 +62,6 @@ def _ensure_jst_index(idx) -> pd.DatetimeIndex:
             return idx.tz_localize("Asia/Tokyo")
         return idx.tz_convert("Asia/Tokyo")
     except Exception:
-        # 最悪 tz なしのまま（ただし dt の比較がズレるので、可能なら直す）
         return pd.DatetimeIndex(idx)
 
 
@@ -80,27 +80,21 @@ def _normalize_yf_df(yf_df: pd.DataFrame, symbol: str) -> pd.DataFrame:
 
     # 1) MultiIndex columns を単層に落とす
     if isinstance(df.columns, pd.MultiIndex):
-        # まず「どのレベルに Open/High... が居るか」を見て剥がす
         cols = df.columns
 
-        # 代表的パターンA: (PriceField, Ticker)
-        # 例: ('Open','3023.T') なら level0 が PriceField
+        # パターンA: (PriceField, Ticker) 例: ('Open','3023.T')
         if {"Open", "High", "Low", "Close", "Volume"}.issubset(set(cols.get_level_values(0))):
-            # tickerはlevel1にある想定。もし symbol 列があればそれを選ぶ
             try:
                 if symbol in set(cols.get_level_values(1)):
                     df = df.xs(symbol, axis=1, level=1, drop_level=True)
                 else:
-                    # symbolが見つからない場合は、とりあえず先頭ティッカーを使う（安全側）
                     first = list(dict.fromkeys(cols.get_level_values(1)))[0]
                     df = df.xs(first, axis=1, level=1, drop_level=True)
             except Exception:
-                # 失敗したら平坦化して後段で拾う
                 df = df.copy()
                 df.columns = [str(a) for a in df.columns]
 
-        # 代表的パターンB: (Ticker, PriceField)
-        # 例: ('3023.T','Open') なら level1 が PriceField
+        # パターンB: (Ticker, PriceField) 例: ('3023.T','Open')
         elif {"Open", "High", "Low", "Close", "Volume"}.issubset(set(cols.get_level_values(1))):
             try:
                 if symbol in set(cols.get_level_values(0)):
@@ -113,26 +107,19 @@ def _normalize_yf_df(yf_df: pd.DataFrame, symbol: str) -> pd.DataFrame:
                 df.columns = [str(a) for a in df.columns]
 
         else:
-            # よく分からないMultiIndexは文字列化して落とす
             df = df.copy()
             df.columns = [f"{a}_{b}" for a, b in df.columns.to_list()]
 
     # 2) 必須列を揃える（余計な列があってもOK）
     need = ["Open", "High", "Low", "Close", "Volume"]
-    # yfinanceが小文字などで来る可能性もゼロではないので補助
-    col_map = {c: c for c in df.columns}
 
-    # 単純に need が全部あるならそのまま
     if all(n in df.columns for n in need):
         return df[need].copy()
 
-    # 代替候補（ケース保険）
-    # 例: "Adj Close" とかが混じることがあるが、5m用途では Close を最優先
-    # ここは拡張できるようにしておく
+    # 保険：大小文字違いなど
     def pick(name: str) -> Optional[str]:
         if name in df.columns:
             return name
-        # 大小文字違い
         for c in df.columns:
             if str(c).lower() == name.lower():
                 return c
@@ -159,7 +146,6 @@ def _as_series(x) -> pd.Series:
         return x.iloc[:, 0]
     if isinstance(x, pd.Series):
         return x
-    # それ以外はSeries化を試みる
     return pd.Series(x)
 
 
@@ -168,30 +154,34 @@ def _calc_intraday_vwap(df: pd.DataFrame) -> pd.Series:
     その日の累積VWAP（近似）を作る。
     - typical price = (H+L+C)/3
     - vwap = cumsum(tp*vol) / cumsum(vol)
+
+    重要：
+    - cum_vol が 0 の行は pd.NA ではなく np.nan にする（astype(float64) を安定させる）
     """
     if df.empty:
         return pd.Series(dtype="float64")
 
     if "volume" not in df.columns:
-        return pd.Series([None] * len(df), index=df.index, dtype="float64")
+        return pd.Series([np.nan] * len(df), index=df.index, dtype="float64")
 
-    vol = _as_series(df["volume"])
-    high = _as_series(df["high"])
-    low = _as_series(df["low"])
-    close = _as_series(df["close"])
+    vol = pd.to_numeric(_as_series(df["volume"]), errors="coerce").fillna(0.0)
 
-    vol = pd.to_numeric(vol, errors="coerce").fillna(0.0)
-    tp = (pd.to_numeric(high, errors="coerce") +
-          pd.to_numeric(low, errors="coerce") +
-          pd.to_numeric(close, errors="coerce")) / 3.0
+    high = pd.to_numeric(_as_series(df["high"]), errors="coerce")
+    low = pd.to_numeric(_as_series(df["low"]), errors="coerce")
+    close = pd.to_numeric(_as_series(df["close"]), errors="coerce")
 
+    tp = (high + low + close) / 3.0
     pv = (tp * vol).fillna(0.0)
+
     cum_vol = vol.cumsum()
     cum_pv = pv.cumsum()
 
-    # ゼロ割り回避
-    vwap = cum_pv / cum_vol.replace(0.0, pd.NA)
-    return vwap.astype("float64")
+    # 0出来高（cum_vol==0）は np.nan にする（pd.NA 禁止）
+    denom = cum_vol.where(cum_vol != 0.0, np.nan)
+    vwap = cum_pv / denom
+
+    # float64へ（np.nan はOK）
+    return pd.to_numeric(vwap, errors="coerce").astype("float64")
 
 
 def load_daytrade_5m_bars(code: str, trade_date: _date, force_refresh: bool = False) -> pd.DataFrame:
