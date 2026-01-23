@@ -105,6 +105,16 @@ class Trade:
 
     r:
       R換算（pnl_yen / 1トレード最大損失）
+
+    exit_reason:
+      決済理由（運用の検証・改善のための最重要ログ）
+      例:
+        - "stop_loss"
+        - "strategy_exit(close_below_vwap)"
+        - "take_profit"
+        - "time_limit"
+        - "force_close_end_of_day"
+        - "unknown"
     """
     entry_dt: datetime
     exit_dt: datetime
@@ -113,6 +123,7 @@ class Trade:
     qty: int
     pnl_yen: int
     r: float
+    exit_reason: str = ""
 
 
 @dataclass
