@@ -4,13 +4,14 @@
 
 これは何？
 - デイトレ専用の「指定銘柄・指定日」の5分足取得＆キャッシュ。
-- 戻り値は daytrade の backtest / signal で使いやすい形（dt + vwap 付き）。
+- daytrade の backtest / signal で使いやすい形（dt + vwap 付き）で返す。
 
 仕様
 - yfinance で interval="5m" を取得
 - JSTへ統一
 - その日（trade_date）だけに絞る
-- vwap（累積近似）を生成
+- vwap（累積近似）を生成（欠損・ゼロ出来高でも落ちない）
+- index は必ず捨てる（dt列が唯一の時系列）
 - media/aiapp/daytrade/bars_5m/<code>/YYYYMMDD.parquet に保存
 
 注意
@@ -22,7 +23,6 @@ from __future__ import annotations
 import logging
 from datetime import date as _date, datetime as _dt, time as _time, timedelta as _td
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -65,130 +65,52 @@ def _ensure_jst_index(idx) -> pd.DatetimeIndex:
         return pd.DatetimeIndex(idx)
 
 
-def _normalize_yf_df(yf_df: pd.DataFrame, symbol: str) -> pd.DataFrame:
-    """
-    yfinanceの戻りが環境差で以下の揺れ方をするのを吸収する：
-    - columns が MultiIndex（例：('Open','3023.T') / ('3023.T','Open')）
-    - 何らかの理由で同名列が重複（df['Volume'] が DataFrame になる等）
-
-    ここで「Open/High/Low/Close/Volume の単層カラムDataFrame」に正規化する。
-    """
-    if yf_df is None or yf_df.empty:
-        return pd.DataFrame()
-
-    df = yf_df
-
-    # 1) MultiIndex columns を単層に落とす
-    if isinstance(df.columns, pd.MultiIndex):
-        cols = df.columns
-
-        # パターンA: (PriceField, Ticker) 例: ('Open','3023.T')
-        if {"Open", "High", "Low", "Close", "Volume"}.issubset(set(cols.get_level_values(0))):
-            try:
-                if symbol in set(cols.get_level_values(1)):
-                    df = df.xs(symbol, axis=1, level=1, drop_level=True)
-                else:
-                    first = list(dict.fromkeys(cols.get_level_values(1)))[0]
-                    df = df.xs(first, axis=1, level=1, drop_level=True)
-            except Exception:
-                df = df.copy()
-                df.columns = [str(a) for a in df.columns]
-
-        # パターンB: (Ticker, PriceField) 例: ('3023.T','Open')
-        elif {"Open", "High", "Low", "Close", "Volume"}.issubset(set(cols.get_level_values(1))):
-            try:
-                if symbol in set(cols.get_level_values(0)):
-                    df = df.xs(symbol, axis=1, level=0, drop_level=True)
-                else:
-                    first = list(dict.fromkeys(cols.get_level_values(0)))[0]
-                    df = df.xs(first, axis=1, level=0, drop_level=True)
-            except Exception:
-                df = df.copy()
-                df.columns = [str(a) for a in df.columns]
-
-        else:
-            df = df.copy()
-            df.columns = [f"{a}_{b}" for a, b in df.columns.to_list()]
-
-    # 2) 必須列を揃える（余計な列があってもOK）
-    need = ["Open", "High", "Low", "Close", "Volume"]
-
-    if all(n in df.columns for n in need):
-        return df[need].copy()
-
-    # 保険：大小文字違いなど
-    def pick(name: str) -> Optional[str]:
-        if name in df.columns:
-            return name
-        for c in df.columns:
-            if str(c).lower() == name.lower():
-                return c
-        return None
-
-    picked = []
-    for n in need:
-        c = pick(n)
-        if c is None:
-            return pd.DataFrame()
-        picked.append(c)
-
-    out = df[picked].copy()
-    out.columns = need
-    return out
-
-
-def _as_series(x) -> pd.Series:
-    """
-    df['col'] が DataFrame（重複列）になるケースを吸収して Series に落とす。
-    """
-    if isinstance(x, pd.DataFrame):
-        # 同名列が複数ある → 先頭を採用（安全側）
-        return x.iloc[:, 0]
-    if isinstance(x, pd.Series):
-        return x
-    return pd.Series(x)
-
-
 def _calc_intraday_vwap(df: pd.DataFrame) -> pd.Series:
     """
     その日の累積VWAP（近似）を作る。
     - typical price = (H+L+C)/3
     - vwap = cumsum(tp*vol) / cumsum(vol)
 
-    重要：
-    - cum_vol が 0 の行は pd.NA ではなく np.nan にする（astype(float64) を安定させる）
+    方針（安全側）
+    - volume 欠損は 0 扱い
+    - cum_vol が 0 の区間は vwap を NaN にする（NATypeにしない）
     """
-    if df.empty:
-        return pd.Series(dtype="float64")
+    if df is None or df.empty:
+        return pd.Series([], dtype="float64")
 
-    if "volume" not in df.columns:
-        return pd.Series([np.nan] * len(df), index=df.index, dtype="float64")
+    need_cols = {"high", "low", "close", "volume"}
+    if not need_cols.issubset(df.columns):
+        return pd.Series([np.nan] * len(df), dtype="float64")
 
-    vol = pd.to_numeric(_as_series(df["volume"]), errors="coerce").fillna(0.0)
+    # 必ず Series に寄せる（たまに変な型が混ざるのを潰す）
+    vol = pd.Series(df["volume"]).copy()
+    hi = pd.Series(df["high"]).copy()
+    lo = pd.Series(df["low"]).copy()
+    cl = pd.Series(df["close"]).copy()
 
-    high = pd.to_numeric(_as_series(df["high"]), errors="coerce")
-    low = pd.to_numeric(_as_series(df["low"]), errors="coerce")
-    close = pd.to_numeric(_as_series(df["close"]), errors="coerce")
+    vol = pd.to_numeric(vol, errors="coerce").fillna(0.0).astype("float64")
+    hi = pd.to_numeric(hi, errors="coerce").astype("float64")
+    lo = pd.to_numeric(lo, errors="coerce").astype("float64")
+    cl = pd.to_numeric(cl, errors="coerce").astype("float64")
 
-    tp = (high + low + close) / 3.0
+    tp = (hi + lo + cl) / 3.0
     pv = (tp * vol).fillna(0.0)
 
-    cum_vol = vol.cumsum()
-    cum_pv = pv.cumsum()
+    cum_vol = vol.cumsum().astype("float64")
+    cum_pv = pv.cumsum().astype("float64")
 
-    # 0出来高（cum_vol==0）は np.nan にする（pd.NA 禁止）
-    denom = cum_vol.where(cum_vol != 0.0, np.nan)
-    vwap = cum_pv / denom
+    # cum_vol==0 は NaN（pandas.NA にしない）
+    denom = cum_vol.where(cum_vol > 0.0, np.nan)
+    vwap = (cum_pv / denom).astype("float64")
 
-    # float64へ（np.nan はOK）
-    return pd.to_numeric(vwap, errors="coerce").astype("float64")
+    return vwap
 
 
 def load_daytrade_5m_bars(code: str, trade_date: _date, force_refresh: bool = False) -> pd.DataFrame:
     """
     指定銘柄・指定日（JST）1日分の 5分足を返す（vwap付き）。
 
-    戻り値の DataFrame カラム:
+    戻り値の DataFrame カラム（固定）:
       dt      : datetime64[ns, Asia/Tokyo]
       open    : float
       high    : float
@@ -196,6 +118,9 @@ def load_daytrade_5m_bars(code: str, trade_date: _date, force_refresh: bool = Fa
       close   : float
       volume  : float
       vwap    : float（累積近似）
+
+    重要
+    - index は必ず捨てる（dt列が唯一の時系列）
     """
     if not trade_date:
         return pd.DataFrame()
@@ -218,6 +143,9 @@ def load_daytrade_5m_bars(code: str, trade_date: _date, force_refresh: bool = Fa
             df = pd.read_parquet(path)
             need = {"dt", "open", "high", "low", "close", "volume", "vwap"}
             if need.issubset(df.columns):
+                # index癖はここで必ず殺す
+                df = df.reset_index(drop=True)
+                df = df.sort_values("dt").reset_index(drop=True)
                 return df
         except Exception as e:
             logger.warning(f"[daytrade_bars_5m] failed to read cache {path}: {e}")
@@ -243,20 +171,19 @@ def load_daytrade_5m_bars(code: str, trade_date: _date, force_refresh: bool = Fa
         logger.info(f"[daytrade_bars_5m] no data from yfinance for {symbol} {trade_date}")
         return pd.DataFrame()
 
-    # yfinance戻りを正規化（MultiIndex/重複列対策）
-    yf_df = _normalize_yf_df(yf_df, symbol)
-    if yf_df is None or yf_df.empty:
-        logger.info(f"[daytrade_bars_5m] normalize failed or empty for {symbol} {trade_date}")
-        return pd.DataFrame()
-
+    # yfinance index を JST に
     idx = _ensure_jst_index(yf_df.index)
 
-    df = yf_df[["Open", "High", "Low", "Close", "Volume"]].copy()
+    # 必要列を作る（yfinance の戻りが変な型でも耐える）
+    cols_map = {"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"}
+    keep = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c in yf_df.columns]
+    df = yf_df[keep].copy()
+
+    # dt列を先頭に
     df.insert(0, "dt", idx)
-    df.rename(
-        columns={"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"},
-        inplace=True,
-    )
+
+    # リネーム（存在するものだけ）
+    df.rename(columns={k: v for k, v in cols_map.items() if k in df.columns}, inplace=True)
 
     # その日（JST）だけに絞る（念のため）
     try:
@@ -266,12 +193,37 @@ def load_daytrade_5m_bars(code: str, trade_date: _date, force_refresh: bool = Fa
     except Exception:
         pass
 
-    if df.empty:
-        logger.info(f"[daytrade_bars_5m] empty after date filter for {symbol} {trade_date}")
-        return pd.DataFrame()
+    # 数値化（欠損は残す／volumeだけ0寄せ）
+    for c in ["open", "high", "low", "close"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    if "volume" in df.columns:
+        df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0.0)
+
+    # dt欠損やOHLC欠損は落とす（安全側）
+    if "dt" in df.columns:
+        df = df.dropna(subset=["dt"])
+    for c in ["open", "high", "low", "close"]:
+        if c in df.columns:
+            df = df.dropna(subset=[c])
+
+    # index癖は必ず捨てる（ここが今回の主眼）
+    df = df.reset_index(drop=True)
+    df = df.sort_values("dt").reset_index(drop=True)
 
     # vwap（累積近似）付与
     df["vwap"] = _calc_intraday_vwap(df)
+
+    # 返却列を固定（余計な列が混ざったら排除）
+    out_cols = ["dt", "open", "high", "low", "close", "volume", "vwap"]
+    for c in out_cols:
+        if c not in df.columns:
+            # 欠けてたら空で返す（安全側）
+            logger.info(f"[daytrade_bars_5m] missing required col={c} for {symbol} {trade_date}")
+            return pd.DataFrame()
+
+    df = df[out_cols].copy()
 
     # 書き込み（失敗しても致命的ではない）
     try:
