@@ -13,6 +13,7 @@
 - vwap（累積近似）を生成（欠損・ゼロ出来高でも落ちない）
 - index は必ず捨てる（dt列が真実）
 - yfinance が MultiIndex 列を返しても必ず 1D Series に正規化して処理する
+- yfinance の "Failed download" などの stdout/stderr を抑制（ログを汚さない）
 - media/aiapp/daytrade/bars_5m/<code>/YYYYMMDD.parquet に保存
 
 注意
@@ -24,6 +25,8 @@ from __future__ import annotations
 import logging
 from datetime import date as _date, datetime as _dt, time as _time, timedelta as _td
 from pathlib import Path
+import io
+import contextlib
 
 import numpy as np
 import pandas as pd
@@ -123,6 +126,26 @@ def _calc_intraday_vwap(df: pd.DataFrame) -> pd.Series:
     return vwap
 
 
+def _yf_download_quiet(symbol: str, start: _dt, end: _dt) -> pd.DataFrame:
+    """
+    yfinance が吐く stdout/stderr（Failed download等）を抑制して取得する。
+    - 例外は握りつぶさず呼び出し側に返す
+    """
+    buf_out = io.StringIO()
+    buf_err = io.StringIO()
+    with contextlib.redirect_stdout(buf_out), contextlib.redirect_stderr(buf_err):
+        df = yf.download(
+            symbol,
+            interval="5m",
+            start=start,
+            end=end,
+            auto_adjust=False,
+            progress=False,
+            threads=False,  # 余計なログ/挙動ブレを減らす（安全側）
+        )
+    return df
+
+
 def load_daytrade_5m_bars(code: str, trade_date: _date, force_refresh: bool = False) -> pd.DataFrame:
     """
     指定銘柄・指定日（JST）1日分の 5分足を返す（vwap付き）。
@@ -172,19 +195,13 @@ def load_daytrade_5m_bars(code: str, trade_date: _date, force_refresh: bool = Fa
     end = start + _td(days=1)
 
     try:
-        yf_df = yf.download(
-            symbol,
-            interval="5m",
-            start=start,
-            end=end,
-            auto_adjust=False,
-            progress=False,
-        )
+        yf_df = _yf_download_quiet(symbol, start=start, end=end)
     except Exception as e:
         logger.info(f"[daytrade_bars_5m] yf.download failed for {symbol} {trade_date}: {e}")
         return pd.DataFrame()
 
     if yf_df is None or yf_df.empty:
+        # 祝日/休場日/データ欠損はここに来る（静かに空で返す）
         logger.info(f"[daytrade_bars_5m] no data from yfinance for {symbol} {trade_date}")
         return pd.DataFrame()
 
@@ -217,7 +234,7 @@ def load_daytrade_5m_bars(code: str, trade_date: _date, force_refresh: bool = Fa
     except Exception:
         pass
 
-    # 数値化
+    # 数値化（MultiIndex由来の変なobject混入でも落ちないように Series で包む）
     for c in ["open", "high", "low", "close"]:
         df[c] = pd.to_numeric(pd.Series(df[c]), errors="coerce")
 
@@ -227,6 +244,11 @@ def load_daytrade_5m_bars(code: str, trade_date: _date, force_refresh: bool = Fa
     df = df.dropna(subset=["dt", "open", "high", "low", "close"])
     df = df.reset_index(drop=True)
     df = df.sort_values("dt").reset_index(drop=True)
+
+    if df.empty:
+        # 数値化/欠損除去の結果 空になったら空で返す
+        logger.info(f"[daytrade_bars_5m] empty after clean for {symbol} {trade_date}")
+        return pd.DataFrame()
 
     # vwap（累積近似）
     df["vwap"] = _calc_intraday_vwap(df)
