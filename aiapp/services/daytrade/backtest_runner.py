@@ -27,6 +27,9 @@
    - stop幅が浅すぎるシグナルは「見送り」する（補正はしない）
    - early_stop が過敏になる根本原因を、入口で潰す
 
+追加（運用品質）
+- Trade に exit_reason を保存し、「何で決済した損益か」を後から分解できるようにする。
+
 置き場所
 - aiapp/services/daytrade/backtest_runner.py
 """
@@ -248,6 +251,20 @@ def run_backtest_one_day(
                     hit_time_stop = True
 
             if hit_stop or hit_strategy_exit or hit_take_profit or hit_time_stop:
+                # exit_reason（優先順位は仕様どおり）
+                if hit_stop:
+                    exit_reason = "stop_loss"
+                elif hit_strategy_exit:
+                    # 戦略側 reason を括弧で残す（運用の検証が楽）
+                    r = (sig.reason or "").strip()
+                    exit_reason = f"strategy_exit({r})" if r else "strategy_exit"
+                elif hit_take_profit:
+                    exit_reason = "take_profit"
+                elif hit_time_stop:
+                    exit_reason = "time_limit"
+                else:
+                    exit_reason = "unknown"
+
                 fill = market_fill(
                     next_bar_open=float(next_bar.open),
                     side="sell",
@@ -269,6 +286,7 @@ def run_backtest_one_day(
                         qty=qty,
                         pnl_yen=pnl,
                         r=r,
+                        exit_reason=exit_reason,
                     )
                 )
 
@@ -318,6 +336,7 @@ def run_backtest_one_day(
                 qty=qty,
                 pnl_yen=pnl,
                 r=r,
+                exit_reason="force_close_end_of_day",
             )
         )
 
