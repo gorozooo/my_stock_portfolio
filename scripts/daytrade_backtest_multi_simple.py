@@ -7,10 +7,6 @@
 - 戦略ロジックは一切変えない（既存: VWAPPullbackLongStrategy のまま）。
 - 0トレの日が出るのは仕様。銘柄数を増やして「回る」ようにする。
 
-追加（運用で役立つやつ）
-- exit_reason 別の内訳（trades / winrate / pnl / avg_r）を出す
-- JSONで保存する（後でUI・分析に使う）
-
 実行例:
   PYTHONPATH=. DJANGO_SETTINGS_MODULE=config.settings python scripts/daytrade_backtest_multi_simple.py 20 3023 6946 9501
   PYTHONPATH=. DJANGO_SETTINGS_MODULE=config.settings python scripts/daytrade_backtest_multi_simple.py 60 3023
@@ -18,7 +14,9 @@
 出力:
 - 銘柄別サマリ
 - 全体サマリ（勝率/avgR/DD/総トレ/総PnL）
-- exit_reason 別内訳（全体）
+- exit_reason breakdown（理由別の集計）
+- exit_reasonごとの「保有時間・MFE/MAE（R換算）」の追加診断（運用品質）
+  ※特に time_limit の中身が見えるようにする
 
 保存:
 - media/aiapp/daytrade/reports/YYYYMMDD/exit_breakdown.json
@@ -29,10 +27,11 @@ from __future__ import annotations
 import json
 import sys
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple, Any, Optional
 
+import numpy as np
 import pandas as pd
 from django.conf import settings
 
@@ -40,6 +39,7 @@ from aiapp.services.daytrade.policy_loader import load_policy_yaml
 from aiapp.services.daytrade.bars_5m_daytrade import load_daytrade_5m_bars
 from aiapp.services.daytrade.bar_adapter_5m import df_to_bars_5m
 from aiapp.services.daytrade.backtest_runner import run_backtest_one_day
+from aiapp.services.daytrade.risk_math import calc_risk_budget_yen
 
 
 @dataclass
@@ -52,15 +52,6 @@ class Agg:
     wins: int = 0
     losses: int = 0
     max_dd_yen: int = 0  # 最小値（マイナス）を保持
-
-
-@dataclass
-class ReasonAgg:
-    trades: int = 0
-    pnl: int = 0
-    sum_r: float = 0.0
-    wins: int = 0
-    losses: int = 0
 
 
 def _last_n_bdays_jst(n: int, end_d: date | None = None) -> List[date]:
@@ -82,9 +73,9 @@ def _update_agg(agg: Agg, day_res) -> None:
         agg.traded_days += 1
 
     for tr in day_res.trades:
-        r = float(tr.r)
+        r = float(getattr(tr, "r", 0.0))
         agg.sum_r += r
-        if tr.pnl_yen >= 0:
+        if int(getattr(tr, "pnl_yen", 0)) >= 0:
             agg.wins += 1
         else:
             agg.losses += 1
@@ -95,29 +86,114 @@ def _update_agg(agg: Agg, day_res) -> None:
         pass
 
 
-def _update_reason_agg(by_reason: Dict[str, ReasonAgg], day_res) -> None:
-    for tr in day_res.trades:
-        reason = (getattr(tr, "exit_reason", "") or "").strip() or "unknown"
-        ra = by_reason.get(reason)
-        if ra is None:
-            ra = ReasonAgg()
-            by_reason[reason] = ra
-
-        ra.trades += 1
-        ra.pnl += int(tr.pnl_yen)
-        ra.sum_r += float(tr.r)
-        if tr.pnl_yen >= 0:
-            ra.wins += 1
-        else:
-            ra.losses += 1
-
-
 def _fmt_pct(x: float) -> str:
     return f"{x*100:.1f}%"
 
 
-def run_for_ticker(ticker: str, dates: List[date], policy: dict) -> Agg:
+def _safe_float(x, default: float = 0.0) -> float:
+    try:
+        if x is None:
+            return float(default)
+        return float(x)
+    except Exception:
+        return float(default)
+
+
+def _safe_int(x, default: int = 0) -> int:
+    try:
+        if x is None:
+            return int(default)
+        return int(x)
+    except Exception:
+        return int(default)
+
+
+def _get_exit_reason(tr) -> str:
+    r = getattr(tr, "exit_reason", None)
+    if r is None:
+        return "unknown"
+    s = str(r).strip()
+    return s if s else "unknown"
+
+
+def _slice_bars_for_trade(bars, entry_dt: datetime, exit_dt: datetime):
+    """
+    entry_dt〜exit_dt の間のバーを抽出。
+    bars は types.Bar のリスト想定（dt/high/low/closeなど持つ）
+    """
+    if not bars or entry_dt is None or exit_dt is None:
+        return []
+    out = []
+    for b in bars:
+        try:
+            if b.dt >= entry_dt and b.dt <= exit_dt:
+                out.append(b)
+        except Exception:
+            continue
+    return out
+
+
+def _trade_mfe_mae_yen_long(tr, bars_slice) -> Tuple[int, int]:
+    """
+    ロング前提で MFE/MAE を円で計算。
+    - MFE: 最大含み益（最大高値 - entry_price）* qty
+    - MAE: 最大逆行（最小安値 - entry_price）* qty  ※負値になりやすい
+    """
+    entry_price = _safe_float(getattr(tr, "entry_price", 0.0))
+    qty = _safe_int(getattr(tr, "qty", 0))
+    if qty <= 0 or entry_price <= 0:
+        return (0, 0)
+
+    # スライスが無い場合は、約定値だけで近似
+    if not bars_slice:
+        exit_price = _safe_float(getattr(tr, "exit_price", entry_price))
+        pnl = int((exit_price - entry_price) * qty)
+        return (max(pnl, 0), min(pnl, 0))
+
+    highs = []
+    lows = []
+    for b in bars_slice:
+        highs.append(_safe_float(getattr(b, "high", np.nan), np.nan))
+        lows.append(_safe_float(getattr(b, "low", np.nan), np.nan))
+
+    highs = [x for x in highs if np.isfinite(x)]
+    lows = [x for x in lows if np.isfinite(x)]
+
+    if not highs or not lows:
+        exit_price = _safe_float(getattr(tr, "exit_price", entry_price))
+        pnl = int((exit_price - entry_price) * qty)
+        return (max(pnl, 0), min(pnl, 0))
+
+    max_high = float(max(highs))
+    min_low = float(min(lows))
+
+    mfe_yen = int((max_high - entry_price) * qty)
+    mae_yen = int((min_low - entry_price) * qty)
+    return (mfe_yen, mae_yen)
+
+
+def _percentiles(xs: List[float], ps: List[int]) -> Dict[str, float]:
+    if not xs:
+        return {str(p): 0.0 for p in ps}
+    arr = np.array(xs, dtype="float64")
+    out = {}
+    for p in ps:
+        try:
+            out[str(p)] = float(np.percentile(arr, p))
+        except Exception:
+            out[str(p)] = 0.0
+    return out
+
+
+def run_for_ticker(
+    ticker: str,
+    dates: List[date],
+    policy: dict,
+    budget_trade_loss_yen: int,
+    exit_stats: Dict[str, Any],
+) -> Agg:
     agg = Agg(max_dd_yen=0)
+
     for d in dates:
         df = load_daytrade_5m_bars(ticker, d, force_refresh=False)
         if df is None or df.empty:
@@ -130,42 +206,66 @@ def run_for_ticker(ticker: str, dates: List[date], policy: dict) -> Agg:
         res = run_backtest_one_day(bars=bars, policy=policy)
         _update_agg(agg, res)
 
+        # --- exit_reason 診断用：トレードごとの詳細を蓄積 ---
+        for tr in getattr(res, "trades", []):
+            reason = _get_exit_reason(tr)
+            pnl = int(getattr(tr, "pnl_yen", 0))
+            r = float(getattr(tr, "r", 0.0))
+
+            entry_dt = getattr(tr, "entry_dt", None)
+            exit_dt = getattr(tr, "exit_dt", None)
+
+            held_min = 0.0
+            try:
+                if entry_dt is not None and exit_dt is not None:
+                    held_min = float((exit_dt - entry_dt).total_seconds() / 60.0)
+            except Exception:
+                held_min = 0.0
+
+            # MFE/MAE（ロング前提）
+            bars_slice = []
+            try:
+                if entry_dt is not None and exit_dt is not None:
+                    bars_slice = _slice_bars_for_trade(bars, entry_dt, exit_dt)
+            except Exception:
+                bars_slice = []
+
+            mfe_yen, mae_yen = _trade_mfe_mae_yen_long(tr, bars_slice)
+
+            # R換算（trade_loss_yen基準）
+            denom = max(int(budget_trade_loss_yen), 1)
+            mfe_r = float(mfe_yen) / float(denom)
+            mae_r = float(mae_yen) / float(denom)
+
+            slot = exit_stats.setdefault(
+                reason,
+                {
+                    "trades": 0,
+                    "wins": 0,
+                    "pnl": 0,
+                    "sum_r": 0.0,
+                    "held_minutes": [],
+                    "mfe_r": [],
+                    "mae_r": [],
+                },
+            )
+            slot["trades"] += 1
+            slot["pnl"] += pnl
+            slot["sum_r"] += float(r)
+            if pnl >= 0:
+                slot["wins"] += 1
+            slot["held_minutes"].append(float(held_min))
+            slot["mfe_r"].append(float(mfe_r))
+            slot["mae_r"].append(float(mae_r))
+
     return agg
 
 
-def _save_exit_breakdown_json(policy_id: str, n: int, tickers: List[str], by_reason_total: Dict[str, ReasonAgg]) -> str:
-    ymd = date.today().strftime("%Y%m%d")
-    out_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "daytrade" / "reports" / ymd
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "exit_breakdown.json"
-
-    rows = []
-    for reason, ra in sorted(by_reason_total.items(), key=lambda kv: (-kv[1].trades, kv[0])):
-        trades = int(ra.trades)
-        winrate = float(ra.wins / trades) if trades > 0 else 0.0
-        avg_r = float(ra.sum_r / trades) if trades > 0 else 0.0
-        rows.append(
-            {
-                "exit_reason": reason,
-                "trades": trades,
-                "wins": int(ra.wins),
-                "losses": int(ra.losses),
-                "winrate": winrate,
-                "pnl": int(ra.pnl),
-                "avg_r": avg_r,
-            }
-        )
-
-    payload = {
-        "date": ymd,
-        "policy_id": policy_id,
-        "days_param": int(n),
-        "tickers": tickers,
-        "exit_breakdown": rows,
-    }
-
-    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return str(out_path)
+def _report_dir_today() -> Path:
+    d = date.today().strftime("%Y%m%d")
+    p = Path(settings.MEDIA_ROOT) / "aiapp" / "daytrade" / "reports" / d
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
 
 def main():
@@ -183,36 +283,38 @@ def main():
         sys.exit(1)
 
     policy = load_policy_yaml().policy
-    policy_id = str(policy.get("meta", {}).get("policy_id") or "")
     dates = _last_n_bdays_jst(n)
 
+    # budget（trade_loss_yen基準でR換算するため）
+    capital_cfg = policy.get("capital", {})
+    risk_cfg = policy.get("risk", {})
+    base_capital = int(capital_cfg.get("base_capital", 0))
+    trade_loss_pct = float(risk_cfg.get("trade_loss_pct", 0.0))
+    day_loss_pct = float(risk_cfg.get("day_loss_pct", 0.0))
+    budget = calc_risk_budget_yen(base_capital, trade_loss_pct, day_loss_pct)
+    budget_trade_loss_yen = int(getattr(budget, "trade_loss_yen", 1))
+    budget_trade_loss_yen = max(budget_trade_loss_yen, 1)
+
     print("=== daytrade backtest multi (simple) ===")
-    print("policy_id =", policy_id)
+    print("policy_id =", policy.get("meta", {}).get("policy_id"))
     print("days (bday approx) =", n)
     print("tickers =", tickers)
     print("")
 
     total = Agg(max_dd_yen=0)
-    by_reason_total: Dict[str, ReasonAgg] = {}
+
+    # exit_reason別の詳細統計を全体で貯める
+    exit_stats: Dict[str, Any] = {}
 
     # 銘柄別
     for t in tickers:
-        agg = Agg(max_dd_yen=0)
-        by_reason_ticker: Dict[str, ReasonAgg] = {}
-
-        for d in dates:
-            df = load_daytrade_5m_bars(t, d, force_refresh=False)
-            if df is None or df.empty:
-                continue
-
-            bars = df_to_bars_5m(df)
-            if not bars:
-                continue
-
-            res = run_backtest_one_day(bars=bars, policy=policy)
-            _update_agg(agg, res)
-            _update_reason_agg(by_reason_ticker, res)
-            _update_reason_agg(by_reason_total, res)
+        agg = run_for_ticker(
+            ticker=t,
+            dates=dates,
+            policy=policy,
+            budget_trade_loss_yen=budget_trade_loss_yen,
+            exit_stats=exit_stats,
+        )
 
         trades = agg.total_trades
         avg_r = (agg.sum_r / trades) if trades > 0 else 0.0
@@ -245,21 +347,96 @@ def main():
         f"winrate={_fmt_pct(winrate)} avg_r={avg_r:.4f} max_dd_yen={total.max_dd_yen}"
     )
 
-    # exit_reason別（全体）
+    # ---- exit_reason breakdown（従来 + 強化）----
     print("")
     print("---- exit_reason breakdown (total) ----")
-    for reason, ra in sorted(by_reason_total.items(), key=lambda kv: (-kv[1].trades, kv[0])):
-        tcount = int(ra.trades)
-        w = int(ra.wins)
-        pnl = int(ra.pnl)
-        winr = (w / tcount) if tcount > 0 else 0.0
-        avgr = (float(ra.sum_r) / tcount) if tcount > 0 else 0.0
-        print(f"{reason:28s} trades={tcount:4d} winrate={_fmt_pct(winr):>6s} pnl={pnl:8d} avg_r={avgr:7.4f}")
 
-    # JSON保存
-    saved = _save_exit_breakdown_json(policy_id=policy_id, n=n, tickers=tickers, by_reason_total=by_reason_total)
-    print("")
-    print("saved exit breakdown =", saved)
+    # 表示順：見やすいように trades多い順
+    items = []
+    for reason, st in exit_stats.items():
+        tcnt = int(st.get("trades", 0))
+        if tcnt <= 0:
+            continue
+        items.append((tcnt, reason, st))
+    items.sort(reverse=True, key=lambda x: x[0])
+
+    breakdown_rows = []
+    for tcnt, reason, st in items:
+        wins = int(st.get("wins", 0))
+        pnl = int(st.get("pnl", 0))
+        sum_r = float(st.get("sum_r", 0.0))
+        winrate_r = (wins / tcnt) if tcnt > 0 else 0.0
+        avg_r_reason = (sum_r / tcnt) if tcnt > 0 else 0.0
+
+        held = list(st.get("held_minutes", [])) or []
+        mfe_r = list(st.get("mfe_r", [])) or []
+        mae_r = list(st.get("mae_r", [])) or []
+
+        avg_held = float(np.mean(held)) if held else 0.0
+        avg_mfe_r = float(np.mean(mfe_r)) if mfe_r else 0.0
+        avg_mae_r = float(np.mean(mae_r)) if mae_r else 0.0
+
+        p_held = _percentiles(held, [50, 75, 90])
+        p_mfe = _percentiles(mfe_r, [50, 75, 90])
+        p_mae = _percentiles(mae_r, [50, 75, 90])
+
+        # 旧表示（互換）：reason / trades / winrate / pnl / avg_r
+        # + 新：avg_hold / avg_mfe_r / avg_mae_r
+        print(
+            f"{reason:28s} trades={tcnt:4d} winrate={winrate_r*100:5.1f}% pnl={pnl:8d} avg_r={avg_r_reason:7.4f} "
+            f"avg_hold_min={avg_held:5.1f} avg_mfe_r={avg_mfe_r:6.3f} avg_mae_r={avg_mae_r:6.3f}"
+        )
+
+        breakdown_rows.append(
+            {
+                "exit_reason": reason,
+                "trades": tcnt,
+                "wins": wins,
+                "winrate": winrate_r,
+                "pnl": pnl,
+                "avg_r": avg_r_reason,
+                "avg_hold_min": avg_held,
+                "avg_mfe_r": avg_mfe_r,
+                "avg_mae_r": avg_mae_r,
+                "p50_hold_min": p_held.get("50", 0.0),
+                "p75_hold_min": p_held.get("75", 0.0),
+                "p90_hold_min": p_held.get("90", 0.0),
+                "p50_mfe_r": p_mfe.get("50", 0.0),
+                "p75_mfe_r": p_mfe.get("75", 0.0),
+                "p90_mfe_r": p_mfe.get("90", 0.0),
+                "p50_mae_r": p_mae.get("50", 0.0),
+                "p75_mae_r": p_mae.get("75", 0.0),
+                "p90_mae_r": p_mae.get("90", 0.0),
+            }
+        )
+
+    # 保存
+    out_dir = _report_dir_today()
+    out_path = out_dir / "exit_breakdown.json"
+    payload = {
+        "generated_at": datetime.now().isoformat(),
+        "policy_id": policy.get("meta", {}).get("policy_id"),
+        "n_bdays_approx": n,
+        "tickers": tickers,
+        "total": {
+            "used_days": total.days,
+            "traded_days": total.traded_days,
+            "trades": total.total_trades,
+            "pnl": total.total_pnl,
+            "winrate": winrate,
+            "avg_r": avg_r,
+            "max_dd_yen": total.max_dd_yen,
+            "budget_trade_loss_yen": budget_trade_loss_yen,
+        },
+        "breakdown": breakdown_rows,
+    }
+    try:
+        out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        print("")
+        print("saved exit breakdown = " + str(out_path))
+    except Exception as e:
+        print("")
+        print("failed to save exit breakdown:", e)
 
     print("=== done ===")
 
