@@ -15,17 +15,8 @@
 
 フェーズ5で入れるもの
 1) slippage_buffer_pct（数量計算の安全バッファ）
-   - active.yml の risk.slippage_buffer_pct を参照
-   - qty計算に使う「実効リスク予算」を減らし、滑っても実損が上限に収まりやすくする
-
 2) take_profit_r / max_hold_minutes
-   - active.yml の exit.take_profit_r / exit.max_hold_minutes を参照
-   - 利確（例：1.5R）と時間切れ（例：15分）をバックテストで本番同様に効かせる
-
-3) min_stop_pct / min_stop_yen（stop幅が浅すぎる事故を防ぐ）
-   - active.yml の risk.min_stop_pct / risk.min_stop_yen を参照
-   - stop幅が浅すぎるシグナルは「見送り」する（補正はしない）
-   - early_stop が過敏になる根本原因を、入口で潰す
+3) min_stop_pct / min_stop_yen
 
 追加（運用品質）
 - Trade に exit_reason を保存し、「何で決済した損益か」を後から分解できるようにする。
@@ -34,12 +25,20 @@
 - vwap_exit_grace（VWAP割れ即exitの“猶予”）
   - active.yml の exit.vwap_exit_grace を参照
   - strategy_exit（VWAP割れ等）だけを抑制する（stop/take_profit/time_limitは最優先のまま）
-  - 例：
+
+追加（B案：運用品質 / time_limit対策）
+- time_limit_profit_guard（時間切れ系の“勝ち逃げガード”）
+  - 目的：time_limit で「一度伸びたのに戻されて負け」を減らす
+  - 方針：MFE（最大含み益R）が一定以上なら、建値付近まで戻ったら撤退
+  - active.yml の exit.time_limit_profit_guard を参照（無ければデフォルトで有効・安全側）
+
+  例（任意）:
     exit:
-      vwap_exit_grace:
+      time_limit_profit_guard:
         enable: true
-        min_r_to_allow_exit: 0.3
-        grace_minutes_after_entry: 5
+        trigger_mfe_r: 0.25
+        floor_r: 0.05
+        min_hold_minutes: 0
 
 置き場所
 - aiapp/services/daytrade/backtest_runner.py
@@ -179,6 +178,24 @@ def run_backtest_one_day(
     if vwap_exit_grace_minutes < 0:
         vwap_exit_grace_minutes = 0
 
+    # --- B案：time_limit系の勝ち逃げガード（MFE到達→建値付近で撤退）---
+    tl_guard_cfg = exit_cfg.get("time_limit_profit_guard", {})
+    if not isinstance(tl_guard_cfg, dict):
+        tl_guard_cfg = {}
+
+    # デフォルトは有効（安全側の数字）
+    tl_guard_enable = _get_bool(tl_guard_cfg, "enable", True)
+    tl_guard_trigger_mfe_r = _get_float(tl_guard_cfg, "trigger_mfe_r", 0.25)  # 0.25R以上伸びたら監視ON
+    tl_guard_floor_r = _get_float(tl_guard_cfg, "floor_r", 0.05)              # 建値+0.05Rまで戻ったら撤退
+    tl_guard_min_hold_minutes = _get_int(tl_guard_cfg, "min_hold_minutes", 0)
+
+    if tl_guard_trigger_mfe_r < 0:
+        tl_guard_trigger_mfe_r = 0.0
+    if tl_guard_floor_r < 0:
+        tl_guard_floor_r = 0.0
+    if tl_guard_min_hold_minutes < 0:
+        tl_guard_min_hold_minutes = 0
+
     budget: RiskBudget = calc_risk_budget_yen(base_capital, trade_loss_pct, day_loss_pct)
 
     # qty計算にだけバッファを効かせる
@@ -188,14 +205,20 @@ def run_backtest_one_day(
     # 利確判定はR定義を壊さないため、基準は trade_loss_yen を使用
     take_profit_yen = float(budget.trade_loss_yen) * float(take_profit_r)
 
+    denom = float(budget.trade_loss_yen) if float(budget.trade_loss_yen) > 0 else 0.0
+
     # --- state ---
     trades: List[Trade] = []
     has_position = False
 
     entry_price = 0.0
     entry_dt = None
+    entry_i = -1  # ★ 追加（エントリーしたバーindex）
     qty = 0
     stop_price = 0.0
+
+    # ★ 追加：ポジション中の最大含み益R（MFE）
+    mfe_r = 0.0
 
     day_pnl = 0
     day_limit_hit = False
@@ -239,18 +262,18 @@ def run_backtest_one_day(
             )
             entry_price = float(fill.price)
             entry_dt = next_bar.dt
+            entry_i = i + 1  # ★ entry_dt に対応するバー位置
 
             # Stop価格：VWAP割れ + 0.1%マージン（安全側）
             stop_price = float(bar.vwap) * (1.0 - 0.001)
 
             # --- ★ stop幅が浅すぎる場合は見送り ---
-            # min_stop = max(entry_price * min_stop_pct, min_stop_yen)
             min_stop = max(float(entry_price) * float(min_stop_pct), float(min_stop_yen))
             if min_stop > 0:
                 if abs(float(entry_price) - float(stop_price)) < float(min_stop):
-                    # リセットして見送り
                     entry_price = 0.0
                     entry_dt = None
+                    entry_i = -1
                     stop_price = 0.0
                     qty = 0
                     continue
@@ -261,35 +284,37 @@ def run_backtest_one_day(
                 trade_loss_yen=effective_trade_loss_yen,  # ★バッファ適用
             )
             if not qty_calc or qty_calc <= 0:
-                # リスク条件を満たせないので見送り
                 entry_price = 0.0
                 entry_dt = None
+                entry_i = -1
                 stop_price = 0.0
                 qty = 0
                 continue
 
             qty = int(qty_calc)
             has_position = True
+            mfe_r = 0.0  # ★ 初期化
             continue
 
         # =========================
         # EXIT（優先順位）
         # 1) ストップ
-        # 2) 戦略exit（VWAP割れ等）
+        # 2) 戦略exit（VWAP割れ等）※A案で猶予
         # 3) 利確（take_profit_r）
-        # 4) 時間切れ（max_hold_minutes）
+        # 4) 勝ち逃げガード（B案：MFE到達→建値付近で撤退）
+        # 5) 時間切れ（max_hold_minutes）
         # =========================
         if has_position:
             unrealized_yen = (float(bar.close) - float(entry_price)) * float(qty)
+            r_now = (float(unrealized_yen) / denom) if denom > 0 else 0.0
+            if r_now > mfe_r:
+                mfe_r = r_now
 
             hit_stop = float(bar.close) <= float(stop_price)
 
             # --- 戦略exit（A案：猶予を入れるのはここだけ） ---
             hit_strategy_exit = (sig.action == "exit")
             if hit_strategy_exit and vwap_exit_grace_enable:
-                denom = float(budget.trade_loss_yen) if float(budget.trade_loss_yen) > 0 else 0.0
-                r_now = (float(unrealized_yen) / denom) if denom > 0 else 0.0
-
                 within_grace = False
                 if entry_dt is not None and vwap_exit_grace_minutes > 0:
                     held_minutes_now = (bar.dt - entry_dt).total_seconds() / 60.0
@@ -301,22 +326,34 @@ def run_backtest_one_day(
 
             hit_take_profit = unrealized_yen >= take_profit_yen
 
+            # --- B案：勝ち逃げガード ---
+            hit_time_guard = False
+            if tl_guard_enable and entry_dt is not None and denom > 0:
+                held_minutes_now = (bar.dt - entry_dt).total_seconds() / 60.0
+                if held_minutes_now >= float(tl_guard_min_hold_minutes):
+                    # MFEが一定以上なら、建値付近（floor_r）まで戻ったら撤退
+                    if float(mfe_r) >= float(tl_guard_trigger_mfe_r) and float(r_now) <= float(tl_guard_floor_r):
+                        # 直後に誤作動しないように、最低1本は進んでから
+                        if entry_i >= 0 and i > entry_i:
+                            hit_time_guard = True
+
             hit_time_stop = False
             if entry_dt is not None and max_hold_minutes > 0:
                 held_minutes = (bar.dt - entry_dt).total_seconds() / 60.0
                 if held_minutes >= float(max_hold_minutes):
                     hit_time_stop = True
 
-            if hit_stop or hit_strategy_exit or hit_take_profit or hit_time_stop:
+            if hit_stop or hit_strategy_exit or hit_take_profit or hit_time_guard or hit_time_stop:
                 # exit_reason（優先順位は仕様どおり）
                 if hit_stop:
                     exit_reason = "stop_loss"
                 elif hit_strategy_exit:
-                    # 戦略側 reason を括弧で残す（運用の検証が楽）
                     rr = (sig.reason or "").strip()
                     exit_reason = f"strategy_exit({rr})" if rr else "strategy_exit"
                 elif hit_take_profit:
                     exit_reason = "take_profit"
+                elif hit_time_guard:
+                    exit_reason = "time_limit_guard"
                 elif hit_time_stop:
                     exit_reason = "time_limit"
                 else:
@@ -363,8 +400,10 @@ def run_backtest_one_day(
                 has_position = False
                 entry_price = 0.0
                 entry_dt = None
+                entry_i = -1
                 qty = 0
                 stop_price = 0.0
+                mfe_r = 0.0
                 continue
 
     # =========================
