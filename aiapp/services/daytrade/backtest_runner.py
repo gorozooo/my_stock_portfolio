@@ -22,6 +22,11 @@
    - active.yml の exit.take_profit_r / exit.max_hold_minutes を参照
    - 利確（例：1.5R）と時間切れ（例：15分）をバックテストで本番同様に効かせる
 
+3) min_stop_pct / min_stop_yen（stop幅が浅すぎる事故を防ぐ）
+   - active.yml の risk.min_stop_pct / risk.min_stop_yen を参照
+   - stop幅が浅すぎるシグナルは「見送り」する（補正はしない）
+   - early_stop が過敏になる根本原因を、入口で潰す
+
 置き場所
 - aiapp/services/daytrade/backtest_runner.py
 """
@@ -109,6 +114,15 @@ def run_backtest_one_day(
     if slippage_buffer_pct >= 0.95:
         slippage_buffer_pct = 0.95
 
+    # stop幅の下限（浅すぎるstopを弾く）
+    # 例: min_stop_pct=0.001(0.1%), min_stop_yen=2
+    min_stop_pct = _get_float(risk_cfg, "min_stop_pct", 0.0)
+    min_stop_yen = _get_float(risk_cfg, "min_stop_yen", 0.0)
+    if min_stop_pct < 0:
+        min_stop_pct = 0.0
+    if min_stop_yen < 0:
+        min_stop_yen = 0.0
+
     session_start = _parse_hhmm(tf_cfg["session_start"])
     session_end = _parse_hhmm(tf_cfg["session_end"])
     exclude_ranges = [(_parse_hhmm(a), _parse_hhmm(b)) for a, b in tf_cfg.get("exclude_ranges", [])]
@@ -183,6 +197,18 @@ def run_backtest_one_day(
 
             # Stop価格：VWAP割れ + 0.1%マージン（安全側）
             stop_price = float(bar.vwap) * (1.0 - 0.001)
+
+            # --- ★ stop幅が浅すぎる場合は見送り ---
+            # min_stop = max(entry_price * min_stop_pct, min_stop_yen)
+            min_stop = max(float(entry_price) * float(min_stop_pct), float(min_stop_yen))
+            if min_stop > 0:
+                if abs(float(entry_price) - float(stop_price)) < float(min_stop):
+                    # リセットして見送り
+                    entry_price = 0.0
+                    entry_dt = None
+                    stop_price = 0.0
+                    qty = 0
+                    continue
 
             qty_calc = safe_qty_from_risk_long(
                 entry_price=entry_price,
