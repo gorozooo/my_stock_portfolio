@@ -27,11 +27,14 @@ def check_case(entry_price: float, current_price: float, planned_risk_yen: float
         .get("max_adverse_r", None)
     )
 
+    qty = 100  # テスト用の仮数量（現実的な値でOK）
+
     fired = guard.should_early_exit(
         entry_price=entry_price,
         current_price=current_price,
         planned_risk_yen=planned_risk_yen,
         side=side,
+        qty=qty,
     )
 
     if side == "long":
