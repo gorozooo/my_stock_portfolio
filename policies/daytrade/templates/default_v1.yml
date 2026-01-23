@@ -12,6 +12,10 @@ risk:
   day_loss_pct: 0.01
   max_positions: 1
   slippage_buffer_pct: 0.20
+  # 最低stop幅（％）：例 0.001 = 0.1%（1000円なら1円）
+  min_stop_pct: 0.001
+  # 最低stop幅（円）：％が小さすぎる/呼値の都合の保険
+  min_stop_yen: 2
 
 time_filter:
   session_start: "09:15"
