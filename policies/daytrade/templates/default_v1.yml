@@ -49,6 +49,7 @@ judge_thresholds:
 
 strategy:
   name: "vwap_pullback_long"
+  timeframe: "5m"          # ★スキーマ必須キー（互換用）。検証は5分足なので 5m。
   signal_timeframe: "5m"   # 検証・判定は5分足
   exec_timeframe: "1m"     # 執行は1分足
   order_type: "market"
