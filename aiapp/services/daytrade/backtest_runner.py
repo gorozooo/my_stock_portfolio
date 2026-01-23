@@ -30,6 +30,17 @@
 追加（運用品質）
 - Trade に exit_reason を保存し、「何で決済した損益か」を後から分解できるようにする。
 
+追加（A案：運用品質）
+- vwap_exit_grace（VWAP割れ即exitの“猶予”）
+  - active.yml の exit.vwap_exit_grace を参照
+  - strategy_exit（VWAP割れ等）だけを抑制する（stop/take_profit/time_limitは最優先のまま）
+  - 例：
+    exit:
+      vwap_exit_grace:
+        enable: true
+        min_r_to_allow_exit: 0.3
+        grace_minutes_after_entry: 5
+
 置き場所
 - aiapp/services/daytrade/backtest_runner.py
 """
@@ -87,6 +98,24 @@ def _get_int(d: Dict[str, Any], key: str, default: int) -> int:
         return int(default)
 
 
+def _get_bool(d: Dict[str, Any], key: str, default: bool) -> bool:
+    try:
+        v = d.get(key, default)
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return bool(v)
+        if isinstance(v, str):
+            s = v.strip().lower()
+            if s in ("1", "true", "yes", "y", "on"):
+                return True
+            if s in ("0", "false", "no", "n", "off"):
+                return False
+        return bool(v)
+    except Exception:
+        return bool(default)
+
+
 def run_backtest_one_day(
     bars: List[Bar],
     policy: Dict[str, Any],
@@ -136,6 +165,19 @@ def run_backtest_one_day(
     # exitセクションから読む（← active.yml と一致）
     take_profit_r = _get_float(exit_cfg, "take_profit_r", 1.5)
     max_hold_minutes = _get_int(exit_cfg, "max_hold_minutes", 15)
+
+    # --- A案：VWAP割れ即exitの猶予（strategy_exitのみ）---
+    vwap_grace_cfg = exit_cfg.get("vwap_exit_grace", {})
+    if not isinstance(vwap_grace_cfg, dict):
+        vwap_grace_cfg = {}
+
+    vwap_exit_grace_enable = _get_bool(vwap_grace_cfg, "enable", False)
+    vwap_exit_grace_min_r = _get_float(vwap_grace_cfg, "min_r_to_allow_exit", 0.0)
+    vwap_exit_grace_minutes = _get_int(vwap_grace_cfg, "grace_minutes_after_entry", 0)
+    if vwap_exit_grace_min_r < 0:
+        vwap_exit_grace_min_r = 0.0
+    if vwap_exit_grace_minutes < 0:
+        vwap_exit_grace_minutes = 0
 
     budget: RiskBudget = calc_risk_budget_yen(base_capital, trade_loss_pct, day_loss_pct)
 
@@ -241,7 +283,22 @@ def run_backtest_one_day(
             unrealized_yen = (float(bar.close) - float(entry_price)) * float(qty)
 
             hit_stop = float(bar.close) <= float(stop_price)
+
+            # --- 戦略exit（A案：猶予を入れるのはここだけ） ---
             hit_strategy_exit = (sig.action == "exit")
+            if hit_strategy_exit and vwap_exit_grace_enable:
+                denom = float(budget.trade_loss_yen) if float(budget.trade_loss_yen) > 0 else 0.0
+                r_now = (float(unrealized_yen) / denom) if denom > 0 else 0.0
+
+                within_grace = False
+                if entry_dt is not None and vwap_exit_grace_minutes > 0:
+                    held_minutes_now = (bar.dt - entry_dt).total_seconds() / 60.0
+                    within_grace = held_minutes_now < float(vwap_exit_grace_minutes)
+
+                # 条件を満たす間は「戦略exitだけ」抑制（stop/take_profit/time_limitは別）
+                if (r_now < float(vwap_exit_grace_min_r)) or within_grace:
+                    hit_strategy_exit = False
+
             hit_take_profit = unrealized_yen >= take_profit_yen
 
             hit_time_stop = False
@@ -256,8 +313,8 @@ def run_backtest_one_day(
                     exit_reason = "stop_loss"
                 elif hit_strategy_exit:
                     # 戦略側 reason を括弧で残す（運用の検証が楽）
-                    r = (sig.reason or "").strip()
-                    exit_reason = f"strategy_exit({r})" if r else "strategy_exit"
+                    rr = (sig.reason or "").strip()
+                    exit_reason = f"strategy_exit({rr})" if rr else "strategy_exit"
                 elif hit_take_profit:
                     exit_reason = "take_profit"
                 elif hit_time_stop:
