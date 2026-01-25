@@ -48,11 +48,7 @@ exit:
     grace_minutes_after_entry: 5
 
   time_limit_profit_guard:
-    enable: true
-    trigger_mfe_r: 0.15
-    trail_r: 0.25
-    keep_r: 0.05
-    min_hold_minutes: 10
+    enable: false
 
 limits:
   max_trades_per_day: 3
