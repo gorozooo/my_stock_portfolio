@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from dataclasses import asdict
 from typing import Any, Dict, List, Tuple
 from datetime import date
 
@@ -57,6 +56,22 @@ def _get_exit_reason(tr) -> str:
         return "unknown"
     s = str(r).strip()
     return s if s else "unknown"
+
+
+def _exit_reason_label(reason: str) -> str:
+    """
+    exit_reason を「初心者でも分かる日本語」に変換する。
+    ※ 元のキーはログや将来の集計用に保持しつつ、UI表示は label を使う。
+    """
+    m = {
+        "time_limit": "時間切れ（時間で終了）",
+        "stop_loss": "損切り（ストップ）",
+        "take_profit": "利確（利益確定）",
+        "force_close_end_of_day": "引けで強制決済（終了時刻）",
+        "unknown": "不明",
+    }
+    r = (reason or "").strip()
+    return m.get(r, r if r else "不明")
 
 
 def _slice_bars_for_trade(bars, entry_dt, exit_dt):
@@ -153,7 +168,7 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
     except Exception as e:
         policy = {}
         policy_id = ""
-        run_log_lines.append(f"[error] policy load failed: {e}")
+        run_log_lines.append(f"[error] ポリシー読込に失敗: {e}")
 
     # budget (for MFE/MAE R conversion)
     capital_cfg = (policy or {}).get("capital", {})
@@ -197,19 +212,19 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
             selected_tickers = _parse_tickers(form_tickers)
             if not selected_tickers:
                 selected_tickers = DEV_DEFAULT_TICKERS[:]
-                run_log_lines.append("[warn] manual tickers empty -> fallback to dev_default")
+                run_log_lines.append("[warn] 手動入力が空 → 開発おすすめ10銘柄で実行します")
         elif form_mode == "auto":
             # ここは「本番向け候補JSON」が出来たら差し替える
             # 今は速度優先で dev_default に落とす（UIは先に完成させる）
             selected_tickers = DEV_DEFAULT_TICKERS[:]
-            run_log_lines.append("[info] auto is not wired yet -> using dev_default (dev speed first)")
+            run_log_lines.append("[info] 自動選定は未接続 → いまは開発おすすめ10銘柄で実行します")
         else:
             selected_tickers = DEV_DEFAULT_TICKERS[:]
 
         # 安全装置：画面からの実行は最大10銘柄まで（開発速度最優先）
         if len(selected_tickers) > 10:
             selected_tickers = selected_tickers[:10]
-            run_log_lines.append("[info] tickers capped to 10 for dev speed")
+            run_log_lines.append("[info] 表示実行は最大10銘柄に制限（開発速度優先）")
 
         # ---------- run backtest ----------
         dates = _last_n_bdays_jst(form_n)
@@ -224,10 +239,10 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
         total_losses = 0
         total_max_dd = 0  # min negative
 
-        run_log_lines.append("=== daytrade backtest (ui) ===")
+        run_log_lines.append("=== daytrade backtest (UI実行) ===")
         run_log_lines.append(f"policy_id = {policy_id}")
-        run_log_lines.append(f"n = {form_n}")
-        run_log_lines.append(f"tickers = {selected_tickers}")
+        run_log_lines.append(f"期間N = {form_n}")
+        run_log_lines.append(f"銘柄 = {selected_tickers}")
 
         for t in selected_tickers:
             used_days = 0
@@ -359,7 +374,7 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
         kpi_max_dd = int(total_max_dd)
 
         run_log_lines.append("")
-        run_log_lines.append("---- total ----")
+        run_log_lines.append("---- 合計 ----")
         run_log_lines.append(
             f"used_days={total_days} traded_days={total_traded_days} trades={total_trades} pnl={total_pnl} "
             f"winrate={_fmt_pct(total_winrate)} avg_r={total_avg_r:.4f} max_dd_yen={total_max_dd}"
@@ -393,6 +408,7 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
             exit_rows.append(
                 {
                     "exit_reason": reason,
+                    "exit_reason_label": _exit_reason_label(reason),
                     "trades": int(tcnt),
                     "wins": int(wins_r),
                     "winrate": _fmt_pct(float(winrate_r)),
@@ -420,12 +436,18 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
         "selected_tickers": selected_tickers,
         "rows": rows,
         "exit_rows": exit_rows,
-        "run_log": "\n".join(run_log_lines) if run_log_lines else "（ここにログが出る）",
+        "run_log": "\n".join(run_log_lines) if run_log_lines else "（ここに実行ログが出ます）",
         # KPIs
         "kpi_total_pnl": kpi_total_pnl,
         "kpi_trades": kpi_trades,
         "kpi_winrate": kpi_winrate,
         "kpi_avg_r": kpi_avg_r,
         "kpi_max_dd": kpi_max_dd,
+        # UI help texts
+        "help_mode_text": {
+            "dev_default": "開発おすすめ10銘柄で回します（入力不要）。まずはこれでOK。",
+            "manual": "入力欄に書いた銘柄コードだけ回します（例: 7203 6758 9984）。",
+            "auto": "候補から自動選定して回します（将来拡張）。いまは開発おすすめ10銘柄で回します。",
+        },
     }
     return render(request, "aiapp/daytrade_backtest.html", ctx)
