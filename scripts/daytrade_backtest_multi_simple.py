@@ -9,10 +9,9 @@
 
 【追加: 自動銘柄選定（JPX全銘柄→フィルタ→上位N）】
 - tickers を渡さずに --auto を指定すると、自動で銘柄を選ぶ。
-- StockMaster が使える場合：DBベースでユニバース（価格/時価総額/平均売買代金）→流動性上位→
-  「5分足キャッシュ有無ではなく、必要なら force_refresh=True で取りに行く」→上位Nを確定。
-- StockMaster が使えない場合：portfolio/data/tse_list.csv を読み、
-  直近1営業日だけ 5分足を force_refresh=True で取得トライし、流動性（close*volume）上位から選ぶ（フォールバック）
+- StockMaster が使える場合：DBベースでユニバース→流動性上位→5分足存在チェック
+- StockMaster が使えない場合：data/tse_list.json（{code:name}）等を読み、
+  直近数日 5分足の「実データ流動性（close*volume）」で上位を選ぶ（安定フォールバック）
 
 実行例:
   # 手動
@@ -46,10 +45,10 @@ from aiapp.services.daytrade.bar_adapter_5m import df_to_bars_5m
 from aiapp.services.daytrade.backtest_runner import run_backtest_one_day
 from aiapp.services.daytrade.risk_math import calc_risk_budget_yen
 
-# ユニバースフィルタ設定（picks_filter の dataclass を流用）
-from aiapp.services.picks_filter import UniverseFilterConfig
+# ユニバースフィルタ（picks_filter を流用：StockMaster が無いと実質ノーフィルタだがOK）
+from aiapp.services.picks_filter import UniverseFilterConfig, filter_universe_codes
 
-# ★重要：StockMaster の import は実体に合わせる（aiapp/models/master.py）
+# StockMaster（あるなら使う）
 try:
     from aiapp.models.master import StockMaster  # type: ignore
 except Exception:
@@ -114,7 +113,7 @@ def _safe_int(x, default: int = 0) -> int:
     try:
         if x is None:
             return int(default)
-        return int(x)
+        return int(default) if x is None else int(x)
     except Exception:
         return int(default)
 
@@ -175,79 +174,6 @@ def _trade_mfe_mae_yen_long(tr, bars_slice) -> Tuple[int, int]:
     return (mfe_yen, mae_yen)
 
 
-def _percentiles(xs: List[float], ps: List[int]) -> Dict[str, float]:
-    if not xs:
-        return {str(p): 0.0 for p in ps}
-    arr = np.array(xs, dtype="float64")
-    out = {}
-    for p in ps:
-        try:
-            out[str(p)] = float(np.percentile(arr, p))
-        except Exception:
-            out[str(p)] = 0.0
-    return out
-
-
-# =========================================================
-# 自動選定：共通ユーティリティ
-# =========================================================
-
-def _df_has_intraday_bars(df: pd.DataFrame, min_rows: int = 30) -> bool:
-    """
-    daytrade 5m df が「それっぽく取れてる」かの最低限チェック。
-    5分足は1日で 70本前後（場中のみ）なので、30本あれば “取れてる” 扱いにする。
-    """
-    if df is None or df.empty:
-        return False
-    try:
-        return int(len(df)) >= int(min_rows)
-    except Exception:
-        return False
-
-
-def _try_fetch_5m_for_dates(
-    code: str,
-    check_dates: List[date],
-    *,
-    min_ok: int = 1,
-    force_refresh: bool = True,
-    min_rows: int = 30,
-) -> bool:
-    """
-    指定銘柄について、check_dates のうち min_ok 日以上 “5分足が取れた” なら True。
-    ※キャッシュ前提にしないため、デフォルトで force_refresh=True（必要なら取りに行く）
-    """
-    ok = 0
-    for d in check_dates:
-        try:
-            df = load_daytrade_5m_bars(code, d, force_refresh=bool(force_refresh))
-            if _df_has_intraday_bars(df, min_rows=min_rows):
-                ok += 1
-        except Exception:
-            continue
-        if ok >= int(min_ok):
-            return True
-    return False
-
-
-def _liquidity_score_from_daytrade_df(df: pd.DataFrame) -> float:
-    """
-    load_daytrade_5m_bars の戻り（dt/open/high/low/close/volume/vwap）前提で
-    close*volume 合計を流動性スコアにする。
-    """
-    if df is None or df.empty:
-        return 0.0
-    if "close" not in df.columns or "volume" not in df.columns:
-        return 0.0
-    try:
-        close = pd.to_numeric(df["close"], errors="coerce")
-        vol = pd.to_numeric(df["volume"], errors="coerce")
-        x = (close * vol).replace([np.inf, -np.inf], np.nan).dropna()
-        return float(x.sum()) if len(x) else 0.0
-    except Exception:
-        return 0.0
-
-
 # =========================================================
 # 自動選定（StockMasterあり版）
 # =========================================================
@@ -264,99 +190,6 @@ def _get_all_jpx_codes_from_master() -> List[str]:
     return codes
 
 
-def _master_field_exists(name: str) -> bool:
-    if StockMaster is None:
-        return False
-    try:
-        StockMaster._meta.get_field(name)  # type: ignore
-        return True
-    except Exception:
-        return False
-
-
-def _filter_universe_by_master_fields(codes: List[str], cfg: UniverseFilterConfig) -> List[str]:
-    """
-    picks_filter.filter_universe_codes は “内部で aiapp.models import StockMaster” をしていて
-    export 状態に依存しやすいので、ここではこのスクリプト側の StockMaster を直接使って
-    フィルタする（安定優先）。
-    """
-    if StockMaster is None or not codes:
-        return list(codes)
-
-    # 取得できそうなフィールド候補
-    price_fields = ["last_price", "close_price", "price"]
-    mcap_field = "market_cap"
-    avg_val_fields = ["avg_trading_value_20d", "avg_value_20d", "avg_trading_value"]
-
-    pfield = None
-    for f in price_fields:
-        if _master_field_exists(f):
-            pfield = f
-            break
-
-    avfield = None
-    for f in avg_val_fields:
-        if _master_field_exists(f):
-            avfield = f
-            break
-
-    has_mcap = _master_field_exists(mcap_field)
-
-    # values() で引く（未知フィールドは外す）
-    want = ["code"]
-    if pfield:
-        want.append(pfield)
-    if has_mcap:
-        want.append(mcap_field)
-    if avfield:
-        want.append(avfield)
-
-    rows = list(StockMaster.objects.filter(code__in=codes).values(*want))
-
-    keep: List[str] = []
-    for r in rows:
-        code = str(r.get("code", "")).strip()
-        if not code:
-            continue
-
-        price = None
-        if pfield:
-            try:
-                v = r.get(pfield)
-                price = float(v) if v is not None else None
-            except Exception:
-                price = None
-
-        mcap = None
-        if has_mcap:
-            try:
-                v = r.get(mcap_field)
-                mcap = float(v) if v is not None else None
-            except Exception:
-                mcap = None
-
-        avg_val = None
-        if avfield:
-            try:
-                v = r.get(avfield)
-                avg_val = float(v) if v is not None else None
-            except Exception:
-                avg_val = None
-
-        if price is not None and price < float(cfg.min_price):
-            continue
-        if mcap is not None and mcap < float(cfg.min_market_cap):
-            continue
-        if avg_val is not None and avg_val < float(cfg.min_avg_trading_value):
-            continue
-
-        keep.append(code)
-
-    # マスタに存在しなかった銘柄は落とす（運用安定：変な銘柄を混ぜない）
-    keep_set = set(keep)
-    return [c for c in codes if c in keep_set]
-
-
 def _rank_codes_by_avg_trading_value_master(codes: List[str]) -> List[str]:
     """StockMaster の平均売買代金系フィールドで降順ソート。無ければ code 順。"""
     if StockMaster is None or not codes:
@@ -365,9 +198,12 @@ def _rank_codes_by_avg_trading_value_master(codes: List[str]) -> List[str]:
     cand_fields = ["avg_trading_value_20d", "avg_value_20d", "avg_trading_value"]
     field = None
     for f in cand_fields:
-        if _master_field_exists(f):
+        try:
+            StockMaster._meta.get_field(f)  # type: ignore
             field = f
             break
+        except Exception:
+            continue
 
     if field is None:
         return sorted(codes)
@@ -386,99 +222,169 @@ def _rank_codes_by_avg_trading_value_master(codes: List[str]) -> List[str]:
     return sorted(codes, key=lambda c: score.get(c, 0.0), reverse=True)
 
 
+def _has_enough_5m_data(ticker: str, check_dates: List[date], min_days_ok: int = 2) -> bool:
+    ok = 0
+    for d in check_dates:
+        try:
+            df = load_daytrade_5m_bars(ticker, d, force_refresh=False)
+            if df is not None and not df.empty:
+                ok += 1
+        except Exception:
+            continue
+        if ok >= min_days_ok:
+            return True
+    return False
+
+
 def auto_select_daytrade_tickers_master(
     *,
     top_n: int,
     cfg: UniverseFilterConfig,
-    data_check_days: int = 1,
-    data_check_min_ok: int = 1,
-    pre_rank_pool: int = 600,
-    force_refresh: bool = True,
-    min_rows: int = 30,
+    data_check_days: int = 3,
+    data_check_min_ok: int = 2,
+    pre_rank_pool: int = 400,
 ) -> List[str]:
-    """
-    理想ルート：
-    1) StockMaster でユニバースを “デイトレ向き” に絞る（価格/時価総額/平均売買代金）
-    2) 平均売買代金の上位から pre_rank_pool だけ見る
-    3) その中で必要な銘柄だけ 5分足を force_refresh=True で取得トライして top_n を埋める
-    """
     all_codes = _get_all_jpx_codes_from_master()
-    filtered = _filter_universe_by_master_fields(all_codes, cfg)
+    filtered = filter_universe_codes(all_codes, cfg)
     ranked = _rank_codes_by_avg_trading_value_master(filtered)
-
     ranked = ranked[: max(int(pre_rank_pool), int(top_n))]
 
-    # “直近数日” を見るより、まずは “直近1日取れるか” を優先（運用安定・速度優先）
     check_dates = _last_n_bdays_jst(max(int(data_check_days), 1))
-
-    kept: List[str] = []
+    kept = []
     for c in ranked:
-        if _try_fetch_5m_for_dates(
-            c,
-            check_dates,
-            min_ok=int(data_check_min_ok),
-            force_refresh=bool(force_refresh),
-            min_rows=int(min_rows),
-        ):
+        if _has_enough_5m_data(c, check_dates, min_days_ok=int(data_check_min_ok)):
             kept.append(c)
         if len(kept) >= int(top_n):
             break
-
     return kept
 
 
 # =========================================================
-# 自動選定（フォールバック版：tse_list.csv + 5分足実データ流動性）
+# 自動選定（フォールバック版：tse_list.json/csv + 5分足実データ流動性）
 # =========================================================
 
-def _load_codes_from_tse_list_csv() -> List[str]:
+def _candidate_universe_paths() -> List[Path]:
     """
-    portfolio/data/tse_list.csv から銘柄コードをできるだけ頑丈に抽出する。
-    形式が多少違っても、4桁数字っぽいものを拾う。
+    優先順位：
+    1) project_root/data/tse_list.json（update_tse_list の出力先）
+    2) project_root/data/tse_list.csv
+    3) portfolio/data/tse_list.json（古い/手動置き）
+    4) portfolio/data/tse_list.csv（古い/手動置き）
     """
-    p = Path("portfolio") / "data" / "tse_list.csv"
-    if not p.exists():
-        raise RuntimeError(f"tse_list.csv が見つかりません: {p}")
+    base_dir = Path(getattr(settings, "BASE_DIR", Path(".")))
+    return [
+        base_dir / "data" / "tse_list.json",
+        base_dir / "data" / "tse_list.csv",
+        Path("portfolio") / "data" / "tse_list.json",
+        Path("portfolio") / "data" / "tse_list.csv",
+    ]
 
-    text = p.read_text(encoding="utf-8", errors="ignore").splitlines()
-    codes: List[str] = []
-    pat = re.compile(r"\b(\d{4})\b")
-    for line in text:
-        m = pat.search(line)
-        if not m:
-            continue
-        codes.append(m.group(1))
 
-    seen = set()
-    out = []
-    for c in codes:
-        if c in seen:
+def _load_codes_from_universe_file() -> List[str]:
+    """
+    tse_list.json（{code:name}）を最優先で読み、無ければCSVも読む。
+    どれも無ければ空を返す。
+    """
+    for p in _candidate_universe_paths():
+        if not p.exists():
             continue
-        seen.add(c)
-        out.append(c)
-    return out
+
+        # --- JSON: {"7203":"トヨタ自動車", ...} ---
+        if p.suffix.lower() == ".json":
+            try:
+                obj = json.loads(p.read_text(encoding="utf-8", errors="ignore"))
+                if isinstance(obj, dict):
+                    codes = [str(k).strip() for k in obj.keys()]
+                elif isinstance(obj, list):
+                    # 万が一 list 形式でも 4桁/5桁拾う
+                    codes = [str(x).strip() for x in obj]
+                else:
+                    codes = []
+                codes = [c for c in codes if re.fullmatch(r"\d{4,5}", c or "")]
+                # 重複除去（順序維持）
+                seen = set()
+                out = []
+                for c in codes:
+                    if c in seen:
+                        continue
+                    seen.add(c)
+                    out.append(c)
+                return out
+            except Exception:
+                continue
+
+        # --- CSV: code,name の想定だが、壊れてても 4桁/5桁拾う ---
+        if p.suffix.lower() == ".csv":
+            try:
+                text = p.read_text(encoding="utf-8", errors="ignore").splitlines()
+                codes: List[str] = []
+                pat = re.compile(r"\b(\d{4,5})\b")
+                for line in text:
+                    m = pat.search(line)
+                    if not m:
+                        continue
+                    codes.append(m.group(1))
+                seen = set()
+                out = []
+                for c in codes:
+                    if c in seen:
+                        continue
+                    seen.add(c)
+                    out.append(c)
+                return out
+            except Exception:
+                continue
+
+    return []
+
+
+def _pick_col(df: pd.DataFrame, names: List[str]) -> Optional[str]:
+    cols = list(df.columns)
+    lower = {str(c).lower(): c for c in cols}
+    for n in names:
+        if n in cols:
+            return n
+        if n.lower() in lower:
+            return lower[n.lower()]
+    return None
+
+
+def _liquidity_score_from_5m(df: pd.DataFrame) -> float:
+    """
+    5分足の流動性スコア（大きいほど流動性が高い）。
+    close*volume の合計をベースにする。
+    """
+    if df is None or df.empty:
+        return 0.0
+
+    ccol = _pick_col(df, ["Close", "close", "c"])
+    vcol = _pick_col(df, ["Volume", "volume", "v"])
+    if ccol is None or vcol is None:
+        return 0.0
+
+    try:
+        close = pd.to_numeric(df[ccol], errors="coerce")
+        vol = pd.to_numeric(df[vcol], errors="coerce")
+        x = (close * vol).replace([np.inf, -np.inf], np.nan).dropna()
+        return float(x.sum()) if len(x) else 0.0
+    except Exception:
+        return 0.0
 
 
 def auto_select_daytrade_tickers_fallback(
     *,
     top_n: int,
-    data_check_days: int = 1,
-    data_check_min_ok: int = 1,
+    data_check_days: int = 3,
+    data_check_min_ok: int = 2,
     scan_limit: int = 2000,
-    force_refresh: bool = True,
-    min_rows: int = 30,
 ) -> List[str]:
     """
-    StockMasterが無くても回る自動選定（ただし yfinance 取得負荷は上がる）。
-
-    方針（運用安定・速度優先）：
-    - tse_list.csv を scan_limit まで見る
-    - 直近 data_check_days 日だけ “force_refresh=True で取得トライ”
-    - 取れた銘柄を流動性（close*volume）上位から top_n 返す
-
-    ※このルートは「StockMaster が無い非常時」の保険。通常は master ルート推奨。
+    StockMasterが無くても回る自動選定。
+    - data/tse_list.json（{code:name}）等から銘柄コードを取得
+    - 直近 data_check_days の5分足が data_check_min_ok 日以上取れる銘柄を対象
+    - その期間の流動性スコア（close*volume 合計）が高い順に top_n を返す
     """
-    codes = _load_codes_from_tse_list_csv()
+    codes = _load_codes_from_universe_file()
     if not codes:
         return []
 
@@ -489,7 +395,7 @@ def auto_select_daytrade_tickers_fallback(
 
     for c in codes:
         scanned += 1
-        if int(scan_limit) > 0 and scanned > int(scan_limit):
+        if scan_limit > 0 and scanned > int(scan_limit):
             break
 
         ok_days = 0
@@ -497,15 +403,15 @@ def auto_select_daytrade_tickers_fallback(
 
         for d in check_dates:
             try:
-                df = load_daytrade_5m_bars(c, d, force_refresh=bool(force_refresh))
+                df = load_daytrade_5m_bars(c, d, force_refresh=False)
             except Exception:
                 df = None
 
-            if not _df_has_intraday_bars(df if df is not None else pd.DataFrame(), min_rows=int(min_rows)):
+            if df is None or df.empty:
                 continue
 
             ok_days += 1
-            score_sum += _liquidity_score_from_daytrade_df(df)
+            score_sum += _liquidity_score_from_5m(df)
 
         if ok_days >= int(data_check_min_ok):
             score = float(score_sum) / max(int(ok_days), 1)
@@ -529,7 +435,6 @@ def run_for_ticker(
     agg = Agg(max_dd_yen=0)
 
     for d in dates:
-        # backtest 本体は “キャッシュ優先” で安定運用（必要なら別スクリプトで prefetch してもOK）
         df = load_daytrade_5m_bars(ticker, d, force_refresh=False)
         if df is None or df.empty:
             continue
@@ -608,24 +513,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--auto", action="store_true", help="JPX全銘柄から自動選定して回す")
     p.add_argument("--top", type=int, default=40, help="自動選定で使う銘柄数（上位N）")
 
-    # ユニバースフィルタ閾値（StockMasterが使える場合に効く）
     p.add_argument("--min-price", type=float, default=300.0, help="ユニバース: 最低株価")
     p.add_argument("--min-mcap", type=float, default=20_000_000_000.0, help="ユニバース: 最低時価総額")
     p.add_argument("--min-avg-value", type=float, default=50_000_000.0, help="ユニバース: 最低平均売買代金（20d想定）")
 
-    # 5分足データ存在チェック
-    p.add_argument("--data-check-days", type=int, default=1, help="直近何営業日で5分足の取得可否をチェックするか")
-    p.add_argument("--data-check-min-ok", type=int, default=1, help="何日分取れたら採用とするか")
-    p.add_argument("--min-rows", type=int, default=30, help="5分足が取れた判定の最低行数（デフォルト30本）")
+    p.add_argument("--data-check-days", type=int, default=3, help="直近何営業日で5分足の存在をチェックするか")
+    p.add_argument("--data-check-min-ok", type=int, default=2, help="何日分データが取れたら採用とするか")
 
-    # StockMasterあり版の高速化
-    p.add_argument("--pre-rank-pool", type=int, default=600, help="（StockMasterあり）流動性順に上位何銘柄まで絞ってから取得トライするか")
-
-    # フォールバック版の高速化
-    p.add_argument("--scan-limit", type=int, default=2000, help="（StockMasterなし）tse_list.csv を先頭から何銘柄スキャンするか（0=無制限）")
-
-    # auto で “取りに行く” を切り替えたい時用（通常はON推奨）
-    p.add_argument("--no-force-refresh", action="store_true", help="auto選定時に force_refresh=True で取りに行かない（キャッシュ前提）")
+    p.add_argument("--pre-rank-pool", type=int, default=400, help="（StockMasterあり）流動性順に上位何銘柄まで絞ってからデータチェックするか")
+    p.add_argument("--scan-limit", type=int, default=2000, help="（StockMasterなし）ユニバースを先頭から何銘柄スキャンするか（0=無制限）")
 
     return p
 
@@ -647,7 +543,6 @@ def main():
             sys.exit(1)
 
         top_n = max(int(args.top), 1)
-        force_refresh = (not bool(args.no_force_refresh))
 
         cfg = UniverseFilterConfig(
             min_price=float(args.min_price),
@@ -656,7 +551,6 @@ def main():
             allowed_markets=None,
         )
 
-        src = "fallback"
         if StockMaster is not None:
             try:
                 tickers = auto_select_daytrade_tickers_master(
@@ -665,14 +559,14 @@ def main():
                     data_check_days=int(args.data_check_days),
                     data_check_min_ok=int(args.data_check_min_ok),
                     pre_rank_pool=int(args.pre_rank_pool),
-                    force_refresh=bool(force_refresh),
-                    min_rows=int(args.min_rows),
                 )
                 src = "master"
             except Exception as e:
                 print("auto selection (master) failed:", e)
                 tickers = []
                 src = "fallback"
+        else:
+            src = "fallback"
 
         if not tickers:
             try:
@@ -681,8 +575,6 @@ def main():
                     data_check_days=int(args.data_check_days),
                     data_check_min_ok=int(args.data_check_min_ok),
                     scan_limit=int(args.scan_limit),
-                    force_refresh=bool(force_refresh),
-                    min_rows=int(args.min_rows),
                 )
                 src = "fallback"
             except Exception as e:
