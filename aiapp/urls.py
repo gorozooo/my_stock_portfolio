@@ -9,7 +9,7 @@ from .views.simulate import simulate_list  # シミュレ一覧
 from .views.sim_delete import simulate_delete  # シミュレ削除
 from .views.sim_result import simulate_result  # ★ シミュレ結果保存
 from .views.behavior import behavior_dashboard
-
+from .views.daytrade_backtest import daytrade_backtest_view
 # ★ 追加：デバッグビュー
 from .views import picks_debug
 
@@ -43,7 +43,10 @@ urlpatterns = [
 
     # ★ シミュレ結果保存
     path("simulate/<int:pk>/result/", simulate_result, name="simulate_result"),
-
+    
+    # デイトレ
+    path("daytrade/backtest/", daytrade_backtest_view, name="daytrade_backtest"),
+    
     # ★ シミュレ結果ダッシュボード
     path("behavior/", behavior_dashboard, name="behavior_dashboard"),
 
