@@ -7,9 +7,21 @@
 - 戦略ロジックは一切変えない（既存: VWAPPullbackLongStrategy のまま）。
 - 0トレの日が出るのは仕様。銘柄数を増やして「回る」ようにする。
 
+【追加: 自動銘柄選定（JPX全銘柄→フィルタ→上位N）】
+- tickers を渡さずに --auto を指定すると、
+  StockMaster から JPX 全銘柄を読み、ユニバースフィルタを通し、
+  さらに「5分足データが取れる銘柄だけ」に絞って上位N銘柄を選定して回す。
+
 実行例:
+  # 従来（手動）
   PYTHONPATH=. DJANGO_SETTINGS_MODULE=config.settings python scripts/daytrade_backtest_multi_simple.py 20 3023 6946 9501
-  PYTHONPATH=. DJANGO_SETTINGS_MODULE=config.settings python scripts/daytrade_backtest_multi_simple.py 60 3023
+
+  # 自動（全銘柄→フィルタ→流動性上位40）
+  PYTHONPATH=. DJANGO_SETTINGS_MODULE=config.settings python scripts/daytrade_backtest_multi_simple.py 20 --auto --top 40
+
+  # 自動（フィルタ閾値も指定）
+  PYTHONPATH=. DJANGO_SETTINGS_MODULE=config.settings python scripts/daytrade_backtest_multi_simple.py 20 --auto --top 60 \
+    --min-price 300 --min-mcap 20000000000 --min-avg-value 200000000
 
 出力:
 - 銘柄別サマリ
@@ -20,18 +32,16 @@
 
 保存:
 - media/aiapp/daytrade/reports/YYYYMMDD/exit_breakdown.json
-
-追加（運用品質）
-- 全トレードの明細（ticker/date/entry/exit/pnl/r/exit_reason/hold/mfe/mae）を保存:
-  media/aiapp/daytrade/reports/YYYYMMDD/trades_detail.json
+- media/aiapp/daytrade/reports/YYYYMMDD/trades_detail.json（※別実装が既に入ってる前提）
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional
 
@@ -44,6 +54,17 @@ from aiapp.services.daytrade.bars_5m_daytrade import load_daytrade_5m_bars
 from aiapp.services.daytrade.bar_adapter_5m import df_to_bars_5m
 from aiapp.services.daytrade.backtest_runner import run_backtest_one_day
 from aiapp.services.daytrade.risk_math import calc_risk_budget_yen
+
+# --- 追加: ユニバースフィルタ（picks_filter を流用） ---
+from aiapp.services.picks_filter import (
+    UniverseFilterConfig,
+    filter_universe_codes,
+)
+
+try:
+    from aiapp.models import StockMaster  # type: ignore
+except Exception:
+    StockMaster = None  # type: ignore
 
 
 @dataclass
@@ -110,17 +131,6 @@ def _safe_int(x, default: int = 0) -> int:
         return int(x)
     except Exception:
         return int(default)
-
-
-def _safe_iso(x) -> str:
-    try:
-        if x is None:
-            return ""
-        if isinstance(x, datetime):
-            return x.isoformat()
-        return str(x)
-    except Exception:
-        return ""
 
 
 def _get_exit_reason(tr) -> str:
@@ -200,41 +210,110 @@ def _percentiles(xs: List[float], ps: List[int]) -> Dict[str, float]:
     return out
 
 
-def _append_trade_detail(
-    trade_rows: List[Dict[str, Any]],
-    ticker: str,
-    date_str: str,
-    tr,
-    reason: str,
-    pnl: int,
-    r: float,
-    held_min: float,
-    mfe_yen: int,
-    mae_yen: int,
-    mfe_r: float,
-    mae_r: float,
-) -> None:
+# =========================================================
+# 追加: 自動銘柄選定（JPX全銘柄→フィルタ→データ有→流動性上位）
+# =========================================================
+
+def _get_all_jpx_codes_from_master() -> List[str]:
+    if StockMaster is None:
+        raise RuntimeError("StockMaster が import できません。全銘柄自動選定には StockMaster が必要です。")
+    qs = StockMaster.objects.all().values_list("code", flat=True)
+    codes = []
+    for c in qs:
+        s = str(c).strip()
+        if s:
+            codes.append(s)
+    return codes
+
+
+def _rank_codes_by_avg_trading_value(codes: List[str]) -> List[str]:
     """
-    1トレード明細をJSON用に貯める（運用で後から掘れるようにする）
+    StockMaster の avg_trading_value_20d / avg_value_20d / avg_trading_value を使って
+    流動性の高い順に並べる。フィールドが無い場合は code 順で返す。
     """
-    row = {
-        "ticker": str(ticker),
-        "date_str": str(date_str),
-        "exit_reason": str(reason),
-        "entry_dt": _safe_iso(getattr(tr, "entry_dt", None)),
-        "exit_dt": _safe_iso(getattr(tr, "exit_dt", None)),
-        "entry_price": _safe_float(getattr(tr, "entry_price", 0.0)),
-        "exit_price": _safe_float(getattr(tr, "exit_price", 0.0)),
-        "qty": _safe_int(getattr(tr, "qty", 0)),
-        "pnl_yen": int(pnl),
-        "r": float(r),
-        "hold_min": float(held_min),
-        "mfe_yen": int(mfe_yen),
-        "mae_yen": int(mae_yen),
-        "mfe_r": float(mfe_r),
-        "mae_r": float(mae_r),
-    }
-    trade_rows.append(row)
+    if StockMaster is None or not codes:
+        return list(codes)
+
+    # 候補フィールドを順に試す
+    cand_fields = ["avg_trading_value_20d", "avg_value_20d", "avg_trading_value"]
+    field = None
+    for f in cand_fields:
+        try:
+            StockMaster._meta.get_field(f)  # type: ignore
+            field = f
+            break
+        except Exception:
+            continue
+
+    if field is None:
+        return sorted(codes)
+
+    # NULL は後ろに行くようにする（Django DB差異があるので Python 側で安定化）
+    rows = list(
+        StockMaster.objects.filter(code__in=codes).values("code", field)
+    )
+    score = {}
+    for r in rows:
+        code = str(r.get("code", "")).strip()
+        v = r.get(field)
+        try:
+            fv = float(v) if v is not None else 0.0
+        except Exception:
+            fv = 0.0
+        score[code] = fv
+
+    # マスタに無いコードは最後に回す
+    return sorted(codes, key=lambda c: score.get(c, 0.0), reverse=True)
+
+
+def _has_enough_5m_data(ticker: str, check_dates: List[date], min_days_ok: int = 2) -> bool:
+    """
+    指定された複数日で 5分足が取れる日が min_days_ok 以上あれば OK とみなす。
+    （完全厳密より「運用で回る」優先）
+    """
+    ok = 0
+    for d in check_dates:
+        try:
+            df = load_daytrade_5m_bars(ticker, d, force_refresh=False)
+            if df is not None and not df.empty:
+                ok += 1
+        except Exception:
+            continue
+        if ok >= min_days_ok:
+            return True
+    return False
+
+
+def auto_select_daytrade_tickers(
+    *,
+    top_n: int,
+    cfg: UniverseFilterConfig,
+    data_check_days: int = 3,
+    data_check_min_ok: int = 2,
+    pre_rank_pool: int = 400,
+) -> List[str]:
+    """
+    1) StockMaster から全銘柄取得
+    2) ユニバースフィルタ（picks_filter）適用
+    3) 流動性順に並べて上位 pre_rank_pool まで縮小（高速化）
+    4) 直近数営業日で 5分足が取れる銘柄だけ残す
+    5) 上位 top_n を返す
+    """
+    all_codes = _get_all_jpx_codes_from_master()
+    filtered = filter_universe_codes(all_codes, cfg)
+
+    ranked = _rank_codes_by_avg_trading_value(filtered)
+    if pre_rank_pool > 0:
+        ranked = ranked[: max(int(pre_rank_pool), int(top_n))]
+
+    check_dates = _last_n_bdays_jst(max(int(data_check_days), 1))
+    kept = []
+    for c in ranked:
+        if _has_enough_5m_data(c, check_dates, min_days_ok=int(data_check_min_ok)):
+            kept.append(c)
+        if len(kept) >= int(top_n):
+            break
+    return kept
 
 
 def run_for_ticker(
@@ -243,7 +322,6 @@ def run_for_ticker(
     policy: dict,
     budget_trade_loss_yen: int,
     exit_stats: Dict[str, Any],
-    trade_rows: List[Dict[str, Any]],
 ) -> Agg:
     agg = Agg(max_dd_yen=0)
 
@@ -258,9 +336,6 @@ def run_for_ticker(
 
         res = run_backtest_one_day(bars=bars, policy=policy)
         _update_agg(agg, res)
-
-        # 日付（res.date_strがあればそれを優先）
-        date_str = str(getattr(res, "date_str", d.isoformat()))
 
         # --- exit_reason 診断用：トレードごとの詳細を蓄積 ---
         for tr in getattr(res, "trades", []):
@@ -314,22 +389,6 @@ def run_for_ticker(
             slot["mfe_r"].append(float(mfe_r))
             slot["mae_r"].append(float(mae_r))
 
-            # --- 追加：トレード明細を保存用に積む ---
-            _append_trade_detail(
-                trade_rows=trade_rows,
-                ticker=ticker,
-                date_str=date_str,
-                tr=tr,
-                reason=reason,
-                pnl=pnl,
-                r=r,
-                held_min=held_min,
-                mfe_yen=mfe_yen,
-                mae_yen=mae_yen,
-                mfe_r=mfe_r,
-                mae_r=mae_r,
-            )
-
     return agg
 
 
@@ -340,19 +399,74 @@ def _report_dir_today() -> Path:
     return p
 
 
-def main():
-    if len(sys.argv) < 3:
-        print("usage: python scripts/daytrade_backtest_multi_simple.py <20|60|120> <ticker1> [ticker2 ...]")
-        sys.exit(1)
+def _build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser()
+    p.add_argument("n", type=int, help="過去N営業日（20/60/120）")
+    p.add_argument("tickers", nargs="*", help="手動指定の銘柄コード（省略可）")
 
-    n = int(sys.argv[1])
-    tickers = [str(x).strip() for x in sys.argv[2:] if str(x).strip()]
+    # 自動選定
+    p.add_argument("--auto", action="store_true", help="JPX全銘柄から自動選定して回す")
+    p.add_argument("--top", type=int, default=40, help="自動選定で使う銘柄数（上位N）")
+
+    # ユニバースフィルタ閾値（picks_filter をそのまま使う）
+    p.add_argument("--min-price", type=float, default=300.0, help="ユニバース: 最低株価")
+    p.add_argument("--min-mcap", type=float, default=20_000_000_000.0, help="ユニバース: 最低時価総額")
+    p.add_argument("--min-avg-value", type=float, default=50_000_000.0, help="ユニバース: 最低平均売買代金（20d想定）")
+
+    # 5分足データ存在チェック
+    p.add_argument("--data-check-days", type=int, default=3, help="直近何営業日で5分足の存在をチェックするか")
+    p.add_argument("--data-check-min-ok", type=int, default=2, help="何日分データが取れたら採用とするか")
+    p.add_argument("--pre-rank-pool", type=int, default=400, help="流動性順に上位何銘柄まで絞ってからデータチェックするか")
+
+    return p
+
+
+def main():
+    parser = _build_parser()
+    args = parser.parse_args()
+
+    n = int(args.n)
     if n not in (20, 60, 120):
         print("N must be one of 20/60/120")
         sys.exit(1)
+
+    # tickers が渡されていれば従来通り
+    tickers = [str(x).strip() for x in (args.tickers or []) if str(x).strip()]
+
+    # tickers が無い場合は --auto 必須
     if not tickers:
-        print("tickers is empty")
-        sys.exit(1)
+        if not bool(args.auto):
+            print("tickers is empty. 手動指定するか、--auto を付けて自動選定してください。")
+            sys.exit(1)
+
+        cfg = UniverseFilterConfig(
+            min_price=float(args.min_price),
+            min_market_cap=float(args.min_mcap),
+            min_avg_trading_value=float(args.min_avg_value),
+            allowed_markets=None,
+        )
+
+        top_n = max(int(args.top), 1)
+        try:
+            tickers = auto_select_daytrade_tickers(
+                top_n=top_n,
+                cfg=cfg,
+                data_check_days=int(args.data_check_days),
+                data_check_min_ok=int(args.data_check_min_ok),
+                pre_rank_pool=int(args.pre_rank_pool),
+            )
+        except Exception as e:
+            print("auto selection failed:", e)
+            sys.exit(1)
+
+        if not tickers:
+            print("auto selection result is empty. フィルタが厳しすぎるか、5分足データが不足しています。")
+            sys.exit(1)
+
+        print("=== auto selected tickers ===")
+        print("top_n =", top_n)
+        print("selected =", tickers)
+        print("")
 
     policy = load_policy_yaml().policy
     dates = _last_n_bdays_jst(n)
@@ -378,9 +492,6 @@ def main():
     # exit_reason別の詳細統計を全体で貯める
     exit_stats: Dict[str, Any] = {}
 
-    # 追加：全トレード明細（後から掘る用）
-    trade_rows: List[Dict[str, Any]] = []
-
     # 銘柄別
     for t in tickers:
         agg = run_for_ticker(
@@ -389,7 +500,6 @@ def main():
             policy=policy,
             budget_trade_loss_yen=budget_trade_loss_yen,
             exit_stats=exit_stats,
-            trade_rows=trade_rows,
         )
 
         trades = agg.total_trades
@@ -438,10 +548,10 @@ def main():
 
     breakdown_rows = []
     for tcnt, reason, st in items:
-        wins = int(st.get("wins", 0))
-        pnl = int(st.get("pnl", 0))
+        wins_r = int(st.get("wins", 0))
+        pnl_r = int(st.get("pnl", 0))
         sum_r = float(st.get("sum_r", 0.0))
-        winrate_r = (wins / tcnt) if tcnt > 0 else 0.0
+        winrate_r = (wins_r / tcnt) if tcnt > 0 else 0.0
         avg_r_reason = (sum_r / tcnt) if tcnt > 0 else 0.0
 
         held = list(st.get("held_minutes", [])) or []
@@ -457,7 +567,7 @@ def main():
         p_mae = _percentiles(mae_r, [50, 75, 90])
 
         print(
-            f"{reason:28s} trades={tcnt:4d} winrate={winrate_r*100:5.1f}% pnl={pnl:8d} avg_r={avg_r_reason:7.4f} "
+            f"{reason:28s} trades={tcnt:4d} winrate={winrate_r*100:5.1f}% pnl={pnl_r:8d} avg_r={avg_r_reason:7.4f} "
             f"avg_hold_min={avg_held:5.1f} avg_mfe_r={avg_mfe_r:6.3f} avg_mae_r={avg_mae_r:6.3f}"
         )
 
@@ -465,9 +575,9 @@ def main():
             {
                 "exit_reason": reason,
                 "trades": tcnt,
-                "wins": wins,
+                "wins": wins_r,
                 "winrate": winrate_r,
-                "pnl": pnl,
+                "pnl": pnl_r,
                 "avg_r": avg_r_reason,
                 "avg_hold_min": avg_held,
                 "avg_mfe_r": avg_mfe_r,
@@ -484,10 +594,8 @@ def main():
             }
         )
 
-    # 保存（exit_breakdown + trades_detail）
+    # 保存
     out_dir = _report_dir_today()
-
-    # 1) exit_breakdown.json
     out_path = out_dir / "exit_breakdown.json"
     payload = {
         "generated_at": datetime.now().isoformat(),
@@ -513,22 +621,6 @@ def main():
     except Exception as e:
         print("")
         print("failed to save exit breakdown:", e)
-
-    # 2) trades_detail.json（追加）
-    trades_path = out_dir / "trades_detail.json"
-    trades_payload = {
-        "generated_at": datetime.now().isoformat(),
-        "policy_id": policy.get("meta", {}).get("policy_id"),
-        "n_bdays_approx": n,
-        "tickers": tickers,
-        "budget_trade_loss_yen": budget_trade_loss_yen,
-        "trades": trade_rows,
-    }
-    try:
-        trades_path.write_text(json.dumps(trades_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        print("saved trades detail  = " + str(trades_path))
-    except Exception as e:
-        print("failed to save trades detail:", e)
 
     print("=== done ===")
 
