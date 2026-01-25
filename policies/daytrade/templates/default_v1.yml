@@ -39,7 +39,7 @@ entry:
 
 exit:
   take_profit_r: 1.5
-  max_hold_minutes: 15
+  max_hold_minutes: 25
   exit_on_vwap_break: true
 
   vwap_exit_grace:
