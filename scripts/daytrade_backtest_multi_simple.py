@@ -7,6 +7,10 @@
 - 戦略ロジックは一切変えない（既存: VWAPPullbackLongStrategy のまま）。
 - 0トレの日が出るのは仕様。銘柄数を増やして「回る」ようにする。
 
+【開発用: 固定銘柄で高速に回す（秒）】
+- tickers を渡さず、かつ --auto を付けない場合は、
+  開発用の固定デイトレ銘柄リスト（DEV_DEFAULT_TICKERS）で回す。
+
 【追加: 自動銘柄選定（JPX全銘柄→フィルタ→上位N）】
 - tickers を渡さずに --auto を指定すると、自動で銘柄を選ぶ。
 - StockMaster が使える場合：DBベースでユニバース→流動性上位→5分足存在チェック
@@ -17,11 +21,11 @@
   # 手動
   PYTHONPATH=. DJANGO_SETTINGS_MODULE=config.settings python scripts/daytrade_backtest_multi_simple.py 20 3023 6946 9501
 
+  # 開発用（tickers省略で固定銘柄）
+  PYTHONPATH=. DJANGO_SETTINGS_MODULE=config.settings python scripts/daytrade_backtest_multi_simple.py 20
+
   # 自動（全銘柄→選定→上位40）
   PYTHONPATH=. DJANGO_SETTINGS_MODULE=config.settings python scripts/daytrade_backtest_multi_simple.py 20 --auto --top 40
-
-  # 自動（フォールバックでも早く回したい時）
-  PYTHONPATH=. DJANGO_SETTINGS_MODULE=config.settings python scripts/daytrade_backtest_multi_simple.py 20 --auto --top 40 --scan-limit 2000
 """
 
 from __future__ import annotations
@@ -53,6 +57,23 @@ try:
     from aiapp.models.master import StockMaster  # type: ignore
 except Exception:
     StockMaster = None  # type: ignore
+
+
+# =========================================================
+# 開発用：固定デイトレ銘柄（毎回これで回せばOK）
+# =========================================================
+DEV_DEFAULT_TICKERS: List[str] = [
+    "7203",  # トヨタ
+    "6758",  # ソニーG
+    "9984",  # SBG
+    "8306",  # 三菱UFJ
+    "8316",  # 三井住友FG
+    "8035",  # 東京エレクトロン
+    "6861",  # キーエンス
+    "6501",  # 日立
+    "9432",  # NTT
+    "6098",  # リクルート
+]
 
 
 @dataclass
@@ -296,12 +317,10 @@ def _load_codes_from_universe_file() -> List[str]:
                 if isinstance(obj, dict):
                     codes = [str(k).strip() for k in obj.keys()]
                 elif isinstance(obj, list):
-                    # 万が一 list 形式でも 4桁/5桁拾う
                     codes = [str(x).strip() for x in obj]
                 else:
                     codes = []
                 codes = [c for c in codes if re.fullmatch(r"\d{4,5}", c or "")]
-                # 重複除去（順序維持）
                 seen = set()
                 out = []
                 for c in codes:
@@ -537,6 +556,15 @@ def main():
 
     tickers = [str(x).strip() for x in (args.tickers or []) if str(x).strip()]
 
+    # =========================================================
+    # 開発用：tickers省略＆--auto無しなら固定銘柄で回す（秒速）
+    # =========================================================
+    if not tickers and not bool(args.auto):
+        tickers = list(DEV_DEFAULT_TICKERS)
+        print("=== dev default tickers ===")
+        print("selected =", tickers)
+        print("")
+
     if not tickers:
         if not bool(args.auto):
             print("tickers is empty. 手動指定するか、--auto を付けて自動選定してください。")
@@ -649,79 +677,6 @@ def main():
         f"used_days={total.days} traded_days={total.traded_days} trades={trades} pnl={total.total_pnl} "
         f"winrate={_fmt_pct(winrate)} avg_r={avg_r:.4f} max_dd_yen={total.max_dd_yen}"
     )
-
-    print("")
-    print("---- exit_reason breakdown (total) ----")
-
-    items = []
-    for reason, st in exit_stats.items():
-        tcnt = int(st.get("trades", 0))
-        if tcnt <= 0:
-            continue
-        items.append((tcnt, reason, st))
-    items.sort(reverse=True, key=lambda x: x[0])
-
-    breakdown_rows = []
-    for tcnt, reason, st in items:
-        wins_r = int(st.get("wins", 0))
-        pnl_r = int(st.get("pnl", 0))
-        sum_r = float(st.get("sum_r", 0.0))
-        winrate_r = (wins_r / tcnt) if tcnt > 0 else 0.0
-        avg_r_reason = (sum_r / tcnt) if tcnt > 0 else 0.0
-
-        held = list(st.get("held_minutes", [])) or []
-        mfe_r = list(st.get("mfe_r", [])) or []
-        mae_r = list(st.get("mae_r", [])) or []
-
-        avg_held = float(np.mean(held)) if held else 0.0
-        avg_mfe_r = float(np.mean(mfe_r)) if mfe_r else 0.0
-        avg_mae_r = float(np.mean(mae_r)) if mae_r else 0.0
-
-        print(
-            f"{reason:28s} trades={tcnt:4d} winrate={winrate_r*100:5.1f}% pnl={pnl_r:8d} avg_r={avg_r_reason:7.4f} "
-            f"avg_hold_min={avg_held:5.1f} avg_mfe_r={avg_mfe_r:6.3f} avg_mae_r={avg_mae_r:6.3f}"
-        )
-
-        breakdown_rows.append(
-            {
-                "exit_reason": reason,
-                "trades": tcnt,
-                "wins": wins_r,
-                "winrate": winrate_r,
-                "pnl": pnl_r,
-                "avg_r": avg_r_reason,
-                "avg_hold_min": avg_held,
-                "avg_mfe_r": avg_mfe_r,
-                "avg_mae_r": avg_mae_r,
-            }
-        )
-
-    out_dir = _report_dir_today()
-    out_path = out_dir / "exit_breakdown.json"
-    payload = {
-        "generated_at": datetime.now().isoformat(),
-        "policy_id": policy.get("meta", {}).get("policy_id"),
-        "n_bdays_approx": n,
-        "tickers": tickers,
-        "total": {
-            "used_days": total.days,
-            "traded_days": total.traded_days,
-            "trades": total.total_trades,
-            "pnl": total.total_pnl,
-            "winrate": winrate,
-            "avg_r": avg_r,
-            "max_dd_yen": total.max_dd_yen,
-            "budget_trade_loss_yen": budget_trade_loss_yen,
-        },
-        "breakdown": breakdown_rows,
-    }
-    try:
-        out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        print("")
-        print("saved exit breakdown = " + str(out_path))
-    except Exception as e:
-        print("")
-        print("failed to save exit breakdown:", e)
 
     print("=== done ===")
 
