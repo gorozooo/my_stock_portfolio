@@ -26,7 +26,8 @@
   PYTHONPATH=. DJANGO_SETTINGS_MODULE=config.settings python scripts/daytrade_analyze_trades_detail.py --date 20260125 --reason stop_loss
 
 注意
-- trades_detail.json のフォーマットが多少変わっても落ちにくいように安全側で実装。
+- trades_detail.json の entry_dt/exit_dt が "Z" 付きでも壊れないようにパースを強化。
+- held_minutes が 0/欠損でも entry_dt/exit_dt から再計算して埋める。
 """
 
 from __future__ import annotations
@@ -67,8 +68,7 @@ def _safe_str(x, default: str = "") -> str:
     try:
         if x is None:
             return str(default)
-        s = str(x)
-        return s
+        return str(x)
     except Exception:
         return str(default)
 
@@ -98,19 +98,32 @@ def _percentile(xs: List[float], p: int) -> float:
         return 0.0
 
 
+def _normalize_iso(s: str) -> str:
+    """
+    datetime.fromisoformat が受け付けない形を補正する。
+    - "Z" 終端 -> "+00:00"
+    """
+    t = (s or "").strip()
+    if not t:
+        return t
+    if t.endswith("Z"):
+        t = t[:-1] + "+00:00"
+    return t
+
+
 def _parse_dt(s: Any) -> Optional[datetime]:
     """
-    ISO文字列をdatetimeにする（timezone入りでも壊れにくい）
+    ISO文字列をdatetimeにする（Z/offset対応）
     """
     try:
         if s is None:
             return None
         if isinstance(s, datetime):
             return s
-        txt = str(s).strip()
+        txt = _safe_str(s, "").strip()
         if not txt:
             return None
-        # python3.10: fromisoformat は "YYYY-MM-DDTHH:MM:SS+09:00" を読める
+        txt = _normalize_iso(txt)
         return datetime.fromisoformat(txt)
     except Exception:
         return None
@@ -124,6 +137,15 @@ def _report_dir(date_yyyymmdd: str) -> Path:
 
 def _default_date_str() -> str:
     return date.today().strftime("%Y%m%d")
+
+
+def _calc_held_minutes(entry_dt: Optional[datetime], exit_dt: Optional[datetime]) -> float:
+    try:
+        if entry_dt is None or exit_dt is None:
+            return 0.0
+        return float((exit_dt - entry_dt).total_seconds() / 60.0)
+    except Exception:
+        return 0.0
 
 
 # =========================
@@ -177,6 +199,11 @@ def _load_trades_detail(path: Path) -> Tuple[Dict[str, Any], List[TradeRow]]:
         exit_reason = _normalize_reason(tr.get("exit_reason"))
 
         held_minutes = _safe_float(tr.get("held_minutes"), 0.0)
+
+        # ★ held_minutes が 0/欠損でも、entry/exit から復元（Zパース失敗対策込み）
+        if (held_minutes <= 0.0) and (entry_dt is not None) and (exit_dt is not None):
+            held_minutes = _calc_held_minutes(entry_dt, exit_dt)
+
         mfe_r = _safe_float(tr.get("mfe_r"), 0.0)
         mae_r = _safe_float(tr.get("mae_r"), 0.0)
 
@@ -267,7 +294,7 @@ def _group_by_ticker_for_reason(rows: List[TradeRow], reason_prefix: str) -> Lis
         slot["_hold"].append(float(tr.held_minutes))
 
     out = []
-    for k, st in per.items():
+    for _, st in per.items():
         tcnt = int(st["trades"])
         wins = int(st["wins"])
         st["winrate"] = (wins / tcnt) if tcnt > 0 else 0.0
@@ -275,13 +302,12 @@ def _group_by_ticker_for_reason(rows: List[TradeRow], reason_prefix: str) -> Lis
         st["avg_mae_r"] = _mean(st["_mae_r"])
         st["avg_mfe_r"] = _mean(st["_mfe_r"])
         st["avg_hold_min"] = _mean(st["_hold"])
-        # cleanup
         st.pop("_mae_r", None)
         st.pop("_mfe_r", None)
         st.pop("_hold", None)
         out.append(st)
 
-    # trades多い順 → pnl悪い順の2段
+    # trades多い順 → pnl悪い順（見やすさ重視）
     out.sort(key=lambda x: (int(x.get("trades", 0)), -int(x.get("pnl", 0))), reverse=True)
     return out
 
@@ -290,7 +316,7 @@ def _extract_time_limit_missed(rows: List[TradeRow]) -> Dict[str, List[Dict[str,
     """
     time_limit系の「取り逃し」を抽出して返す。
     - missed_big_mfe_loss: mfe_r >= 0.30 なのに pnl<0
-    - missed_big_mfe_small: mfe_r >= 0.50 なのに pnl<=0 or 微益
+    - missed_big_mfe_small: mfe_r >= 0.50 なのに pnl<=0
     """
     missed_big_mfe_loss = []
     missed_big_mfe_small = []
@@ -324,7 +350,7 @@ def _extract_time_limit_missed(rows: List[TradeRow]) -> Dict[str, List[Dict[str,
     missed_big_mfe_loss_d = [to_dict(x) for x in missed_big_mfe_loss]
     missed_big_mfe_small_d = [to_dict(x) for x in missed_big_mfe_small]
 
-    # 最も痛い順
+    # 最も痛い順（pnlが小さい＝マイナスが大きい）
     missed_big_mfe_loss_d.sort(key=lambda x: int(x.get("pnl_yen", 0)))
     missed_big_mfe_small_d.sort(key=lambda x: int(x.get("pnl_yen", 0)))
 
@@ -335,9 +361,6 @@ def _extract_time_limit_missed(rows: List[TradeRow]) -> Dict[str, List[Dict[str,
 
 
 def _print_reason_table(reason_stats: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    表示 & 保存用に rows を返す
-    """
     items = []
     for reason, st in reason_stats.items():
         tcnt = int(st.get("trades", 0))
@@ -450,11 +473,9 @@ def main():
         print("filter_reason_prefix =", reason_prefix)
     print("")
 
-    # exit_reason summary
     reason_stats = _group_by_reason(rows)
     summary_rows = _print_reason_table(reason_stats)
 
-    # ticker rankings
     stop_rank = _group_by_ticker_for_reason(rows, "stop_loss")
     tl_rank = _group_by_ticker_for_reason(rows, "time_limit")
     guard_rank = _group_by_ticker_for_reason(rows, "time_limit_guard")
@@ -463,7 +484,6 @@ def main():
     _print_ticker_ranking("---- ticker ranking (time_limit) ----", tl_rank, topn=15)
     _print_ticker_ranking("---- ticker ranking (time_limit_guard) ----", guard_rank, topn=15)
 
-    # missed opportunities for time_limit
     missed = _extract_time_limit_missed(rows)
     print("")
     print("---- time_limit missed (quick view) ----")
@@ -473,10 +493,10 @@ def main():
         x = missed["missed_big_mfe_loss"][0]
         print(
             f"worst_missed_loss: ticker={x.get('ticker')} date={x.get('date')} pnl={x.get('pnl_yen')} "
-            f"mfe_r={x.get('mfe_r'):.3f} mae_r={x.get('mae_r'):.3f} held={x.get('held_min'):.1f}m reason={x.get('exit_reason')}"
+            f"mfe_r={_safe_float(x.get('mfe_r')):.3f} mae_r={_safe_float(x.get('mae_r')):.3f} "
+            f"held={_safe_float(x.get('held_min')):.1f}m reason={x.get('exit_reason')}"
         )
 
-    # save report
     out_path = report_dir / "analysis_report.json"
     payload = {
         "generated_at": datetime.now().isoformat(),
