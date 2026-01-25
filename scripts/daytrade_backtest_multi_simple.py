@@ -20,6 +20,10 @@
 
 保存:
 - media/aiapp/daytrade/reports/YYYYMMDD/exit_breakdown.json
+
+追加（運用品質）
+- 全トレードの明細（ticker/date/entry/exit/pnl/r/exit_reason/hold/mfe/mae）を保存:
+  media/aiapp/daytrade/reports/YYYYMMDD/trades_detail.json
 """
 
 from __future__ import annotations
@@ -27,7 +31,7 @@ from __future__ import annotations
 import json
 import sys
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional
 
@@ -108,6 +112,17 @@ def _safe_int(x, default: int = 0) -> int:
         return int(default)
 
 
+def _safe_iso(x) -> str:
+    try:
+        if x is None:
+            return ""
+        if isinstance(x, datetime):
+            return x.isoformat()
+        return str(x)
+    except Exception:
+        return ""
+
+
 def _get_exit_reason(tr) -> str:
     r = getattr(tr, "exit_reason", None)
     if r is None:
@@ -185,12 +200,50 @@ def _percentiles(xs: List[float], ps: List[int]) -> Dict[str, float]:
     return out
 
 
+def _append_trade_detail(
+    trade_rows: List[Dict[str, Any]],
+    ticker: str,
+    date_str: str,
+    tr,
+    reason: str,
+    pnl: int,
+    r: float,
+    held_min: float,
+    mfe_yen: int,
+    mae_yen: int,
+    mfe_r: float,
+    mae_r: float,
+) -> None:
+    """
+    1トレード明細をJSON用に貯める（運用で後から掘れるようにする）
+    """
+    row = {
+        "ticker": str(ticker),
+        "date_str": str(date_str),
+        "exit_reason": str(reason),
+        "entry_dt": _safe_iso(getattr(tr, "entry_dt", None)),
+        "exit_dt": _safe_iso(getattr(tr, "exit_dt", None)),
+        "entry_price": _safe_float(getattr(tr, "entry_price", 0.0)),
+        "exit_price": _safe_float(getattr(tr, "exit_price", 0.0)),
+        "qty": _safe_int(getattr(tr, "qty", 0)),
+        "pnl_yen": int(pnl),
+        "r": float(r),
+        "hold_min": float(held_min),
+        "mfe_yen": int(mfe_yen),
+        "mae_yen": int(mae_yen),
+        "mfe_r": float(mfe_r),
+        "mae_r": float(mae_r),
+    }
+    trade_rows.append(row)
+
+
 def run_for_ticker(
     ticker: str,
     dates: List[date],
     policy: dict,
     budget_trade_loss_yen: int,
     exit_stats: Dict[str, Any],
+    trade_rows: List[Dict[str, Any]],
 ) -> Agg:
     agg = Agg(max_dd_yen=0)
 
@@ -205,6 +258,9 @@ def run_for_ticker(
 
         res = run_backtest_one_day(bars=bars, policy=policy)
         _update_agg(agg, res)
+
+        # 日付（res.date_strがあればそれを優先）
+        date_str = str(getattr(res, "date_str", d.isoformat()))
 
         # --- exit_reason 診断用：トレードごとの詳細を蓄積 ---
         for tr in getattr(res, "trades", []):
@@ -258,6 +314,22 @@ def run_for_ticker(
             slot["mfe_r"].append(float(mfe_r))
             slot["mae_r"].append(float(mae_r))
 
+            # --- 追加：トレード明細を保存用に積む ---
+            _append_trade_detail(
+                trade_rows=trade_rows,
+                ticker=ticker,
+                date_str=date_str,
+                tr=tr,
+                reason=reason,
+                pnl=pnl,
+                r=r,
+                held_min=held_min,
+                mfe_yen=mfe_yen,
+                mae_yen=mae_yen,
+                mfe_r=mfe_r,
+                mae_r=mae_r,
+            )
+
     return agg
 
 
@@ -306,6 +378,9 @@ def main():
     # exit_reason別の詳細統計を全体で貯める
     exit_stats: Dict[str, Any] = {}
 
+    # 追加：全トレード明細（後から掘る用）
+    trade_rows: List[Dict[str, Any]] = []
+
     # 銘柄別
     for t in tickers:
         agg = run_for_ticker(
@@ -314,6 +389,7 @@ def main():
             policy=policy,
             budget_trade_loss_yen=budget_trade_loss_yen,
             exit_stats=exit_stats,
+            trade_rows=trade_rows,
         )
 
         trades = agg.total_trades
@@ -380,8 +456,6 @@ def main():
         p_mfe = _percentiles(mfe_r, [50, 75, 90])
         p_mae = _percentiles(mae_r, [50, 75, 90])
 
-        # 旧表示（互換）：reason / trades / winrate / pnl / avg_r
-        # + 新：avg_hold / avg_mfe_r / avg_mae_r
         print(
             f"{reason:28s} trades={tcnt:4d} winrate={winrate_r*100:5.1f}% pnl={pnl:8d} avg_r={avg_r_reason:7.4f} "
             f"avg_hold_min={avg_held:5.1f} avg_mfe_r={avg_mfe_r:6.3f} avg_mae_r={avg_mae_r:6.3f}"
@@ -410,8 +484,10 @@ def main():
             }
         )
 
-    # 保存
+    # 保存（exit_breakdown + trades_detail）
     out_dir = _report_dir_today()
+
+    # 1) exit_breakdown.json
     out_path = out_dir / "exit_breakdown.json"
     payload = {
         "generated_at": datetime.now().isoformat(),
@@ -437,6 +513,22 @@ def main():
     except Exception as e:
         print("")
         print("failed to save exit breakdown:", e)
+
+    # 2) trades_detail.json（追加）
+    trades_path = out_dir / "trades_detail.json"
+    trades_payload = {
+        "generated_at": datetime.now().isoformat(),
+        "policy_id": policy.get("meta", {}).get("policy_id"),
+        "n_bdays_approx": n,
+        "tickers": tickers,
+        "budget_trade_loss_yen": budget_trade_loss_yen,
+        "trades": trade_rows,
+    }
+    try:
+        trades_path.write_text(json.dumps(trades_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        print("saved trades detail  = " + str(trades_path))
+    except Exception as e:
+        print("failed to save trades detail:", e)
 
     print("=== done ===")
 
