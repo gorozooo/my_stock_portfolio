@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any, Dict, List, Tuple
 from datetime import date
 
@@ -16,16 +17,23 @@ from aiapp.services.daytrade.bar_adapter_5m import df_to_bars_5m
 from aiapp.services.daytrade.backtest_runner import run_backtest_one_day
 from aiapp.services.daytrade.risk_math import calc_risk_budget_yen
 
+# ★ auto_fix（本番で“俺がいなくても回る”ための自動修正係）
+try:
+    from aiapp.services.daytrade.auto_fix import auto_fix_policy
+except Exception:
+    auto_fix_policy = None  # type: ignore
 
+
+# 開発用：まずは「これだけで開発してOK」な固定リスト
 DEV_DEFAULT_TICKERS = ["7203", "6758", "9984", "8306", "8316", "8035", "6861", "6501", "9432", "6098"]
 
 
-EXIT_REASON_LABELS = {
-    "time_limit": "時間切れ（終了）",
+EXIT_REASON_LABEL = {
+    "time_limit": "時間切れ（時間で終了）",
     "stop_loss": "損切り（ストップ）",
-    "take_profit": "利確（目標達成）",
-    "force_close_end_of_day": "引け強制決済（終了時）",
-    "unknown": "不明（未分類）",
+    "take_profit": "利確（利益確定）",
+    "force_close_end_of_day": "引け強制決済（終了時刻）",
+    "unknown": "不明",
 }
 
 
@@ -64,13 +72,6 @@ def _get_exit_reason(tr) -> str:
         return "unknown"
     s = str(r).strip()
     return s if s else "unknown"
-
-
-def _exit_reason_label(code: str) -> str:
-    c = (code or "").strip()
-    if not c:
-        c = "unknown"
-    return EXIT_REASON_LABELS.get(c, f"不明（{c}）")
 
 
 def _slice_bars_for_trade(bars, entry_dt, exit_dt):
@@ -126,7 +127,6 @@ def _parse_tickers(text: str) -> List[str]:
     for x in xs:
         if x.isdigit() and (4 <= len(x) <= 5):
             out.append(x)
-
     seen = set()
     uniq = []
     for c in out:
@@ -137,10 +137,51 @@ def _parse_tickers(text: str) -> List[str]:
     return uniq
 
 
+def _diff_policy_simple(base: Dict[str, Any], cand: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    auto_fix の “何が変わったか” を初心者向けに出す（安全な範囲だけ）。
+    いまの auto_fix が触るのは exit.take_profit_r / exit.max_hold_minutes なのでそこだけ見る。
+    """
+    out: List[Dict[str, Any]] = []
+
+    def getp(d: Dict[str, Any], path: List[str], default=None):
+        cur: Any = d
+        for k in path:
+            if not isinstance(cur, dict):
+                return default
+            if k not in cur:
+                return default
+            cur = cur[k]
+        return cur
+
+    watch = [
+        (["exit", "take_profit_r"], "利確ライン（R）"),
+        (["exit", "max_hold_minutes"], "最大保有時間（分）"),
+    ]
+
+    for path, label in watch:
+        b = getp(base, path, None)
+        c = getp(cand, path, None)
+        if b != c:
+            out.append(
+                {
+                    "label": label,
+                    "path": ".".join(path),
+                    "before": b,
+                    "after": c,
+                }
+            )
+    return out
+
+
 def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
+    # ---------- form defaults ----------
     form_n = 20
-    form_target = "dev_default"  # dev_default / manual
+    form_mode = "dev_default"  # dev_default / manual / auto
     form_tickers = ""
+    form_top = 40
+    form_scan_limit = 2000
+    form_pre_rank_pool = 400
 
     run_log_lines: List[str] = []
 
@@ -154,6 +195,11 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
     kpi_avg_r = "-"
     kpi_max_dd = 0
 
+    # ---------- auto_fix outputs ----------
+    auto_fix_enabled = auto_fix_policy is not None
+    fix_summary: Dict[str, Any] | None = None
+
+    # ---------- policy ----------
     try:
         loaded = load_policy_yaml()
         policy = loaded.policy
@@ -161,8 +207,9 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
     except Exception as e:
         policy = {}
         policy_id = ""
-        run_log_lines.append(f"[error] ポリシー読み込み失敗: {e}")
+        run_log_lines.append(f"[error] policy load failed: {e}")
 
+    # budget (for MFE/MAE R conversion)
     capital_cfg = (policy or {}).get("capital", {})
     risk_cfg = (policy or {}).get("risk", {})
     base_capital = int(capital_cfg.get("base_capital", 0) or 0)
@@ -172,28 +219,52 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
     budget_trade_loss_yen = max(int(getattr(budget, "trade_loss_yen", 1)), 1)
 
     if request.method == "POST":
+        # ---------- read form ----------
         try:
             form_n = int(request.POST.get("n") or 20)
         except Exception:
             form_n = 20
+
+        form_mode = str(request.POST.get("mode") or "dev_default").strip()
+        form_tickers = str(request.POST.get("tickers") or "")
+
+        try:
+            form_top = int(request.POST.get("top") or 40)
+        except Exception:
+            form_top = 40
+
+        try:
+            form_scan_limit = int(request.POST.get("scan_limit") or 2000)
+        except Exception:
+            form_scan_limit = 2000
+
+        try:
+            form_pre_rank_pool = int(request.POST.get("pre_rank_pool") or 400)
+        except Exception:
+            form_pre_rank_pool = 400
+
         if form_n not in (20, 60, 120):
             form_n = 20
 
-        form_target = str(request.POST.get("target") or "dev_default").strip()
-        form_tickers = str(request.POST.get("tickers") or "")
-
-        if form_target == "manual":
+        # ---------- select tickers ----------
+        if form_mode == "manual":
             selected_tickers = _parse_tickers(form_tickers)
             if not selected_tickers:
                 selected_tickers = DEV_DEFAULT_TICKERS[:]
-                run_log_lines.append("[warn] 銘柄が空だったので「開発おすすめ10銘柄」に戻しました")
+                run_log_lines.append("[warn] 手動指定が空 → 開発おすすめ10銘柄に戻した")
+        elif form_mode == "auto":
+            # いまは速度優先で dev_default に落とす（候補JSON連携は次工程）
+            selected_tickers = DEV_DEFAULT_TICKERS[:]
+            run_log_lines.append("[info] 自動選定は未接続 → いったん開発おすすめ10銘柄で実行")
         else:
             selected_tickers = DEV_DEFAULT_TICKERS[:]
 
+        # 安全装置：画面からの実行は最大10銘柄まで（開発速度最優先）
         if len(selected_tickers) > 10:
             selected_tickers = selected_tickers[:10]
-            run_log_lines.append("[info] 開発速度優先のため、銘柄数を最大10に制限しました")
+            run_log_lines.append("[info] 銘柄数が多いので10銘柄に制限（開発速度優先）")
 
+        # ---------- run backtest ----------
         dates = _last_n_bdays_jst(form_n)
         exit_stats: Dict[str, Any] = {}
 
@@ -204,12 +275,15 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
         total_sum_r = 0.0
         total_wins = 0
         total_losses = 0
-        total_max_dd = 0
+        total_max_dd = 0  # min negative
 
-        run_log_lines.append("=== デイトレ バックテスト（UI実行）===")
+        run_log_lines.append("=== デイトレ・バックテスト（UI） ===")
         run_log_lines.append(f"policy_id = {policy_id}")
-        run_log_lines.append(f"N（過去営業日）= {form_n}")
+        run_log_lines.append(f"N = {form_n}（過去営業日）")
         run_log_lines.append(f"銘柄 = {selected_tickers}")
+
+        # ★ auto_fix 用：この実行で使った “日次結果（実体は run_backtest_one_day の戻り）” を集める
+        collected_day_results: List[Any] = []
 
         for t in selected_tickers:
             used_days = 0
@@ -232,6 +306,9 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
 
                 used_days += 1
                 res = run_backtest_one_day(bars=bars, policy=policy)
+
+                # auto_fix / judge 用に保存
+                collected_day_results.append(res)
 
                 day_trades = list(getattr(res, "trades", []) or [])
                 pnl_sum += int(getattr(res, "pnl_yen", 0) or 0)
@@ -311,9 +388,14 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
                     "pnl": pnl_sum,
                     "winrate": _fmt_pct(winrate) if trades_cnt > 0 else "0.0%",
                     "avg_r": f"{avg_r:.4f}",
-                    "max_dd_yen": max_dd,
                     "avg_r_num": float(avg_r),
+                    "max_dd_yen": max_dd,
                 }
+            )
+
+            run_log_lines.append(
+                f"[{t}] used_days={used_days} traded_days={traded_days} trades={trades_cnt} pnl={pnl_sum} "
+                f"winrate={_fmt_pct(winrate)} avg_r={avg_r:.4f} max_dd_yen={max_dd}"
             )
 
             total_days += used_days
@@ -325,6 +407,7 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
             total_losses += losses
             total_max_dd = min(int(total_max_dd), int(max_dd))
 
+        # KPIs
         total_avg_r = (total_sum_r / total_trades) if total_trades > 0 else 0.0
         total_winrate = (total_wins / total_trades) if total_trades > 0 else 0.0
 
@@ -341,6 +424,7 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
             f"winrate={_fmt_pct(total_winrate)} avg_r={total_avg_r:.4f} max_dd_yen={total_max_dd}"
         )
 
+        # exit_rows
         items = []
         for reason, st in exit_stats.items():
             tcnt = int(st.get("trades", 0) or 0)
@@ -352,10 +436,10 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
         for tcnt, reason, st in items:
             wins_r = int(st.get("wins", 0) or 0)
             pnl_r = int(st.get("pnl", 0) or 0)
-            sum_r2 = float(st.get("sum_r", 0.0) or 0.0)
+            sum_r_reason = float(st.get("sum_r", 0.0) or 0.0)
 
             winrate_r = (wins_r / tcnt) if tcnt > 0 else 0.0
-            avg_r_reason = (sum_r2 / tcnt) if tcnt > 0 else 0.0
+            avg_r_reason = (sum_r_reason / tcnt) if tcnt > 0 else 0.0
 
             held = list(st.get("held_minutes", []) or [])
             mfe_r = list(st.get("mfe_r", []) or [])
@@ -367,34 +451,86 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
 
             exit_rows.append(
                 {
-                    "exit_reason": reason,  # 英語コードは保持（内部用）
-                    "exit_reason_label": _exit_reason_label(reason),  # ✅ 画面表示用は日本語
+                    "exit_reason": reason,
+                    "exit_reason_label": EXIT_REASON_LABEL.get(reason, reason),
                     "trades": int(tcnt),
                     "wins": int(wins_r),
                     "winrate": _fmt_pct(float(winrate_r)),
                     "pnl": int(pnl_r),
                     "avg_r": float(round(avg_r_reason, 4)),
+                    "avg_r_num": float(avg_r_reason),
                     "avg_hold_min": float(round(avg_held, 1)),
                     "avg_mfe_r": float(round(avg_mfe_r, 3)),
                     "avg_mae_r": float(round(avg_mae_r, 3)),
-                    "avg_r_num": float(avg_r_reason),
                 }
             )
 
+        # ★ auto_fix（ここが“本番で俺がいなくても回る”場所）
+        if auto_fix_enabled and policy and collected_day_results:
+            try:
+                def provider(p: Dict[str, Any]) -> List[Any]:
+                    # いまは「同じ期間・同じ銘柄」で回す（本番も再現性がある）
+                    # 速度が気になったら「キャッシュ済みbarsから結果だけ作る」へ次工程で最適化できる
+                    out: List[Any] = []
+                    for t in selected_tickers:
+                        for d in dates:
+                            df = load_daytrade_5m_bars(t, d, force_refresh=False)
+                            if df is None or df.empty:
+                                continue
+                            bars = df_to_bars_5m(df)
+                            if not bars:
+                                continue
+                            out.append(run_backtest_one_day(bars=bars, policy=p))
+                    return out
+
+                fx = auto_fix_policy(base_policy=policy, day_results_provider=provider, max_candidates=10)
+                base_j = fx.base_judge
+                best = fx.best
+
+                fix_summary = {
+                    "base": {
+                        "decision": getattr(base_j, "decision", ""),
+                        "reasons": list(getattr(base_j, "reasons", []) or []),
+                        "metrics": dict(getattr(base_j, "metrics", {}) or {}),
+                    },
+                    "best": {
+                        "name": best.name,
+                        "decision": getattr(best.judge, "decision", ""),
+                        "reasons": list(getattr(best.judge, "reasons", []) or []),
+                        "metrics": dict(getattr(best.judge, "metrics", {}) or {}),
+                    },
+                    "candidates_count": len(list(getattr(fx, "candidates", []) or [])),
+                    "diffs": _diff_policy_simple(policy, best.policy),
+                }
+            except Exception as e:
+                fix_summary = {
+                    "error": f"auto_fix 実行でエラー: {e}",
+                }
+
     ctx = {
+        # form echo
         "form_n": form_n,
-        "form_target": form_target,
+        "form_mode": form_mode,
         "form_tickers": form_tickers,
+        "form_top": form_top,
+        "form_scan_limit": form_scan_limit,
+        "form_pre_rank_pool": form_pre_rank_pool,
+        # meta
         "policy_id": policy_id,
         "budget_trade_loss_yen": budget_trade_loss_yen,
+        # outputs
         "selected_tickers": selected_tickers,
         "rows": rows,
         "exit_rows": exit_rows,
-        "run_log": "\n".join(run_log_lines) if run_log_lines else "（ここに実行ログが出ます）",
+        "run_log": "\n".join(run_log_lines) if run_log_lines else "（ここにログが出る）",
+        # KPIs
         "kpi_total_pnl": kpi_total_pnl,
         "kpi_trades": kpi_trades,
         "kpi_winrate": kpi_winrate,
         "kpi_avg_r": kpi_avg_r,
         "kpi_max_dd": kpi_max_dd,
+        # auto_fix
+        "auto_fix_enabled": auto_fix_enabled,
+        "fix_summary": fix_summary,
     }
     return render(request, "aiapp/daytrade_backtest.html", ctx)
