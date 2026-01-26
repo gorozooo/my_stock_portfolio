@@ -2,21 +2,17 @@
 """
 ファイル: aiapp/services/daytrade/auto_fix.py
 
-これは何？
-- Judgeが NO_GO を出したときに、ポリシー（active.yml 相当）を「人が触らず」修正案を自動生成し、
-  バックテスト→Judge を繰り返して GO になった案を返す “自動修正係（Auto Fixer）” です。
-
-狙い（重要）
-- 初心者がパラメータをいじらなくていい（＝触るのは YES/NO だけ）
-- NO_GO の場合でも、システム側が「この方向で直すと良さそう」を提案し、合格した案だけを採用する
-- 基準を満たすものだけ稼働（再現性と安全）
+強化版 Auto Fixer
+- NO_GO の原因に応じて複数方向の候補を作る
+- 1段の候補生成だけでなく、スコア上位を起点に複数段探索する（安全上限あり）
+- 目標: mode="prod" を GO にする（開発中は mode="dev" で改善サイクルを回すのもOK）
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from copy import deepcopy
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .judge import JudgeResult, judge_backtest_results
 
@@ -26,6 +22,7 @@ class FixCandidate:
     name: str
     policy: Dict[str, Any]
     judge: JudgeResult
+    diffs: List[Dict[str, Any]]
 
 
 @dataclass
@@ -55,241 +52,172 @@ def _set_nested(d: Dict[str, Any], path: List[str], value: Any) -> None:
     cur[path[-1]] = value
 
 
-def _score_candidate(j: JudgeResult) -> float:
-    decision_bonus = 1000.0 if j.decision == "GO" else 0.0
+def _diff_policy_watch(base: Dict[str, Any], cand: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    どこを変えたか（安全な範囲のみ）
+    """
+    watch = [
+        (["exit", "take_profit_r"], "利確ライン（R）"),
+        (["exit", "max_hold_minutes"], "最大保有時間（分）"),
+        (["exec_guards", "early_stop", "max_adverse_r"], "早期撤退（逆行R）"),
+        (["limits", "max_trades_per_day"], "1日最大トレード数"),
+        (["vwap_exit_grace", "min_r_to_allow_exit"], "VWAP離脱猶予（許容R）"),
+    ]
+
+    out: List[Dict[str, Any]] = []
+    for path, label in watch:
+        b = _get_nested(base, path, None)
+        c = _get_nested(cand, path, None)
+        if b != c:
+            out.append({"label": label, "path": ".".join(path), "before": b, "after": c})
+    return out
+
+
+def _score(j: JudgeResult) -> float:
+    """
+    高いほど良い
+    - GO を最優先
+    - avg_r を重視
+    - DD を減点
+    - trades が少なすぎる案は軽く減点（安定性）
+    """
+    decision_bonus = 100000.0 if j.decision == "GO" else 0.0
     avg_r = float(j.metrics.get("avg_r", -999))
-    max_dd_pct = float(j.metrics.get("max_dd_pct", 9))
-    daylimit_days_pct = float(j.metrics.get("daylimit_days_pct", 9))
-    # DD / 日次停止の多さは減点（安全寄り）
-    return decision_bonus + (avg_r * 120.0) - (max_dd_pct * 60.0) - (daylimit_days_pct * 20.0)
+    max_dd = float(j.metrics.get("max_dd_pct", 9))
+    trades = float(j.metrics.get("total_trades", 0))
+
+    trade_penalty = 0.0
+    if trades < 50:
+        trade_penalty = (50 - trades) * 2.0
+
+    return decision_bonus + (avg_r * 1000.0) - (max_dd * 300.0) - trade_penalty
 
 
-def evaluate_policy(policy: Dict[str, Any], day_results: List[Any], judge_mode: str) -> JudgeResult:
-    return judge_backtest_results(day_results, policy, judge_mode=judge_mode)
+def evaluate_policy(policy: Dict[str, Any], day_results: List[Any], mode: str) -> JudgeResult:
+    return judge_backtest_results(day_results, policy, mode=mode)
 
 
-def _patch_entry_require_value(policy: Dict[str, Any], key: str, new_value: Any) -> bool:
+def _generate_single_step_candidates(base_policy: Dict[str, Any], base_judge: JudgeResult) -> List[Tuple[str, List[Tuple[List[str], Any]]]]:
     """
-    entry.require が list[dict] 形式のときに、
-    例: - near_vwap_pct: 0.2 のような要素を安全に更新する。
-
-    成功したら True、対象がなければ False。
+    NO_GO理由に応じて、1手だけいじる候補を作る
+    （“戦略ロジック”は変えず、ポリシーの範囲で）
     """
-    entry = policy.get("entry", {})
-    if not isinstance(entry, dict):
-        return False
-    req = entry.get("require", None)
-    if not isinstance(req, list):
-        return False
+    reasons_text = " ".join(list(base_judge.reasons or []))
 
-    changed = False
-    for i, item in enumerate(req):
-        if not isinstance(item, dict):
-            continue
-        if key in item:
-            item[key] = new_value
-            req[i] = item
-            changed = True
-    entry["require"] = req
-    policy["entry"] = entry
-    return changed
+    tp_now = float(_get_nested(base_policy, ["exit", "take_profit_r"], 1.5))
+    mh_now = int(_get_nested(base_policy, ["exit", "max_hold_minutes"], 25))
+    es_now = float(_get_nested(base_policy, ["exec_guards", "early_stop", "max_adverse_r"], 0.5))
+    mtd_now = int(_get_nested(base_policy, ["limits", "max_trades_per_day"], 3))
+    vwap_minr_now = float(_get_nested(base_policy, ["exit", "vwap_exit_grace", "min_r_to_allow_exit"], 0.3))
+
+    plans: List[Tuple[str, List[Tuple[List[str], Any]]]] = []
+
+    # --- avg_r が低い（期待値が弱い） ---
+    if ("avg_r too low" in reasons_text) or (base_judge.decision == "NO_GO"):
+        # 利確を伸ばす（勝ちを伸ばす）
+        for tp in [2.0, 2.5, 3.0]:
+            if tp > tp_now:
+                plans.append((f"raise_take_profit_r_to_{tp}", [(["exit", "take_profit_r"], tp)]))
+
+        # 最大保有を短くしてダラダラを減らす
+        for mh in [20, 15, 12, 10, 8]:
+            if mh < mh_now:
+                plans.append((f"reduce_max_hold_minutes_to_{mh}", [(["exit", "max_hold_minutes"], mh)]))
+
+        # 早期撤退（逆行を切る）：0.5→0.4→0.35→0.3
+        for es in [0.4, 0.35, 0.3]:
+            if es < es_now:
+                plans.append((f"tighten_early_stop_to_{es}", [(["exec_guards", "early_stop", "max_adverse_r"], es)]))
+
+        # 1日トレード数を絞って負けの連鎖を止める
+        for mtd in [2, 1]:
+            if mtd < mtd_now:
+                plans.append((f"reduce_max_trades_per_day_to_{mtd}", [(["limits", "max_trades_per_day"], mtd)]))
+
+        # VWAP離脱を早める方向（勝ち逃げ/撤退を早くする）
+        for mr in [0.2, 0.15]:
+            if mr < vwap_minr_now:
+                plans.append((f"allow_vwap_exit_from_{mr}R", [(["exit", "vwap_exit_grace", "min_r_to_allow_exit"], mr)]))
+
+    # --- DD が大きい系（今後 reasons で拾えるようにしておく） ---
+    if "max_dd_pct exceeded" in reasons_text:
+        for es in [0.4, 0.35, 0.3]:
+            if es < es_now:
+                plans.append((f"dd_guard_tighten_early_stop_to_{es}", [(["exec_guards", "early_stop", "max_adverse_r"], es)]))
+        for mtd in [2, 1]:
+            if mtd < mtd_now:
+                plans.append((f"dd_guard_reduce_max_trades_per_day_to_{mtd}", [(["limits", "max_trades_per_day"], mtd)]))
+
+    return plans
 
 
 def auto_fix_policy(
     base_policy: Dict[str, Any],
     day_results_provider: Callable[[Dict[str, Any]], List[Any]],
-    max_candidates: int = 12,
-    judge_mode: str = "prod",
+    max_candidates: int = 25,
+    max_rounds: int = 3,
+    beam_width: int = 5,
+    mode: str = "prod",
 ) -> AutoFixResult:
     """
-    base_policy を起点に、修正案を順に試して GO を目指す。
-
-    judge_mode:
-      - "dev"  : 開発用しきい値でGOを狙う
-      - "prod" : 本番用しきい値でGOを狙う（デフォ）
+    強化版：複数段探索で GO を狙う
+    - max_rounds: 何段探索するか
+    - beam_width: 各段で上位何件を次段の起点にするか
     """
-    # 元ポリシーの評価
+    mode = (mode or "prod").strip().lower()
+
     base_day_results = day_results_provider(base_policy)
-    base_judge = evaluate_policy(base_policy, base_day_results, judge_mode)
+    base_judge = evaluate_policy(base_policy, base_day_results, mode=mode)
 
-    candidates: List[FixCandidate] = []
-
-    reasons_text = " ".join(list(base_judge.reasons or []))
-    is_no_go = (base_judge.decision == "NO_GO")
-
-    # =========================================================
-    # 変更候補（単発）
-    # =========================================================
-    fix_plan: List[Tuple[str, List[Tuple[List[str], Any]], List[Tuple[str, Any]]]] = []
-    # edits_dict: (path,value) のリスト（dict用）
-    # edits_entry: (entry_key,value) のリスト（entry.require(list)用）
-
-    # 現在値
-    tp_now = float(_get_nested(base_policy, ["exit", "take_profit_r"], 1.5) or 1.5)
-    mh_now = int(_get_nested(base_policy, ["exit", "max_hold_minutes"], 25) or 25)
-    adv_now = float(_get_nested(base_policy, ["exec_guards", "early_stop", "max_adverse_r"], 0.5) or 0.5)
-    tl_now = float(_get_nested(base_policy, ["risk", "trade_loss_pct"], 0.003) or 0.003)
-    dl_now = float(_get_nested(base_policy, ["risk", "day_loss_pct"], 0.01) or 0.01)
-    mtd_now = int(_get_nested(base_policy, ["limits", "max_trades_per_day"], 3) or 3)
-
-    # 1) avg_r が低い（または NO_GO）：期待値を改善したい
-    if ("avg_r too low" in reasons_text) or is_no_go:
-        # TPを伸ばす（伸ばしすぎると約定しないので段階）
-        for tp in [2.0, 2.5, 3.0]:
-            if tp > tp_now:
-                fix_plan.append(
-                    (f"raise_take_profit_r_to_{tp}",
-                     [(["exit", "take_profit_r"], tp)],
-                     [])
-                )
-
-        # ダラダラ負けを減らす：最大保有短縮（25→20→15→12）
-        for mh in [20, 15, 12]:
-            if mh < mh_now:
-                fix_plan.append(
-                    (f"reduce_max_hold_minutes_to_{mh}",
-                     [(["exit", "max_hold_minutes"], mh)],
-                     [])
-                )
-
-        # entry.require の near_vwap_pct を少し絞る（0.20→0.18→0.15）
-        for nv in [0.18, 0.15]:
-            fix_plan.append(
-                (f"tighten_near_vwap_pct_to_{nv}",
-                 [],
-                 [("near_vwap_pct", nv)])
-            )
-
-    # 2) DDが大きい：損失制御を強化
-    if "max_dd_pct exceeded" in reasons_text or is_no_go:
-        # early_stop を強化（0.5→0.45→0.4）
-        for adv in [0.45, 0.40]:
-            if adv < adv_now:
-                fix_plan.append(
-                    (f"tighten_early_stop_max_adverse_r_to_{adv}",
-                     [(["exec_guards", "early_stop", "enable"], True),
-                      (["exec_guards", "early_stop", "max_adverse_r"], adv)],
-                     [])
-                )
-
-        # 1回の許容損を少し下げる（trade_loss_pct）
-        for tl in [max(tl_now * 0.8, 0.0015), max(tl_now * 0.7, 0.0015)]:
-            if tl < tl_now:
-                fix_plan.append(
-                    (f"reduce_trade_loss_pct_to_{round(tl, 4)}",
-                     [(["risk", "trade_loss_pct"], float(round(tl, 6)))],
-                     [])
-                )
-
-        # 1日の許容損を少し下げる（day_loss_pct）
-        for dl in [max(dl_now * 0.8, 0.004), max(dl_now * 0.7, 0.004)]:
-            if dl < dl_now:
-                fix_plan.append(
-                    (f"reduce_day_loss_pct_to_{round(dl, 4)}",
-                     [(["risk", "day_loss_pct"], float(round(dl, 6)))],
-                     [])
-                )
-
-    # 3) 連敗が多い：エントリー回数と早期撤退で止血
-    if "max_consecutive_losses exceeded" in reasons_text or is_no_go:
-        for mt in [2, 1]:
-            if mt < mtd_now:
-                fix_plan.append(
-                    (f"reduce_max_trades_per_day_to_{mt}",
-                     [(["limits", "max_trades_per_day"], mt)],
-                     [])
-                )
-
-        for adv in [0.45, 0.40]:
-            if adv < adv_now:
-                fix_plan.append(
-                    (f"tighten_early_stop_for_consecutive_losses_{adv}",
-                     [(["exec_guards", "early_stop", "enable"], True),
-                      (["exec_guards", "early_stop", "max_adverse_r"], adv)],
-                     [])
-                )
-
-    # 4) daylimitが多すぎ：止まりすぎ＝チャンスが潰れてる可能性
-    #    ここは「緩める案」と「過剰売買を抑える案」を両方出す（人が選べる）
-    if "daylimit_days_pct exceeded" in reasons_text:
-        # 緩める案：day_loss_pct を少し上げる（ただし上げすぎない）
-        for dl in [min(dl_now * 1.2, 0.02), min(dl_now * 1.35, 0.02)]:
-            if dl > dl_now:
-                fix_plan.append(
-                    (f"increase_day_loss_pct_to_{round(dl, 4)}",
-                     [(["risk", "day_loss_pct"], float(round(dl, 6)))],
-                     [])
-                )
-        # 抑える案：max_trades を減らす
-        for mt in [2, 1]:
-            if mt < mtd_now:
-                fix_plan.append(
-                    (f"reduce_trades_to_reduce_daylimit_{mt}",
-                     [(["limits", "max_trades_per_day"], mt)],
-                     [])
-                )
-
-    # =========================================================
-    # 組み合わせ候補（現実に効きやすいセット）
-    # =========================================================
-    combo_plan: List[Tuple[str, List[Tuple[List[str], Any]], List[Tuple[str, Any]]]] = []
-
-    # 期待値＋DDの両方を狙うセット
-    combo_plan.append(
-        ("combo_tp_2.0_hold_15_early_0.45",
-         [
-             (["exit", "take_profit_r"], 2.0),
-             (["exit", "max_hold_minutes"], 15),
-             (["exec_guards", "early_stop", "enable"], True),
-             (["exec_guards", "early_stop", "max_adverse_r"], min(adv_now, 0.45)),
-         ],
-         [("near_vwap_pct", 0.18)])
+    base_cand = FixCandidate(
+        name="base_policy",
+        policy=base_policy,
+        judge=base_judge,
+        diffs=[],
     )
 
-    combo_plan.append(
-        ("combo_tp_2.5_hold_12_early_0.40_tradeLossDown",
-         [
-             (["exit", "take_profit_r"], 2.5),
-             (["exit", "max_hold_minutes"], 12),
-             (["exec_guards", "early_stop", "enable"], True),
-             (["exec_guards", "early_stop", "max_adverse_r"], min(adv_now, 0.40)),
-             (["risk", "trade_loss_pct"], float(round(max(tl_now * 0.8, 0.0015), 6))),
-         ],
-         [("near_vwap_pct", 0.15)])
-    )
+    all_candidates: List[FixCandidate] = []
+    frontier: List[FixCandidate] = [base_cand]
 
-    # combo を末尾に足す（単発→combo の順で試す）
-    fix_plan.extend(combo_plan)
+    best = base_cand
 
-    # =========================================================
-    # 候補を順に試す（上限あり）
-    # =========================================================
-    for name, edits_dict, edits_entry in fix_plan:
-        if len(candidates) >= int(max_candidates):
+    for _round in range(max_rounds):
+        next_gen: List[FixCandidate] = []
+
+        for seed in frontier:
+            plans = _generate_single_step_candidates(seed.policy, seed.judge)
+            for name, edits in plans:
+                if len(all_candidates) >= max_candidates:
+                    break
+
+                p2 = deepcopy(seed.policy)
+                for path, val in edits:
+                    _set_nested(p2, path, val)
+
+                dr = day_results_provider(p2)
+                j = evaluate_policy(p2, dr, mode=mode)
+                diffs = _diff_policy_watch(base_policy, p2)
+
+                cand = FixCandidate(name=f"r{_round+1}:{name}", policy=p2, judge=j, diffs=diffs)
+                all_candidates.append(cand)
+                next_gen.append(cand)
+
+                # ベスト更新
+                if _score(cand.judge) > _score(best.judge):
+                    best = cand
+
+                # GOが出たら即終了（時間を無駄にしない）
+                if cand.judge.decision == "GO":
+                    return AutoFixResult(base_judge=base_judge, candidates=all_candidates, best=cand)
+
+            if len(all_candidates) >= max_candidates:
+                break
+
+        # 次段の起点（beam search）
+        if not next_gen:
             break
 
-        p2 = deepcopy(base_policy)
+        next_gen.sort(key=lambda c: _score(c.judge), reverse=True)
+        frontier = next_gen[: max(int(beam_width), 1)]
 
-        # dictパス変更
-        for path, val in edits_dict:
-            _set_nested(p2, path, val)
-
-        # entry.require(list)変更
-        for k, v in edits_entry:
-            _patch_entry_require_value(p2, k, v)
-
-        dr = day_results_provider(p2)
-        j = evaluate_policy(p2, dr, judge_mode)
-        candidates.append(FixCandidate(name=name, policy=p2, judge=j))
-
-        if j.decision == "GO":
-            best = candidates[-1]
-            return AutoFixResult(base_judge=base_judge, candidates=candidates, best=best)
-
-    # GOが無ければ「一番マシ」を返す
-    if candidates:
-        best = max(candidates, key=lambda c: _score_candidate(c.judge))
-    else:
-        best = FixCandidate(name="base_policy", policy=base_policy, judge=base_judge)
-
-    return AutoFixResult(base_judge=base_judge, candidates=candidates, best=best)
+    return AutoFixResult(base_judge=base_judge, candidates=all_candidates, best=best)
