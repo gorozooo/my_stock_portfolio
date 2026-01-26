@@ -8,8 +8,9 @@
 - 0トレの日が出るのは仕様。銘柄数を増やして「回る」ようにする。
 
 重要（UIと一致させる）
-- バックテスト本体（集計/exit_reason集計/ログ生成）は、
-  aiapp/services/daytrade/backtest_multi_service.py の共通サービスを呼ぶ。
+- UIと同じ “1本サービス” を呼ぶ（Judge + AutoFix まで含む）。
+  aiapp/services/daytrade/backtest_multi_service.py の
+  run_daytrade_backtest_multi_with_judge_autofix() を使う。
 - これにより「UIとscriptで結果が違う」を潰す。
 
 【開発用: 固定銘柄で高速に回す（秒）】
@@ -56,6 +57,13 @@ from aiapp.services.daytrade.backtest_multi_service import (
     run_daytrade_backtest_multi,
     last_n_bdays_jst,
 )
+
+# ★ Judge + AutoFix まで含めた“本番想定”サービス（無ければ自動でfallback）
+try:
+    from aiapp.services.daytrade.backtest_multi_service import run_daytrade_backtest_multi_with_judge_autofix
+except Exception:
+    run_daytrade_backtest_multi_with_judge_autofix = None  # type: ignore
+
 
 # ユニバースフィルタ（picks_filter を流用：StockMaster が無いと実質ノーフィルタだがOK）
 from aiapp.services.picks_filter import UniverseFilterConfig, filter_universe_codes
@@ -364,7 +372,32 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--pre-rank-pool", type=int, default=400, help="（StockMasterあり）流動性順に上位何銘柄まで絞ってからデータチェックするか")
     p.add_argument("--scan-limit", type=int, default=2000, help="（StockMasterなし）ユニバースを先頭から何銘柄スキャンするか（0=無制限）")
 
+    # ★ 追加：auto_fix を切りたいとき用（検証に便利）
+    p.add_argument("--no-autofix", action="store_true", help="auto_fix を使わず judge のみで評価（比較用）")
+    p.add_argument("--autofix-max", type=int, default=10, help="auto_fix の候補数上限（デフォルト10）")
+
     return p
+
+
+def _print_judge(j: Any, title: str) -> None:
+    if not j:
+        print(f"[{title}] (no judge)")
+        return
+    decision = getattr(j, "decision", "")
+    reasons = list(getattr(j, "reasons", []) or [])
+    metrics = dict(getattr(j, "metrics", {}) or {})
+
+    print(f"--- {title} ---")
+    print("decision =", decision)
+    if reasons:
+        print("reasons:")
+        for r in reasons:
+            print(" -", r)
+    else:
+        print("reasons: (none)")
+    if metrics:
+        print("metrics =", metrics)
+    print("")
 
 
 def main():
@@ -466,10 +499,71 @@ def main():
     print("policy_id =", policy.get("meta", {}).get("policy_id"))
     print("days (bday approx) =", n)
     print("tickers =", tickers)
+    print("budget_trade_loss_yen =", budget_trade_loss_yen)
+    print("autofix =", ("OFF" if bool(args.no_autofix) else "ON"))
     print("")
 
     # =========================================================
-    # ★ 実行本体は共通サービス（UIと完全一致）
+    # ★ UIと完全一致：Judge + AutoFix まで含めたサービスを優先
+    # =========================================================
+    if run_daytrade_backtest_multi_with_judge_autofix is not None:
+        try:
+            outx = run_daytrade_backtest_multi_with_judge_autofix(
+                n=n,
+                tickers=tickers,
+                policy=policy,
+                budget_trade_loss_yen=budget_trade_loss_yen,
+                dates=dates,
+                verbose_log=True,
+                enable_autofix=(not bool(args.no_autofix)),
+                autofix_max_candidates=int(args.autofix_max),
+            )
+
+            base = dict(outx.get("base", {}) or {})
+            applied = dict(outx.get("applied", {}) or {})
+
+            # まず Judge（元→採用後）
+            _print_judge(outx.get("base_judge"), "Judge (base)")
+            _print_judge(outx.get("applied_judge"), "Judge (applied)")
+
+            # auto_fix 概要
+            fx = outx.get("autofix", None)
+            if fx is None:
+                print("--- auto_fix ---")
+                print("used = False (service returned no autofix result)")
+                print("")
+            else:
+                best = getattr(fx, "best", None)
+                best_name = str(getattr(best, "name", "") or "")
+                cand_cnt = int(len(list(getattr(fx, "candidates", []) or [])))
+                print("--- auto_fix ---")
+                print("used =", (not bool(args.no_autofix)))
+                print("best_name =", best_name)
+                print("candidates_count =", cand_cnt)
+                print("")
+
+            # KPI（元 / 採用後）
+            base_kpi = dict(base.get("kpi", {}) or {})
+            applied_kpi = dict(applied.get("kpi", {}) or {})
+            print("--- KPI (base) ---")
+            print(base_kpi)
+            print("")
+            print("--- KPI (applied) ---")
+            print(applied_kpi)
+            print("")
+
+            # ログは “applied” 側を出す（UIと同じ見え方）
+            for line in applied.get("run_log_lines", []) or []:
+                print(line)
+
+            return
+
+        except Exception as e:
+            print("[warn] judge/autofix service failed → fallback to legacy:", e)
+            print("")
+
+    # =========================================================
+    # フォールバック：旧サービス（最低限）
     # =========================================================
     out = run_daytrade_backtest_multi(
         n=n,
