@@ -53,6 +53,25 @@ exit:
 limits:
   max_trades_per_day: 3
 
+# =========================
+# Judge しきい値（dev / prod）
+# =========================
+# dev: 開発・検証用（回して学ぶために緩め）
+judge_thresholds_dev:
+  max_dd_pct: 0.05
+  max_consecutive_losses: 12
+  max_daylimit_days_pct: 0.35
+  min_avg_r: 0.00
+
+# prod: 本番用（安全側）
+judge_thresholds_prod:
+  max_dd_pct: 0.02
+  max_consecutive_losses: 5
+  max_daylimit_days_pct: 0.10
+  min_avg_r: 0.3
+
+# 互換用（古いコードはこれを読む）
+# → 中身は prod と同じにしておく
 judge_thresholds:
   max_dd_pct: 0.02
   max_consecutive_losses: 5
