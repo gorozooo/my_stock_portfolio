@@ -47,7 +47,7 @@ def _parse_tickers(text: str) -> List[str]:
 def _diff_policy_simple(base: Dict[str, Any], cand: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     auto_fix の “何が変わったか” を初心者向けに出す（安全な範囲だけ）。
-    いまの auto_fix が触るのは exit.take_profit_r / exit.max_hold_minutes なのでそこだけ見る。
+    ※まずは「触る可能性が高い/安全」なキーだけ監視（必要なら後で増やす）
     """
     out: List[Dict[str, Any]] = []
 
@@ -64,6 +64,9 @@ def _diff_policy_simple(base: Dict[str, Any], cand: Dict[str, Any]) -> List[Dict
     watch = [
         (["exit", "take_profit_r"], "利確ライン（R）"),
         (["exit", "max_hold_minutes"], "最大保有時間（分）"),
+        (["exec_guards", "early_stop", "max_adverse_r"], "早期撤退（逆行R）"),
+        (["limits", "max_trades_per_day"], "1日最大トレード数"),
+        (["exit", "vwap_exit_grace", "min_r_to_allow_exit"], "VWAP猶予：最低R"),
     ]
 
     for path, label in watch:
@@ -89,6 +92,35 @@ def _judge_to_dict(j) -> Dict[str, Any]:
         "reasons": list(getattr(j, "reasons", []) or []),
         "metrics": dict(getattr(j, "metrics", {}) or {}),
     }
+
+
+def _safe_metric(metrics: Dict[str, Any], key: str, default: Any = 0) -> Any:
+    try:
+        if metrics is None:
+            return default
+        v = metrics.get(key, default)
+        return default if v is None else v
+    except Exception:
+        return default
+
+
+def _diffs_to_text(diffs: List[Dict[str, Any]]) -> str:
+    """
+    テーブル表示用：差分を短い1行に圧縮
+    例) exit.take_profit_r:1.5→2.0 / exit.max_hold_minutes:25→10
+    """
+    if not diffs:
+        return ""
+    parts = []
+    for d in diffs:
+        try:
+            path = str(d.get("path", ""))
+            before = d.get("before", "")
+            after = d.get("after", "")
+            parts.append(f"{path}:{before}→{after}")
+        except Exception:
+            continue
+    return " / ".join(parts)
 
 
 def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
@@ -124,6 +156,7 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
     applied_judge: Dict[str, Any] | None = None
 
     fix_summary: Dict[str, Any] | None = None
+    fix_candidates: List[Dict[str, Any]] = []  # ★追加：候補一覧テーブル用
 
     # ---------- policy ----------
     try:
@@ -230,19 +263,50 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
 
                 fx = outx.get("autofix", None)
 
-                # auto_fix の要約（テンプレで見せる用）
+                # auto_fix の要約＋候補一覧（テーブル用）
                 if fx is not None:
                     try:
                         best = getattr(fx, "best", None)
+                        best_name = str(getattr(best, "name", "") or "")
+
+                        cand_list = list(getattr(fx, "candidates", []) or [])
+                        for i, c in enumerate(cand_list, start=1):
+                            name = str(getattr(c, "name", "") or f"candidate_{i}")
+                            j = getattr(c, "judge", None)
+                            jd = _judge_to_dict(j)
+                            metrics = dict(jd.get("metrics", {}) or {})
+
+                            cand_policy = getattr(c, "policy", None) or {}
+                            diffs = _diff_policy_simple(policy, cand_policy)
+                            diff_text = _diffs_to_text(diffs)
+
+                            fix_candidates.append(
+                                {
+                                    "idx": i,
+                                    "name": name,
+                                    "decision": jd.get("decision", ""),
+                                    "is_best": (name == best_name),
+                                    "avg_r": _safe_metric(metrics, "avg_r", 0.0),
+                                    "max_dd_pct": _safe_metric(metrics, "max_dd_pct", 0.0),
+                                    "max_consecutive_losses": _safe_metric(metrics, "max_consecutive_losses", 0),
+                                    "daylimit_days_pct": _safe_metric(metrics, "daylimit_days_pct", 0.0),
+                                    "total_trades": _safe_metric(metrics, "total_trades", 0),
+                                    "reasons": list(jd.get("reasons", []) or []),
+                                    "diff_text": diff_text,
+                                    "diffs": diffs,  # 画面で詳細表示したい場合用
+                                }
+                            )
+
+                        # best の差分（上の「変更ポイント」表示に使う）
                         best_policy = getattr(best, "policy", None) or {}
                         fix_summary = {
                             "used": True,
-                            "best_name": str(getattr(best, "name", "") or ""),
-                            "candidates_count": int(len(list(getattr(fx, "candidates", []) or []))),
+                            "best_name": best_name,
+                            "candidates_count": int(len(cand_list)),
                             "diffs": _diff_policy_simple(policy, best_policy),
                         }
-                    except Exception:
-                        fix_summary = {"used": True, "best_name": "", "candidates_count": 0, "diffs": []}
+                    except Exception as e:
+                        fix_summary = {"used": True, "best_name": "", "candidates_count": 0, "diffs": [], "error": str(e)}
                 else:
                     fix_summary = {"used": False, "best_name": "", "candidates_count": 0, "diffs": []}
 
@@ -277,6 +341,7 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
             base_judge = None
             applied_judge = None
             fix_summary = None
+            fix_candidates = []
 
     ctx = {
         # form echo
@@ -308,5 +373,7 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
         "base_judge": base_judge,
         "applied_judge": applied_judge,
         "fix_summary": fix_summary,
+        # ★追加：候補一覧
+        "fix_candidates": fix_candidates,
     }
     return render(request, "aiapp/daytrade_backtest.html", ctx)
