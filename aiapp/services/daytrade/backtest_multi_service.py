@@ -5,6 +5,9 @@
 目的
 - CLI(script) と Web(UI) が “同じ処理” を使うための共通サービス。
 - これにより「画面とscriptで結果が違う」事故を防ぐ。
+
+追加（重要）
+- Judge で NO_GO のときに auto_fix を回して、GO になる案を探す（本番想定）。
 """
 
 from __future__ import annotations
@@ -19,6 +22,11 @@ import pandas as pd
 from aiapp.services.daytrade.bars_5m_daytrade import load_daytrade_5m_bars
 from aiapp.services.daytrade.bar_adapter_5m import df_to_bars_5m
 from aiapp.services.daytrade.backtest_runner import run_backtest_one_day
+
+from aiapp.services.daytrade.judge import JudgeResult, judge_backtest_results
+
+# auto_fix は存在前提（あなたが貼ってくれたやつ）
+from aiapp.services.daytrade.auto_fix import AutoFixResult, auto_fix_policy
 
 
 # =========================
@@ -170,13 +178,6 @@ def run_daytrade_backtest_multi(
 ) -> Dict[str, Any]:
     """
     共通処理：複数銘柄 × 過去N営業日で backtest を回して集計する。
-
-    Returns dict:
-      - rows: 銘柄別テーブル行
-      - exit_rows: exit_reason別テーブル行
-      - kpi: 合計KPI
-      - run_log_lines: ログ行配列
-      - collected_day_results: auto_fix / judge 用に DayResult 配列（生の戻り）
     """
     if dates is None:
         dates = last_n_bdays_jst(n)
@@ -363,4 +364,89 @@ def run_daytrade_backtest_multi(
         },
         "run_log_lines": run_log_lines,
         "collected_day_results": collected_day_results,
+    }
+
+
+def run_daytrade_backtest_multi_with_judge_autofix(
+    *,
+    n: int,
+    tickers: List[str],
+    policy: Dict[str, Any],
+    budget_trade_loss_yen: int,
+    dates: Optional[List[date]] = None,
+    verbose_log: bool = True,
+    enable_autofix: bool = True,
+    autofix_max_candidates: int = 10,
+) -> Dict[str, Any]:
+    """
+    追加の“本番想定”版：
+    1) まず通常 backtest を回す
+    2) Judge する
+    3) NO_GO なら auto_fix を挟んで GO 案（または最良案）を探す
+    4) 採用案でもう一度 backtest を回して、UI/CLI に分かりやすく返す
+
+    Returns dict:
+      - base: run_daytrade_backtest_multi の結果
+      - base_judge: JudgeResult
+      - applied: 採用後の結果（auto_fix無しなら base と同じ）
+      - applied_policy: 採用された policy dict（auto_fix無しなら base policy）
+      - applied_judge: 採用後 JudgeResult（auto_fix無しなら base_judge）
+      - autofix: AutoFixResult or None
+    """
+    # ---- base run ----
+    base = run_daytrade_backtest_multi(
+        n=n,
+        tickers=tickers,
+        policy=policy,
+        budget_trade_loss_yen=budget_trade_loss_yen,
+        dates=dates,
+        verbose_log=verbose_log,
+    )
+    base_judge = judge_backtest_results(base.get("collected_day_results", []) or [], policy)
+
+    # デフォは “そのまま採用（= base）”
+    applied = base
+    applied_policy = policy
+    applied_judge = base_judge
+    autofix: Optional[AutoFixResult] = None
+
+    if (base_judge.decision == "NO_GO") and bool(enable_autofix):
+        # day_results_provider: policy -> DayResult配列 を返す
+        def _provider(p: Dict[str, Any]) -> List[Any]:
+            out = run_daytrade_backtest_multi(
+                n=n,
+                tickers=tickers,
+                policy=p,
+                budget_trade_loss_yen=budget_trade_loss_yen,
+                dates=dates,
+                verbose_log=False,  # autofix内部は静かに
+            )
+            return list(out.get("collected_day_results", []) or [])
+
+        autofix = auto_fix_policy(
+            base_policy=policy,
+            day_results_provider=_provider,
+            max_candidates=int(autofix_max_candidates),
+        )
+
+        applied_policy = autofix.best.policy
+        applied_judge = autofix.best.judge
+
+        # 採用案で、表示用の集計（rows/kpi/exit_rows/log）を作り直す
+        applied = run_daytrade_backtest_multi(
+            n=n,
+            tickers=tickers,
+            policy=applied_policy,
+            budget_trade_loss_yen=budget_trade_loss_yen,
+            dates=dates,
+            verbose_log=verbose_log,
+        )
+
+    return {
+        "base": base,
+        "base_judge": base_judge,
+        "applied": applied,
+        "applied_policy": applied_policy,
+        "applied_judge": applied_judge,
+        "autofix": autofix,
     }
