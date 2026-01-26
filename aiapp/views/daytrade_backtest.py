@@ -15,11 +15,11 @@ from aiapp.services.daytrade.backtest_multi_service import (
     last_n_bdays_jst,
 )
 
-# ★ auto_fix（本番で“俺がいなくても回る”ための自動修正係）
+# 追加：Judge + AutoFix まで含めた“本番想定”サービス（無ければ fallback）
 try:
-    from aiapp.services.daytrade.auto_fix import auto_fix_policy
+    from aiapp.services.daytrade.backtest_multi_service import run_daytrade_backtest_multi_with_judge_autofix
 except Exception:
-    auto_fix_policy = None  # type: ignore
+    run_daytrade_backtest_multi_with_judge_autofix = None  # type: ignore
 
 
 # 開発用：まずは「これだけで開発してOK」な固定リスト
@@ -80,6 +80,16 @@ def _diff_policy_simple(base: Dict[str, Any], cand: Dict[str, Any]) -> List[Dict
     return out
 
 
+def _judge_to_dict(j) -> Dict[str, Any]:
+    if not j:
+        return {"decision": "", "reasons": [], "metrics": {}}
+    return {
+        "decision": str(getattr(j, "decision", "") or ""),
+        "reasons": list(getattr(j, "reasons", []) or []),
+        "metrics": dict(getattr(j, "metrics", {}) or {}),
+    }
+
+
 def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
     # ---------- form defaults ----------
     form_n = 20
@@ -95,14 +105,23 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
     rows: List[Dict[str, Any]] = []
     exit_rows: List[Dict[str, Any]] = []
 
+    # KPI（表示は “採用後(applied)” を優先）
     kpi_total_pnl = 0
     kpi_trades = 0
     kpi_winrate = "-"
     kpi_avg_r = "-"
     kpi_max_dd = 0
 
-    # ---------- auto_fix outputs ----------
-    auto_fix_enabled = auto_fix_policy is not None
+    # base（参考表示）
+    base_kpi: Dict[str, Any] | None = None
+
+    # ---------- judge / autofix outputs ----------
+    judge_enabled = True
+    autofix_enabled = run_daytrade_backtest_multi_with_judge_autofix is not None
+
+    base_judge: Dict[str, Any] | None = None
+    applied_judge: Dict[str, Any] | None = None
+
     fix_summary: Dict[str, Any] | None = None
 
     # ---------- policy ----------
@@ -172,64 +191,91 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
 
         dates = last_n_bdays_jst(form_n)
 
-        # ★ ここが肝：UIもCLIも同じサービスを呼ぶ
-        out = run_daytrade_backtest_multi(
-            n=form_n,
-            tickers=selected_tickers,
-            policy=policy,
-            budget_trade_loss_yen=budget_trade_loss_yen,
-            dates=dates,
-            verbose_log=True,
-        )
-
-        rows = list(out.get("rows", []) or [])
-        exit_rows = list(out.get("exit_rows", []) or [])
-        run_log_lines.extend(list(out.get("run_log_lines", []) or []))
-
-        kpi = dict(out.get("kpi", {}) or {})
-        kpi_total_pnl = int(kpi.get("total_pnl", 0) or 0)
-        kpi_trades = int(kpi.get("trades", 0) or 0)
-        kpi_winrate = str(kpi.get("winrate", "-") or "-")
-        kpi_avg_r = str(kpi.get("avg_r", "-") or "-")
-        kpi_max_dd = int(kpi.get("max_dd_yen", 0) or 0)
-
-        # ★ auto_fix（本番で“俺がいなくても回る”場所）
-        if auto_fix_enabled and policy:
+        # =========================
+        # ここが肝：UIもCLIも “同じ1本” を呼ぶ（Judge + AutoFix込み）
+        # =========================
+        if run_daytrade_backtest_multi_with_judge_autofix is not None and policy:
             try:
-                # provider は「同じ期間・同じ銘柄」で回す（再現性）
-                def provider(p: Dict[str, Any]) -> List[Any]:
-                    out2 = run_daytrade_backtest_multi(
-                        n=form_n,
-                        tickers=selected_tickers,
-                        policy=p,
-                        budget_trade_loss_yen=budget_trade_loss_yen,
-                        dates=dates,
-                        verbose_log=False,
-                    )
-                    return list(out2.get("collected_day_results", []) or [])
+                outx = run_daytrade_backtest_multi_with_judge_autofix(
+                    n=form_n,
+                    tickers=selected_tickers,
+                    policy=policy,
+                    budget_trade_loss_yen=budget_trade_loss_yen,
+                    dates=dates,
+                    verbose_log=True,
+                    enable_autofix=True,
+                    autofix_max_candidates=10,
+                )
 
-                fx = auto_fix_policy(base_policy=policy, day_results_provider=provider, max_candidates=10)
+                base = dict(outx.get("base", {}) or {})
+                applied = dict(outx.get("applied", {}) or {})
 
-                base_j = fx.base_judge
-                best = fx.best
+                # 表示は applied を優先（auto_fix無しなら applied=base 相当）
+                rows = list(applied.get("rows", []) or [])
+                exit_rows = list(applied.get("exit_rows", []) or [])
+                run_log_lines.extend(list(applied.get("run_log_lines", []) or []))
 
-                fix_summary = {
-                    "base": {
-                        "decision": getattr(base_j, "decision", ""),
-                        "reasons": list(getattr(base_j, "reasons", []) or []),
-                        "metrics": dict(getattr(base_j, "metrics", {}) or {}),
-                    },
-                    "best": {
-                        "name": best.name,
-                        "decision": getattr(best.judge, "decision", ""),
-                        "reasons": list(getattr(best.judge, "reasons", []) or []),
-                        "metrics": dict(getattr(best.judge, "metrics", {}) or {}),
-                    },
-                    "candidates_count": len(list(getattr(fx, "candidates", []) or [])),
-                    "diffs": _diff_policy_simple(policy, best.policy),
-                }
+                kpi = dict(applied.get("kpi", {}) or {})
+                kpi_total_pnl = int(kpi.get("total_pnl", 0) or 0)
+                kpi_trades = int(kpi.get("trades", 0) or 0)
+                kpi_winrate = str(kpi.get("winrate", "-") or "-")
+                kpi_avg_r = str(kpi.get("avg_r", "-") or "-")
+                kpi_max_dd = int(kpi.get("max_dd_yen", 0) or 0)
+
+                base_kpi = dict(base.get("kpi", {}) or {})
+
+                base_judge = _judge_to_dict(outx.get("base_judge"))
+                applied_judge = _judge_to_dict(outx.get("applied_judge"))
+
+                fx = outx.get("autofix", None)
+
+                # auto_fix の要約（テンプレで見せる用）
+                if fx is not None:
+                    try:
+                        best = getattr(fx, "best", None)
+                        best_policy = getattr(best, "policy", None) or {}
+                        fix_summary = {
+                            "used": True,
+                            "best_name": str(getattr(best, "name", "") or ""),
+                            "candidates_count": int(len(list(getattr(fx, "candidates", []) or []))),
+                            "diffs": _diff_policy_simple(policy, best_policy),
+                        }
+                    except Exception:
+                        fix_summary = {"used": True, "best_name": "", "candidates_count": 0, "diffs": []}
+                else:
+                    fix_summary = {"used": False, "best_name": "", "candidates_count": 0, "diffs": []}
+
             except Exception as e:
-                fix_summary = {"error": f"auto_fix 実行でエラー: {e}"}
+                # ここで落ちるなら、安全に通常 backtest へ退避
+                run_log_lines.append(f"[warn] judge/autofix service failed → fallback: {e}")
+                autofix_enabled = False
+
+        # ---- fallback：古いサービスのみ（最低限動かす） ----
+        if not rows:
+            out = run_daytrade_backtest_multi(
+                n=form_n,
+                tickers=selected_tickers,
+                policy=policy,
+                budget_trade_loss_yen=budget_trade_loss_yen,
+                dates=dates,
+                verbose_log=True,
+            )
+
+            rows = list(out.get("rows", []) or [])
+            exit_rows = list(out.get("exit_rows", []) or [])
+            run_log_lines.extend(list(out.get("run_log_lines", []) or []))
+
+            kpi = dict(out.get("kpi", {}) or {})
+            kpi_total_pnl = int(kpi.get("total_pnl", 0) or 0)
+            kpi_trades = int(kpi.get("trades", 0) or 0)
+            kpi_winrate = str(kpi.get("winrate", "-") or "-")
+            kpi_avg_r = str(kpi.get("avg_r", "-") or "-")
+            kpi_max_dd = int(kpi.get("max_dd_yen", 0) or 0)
+
+            base_kpi = None
+            base_judge = None
+            applied_judge = None
+            fix_summary = None
 
     ctx = {
         # form echo
@@ -247,14 +293,19 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
         "rows": rows,
         "exit_rows": exit_rows,
         "run_log": "\n".join(run_log_lines) if run_log_lines else "（ここにログが出る）",
-        # KPIs
+        # KPIs（applied）
         "kpi_total_pnl": kpi_total_pnl,
         "kpi_trades": kpi_trades,
         "kpi_winrate": kpi_winrate,
         "kpi_avg_r": kpi_avg_r,
         "kpi_max_dd": kpi_max_dd,
-        # auto_fix
-        "auto_fix_enabled": auto_fix_enabled,
+        # base KPI（参考）
+        "base_kpi": base_kpi,
+        # judge / auto_fix
+        "judge_enabled": judge_enabled,
+        "autofix_enabled": autofix_enabled,
+        "base_judge": base_judge,
+        "applied_judge": applied_judge,
         "fix_summary": fix_summary,
     }
     return render(request, "aiapp/daytrade_backtest.html", ctx)
