@@ -61,7 +61,6 @@ def _get_exit_reason(tr) -> str:
 def _exit_reason_label(reason: str) -> str:
     """
     exit_reason を「初心者でも分かる日本語」に変換する。
-    ※ 元のキーはログや将来の集計用に保持しつつ、UI表示は label を使う。
     """
     m = {
         "time_limit": "時間切れ（時間で終了）",
@@ -344,8 +343,8 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
                     "pnl": pnl_sum,
                     "winrate": _fmt_pct(winrate) if trades_cnt > 0 else "0.0%",
                     "avg_r": f"{avg_r:.4f}",
+                    "avg_r_num": float(avg_r),  # ★ underscore禁止なので変更
                     "max_dd_yen": max_dd,
-                    "_avg_r_num": float(avg_r),
                 }
             )
 
@@ -414,10 +413,10 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
                     "winrate": _fmt_pct(float(winrate_r)),
                     "pnl": int(pnl_r),
                     "avg_r": float(round(avg_r_reason, 4)),
+                    "avg_r_num": float(avg_r_reason),  # ★ underscore禁止なので変更
                     "avg_hold_min": float(round(avg_held, 1)),
                     "avg_mfe_r": float(round(avg_mfe_r, 3)),
                     "avg_mae_r": float(round(avg_mae_r, 3)),
-                    "_avg_r_num": float(avg_r_reason),
                 }
             )
 
@@ -443,11 +442,5 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
         "kpi_winrate": kpi_winrate,
         "kpi_avg_r": kpi_avg_r,
         "kpi_max_dd": kpi_max_dd,
-        # UI help texts
-        "help_mode_text": {
-            "dev_default": "開発おすすめ10銘柄で回します（入力不要）。まずはこれでOK。",
-            "manual": "入力欄に書いた銘柄コードだけ回します（例: 7203 6758 9984）。",
-            "auto": "候補から自動選定して回します（将来拡張）。いまは開発おすすめ10銘柄で回します。",
-        },
     }
     return render(request, "aiapp/daytrade_backtest.html", ctx)
