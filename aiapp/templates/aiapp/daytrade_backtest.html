@@ -77,7 +77,7 @@
   }
   @media (min-width: 760px){
     .grid{
-      grid-template-columns: 1.2fr .8fr;
+      grid-template-columns: 1.1fr .9fr;
       align-items:start;
     }
   }
@@ -92,6 +92,7 @@
     color: var(--muted);
   }
   .field input[type="text"],
+  .field input[type="number"],
   .field select,
   .field textarea{
     width:100%;
@@ -103,7 +104,7 @@
     outline:none;
   }
   .field textarea{
-    min-height: 74px;
+    min-height: 90px;
     resize: vertical;
     line-height: 1.35;
   }
@@ -112,34 +113,6 @@
     display:grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
-  }
-
-  .targets{
-    display:flex;
-    flex-direction:column;
-    gap:8px;
-    margin-top: 2px;
-  }
-  .target-item{
-    display:flex;
-    align-items:flex-start;
-    gap:10px;
-    padding:10px 10px;
-    border-radius: 14px;
-    border: 1px solid rgba(255,255,255,.12);
-    background: rgba(0,0,0,.12);
-  }
-  .target-item input{ margin-top: 2px; }
-  .target-item .t-title{
-    font-weight: 900;
-    font-size: 13px;
-    color: rgba(255,255,255,.92);
-  }
-  .target-item .t-desc{
-    font-size: 12px;
-    color: var(--muted2);
-    margin-top: 2px;
-    line-height: 1.45;
   }
 
   .chips{
@@ -176,7 +149,7 @@
     padding: 10px 12px;
     border-radius: 12px;
     font-size: 14px;
-    font-weight: 900;
+    font-weight: 800;
     cursor:pointer;
     text-decoration:none;
     display:inline-flex;
@@ -224,9 +197,6 @@
     font-weight: 900;
     letter-spacing:.2px;
   }
-  .pos{ background: rgba(70, 220, 140, .18); }
-  .neg{ background: rgba(255, 90, 90, .18); }
-  .muted{ color: var(--muted2); }
 
   .table-wrap{
     overflow:auto;
@@ -237,7 +207,7 @@
   table{
     width:100%;
     border-collapse: collapse;
-    min-width: 820px;
+    min-width: 760px;
     background: rgba(0,0,0,.10);
   }
   th, td{
@@ -249,7 +219,7 @@
   }
   th{
     font-size: 12px;
-    color: rgba(255,255,255,.70);
+    color: var(--muted);
     background: rgba(255,255,255,.04);
     position: sticky;
     top: 0;
@@ -258,6 +228,9 @@
   tr:last-child td{ border-bottom:none; }
 
   .num{ text-align:right; font-variant-numeric: tabular-nums; }
+  .pos{ background: var(--ok); }
+  .neg{ background: var(--ng); }
+  .muted{ color: var(--muted2); }
 
   .logbox{
     border: 1px solid rgba(255,255,255,.10);
@@ -273,15 +246,34 @@
     overflow:auto;
   }
 
-  .help{
-    margin-top:8px;
-    padding:10px 10px;
-    border-radius:14px;
-    border:1px solid rgba(255,255,255,.10);
+  details{
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,.10);
     background: rgba(0,0,0,.10);
-    color: rgba(255,255,255,.70);
-    font-size:12px;
-    line-height:1.55;
+    overflow:hidden;
+  }
+  summary{
+    cursor:pointer;
+    padding: 10px 12px;
+    font-weight: 900;
+    font-size: 13px;
+    color: rgba(255,255,255,.90);
+    list-style:none;
+  }
+  summary::-webkit-details-marker{ display:none; }
+  .details-b{
+    padding: 12px;
+    border-top: 1px solid rgba(255,255,255,.06);
+  }
+
+  .badge{
+    display:inline-flex;
+    padding:4px 8px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.14);
+    background: rgba(255,255,255,.06);
+    font-size: 12px;
+    font-weight: 900;
   }
 </style>
 
@@ -289,77 +281,72 @@
 
   <div class="dt-title">
     <h1>デイトレ・バックテスト</h1>
-    <div class="sub">✅「実行」だけ押せばOK</div>
+    <div class="sub">ボタン押すだけで回す</div>
   </div>
 
+  <!-- =========================
+       かんたん実行
+       ========================= -->
   <div class="card">
     <div class="card-h">
-      <h2>かんたん実行（これだけ触ればOK）</h2>
-      <div class="hint">▶ ボタンを押すだけ</div>
+      <h2>かんたん実行（ここだけ触ればOK）</h2>
+      <div class="hint">初心者向け：まずは開発おすすめで回す</div>
     </div>
-
     <div class="card-b">
       <form method="post" action="">
         {% csrf_token %}
 
         <div class="grid">
+          <!-- left -->
           <div>
-
             <div class="row">
               <div class="field">
-                <label>過去日数（N）</label>
+                <label>過去日数（N：過去営業日）</label>
                 <select name="n">
                   {% with v=form_n|default:20 %}
-                    <option value="20"  {% if v|add:0 == 20 %}selected{% endif %}>20（短期）</option>
-                    <option value="60"  {% if v|add:0 == 60 %}selected{% endif %}>60（中期）</option>
-                    <option value="120" {% if v|add:0 == 120 %}selected{% endif %}>120（長め）</option>
+                    <option value="20"  {% if v|add:0 == 20 %}selected{% endif %}>20</option>
+                    <option value="60"  {% if v|add:0 == 60 %}selected{% endif %}>60</option>
+                    <option value="120" {% if v|add:0 == 120 %}selected{% endif %}>120</option>
                   {% endwith %}
                 </select>
+                <div class="note">※ 迷ったら「20」でOK</div>
               </div>
 
               <div class="field">
                 <label>実行対象</label>
-                <div class="targets">
-                  {% with t=form_target|default:"dev_default" %}
-                  <label class="target-item">
-                    <input type="radio" name="target" value="dev_default" {% if t == "dev_default" %}checked{% endif %}>
-                    <div>
-                      <div class="t-title">開発おすすめ10銘柄（固定）</div>
-                      <div class="t-desc">迷ったらこれ。毎回同じ銘柄で比較できる。</div>
-                    </div>
-                  </label>
-
-                  <label class="target-item">
-                    <input type="radio" name="target" value="manual" {% if t == "manual" %}checked{% endif %}>
-                    <div>
-                      <div class="t-title">自分で銘柄を指定</div>
-                      <div class="t-desc">例：7203 6758 9984（空白/改行/カンマOK）</div>
-                    </div>
-                  </label>
+                <select name="mode" id="modeSel">
+                  {% with m=form_mode|default:"dev_default" %}
+                    <option value="dev_default" {% if m == "dev_default" %}selected{% endif %}>開発おすすめ10銘柄（固定）</option>
+                    <option value="manual"      {% if m == "manual" %}selected{% endif %}>自分で銘柄を指定</option>
+                    <option value="auto"        {% if m == "auto" %}selected{% endif %}>自動で選ぶ（準備中）</option>
                   {% endwith %}
-                </div>
+                </select>
+                <div class="note">※ まずは「開発おすすめ10銘柄」を推奨</div>
               </div>
             </div>
 
-            <div class="field" id="manualBox" style="margin-top:12px; display:none;">
-              <label>銘柄コード（4〜5桁）</label>
-              <textarea name="tickers" placeholder="例：7203 6758 9984">{{ form_tickers|default:"" }}</textarea>
-              <div class="note">※ 入力が空なら「開発おすすめ10銘柄」に戻ります。</div>
+            <div class="field" id="tickersBox" style="margin-top:12px; display:none;">
+              <label>銘柄コード（例：7203 6758 9984）</label>
+              <textarea name="tickers" placeholder="7203 6758 9984">{{ form_tickers|default:"" }}</textarea>
+              <div class="note">空白/カンマ区切りOK。迷ったら空のままでも動く（おすすめに戻る）。</div>
             </div>
 
             <div class="btns">
-              <button class="btn primary" type="submit">▶ バックテスト実行</button>
-              <a class="btn ghost" href="">↻ 画面リセット</a>
+              <button class="btn primary" type="submit">
+                ▶ バックテスト実行
+              </button>
+              <a class="btn ghost" href="">
+                ↻ 画面リセット
+              </a>
             </div>
 
-            <div class="help">
-              <b>使い方</b><br>
-              ① 過去日数（N）を選ぶ → ② 実行対象を選ぶ → ③「バックテスト実行」<br>
-              下に「合計」「銘柄別」「詳細ログ」「終了理由の内訳」が出ます。
+            <div class="note">
+              目的：<b>「この戦略がデイトレで勝ちやすいか」</b>を、複数銘柄でざっくり確認する。<br>
+              下の結果がプラスに寄ってくれば、次に銘柄選定や条件を詰める。
             </div>
-
           </div>
 
+          <!-- right -->
           <div>
             <div class="kpis">
               <div class="kpi">
@@ -367,42 +354,37 @@
                 <div class="v {% if kpi_total_pnl|default:0 < 0 %}neg{% elif kpi_total_pnl|default:0 > 0 %}pos{% endif %}">
                   {{ kpi_total_pnl|default:"-"|intcomma }}
                 </div>
+                <div class="note">プラス＝勝ち越し</div>
               </div>
-
               <div class="kpi">
-                <div class="k">取引回数（合計）</div>
+                <div class="k">取引回数</div>
                 <div class="v">{{ kpi_trades|default:"-" }}</div>
+                <div class="note">多すぎ/少なすぎも癖</div>
               </div>
-
               <div class="kpi">
-                <div class="k">勝率（合計）</div>
+                <div class="k">勝率</div>
                 <div class="v">{{ kpi_winrate|default:"-" }}</div>
+                <div class="note">勝ち回数÷取引回数</div>
               </div>
-
               <div class="kpi">
-                <div class="k">平均R（合計）</div>
-                <div class="v">{{ kpi_avg_r|default:"-" }}</div>
+                <div class="k">平均R</div>
+                <div class="v {% if kpi_avg_r|default:0 < 0 %}neg{% elif kpi_avg_r|default:0 > 0 %}pos{% endif %}">
+                  {{ kpi_avg_r|default:"-" }}
+                </div>
+                <div class="note">1回あたりの期待値</div>
               </div>
-
               <div class="kpi">
-                <div class="k">最大ドローダウン（円）</div>
+                <div class="k">最大DD（円）</div>
                 <div class="v {% if kpi_max_dd|default:0 < 0 %}neg{% endif %}">
                   {{ kpi_max_dd|default:"-"|intcomma }}
                 </div>
+                <div class="note">一番キツい凹み</div>
               </div>
-            </div>
-
-            <div class="help" style="margin-top:10px;">
-              <b>用語（ここだけ覚えればOK）</b><br>
-              ・<b>損益</b>：儲け/損の合計（円）<br>
-              ・<b>勝率</b>：勝った取引 ÷ 全取引<br>
-              ・<b>R</b>：リスク（想定損）を1とした時の効率<br>
-              ・<b>ドローダウン</b>：途中で一番へこんだ金額
             </div>
 
             <div style="margin-top:12px;">
               <div class="field">
-                <label>今回使った銘柄</label>
+                <label>今回の銘柄</label>
                 <div class="chips">
                   {% if selected_tickers %}
                     {% for t in selected_tickers %}
@@ -417,36 +399,114 @@
 
             <div style="margin-top:12px;">
               <div class="field">
-                <label>使用ポリシーID（設定ファイル）</label>
+                <label>使ったポリシーID</label>
                 <input type="text" value="{{ policy_id|default:"-" }}" readonly>
               </div>
               <div class="field" style="margin-top:10px;">
-                <label>1回の想定損（円）※R計算の基準</label>
+                <label>1回の許容損（円）</label>
                 <input type="text" value="{{ budget_trade_loss_yen|default:"-" }}" readonly>
+                <div class="note">この金額を「1R」として平均Rを計算してる</div>
               </div>
             </div>
 
           </div>
         </div>
-
       </form>
     </div>
   </div>
 
+  <!-- =========================
+       改善提案（auto_fix）
+       ========================= -->
   <div class="card">
     <div class="card-h">
-      <h2>詳細ログ（見なくてOK）</h2>
-      <div class="hint">困った時だけ見る</div>
+      <h2>改善提案（自動）</h2>
+      <div class="hint">本番で“人が数値を触らない”ための仕組み</div>
     </div>
     <div class="card-b">
-      <div class="logbox">{{ run_log|default:"（ここに実行ログが出ます）" }}</div>
+      {% if not auto_fix_enabled %}
+        <div class="note">auto_fix が読み込めませんでした（import失敗）。ファイル配置を確認してください。</div>
+      {% else %}
+        {% if fix_summary %}
+          {% if fix_summary.error %}
+            <div class="note">{{ fix_summary.error }}</div>
+          {% else %}
+            <div class="note">
+              <span class="badge">元の判定：{{ fix_summary.base.decision }}</span>
+              &nbsp;→&nbsp;
+              <span class="badge">ベスト案：{{ fix_summary.best.decision }}</span>
+              &nbsp;（試した候補：{{ fix_summary.candidates_count }}件）
+            </div>
+
+            <div style="margin-top:10px;">
+              <div class="field">
+                <label>ベスト案（名前）</label>
+                <input type="text" value="{{ fix_summary.best.name }}" readonly>
+              </div>
+            </div>
+
+            {% if fix_summary.diffs %}
+              <div style="margin-top:10px;" class="table-wrap">
+                <table style="min-width:680px;">
+                  <thead>
+                    <tr>
+                      <th>変更ポイント</th>
+                      <th class="num">変更前</th>
+                      <th class="num">変更後</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for d in fix_summary.diffs %}
+                      <tr>
+                        <td><b>{{ d.label }}</b><div class="note">{{ d.path }}</div></td>
+                        <td class="num muted">{{ d.before }}</td>
+                        <td class="num">{{ d.after }}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              <div class="note" style="margin-top:10px;">
+                ここに出るのが「本番で自動的にいじる候補」。初心者は触らなくてOK（採用するかだけ判断）。
+              </div>
+            {% else %}
+              <div class="note" style="margin-top:10px;">
+                今回は「変更が不要」か、auto_fix が触れる項目に差分が出ませんでした。
+              </div>
+            {% endif %}
+          {% endif %}
+        {% else %}
+          <div class="note">未実行。まず上でバックテストを回すと、ここに提案が出ます。</div>
+        {% endif %}
+      {% endif %}
     </div>
   </div>
 
+  <!-- =========================
+       ログ
+       ========================= -->
+  <div class="card">
+    <div class="card-h">
+      <h2>実行ログ（詳細）</h2>
+      <div class="hint">困った時だけ見る</div>
+    </div>
+    <div class="card-b">
+      <details>
+        <summary>ログを開く</summary>
+        <div class="details-b">
+          <div class="logbox">{{ run_log|default:"（ここにログが出る）" }}</div>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <!-- =========================
+       結果（銘柄別）
+       ========================= -->
   <div class="card">
     <div class="card-h">
       <h2>結果（銘柄別）</h2>
-      <div class="hint">損益 / 勝率 / 平均R / 最大DD</div>
+      <div class="hint">どの銘柄が良い/悪いか</div>
     </div>
     <div class="card-b">
       <div class="table-wrap">
@@ -454,8 +514,8 @@
           <thead>
             <tr>
               <th>銘柄</th>
-              <th class="num">対象日数</th>
-              <th class="num">売買した日数</th>
+              <th class="num">データ日数</th>
+              <th class="num">取引した日数</th>
               <th class="num">取引回数</th>
               <th class="num">損益（円）</th>
               <th class="num">勝率</th>
@@ -471,20 +531,10 @@
                   <td class="num muted">{{ r.used_days }}</td>
                   <td class="num muted">{{ r.traded_days }}</td>
                   <td class="num">{{ r.trades }}</td>
-
-                  <td class="num {% if r.pnl < 0 %}neg{% elif r.pnl > 0 %}pos{% endif %}">
-                    {{ r.pnl|intcomma }}
-                  </td>
-
+                  <td class="num {% if r.pnl < 0 %}neg{% elif r.pnl > 0 %}pos{% endif %}">{{ r.pnl|intcomma }}</td>
                   <td class="num">{{ r.winrate }}</td>
-
-                  <td class="num {% if r.avg_r_num < 0 %}neg{% elif r.avg_r_num > 0 %}pos{% endif %}">
-                    {{ r.avg_r }}
-                  </td>
-
-                  <td class="num {% if r.max_dd_yen < 0 %}neg{% endif %}">
-                    {{ r.max_dd_yen|intcomma }}
-                  </td>
+                  <td class="num {% if r.avg_r_num < 0 %}neg{% elif r.avg_r_num > 0 %}pos{% endif %}">{{ r.avg_r }}</td>
+                  <td class="num {% if r.max_dd_yen < 0 %}neg{% endif %}">{{ r.max_dd_yen|intcomma }}</td>
                 </tr>
               {% endfor %}
             {% else %}
@@ -497,59 +547,70 @@
       </div>
 
       <div class="note" style="margin-top:10px;">
-        ※ 「対象日数」は実際に5分足が取れた日だけ数えます（データが無い日は自動でスキップ）。
+        見方：損益がプラスで、平均Rもプラスに寄っていて、最大DDが浅いほど良い。
       </div>
     </div>
   </div>
 
+  <!-- =========================
+       売買終了理由（内訳）
+       ========================= -->
   <div class="card">
     <div class="card-h">
-      <h2>売買終了理由の内訳（参考）</h2>
-      <div class="hint">戦略の癖を見る</div>
+      <h2>売買終了理由の内訳</h2>
+      <div class="hint">戦略の“負け方/勝ち方”の癖が見える</div>
     </div>
     <div class="card-b">
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>終了理由</th>
-              <th class="num">取引回数</th>
-              <th class="num">勝ち</th>
-              <th class="num">勝率</th>
-              <th class="num">損益（円）</th>
-              <th class="num">平均R</th>
-              <th class="num">平均保有（分）</th>
-              <th class="num">最大プラス（R）</th>
-              <th class="num">最大マイナス（R）</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% if exit_rows %}
-              {% for e in exit_rows %}
+      <details>
+        <summary>内訳を開く</summary>
+        <div class="details-b">
+          <div class="table-wrap">
+            <table style="min-width:820px;">
+              <thead>
                 <tr>
-                  <td><b>{{ e.exit_reason_label }}</b></td>
-                  <td class="num">{{ e.trades }}</td>
-                  <td class="num">{{ e.wins }}</td>
-                  <td class="num">{{ e.winrate }}</td>
-                  <td class="num {% if e.pnl < 0 %}neg{% elif e.pnl > 0 %}pos{% endif %}">{{ e.pnl|intcomma }}</td>
-                  <td class="num {% if e.avg_r_num < 0 %}neg{% elif e.avg_r_num > 0 %}pos{% endif %}">{{ e.avg_r }}</td>
-                  <td class="num muted">{{ e.avg_hold_min }}</td>
-                  <td class="num muted">{{ e.avg_mfe_r }}</td>
-                  <td class="num muted">{{ e.avg_mae_r }}</td>
+                  <th>終了理由</th>
+                  <th class="num">取引回数</th>
+                  <th class="num">勝ち回数</th>
+                  <th class="num">勝率</th>
+                  <th class="num">損益（円）</th>
+                  <th class="num">平均R</th>
+                  <th class="num">平均保有（分）</th>
+                  <th class="num">平均MFE（R）</th>
+                  <th class="num">平均MAE（R）</th>
                 </tr>
-              {% endfor %}
-            {% else %}
-              <tr>
-                <td colspan="9" class="muted">（まだ未実行）</td>
-              </tr>
-            {% endif %}
-          </tbody>
-        </table>
-      </div>
+              </thead>
+              <tbody>
+                {% if exit_rows %}
+                  {% for e in exit_rows %}
+                    <tr>
+                      <td>
+                        <b>{{ e.exit_reason_label }}</b>
+                        <div class="note">{{ e.exit_reason }}</div>
+                      </td>
+                      <td class="num">{{ e.trades }}</td>
+                      <td class="num">{{ e.wins }}</td>
+                      <td class="num">{{ e.winrate }}</td>
+                      <td class="num {% if e.pnl < 0 %}neg{% elif e.pnl > 0 %}pos{% endif %}">{{ e.pnl|intcomma }}</td>
+                      <td class="num {% if e.avg_r_num < 0 %}neg{% elif e.avg_r_num > 0 %}pos{% endif %}">{{ e.avg_r }}</td>
+                      <td class="num muted">{{ e.avg_hold_min }}</td>
+                      <td class="num muted">{{ e.avg_mfe_r }}</td>
+                      <td class="num muted">{{ e.avg_mae_r }}</td>
+                    </tr>
+                  {% endfor %}
+                {% else %}
+                  <tr>
+                    <td colspan="9" class="muted">（まだ未実行）</td>
+                  </tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
 
-      <div class="note" style="margin-top:10px;">
-        「最大プラス/最大マイナス」は、保有中にどれくらい上下に振れたかの目安です。
-      </div>
+          <div class="note" style="margin-top:10px;">
+            用語：MFE＝一番伸びた最大含み益、MAE＝一番沈んだ最大含み損（どちらもR換算）。
+          </div>
+        </div>
+      </details>
     </div>
   </div>
 
@@ -557,23 +618,17 @@
 
 <script>
 (function(){
-  function syncManualBox(){
-    var radios = document.querySelectorAll('input[name="target"]');
-    var manual = false;
-    radios.forEach(function(r){
-      if(r.checked && r.value === "manual"){ manual = true; }
-    });
-    var box = document.getElementById("manualBox");
-    if(box){
-      box.style.display = manual ? "block" : "none";
-    }
+  const sel = document.getElementById("modeSel");
+  const box = document.getElementById("tickersBox");
+  function sync(){
+    const v = (sel && sel.value) ? sel.value : "dev_default";
+    if (!box) return;
+    box.style.display = (v === "manual") ? "block" : "none";
   }
-  document.addEventListener("change", function(e){
-    if(e && e.target && e.target.name === "target"){
-      syncManualBox();
-    }
-  });
-  syncManualBox();
+  if (sel){
+    sel.addEventListener("change", sync);
+    sync();
+  }
 })();
 </script>
 {% endblock %}
