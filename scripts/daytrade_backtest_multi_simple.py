@@ -7,6 +7,11 @@
 - 戦略ロジックは一切変えない（既存: VWAPPullbackLongStrategy のまま）。
 - 0トレの日が出るのは仕様。銘柄数を増やして「回る」ようにする。
 
+重要（UIと一致させる）
+- バックテスト本体（集計/exit_reason集計/ログ生成）は、
+  aiapp/services/daytrade/backtest_multi_service.py の共通サービスを呼ぶ。
+- これにより「UIとscriptで結果が違う」を潰す。
+
 【開発用: 固定銘柄で高速に回す（秒）】
 - tickers を渡さず、かつ --auto を付けない場合は、
   開発用の固定デイトレ銘柄リスト（DEV_DEFAULT_TICKERS）で回す。
@@ -34,8 +39,7 @@ import argparse
 import json
 import re
 import sys
-from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional
 
@@ -45,9 +49,13 @@ from django.conf import settings
 
 from aiapp.services.daytrade.policy_loader import load_policy_yaml
 from aiapp.services.daytrade.bars_5m_daytrade import load_daytrade_5m_bars
-from aiapp.services.daytrade.bar_adapter_5m import df_to_bars_5m
-from aiapp.services.daytrade.backtest_runner import run_backtest_one_day
 from aiapp.services.daytrade.risk_math import calc_risk_budget_yen
+
+# ★ UIと100%同じ結果にするための共通サービス
+from aiapp.services.daytrade.backtest_multi_service import (
+    run_daytrade_backtest_multi,
+    last_n_bdays_jst,
+)
 
 # ユニバースフィルタ（picks_filter を流用：StockMaster が無いと実質ノーフィルタだがOK）
 from aiapp.services.picks_filter import UniverseFilterConfig, filter_universe_codes
@@ -76,49 +84,12 @@ DEV_DEFAULT_TICKERS: List[str] = [
 ]
 
 
-@dataclass
-class Agg:
-    days: int = 0
-    traded_days: int = 0
-    total_trades: int = 0
-    total_pnl: int = 0
-    sum_r: float = 0.0
-    wins: int = 0
-    losses: int = 0
-    max_dd_yen: int = 0  # 最小値（マイナス）を保持
-
-
 def _last_n_bdays_jst(n: int, end_d: date | None = None) -> List[date]:
-    """過去N営業日（簡易：平日のみ）。"""
+    """過去N営業日（簡易：平日のみ）。※互換用（内部は service 側にも同等がある）"""
     if end_d is None:
         end_d = date.today()
     ds = pd.bdate_range(end=end_d, periods=n).to_pydatetime()
     return [d.date() for d in ds]
-
-
-def _update_agg(agg: Agg, day_res) -> None:
-    agg.days += 1
-    agg.total_pnl += int(day_res.pnl_yen)
-    agg.total_trades += int(len(day_res.trades))
-    if len(day_res.trades) > 0:
-        agg.traded_days += 1
-
-    for tr in day_res.trades:
-        r = float(getattr(tr, "r", 0.0))
-        agg.sum_r += r
-        if int(getattr(tr, "pnl_yen", 0)) >= 0:
-            agg.wins += 1
-        else:
-            agg.losses += 1
-
-    try:
-        agg.max_dd_yen = min(int(agg.max_dd_yen), int(day_res.max_drawdown_yen))
-    except Exception:
-        pass
-
-
-def _fmt_pct(x: float) -> str:
-    return f"{x*100:.1f}%"
 
 
 def _safe_float(x, default: float = 0.0) -> float:
@@ -130,69 +101,51 @@ def _safe_float(x, default: float = 0.0) -> float:
         return float(default)
 
 
-def _safe_int(x, default: int = 0) -> int:
+def _pick_col(df: pd.DataFrame, names: List[str]) -> Optional[str]:
+    cols = list(df.columns)
+    lower = {str(c).lower(): c for c in cols}
+    for n in names:
+        if n in cols:
+            return n
+        if n.lower() in lower:
+            return lower[n.lower()]
+    return None
+
+
+def _liquidity_score_from_5m(df: pd.DataFrame) -> float:
+    """
+    5分足の流動性スコア（大きいほど流動性が高い）。
+    close*volume の合計をベースにする。
+    """
+    if df is None or df.empty:
+        return 0.0
+
+    ccol = _pick_col(df, ["Close", "close", "c"])
+    vcol = _pick_col(df, ["Volume", "volume", "v"])
+    if ccol is None or vcol is None:
+        return 0.0
+
     try:
-        if x is None:
-            return int(default)
-        return int(default) if x is None else int(x)
+        close = pd.to_numeric(df[ccol], errors="coerce")
+        vol = pd.to_numeric(df[vcol], errors="coerce")
+        x = (close * vol).replace([np.inf, -np.inf], np.nan).dropna()
+        return float(x.sum()) if len(x) else 0.0
     except Exception:
-        return int(default)
+        return 0.0
 
 
-def _get_exit_reason(tr) -> str:
-    r = getattr(tr, "exit_reason", None)
-    if r is None:
-        return "unknown"
-    s = str(r).strip()
-    return s if s else "unknown"
-
-
-def _slice_bars_for_trade(bars, entry_dt: datetime, exit_dt: datetime):
-    """entry_dt〜exit_dt の間のバーを抽出。"""
-    if not bars or entry_dt is None or exit_dt is None:
-        return []
-    out = []
-    for b in bars:
+def _has_enough_5m_data(ticker: str, check_dates: List[date], min_days_ok: int = 2) -> bool:
+    ok = 0
+    for d in check_dates:
         try:
-            if b.dt >= entry_dt and b.dt <= exit_dt:
-                out.append(b)
+            df = load_daytrade_5m_bars(ticker, d, force_refresh=False)
+            if df is not None and not df.empty:
+                ok += 1
         except Exception:
             continue
-    return out
-
-
-def _trade_mfe_mae_yen_long(tr, bars_slice) -> Tuple[int, int]:
-    """ロング前提で MFE/MAE を円で計算。"""
-    entry_price = _safe_float(getattr(tr, "entry_price", 0.0))
-    qty = _safe_int(getattr(tr, "qty", 0))
-    if qty <= 0 or entry_price <= 0:
-        return (0, 0)
-
-    if not bars_slice:
-        exit_price = _safe_float(getattr(tr, "exit_price", entry_price))
-        pnl = int((exit_price - entry_price) * qty)
-        return (max(pnl, 0), min(pnl, 0))
-
-    highs = []
-    lows = []
-    for b in bars_slice:
-        highs.append(_safe_float(getattr(b, "high", np.nan), np.nan))
-        lows.append(_safe_float(getattr(b, "low", np.nan), np.nan))
-
-    highs = [x for x in highs if np.isfinite(x)]
-    lows = [x for x in lows if np.isfinite(x)]
-
-    if not highs or not lows:
-        exit_price = _safe_float(getattr(tr, "exit_price", entry_price))
-        pnl = int((exit_price - entry_price) * qty)
-        return (max(pnl, 0), min(pnl, 0))
-
-    max_high = float(max(highs))
-    min_low = float(min(lows))
-
-    mfe_yen = int((max_high - entry_price) * qty)
-    mae_yen = int((min_low - entry_price) * qty)
-    return (mfe_yen, mae_yen)
+        if ok >= min_days_ok:
+            return True
+    return False
 
 
 # =========================================================
@@ -241,20 +194,6 @@ def _rank_codes_by_avg_trading_value_master(codes: List[str]) -> List[str]:
         score[code] = fv
 
     return sorted(codes, key=lambda c: score.get(c, 0.0), reverse=True)
-
-
-def _has_enough_5m_data(ticker: str, check_dates: List[date], min_days_ok: int = 2) -> bool:
-    ok = 0
-    for d in check_dates:
-        try:
-            df = load_daytrade_5m_bars(ticker, d, force_refresh=False)
-            if df is not None and not df.empty:
-                ok += 1
-        except Exception:
-            continue
-        if ok >= min_days_ok:
-            return True
-    return False
 
 
 def auto_select_daytrade_tickers_master(
@@ -357,39 +296,6 @@ def _load_codes_from_universe_file() -> List[str]:
     return []
 
 
-def _pick_col(df: pd.DataFrame, names: List[str]) -> Optional[str]:
-    cols = list(df.columns)
-    lower = {str(c).lower(): c for c in cols}
-    for n in names:
-        if n in cols:
-            return n
-        if n.lower() in lower:
-            return lower[n.lower()]
-    return None
-
-
-def _liquidity_score_from_5m(df: pd.DataFrame) -> float:
-    """
-    5分足の流動性スコア（大きいほど流動性が高い）。
-    close*volume の合計をベースにする。
-    """
-    if df is None or df.empty:
-        return 0.0
-
-    ccol = _pick_col(df, ["Close", "close", "c"])
-    vcol = _pick_col(df, ["Volume", "volume", "v"])
-    if ccol is None or vcol is None:
-        return 0.0
-
-    try:
-        close = pd.to_numeric(df[ccol], errors="coerce")
-        vol = pd.to_numeric(df[vcol], errors="coerce")
-        x = (close * vol).replace([np.inf, -np.inf], np.nan).dropna()
-        return float(x.sum()) if len(x) else 0.0
-    except Exception:
-        return 0.0
-
-
 def auto_select_daytrade_tickers_fallback(
     *,
     top_n: int,
@@ -440,90 +346,6 @@ def auto_select_daytrade_tickers_fallback(
     return [c for _, c in scored[: int(top_n)]]
 
 
-# =========================================================
-# Backtest runner
-# =========================================================
-
-def run_for_ticker(
-    ticker: str,
-    dates: List[date],
-    policy: dict,
-    budget_trade_loss_yen: int,
-    exit_stats: Dict[str, Any],
-) -> Agg:
-    agg = Agg(max_dd_yen=0)
-
-    for d in dates:
-        df = load_daytrade_5m_bars(ticker, d, force_refresh=False)
-        if df is None or df.empty:
-            continue
-
-        bars = df_to_bars_5m(df)
-        if not bars:
-            continue
-
-        res = run_backtest_one_day(bars=bars, policy=policy)
-        _update_agg(agg, res)
-
-        for tr in getattr(res, "trades", []):
-            reason = _get_exit_reason(tr)
-            pnl = int(getattr(tr, "pnl_yen", 0))
-            r = float(getattr(tr, "r", 0.0))
-
-            entry_dt = getattr(tr, "entry_dt", None)
-            exit_dt = getattr(tr, "exit_dt", None)
-
-            held_min = 0.0
-            try:
-                if entry_dt is not None and exit_dt is not None:
-                    held_min = float((exit_dt - entry_dt).total_seconds() / 60.0)
-            except Exception:
-                held_min = 0.0
-
-            bars_slice = []
-            try:
-                if entry_dt is not None and exit_dt is not None:
-                    bars_slice = _slice_bars_for_trade(bars, entry_dt, exit_dt)
-            except Exception:
-                bars_slice = []
-
-            mfe_yen, mae_yen = _trade_mfe_mae_yen_long(tr, bars_slice)
-
-            denom = max(int(budget_trade_loss_yen), 1)
-            mfe_r = float(mfe_yen) / float(denom)
-            mae_r = float(mae_yen) / float(denom)
-
-            slot = exit_stats.setdefault(
-                reason,
-                {
-                    "trades": 0,
-                    "wins": 0,
-                    "pnl": 0,
-                    "sum_r": 0.0,
-                    "held_minutes": [],
-                    "mfe_r": [],
-                    "mae_r": [],
-                },
-            )
-            slot["trades"] += 1
-            slot["pnl"] += pnl
-            slot["sum_r"] += float(r)
-            if pnl >= 0:
-                slot["wins"] += 1
-            slot["held_minutes"].append(float(held_min))
-            slot["mfe_r"].append(float(mfe_r))
-            slot["mae_r"].append(float(mae_r))
-
-    return agg
-
-
-def _report_dir_today() -> Path:
-    d = date.today().strftime("%Y%m%d")
-    p = Path(settings.MEDIA_ROOT) / "aiapp" / "daytrade" / "reports" / d
-    p.mkdir(parents=True, exist_ok=True)
-    return p
-
-
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser()
     p.add_argument("n", type=int, help="過去N営業日（20/60/120）")
@@ -565,6 +387,9 @@ def main():
         print("selected =", tickers)
         print("")
 
+    # =========================================================
+    # 自動選定
+    # =========================================================
     if not tickers:
         if not bool(args.auto):
             print("tickers is empty. 手動指定するか、--auto を付けて自動選定してください。")
@@ -619,8 +444,11 @@ def main():
         print("selected =", tickers)
         print("")
 
-    policy = load_policy_yaml().policy
-    dates = _last_n_bdays_jst(n)
+    # =========================================================
+    # policy / budget
+    # =========================================================
+    loaded = load_policy_yaml()
+    policy = loaded.policy
 
     capital_cfg = policy.get("capital", {})
     risk_cfg = policy.get("risk", {})
@@ -631,54 +459,29 @@ def main():
     budget_trade_loss_yen = int(getattr(budget, "trade_loss_yen", 1))
     budget_trade_loss_yen = max(budget_trade_loss_yen, 1)
 
+    # 日付は共通サービス側の関数を使う（UIと一致）
+    dates = last_n_bdays_jst(n)
+
     print("=== daytrade backtest multi (simple) ===")
     print("policy_id =", policy.get("meta", {}).get("policy_id"))
     print("days (bday approx) =", n)
     print("tickers =", tickers)
     print("")
 
-    total = Agg(max_dd_yen=0)
-    exit_stats: Dict[str, Any] = {}
-
-    for t in tickers:
-        agg = run_for_ticker(
-            ticker=t,
-            dates=dates,
-            policy=policy,
-            budget_trade_loss_yen=budget_trade_loss_yen,
-            exit_stats=exit_stats,
-        )
-
-        trades = agg.total_trades
-        avg_r = (agg.sum_r / trades) if trades > 0 else 0.0
-        winrate = (agg.wins / trades) if trades > 0 else 0.0
-
-        print(
-            f"[{t}] used_days={agg.days} traded_days={agg.traded_days} trades={trades} pnl={agg.total_pnl} "
-            f"winrate={_fmt_pct(winrate)} avg_r={avg_r:.4f} max_dd_yen={agg.max_dd_yen}"
-        )
-
-        total.days += agg.days
-        total.traded_days += agg.traded_days
-        total.total_trades += agg.total_trades
-        total.total_pnl += agg.total_pnl
-        total.sum_r += agg.sum_r
-        total.wins += agg.wins
-        total.losses += agg.losses
-        total.max_dd_yen = min(total.max_dd_yen, agg.max_dd_yen)
-
-    trades = total.total_trades
-    avg_r = (total.sum_r / trades) if trades > 0 else 0.0
-    winrate = (total.wins / trades) if trades > 0 else 0.0
-
-    print("")
-    print("---- total ----")
-    print(
-        f"used_days={total.days} traded_days={total.traded_days} trades={trades} pnl={total.total_pnl} "
-        f"winrate={_fmt_pct(winrate)} avg_r={avg_r:.4f} max_dd_yen={total.max_dd_yen}"
+    # =========================================================
+    # ★ 実行本体は共通サービス（UIと完全一致）
+    # =========================================================
+    out = run_daytrade_backtest_multi(
+        n=n,
+        tickers=tickers,
+        policy=policy,
+        budget_trade_loss_yen=budget_trade_loss_yen,
+        dates=dates,
+        verbose_log=True,
     )
 
-    print("=== done ===")
+    for line in out.get("run_log_lines", []) or []:
+        print(line)
 
 
 if __name__ == "__main__":
