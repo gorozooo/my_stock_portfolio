@@ -216,6 +216,7 @@
     text-align:left;
     font-size: 13px;
     white-space: nowrap;
+    vertical-align: top;
   }
   th{
     font-size: 12px;
@@ -536,10 +537,14 @@
             <div class="note" style="margin-top:12px;">
               <b>auto_fix：</b>
               {% if fix_summary %}
-                {% if fix_summary.used %}
-                  ベスト案「{{ fix_summary.best_name }}」を採用（試した候補：{{ fix_summary.candidates_count }}件）
+                {% if fix_summary.error %}
+                  エラー：{{ fix_summary.error }}
                 {% else %}
-                  今回は auto_fix の採用は無し（そのまま）
+                  {% if fix_summary.used %}
+                    ベスト案「{{ fix_summary.best_name }}」を採用（試した候補：{{ fix_summary.candidates_count }}件）
+                  {% else %}
+                    今回は auto_fix の採用は無し（そのまま）
+                  {% endif %}
                 {% endif %}
               {% else %}
                 未実行
@@ -571,6 +576,83 @@
                 ここに出るのが「本番で自動的にいじる候補」。初心者は触らなくてOK（採用するかだけ判断）。
               </div>
             {% endif %}
+
+            <!-- ★追加：候補一覧（candidates）テーブル -->
+            {% if fix_candidates %}
+              <details style="margin-top:12px;">
+                <summary>auto_fix の候補一覧（candidates）を見る</summary>
+                <div class="details-b">
+
+                  <div class="note">
+                    見方：<b>decision</b> が GO の案が出たら勝ち。出ない場合は avg_r を上げつつ DD を抑える案が「次の手」。
+                  </div>
+
+                  <div class="table-wrap" style="margin-top:8px;">
+                    <table style="min-width:980px;">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>候補名</th>
+                          <th>判定</th>
+                          <th class="num">avg_r</th>
+                          <th class="num">max_dd_pct</th>
+                          <th class="num">max_consecutive_losses</th>
+                          <th class="num">daylimit_days_pct</th>
+                          <th class="num">trades</th>
+                          <th>変更（要約）</th>
+                          <th>NO_GO理由</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for c in fix_candidates %}
+                          <tr>
+                            <td class="num">{{ c.idx }}</td>
+                            <td>
+                              <b>
+                                {% if c.is_best %}★ {% endif %}
+                                {{ c.name }}
+                              </b>
+                            </td>
+                            <td>
+                              <span class="badge {% if c.decision == 'GO' %}ok{% else %}ng{% endif %}">
+                                {{ c.decision }}
+                              </span>
+                            </td>
+                            <td class="num {% if c.avg_r < 0 %}neg{% elif c.avg_r > 0 %}pos{% endif %}">{{ c.avg_r }}</td>
+                            <td class="num">{{ c.max_dd_pct }}</td>
+                            <td class="num">{{ c.max_consecutive_losses }}</td>
+                            <td class="num">{{ c.daylimit_days_pct }}</td>
+                            <td class="num">{{ c.total_trades }}</td>
+                            <td class="muted" style="white-space: normal;">
+                              {% if c.diff_text %}
+                                {{ c.diff_text }}
+                              {% else %}
+                                （差分なし / 監視外の差分のみ）
+                              {% endif %}
+                            </td>
+                            <td style="white-space: normal;">
+                              {% if c.reasons %}
+                                {% for r in c.reasons %}
+                                  <div class="muted">- {{ r }}</div>
+                                {% endfor %}
+                              {% else %}
+                                <span class="muted">（理由なし）</span>
+                              {% endif %}
+                            </td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div class="note" style="margin-top:10px;">
+                    「★」は採用されたベスト案。ベストでも NO_GO の場合は、候補の “失敗理由” を見れば次の修正方向が一発で分かる。
+                  </div>
+
+                </div>
+              </details>
+            {% endif %}
+
           {% else %}
             <div class="note" style="margin-top:12px;">
               auto_fix は未接続（または import できない）ため、Judge のみ表示しています。
