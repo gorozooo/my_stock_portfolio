@@ -275,6 +275,15 @@
     font-size: 12px;
     font-weight: 900;
   }
+
+  .badge.ok{
+    border-color: rgba(70,220,140,.35);
+    background: rgba(70,220,140,.16);
+  }
+  .badge.ng{
+    border-color: rgba(255,90,90,.35);
+    background: rgba(255,90,90,.16);
+  }
 </style>
 
 <div class="dt-wrap">
@@ -354,7 +363,7 @@
                 <div class="v {% if kpi_total_pnl|default:0 < 0 %}neg{% elif kpi_total_pnl|default:0 > 0 %}pos{% endif %}">
                   {{ kpi_total_pnl|default:"-"|intcomma }}
                 </div>
-                <div class="note">プラス＝勝ち越し</div>
+                <div class="note">プラス＝勝ち越し（採用後の結果）</div>
               </div>
               <div class="kpi">
                 <div class="k">取引回数</div>
@@ -416,36 +425,128 @@
   </div>
 
   <!-- =========================
-       改善提案（auto_fix）
+       Judge / AutoFix
        ========================= -->
   <div class="card">
     <div class="card-h">
-      <h2>改善提案（自動）</h2>
-      <div class="hint">本番で“人が数値を触らない”ための仕組み</div>
+      <h2>判定（Judge）＋ 改善提案（自動）</h2>
+      <div class="hint">本番で“俺がいなくても回る”ための仕組み</div>
     </div>
     <div class="card-b">
-      {% if not auto_fix_enabled %}
-        <div class="note">auto_fix が読み込めませんでした（import失敗）。ファイル配置を確認してください。</div>
-      {% else %}
-        {% if fix_summary %}
-          {% if fix_summary.error %}
-            <div class="note">{{ fix_summary.error }}</div>
-          {% else %}
-            <div class="note">
-              <span class="badge">元の判定：{{ fix_summary.base.decision }}</span>
-              &nbsp;→&nbsp;
-              <span class="badge">ベスト案：{{ fix_summary.best.decision }}</span>
-              &nbsp;（試した候補：{{ fix_summary.candidates_count }}件）
-            </div>
 
-            <div style="margin-top:10px;">
-              <div class="field">
-                <label>ベスト案（名前）</label>
-                <input type="text" value="{{ fix_summary.best.name }}" readonly>
+      {% if not judge_enabled %}
+        <div class="note">Judge が無効です。</div>
+      {% else %}
+
+        {% if base_judge %}
+          <div class="note">
+            <span class="badge {% if base_judge.decision == 'GO' %}ok{% else %}ng{% endif %}">元の判定：{{ base_judge.decision }}</span>
+            {% if applied_judge %}
+              &nbsp;→&nbsp;
+              <span class="badge {% if applied_judge.decision == 'GO' %}ok{% else %}ng{% endif %}">採用後の判定：{{ applied_judge.decision }}</span>
+            {% endif %}
+          </div>
+
+          {% if base_judge.reasons %}
+            <div class="note" style="margin-top:10px;"><b>元のNO_GO理由</b></div>
+            <div class="table-wrap" style="margin-top:6px;">
+              <table style="min-width:680px;">
+                <thead>
+                  <tr>
+                    <th>理由</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in base_judge.reasons %}
+                    <tr><td>{{ r }}</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endif %}
+
+          {% if applied_judge and applied_judge.reasons %}
+            <div class="note" style="margin-top:12px;"><b>採用後NO_GO理由（まだNGの場合）</b></div>
+            <div class="table-wrap" style="margin-top:6px;">
+              <table style="min-width:680px;">
+                <thead>
+                  <tr>
+                    <th>理由</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in applied_judge.reasons %}
+                    <tr><td>{{ r }}</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endif %}
+
+          <details style="margin-top:12px;">
+            <summary>判定に使った数値（metrics）を見る</summary>
+            <div class="details-b">
+              <div class="table-wrap">
+                <table style="min-width:760px;">
+                  <thead>
+                    <tr>
+                      <th>項目</th>
+                      <th class="num">元</th>
+                      <th class="num">採用後</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>平均R</td>
+                      <td class="num">{{ base_judge.metrics.avg_r }}</td>
+                      <td class="num">{% if applied_judge %}{{ applied_judge.metrics.avg_r }}{% else %}-{% endif %}</td>
+                    </tr>
+                    <tr>
+                      <td>最大DD率</td>
+                      <td class="num">{{ base_judge.metrics.max_dd_pct }}</td>
+                      <td class="num">{% if applied_judge %}{{ applied_judge.metrics.max_dd_pct }}{% else %}-{% endif %}</td>
+                    </tr>
+                    <tr>
+                      <td>最大連敗数</td>
+                      <td class="num">{{ base_judge.metrics.max_consecutive_losses }}</td>
+                      <td class="num">{% if applied_judge %}{{ applied_judge.metrics.max_consecutive_losses }}{% else %}-{% endif %}</td>
+                    </tr>
+                    <tr>
+                      <td>日次損失上限ヒット率</td>
+                      <td class="num">{{ base_judge.metrics.daylimit_days_pct }}</td>
+                      <td class="num">{% if applied_judge %}{{ applied_judge.metrics.daylimit_days_pct }}{% else %}-{% endif %}</td>
+                    </tr>
+                    <tr>
+                      <td>日数</td>
+                      <td class="num">{{ base_judge.metrics.total_days }}</td>
+                      <td class="num">{% if applied_judge %}{{ applied_judge.metrics.total_days }}{% else %}-{% endif %}</td>
+                    </tr>
+                    <tr>
+                      <td>取引回数</td>
+                      <td class="num">{{ base_judge.metrics.total_trades }}</td>
+                      <td class="num">{% if applied_judge %}{{ applied_judge.metrics.total_trades }}{% else %}-{% endif %}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
+          </details>
 
-            {% if fix_summary.diffs %}
+          {% if autofix_enabled %}
+            <div class="note" style="margin-top:12px;">
+              <b>auto_fix：</b>
+              {% if fix_summary %}
+                {% if fix_summary.used %}
+                  ベスト案「{{ fix_summary.best_name }}」を採用（試した候補：{{ fix_summary.candidates_count }}件）
+                {% else %}
+                  今回は auto_fix の採用は無し（そのまま）
+                {% endif %}
+              {% else %}
+                未実行
+              {% endif %}
+            </div>
+
+            {% if fix_summary and fix_summary.used and fix_summary.diffs %}
               <div style="margin-top:10px;" class="table-wrap">
                 <table style="min-width:680px;">
                   <thead>
@@ -469,15 +570,42 @@
               <div class="note" style="margin-top:10px;">
                 ここに出るのが「本番で自動的にいじる候補」。初心者は触らなくてOK（採用するかだけ判断）。
               </div>
-            {% else %}
-              <div class="note" style="margin-top:10px;">
-                今回は「変更が不要」か、auto_fix が触れる項目に差分が出ませんでした。
-              </div>
             {% endif %}
+          {% else %}
+            <div class="note" style="margin-top:12px;">
+              auto_fix は未接続（または import できない）ため、Judge のみ表示しています。
+            </div>
           {% endif %}
+
+          {% if base_kpi %}
+            <details style="margin-top:12px;">
+              <summary>元のKPI（参考）を見る</summary>
+              <div class="details-b">
+                <div class="table-wrap">
+                  <table style="min-width:760px;">
+                    <thead>
+                      <tr>
+                        <th>項目</th>
+                        <th class="num">値</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr><td>合計損益（円）</td><td class="num">{{ base_kpi.total_pnl|intcomma }}</td></tr>
+                      <tr><td>取引回数</td><td class="num">{{ base_kpi.trades }}</td></tr>
+                      <tr><td>勝率</td><td class="num">{{ base_kpi.winrate }}</td></tr>
+                      <tr><td>平均R</td><td class="num">{{ base_kpi.avg_r }}</td></tr>
+                      <tr><td>最大DD（円）</td><td class="num">{{ base_kpi.max_dd_yen|intcomma }}</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </details>
+          {% endif %}
+
         {% else %}
-          <div class="note">未実行。まず上でバックテストを回すと、ここに提案が出ます。</div>
+          <div class="note">未実行。まず上でバックテストを回すと、ここに判定が出ます。</div>
         {% endif %}
+
       {% endif %}
     </div>
   </div>
