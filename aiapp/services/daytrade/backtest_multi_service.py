@@ -8,6 +8,8 @@
 
 追加（重要）
 - Judge で NO_GO のときに auto_fix を回して、GO になる案を探す（本番想定）。
+- dev/prod の Judge しきい値（judge_mode）を貫通させる。
+- UIで candidates をテーブル表示できるよう、候補を dict に変換して返す。
 """
 
 from __future__ import annotations
@@ -25,8 +27,8 @@ from aiapp.services.daytrade.backtest_runner import run_backtest_one_day
 
 from aiapp.services.daytrade.judge import JudgeResult, judge_backtest_results
 
-# auto_fix は存在前提（あなたが貼ってくれたやつ）
-from aiapp.services.daytrade.auto_fix import AutoFixResult, auto_fix_policy
+# auto_fix
+from aiapp.services.daytrade.auto_fix import AutoFixResult, FixCandidate, auto_fix_policy
 
 
 # =========================
@@ -166,6 +168,87 @@ def update_agg(agg: Agg, day_res) -> None:
     except Exception:
         pass
 
+
+# =========================
+# UI用：Judge/AutoFix を dict 化
+# =========================
+
+def judge_to_dict(j: Optional[JudgeResult]) -> Dict[str, Any]:
+    if not j:
+        return {"decision": "", "reasons": [], "metrics": {}, "mode": ""}
+    return {
+        "decision": str(getattr(j, "decision", "") or ""),
+        "reasons": list(getattr(j, "reasons", []) or []),
+        "metrics": dict(getattr(j, "metrics", {}) or {}),
+        "mode": str(getattr(j, "mode", "") or ""),
+    }
+
+
+def _diff_policy_simple(base: Dict[str, Any], cand: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    auto_fix の “何が変わったか” を初心者向けに出す（安全な範囲だけ）。
+    現時点で AutoFix が触る可能性があるキーだけを見る。
+    """
+    out: List[Dict[str, Any]] = []
+
+    def getp(d: Dict[str, Any], path: List[str], default=None):
+        cur: Any = d
+        for k in path:
+            if not isinstance(cur, dict):
+                return default
+            if k not in cur:
+                return default
+            cur = cur[k]
+        return cur
+
+    watch = [
+        (["exit", "take_profit_r"], "利確ライン（R）"),
+        (["exit", "max_hold_minutes"], "最大保保有時間（分）"),
+        (["exit", "vwap_exit_grace", "min_r_to_allow_exit"], "VWAP離脱許可（min_r）"),
+        (["exit", "vwap_exit_grace", "grace_minutes_after_entry"], "VWAP猶予（分）"),
+        (["exec_guards", "early_stop", "max_adverse_r"], "早期撤退（逆行R）"),
+    ]
+
+    for path, label in watch:
+        b = getp(base, path, None)
+        c = getp(cand, path, None)
+        if b != c:
+            out.append(
+                {
+                    "label": label,
+                    "path": ".".join(path),
+                    "before": b,
+                    "after": c,
+                }
+            )
+    return out
+
+
+def autofix_candidate_to_dict(base_policy: Dict[str, Any], c: FixCandidate) -> Dict[str, Any]:
+    j = c.judge
+    jd = judge_to_dict(j)
+    cand_policy = c.policy or {}
+    diffs = _diff_policy_simple(base_policy, cand_policy)
+
+    m = jd.get("metrics", {}) or {}
+    return {
+        "name": str(getattr(c, "name", "") or ""),
+        "decision": str(jd.get("decision", "") or ""),
+        "mode": str(jd.get("mode", "") or ""),
+        "reasons": list(jd.get("reasons", []) or []),
+        "avg_r": m.get("avg_r", None),
+        "max_dd_pct": m.get("max_dd_pct", None),
+        "max_consecutive_losses": m.get("max_consecutive_losses", None),
+        "daylimit_days_pct": m.get("daylimit_days_pct", None),
+        "total_days": m.get("total_days", None),
+        "total_trades": m.get("total_trades", None),
+        "diffs": diffs,  # テーブルや詳細表示用
+    }
+
+
+# =========================
+# 共通 backtest
+# =========================
 
 def run_daytrade_backtest_multi(
     *,
@@ -367,6 +450,10 @@ def run_daytrade_backtest_multi(
     }
 
 
+# =========================
+# Judge + AutoFix 付き
+# =========================
+
 def run_daytrade_backtest_multi_with_judge_autofix(
     *,
     n: int,
@@ -376,23 +463,18 @@ def run_daytrade_backtest_multi_with_judge_autofix(
     dates: Optional[List[date]] = None,
     verbose_log: bool = True,
     enable_autofix: bool = True,
-    autofix_max_candidates: int = 10,
+    autofix_max_candidates: int = 12,
+    judge_mode: str = "prod",   # ★追加：dev/prod を貫通
 ) -> Dict[str, Any]:
     """
-    追加の“本番想定”版：
-    1) まず通常 backtest を回す
-    2) Judge する
-    3) NO_GO なら auto_fix を挟んで GO 案（または最良案）を探す
-    4) 採用案でもう一度 backtest を回して、UI/CLI に分かりやすく返す
-
-    Returns dict:
-      - base: run_daytrade_backtest_multi の結果
-      - base_judge: JudgeResult
-      - applied: 採用後の結果（auto_fix無しなら base と同じ）
-      - applied_policy: 採用された policy dict（auto_fix無しなら base policy）
-      - applied_judge: 採用後 JudgeResult（auto_fix無しなら base_judge）
-      - autofix: AutoFixResult or None
+    本番想定版：
+    1) base backtest
+    2) Judge（mode=judge_mode）
+    3) NO_GO なら auto_fix（mode=judge_mode）で GO 案（または最良案）を探す
+    4) 採用案で backtest を回し直して返す
     """
+    judge_mode = (judge_mode or "prod").strip().lower()
+
     # ---- base run ----
     base = run_daytrade_backtest_multi(
         n=n,
@@ -402,16 +484,20 @@ def run_daytrade_backtest_multi_with_judge_autofix(
         dates=dates,
         verbose_log=verbose_log,
     )
-    base_judge = judge_backtest_results(base.get("collected_day_results", []) or [], policy)
+    base_judge_obj = judge_backtest_results(base.get("collected_day_results", []) or [], policy, mode=judge_mode)
 
-    # デフォは “そのまま採用（= base）”
+    # デフォ：そのまま
     applied = base
     applied_policy = policy
-    applied_judge = base_judge
+    applied_judge_obj = base_judge_obj
     autofix: Optional[AutoFixResult] = None
 
-    if (base_judge.decision == "NO_GO") and bool(enable_autofix):
-        # day_results_provider: policy -> DayResult配列 を返す
+    # UI用：候補一覧（dict）
+    autofix_candidates: List[Dict[str, Any]] = []
+    autofix_best: Dict[str, Any] = {}
+
+    if (base_judge_obj.decision == "NO_GO") and bool(enable_autofix):
+        # day_results_provider: policy -> DayResult配列
         def _provider(p: Dict[str, Any]) -> List[Any]:
             out = run_daytrade_backtest_multi(
                 n=n,
@@ -427,12 +513,29 @@ def run_daytrade_backtest_multi_with_judge_autofix(
             base_policy=policy,
             day_results_provider=_provider,
             max_candidates=int(autofix_max_candidates),
+            mode=judge_mode,  # ★重要：dev/prod を貫通
         )
 
-        applied_policy = autofix.best.policy
-        applied_judge = autofix.best.judge
+        # UI用に candidates を dict 化
+        try:
+            cs = list(getattr(autofix, "candidates", []) or [])
+            for c in cs:
+                autofix_candidates.append(autofix_candidate_to_dict(policy, c))
+        except Exception:
+            autofix_candidates = []
 
-        # 採用案で、表示用の集計（rows/kpi/exit_rows/log）を作り直す
+        # 採用
+        best = getattr(autofix, "best", None)
+        applied_policy = getattr(best, "policy", None) or policy
+        applied_judge_obj = getattr(best, "judge", None) or base_judge_obj
+
+        # ベストも UI 用 dict 化
+        try:
+            autofix_best = autofix_candidate_to_dict(policy, best) if best is not None else {}
+        except Exception:
+            autofix_best = {}
+
+        # 採用案で backtest を回し直す（表示用）
         applied = run_daytrade_backtest_multi(
             n=n,
             tickers=tickers,
@@ -444,9 +547,15 @@ def run_daytrade_backtest_multi_with_judge_autofix(
 
     return {
         "base": base,
-        "base_judge": base_judge,
+        "base_judge": base_judge_obj,              # object（互換）
+        "base_judge_dict": judge_to_dict(base_judge_obj),  # dict（UI向け）
         "applied": applied,
         "applied_policy": applied_policy,
-        "applied_judge": applied_judge,
-        "autofix": autofix,
+        "applied_judge": applied_judge_obj,        # object（互換）
+        "applied_judge_dict": judge_to_dict(applied_judge_obj),  # dict（UI向け）
+        "autofix": autofix,                        # object（互換）
+        # ★UI用
+        "autofix_candidates": autofix_candidates,
+        "autofix_best": autofix_best,
+        "judge_mode": judge_mode,
     }
