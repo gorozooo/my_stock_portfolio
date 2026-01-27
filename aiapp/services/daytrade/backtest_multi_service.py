@@ -14,6 +14,9 @@
 今回の修正（肝）
 - judge_mode（dev/prod）をこのサービスの入口から渡せるようにする
 - base_judge / auto_fix / applied_judge が同じ judge_mode を使う（ブレ防止）
+- UIで実行した Judge 結果も judge_snapshot に保存する（1日1ファイル）
+  - judge.json は1日1ファイルなので、applied（採用後）をメインに保存
+  - base_judge / autofix_dict などは extra にまとめて保存して上書き事故を避ける
 """
 
 from __future__ import annotations
@@ -103,7 +106,7 @@ def get_exit_reason(tr) -> str:
 
 def slice_bars_for_trade(bars, entry_dt: datetime, exit_dt: datetime):
     """entry_dt〜exit_dt の間のバーを抽出"""
-    if not bars or entry_dt is None or exit_dt is None:
+    if not bars or entry_dt is None or exit_dt is not None and exit_dt is None:
         return []
     out = []
     for b in bars:
@@ -230,15 +233,16 @@ def _diff_policy_simple(base_policy: Dict[str, Any], cand_policy: Dict[str, Any]
 def _candidate_to_dict(base_policy: Dict[str, Any], c: FixCandidate) -> Dict[str, Any]:
     pj = getattr(c, "policy", None) or {}
     j = getattr(c, "judge", None)
+    jd = _judge_to_dict(j)
     return {
         "name": str(getattr(c, "name", "") or ""),
-        "judge": _judge_to_dict(j),
+        "judge": jd,
         "diffs": _diff_policy_simple(base_policy, pj),
         # よく見る数値だけ上に出す（テンプレが楽）
-        "avg_r": float((_judge_to_dict(j).get("metrics") or {}).get("avg_r", 0.0) or 0.0),
-        "max_dd_pct": float((_judge_to_dict(j).get("metrics") or {}).get("max_dd_pct", 0.0) or 0.0),
-        "max_consecutive_losses": int((_judge_to_dict(j).get("metrics") or {}).get("max_consecutive_losses", 0) or 0),
-        "daylimit_days_pct": float((_judge_to_dict(j).get("metrics") or {}).get("daylimit_days_pct", 0.0) or 0.0),
+        "avg_r": float((jd.get("metrics") or {}).get("avg_r", 0.0) or 0.0),
+        "max_dd_pct": float((jd.get("metrics") or {}).get("max_dd_pct", 0.0) or 0.0),
+        "max_consecutive_losses": int((jd.get("metrics") or {}).get("max_consecutive_losses", 0) or 0),
+        "daylimit_days_pct": float((jd.get("metrics") or {}).get("daylimit_days_pct", 0.0) or 0.0),
     }
 
 
@@ -475,7 +479,8 @@ def run_daytrade_backtest_multi_with_judge_autofix(
     verbose_log: bool = True,
     enable_autofix: bool = True,
     autofix_max_candidates: int = 10,
-    judge_mode: str = "prod",  # ★追加：dev/prod を統一する
+    judge_mode: str = "prod",  # dev/prod を統一する
+    save_snapshot: bool = True,  # ★追加：UI実行でも judge.json を保存する
 ) -> Dict[str, Any]:
     """
     本番想定版：
@@ -486,10 +491,12 @@ def run_daytrade_backtest_multi_with_judge_autofix(
 
     追加：
     - autofix_dict を返す（UIで candidates テーブル表示用）
-
-    今回の追加：
-    - judge_mode を受け取り、Judge と auto_fix が同じ基準で判定する
+    - judge_mode を受け取り、Judge と auto_fix が同じ基準で判定する（ブレ防止）
+    - UI/CLI どちらからでも judge_snapshot を保存できる（後検証のため）
     """
+    if dates is None:
+        dates = last_n_bdays_jst(n)
+
     # ---- base run ----
     base = run_daytrade_backtest_multi(
         n=n,
@@ -499,7 +506,8 @@ def run_daytrade_backtest_multi_with_judge_autofix(
         dates=dates,
         verbose_log=verbose_log,
     )
-    # ★ mode を統一
+
+    # mode を統一
     base_judge = judge_backtest_results(
         base.get("collected_day_results", []) or [],
         policy,
@@ -527,7 +535,7 @@ def run_daytrade_backtest_multi_with_judge_autofix(
             base_policy=policy,
             day_results_provider=_provider,
             max_candidates=int(autofix_max_candidates),
-            judge_mode=str(judge_mode or "prod"),  # ★ここがブレ防止の本丸
+            judge_mode=str(judge_mode or "prod"),
         )
 
         applied_policy = autofix.best.policy
@@ -543,6 +551,42 @@ def run_daytrade_backtest_multi_with_judge_autofix(
         )
 
     autofix_dict = _autofix_to_dict(policy, autofix)
+
+    # =========================
+    # ★ judge snapshot 保存（UI/CLI共通）
+    # - judge.json は 1日1ファイルなので、applied をメインに残す
+    # - base / autofix は extra にまとめる
+    # =========================
+    if bool(save_snapshot):
+        try:
+            from aiapp.services.daytrade.judge_snapshot import save_judge_snapshot
+
+            extra = {
+                "n": int(n),
+                "tickers": [str(x) for x in (tickers or [])],
+                "dates": [d.isoformat() for d in (dates or [])],
+                "budget_trade_loss_yen": int(budget_trade_loss_yen),
+                "judge_mode": str(judge_mode or "prod"),
+                "base_judge": _judge_to_dict(base_judge),
+                "applied_judge": _judge_to_dict(applied_judge),
+                "autofix_dict": autofix_dict,
+            }
+
+            # 保存する policy は「実際に採用して評価したもの」を残す
+            _p = save_judge_snapshot(
+                d=date.today(),
+                policy=applied_policy,
+                judge_result=applied_judge,
+                extra=extra,
+            )
+
+            if verbose_log:
+                # UIログに出すと分かりやすい（邪魔なら後でOFFにできる）
+                applied.get("run_log_lines", []).append(f"[judge_snapshot] saved: {_p}")
+
+        except Exception as e:
+            if verbose_log:
+                applied.get("run_log_lines", []).append(f"[judge_snapshot] failed: {e}")
 
     return {
         "base": base,
