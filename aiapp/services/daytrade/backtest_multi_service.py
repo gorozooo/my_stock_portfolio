@@ -107,7 +107,7 @@ def get_exit_reason(tr) -> str:
 def slice_bars_for_trade(bars, entry_dt: datetime, exit_dt: datetime):
     """entry_dt〜exit_dt の間のバーを抽出"""
     if not bars or entry_dt is None or exit_dt is None:
-    return []
+        return []
     out = []
     for b in bars:
         try:
