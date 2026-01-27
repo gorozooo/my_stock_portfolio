@@ -101,6 +101,10 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
     form_scan_limit = 2000
     form_pre_rank_pool = 400
 
+    # ★追加：judge mode（dev/prod）
+    # 画面は “本番想定” なのでデフォは prod
+    form_judge_mode = "prod"  # prod / dev
+
     run_log_lines: List[str] = []
 
     selected_tickers: List[str] = []
@@ -161,6 +165,11 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
         form_mode = str(request.POST.get("mode") or "dev_default").strip()
         form_tickers = str(request.POST.get("tickers") or "")
 
+        # ★追加：judge mode
+        form_judge_mode = str(request.POST.get("judge_mode") or "prod").strip().lower()
+        if form_judge_mode not in ("prod", "dev"):
+            form_judge_mode = "prod"
+
         try:
             form_top = int(request.POST.get("top") or 40)
         except Exception:
@@ -213,6 +222,7 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
                     verbose_log=True,
                     enable_autofix=True,
                     autofix_max_candidates=10,
+                    judge_mode=form_judge_mode,  # ★追加：ここが一致点
                 )
 
                 base = dict(outx.get("base", {}) or {})
@@ -313,6 +323,8 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
         "form_top": form_top,
         "form_scan_limit": form_scan_limit,
         "form_pre_rank_pool": form_pre_rank_pool,
+        # ★追加：judge mode（テンプレで表示/選択に使える）
+        "form_judge_mode": form_judge_mode,
         # meta
         "policy_id": policy_id,
         "budget_trade_loss_yen": budget_trade_loss_yen,
