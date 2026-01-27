@@ -47,7 +47,7 @@ def _parse_tickers(text: str) -> List[str]:
 def _diff_policy_simple(base: Dict[str, Any], cand: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     auto_fix の “何が変わったか” を初心者向けに出す（安全な範囲だけ）。
-    いまの auto_fix が触る可能性があるキーだけ見る（増えてもここに足す）。
+    いまの auto_fix が触るのは exit.take_profit_r / exit.max_hold_minutes なのでそこだけ見る。
     """
     out: List[Dict[str, Any]] = []
 
@@ -64,9 +64,6 @@ def _diff_policy_simple(base: Dict[str, Any], cand: Dict[str, Any]) -> List[Dict
     watch = [
         (["exit", "take_profit_r"], "利確ライン（R）"),
         (["exit", "max_hold_minutes"], "最大保有時間（分）"),
-        (["exit", "vwap_exit_grace", "min_r_to_allow_exit"], "VWAP離脱許可（min_r）"),
-        (["exit", "vwap_exit_grace", "grace_minutes_after_entry"], "VWAP猶予（分）"),
-        (["exec_guards", "early_stop", "max_adverse_r"], "早期撤退（逆行R）"),
     ]
 
     for path, label in watch:
@@ -104,9 +101,6 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
     form_scan_limit = 2000
     form_pre_rank_pool = 400
 
-    # Judgeモード（dev/prod）
-    form_judge_mode = "dev"  # dev / prod
-
     run_log_lines: List[str] = []
 
     selected_tickers: List[str] = []
@@ -127,15 +121,16 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
     judge_enabled = True
     autofix_enabled = run_daytrade_backtest_multi_with_judge_autofix is not None
 
-    # base/applied judge（テンプレは dict を想定）
     base_judge: Dict[str, Any] | None = None
     applied_judge: Dict[str, Any] | None = None
 
     fix_summary: Dict[str, Any] | None = None
 
-    # ★ candidates テーブル用（UI）
-    candidates_rows: List[Dict[str, Any]] = []
-    best_candidate: Dict[str, Any] | None = None
+    # ★ candidates をテーブル表示するための “一覧”
+    fix_candidates: List[Dict[str, Any]] = []
+
+    # ★ auto_fix の best（UIでハイライト用に name を使う）
+    fix_best_name: str = ""
 
     # ---------- policy ----------
     try:
@@ -165,11 +160,6 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
 
         form_mode = str(request.POST.get("mode") or "dev_default").strip()
         form_tickers = str(request.POST.get("tickers") or "")
-
-        # judge_mode（dev/prod）
-        form_judge_mode = str(request.POST.get("judge_mode") or "dev").strip().lower()
-        if form_judge_mode not in ("dev", "prod"):
-            form_judge_mode = "dev"
 
         try:
             form_top = int(request.POST.get("top") or 40)
@@ -222,8 +212,7 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
                     dates=dates,
                     verbose_log=True,
                     enable_autofix=True,
-                    autofix_max_candidates=12,
-                    judge_mode=form_judge_mode,   # ★dev/prod
+                    autofix_max_candidates=10,
                 )
 
                 base = dict(outx.get("base", {}) or {})
@@ -243,38 +232,44 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
 
                 base_kpi = dict(base.get("kpi", {}) or {})
 
-                # judge dict（serviceがdictも返す）
-                base_judge = dict(outx.get("base_judge_dict", {}) or {})
-                applied_judge = dict(outx.get("applied_judge_dict", {}) or {})
+                base_judge = _judge_to_dict(outx.get("base_judge"))
+                applied_judge = _judge_to_dict(outx.get("applied_judge"))
 
-                # candidates（UI用のdict配列）
-                candidates_rows = list(outx.get("autofix_candidates", []) or [])
-                best_candidate = dict(outx.get("autofix_best", {}) or {}) if outx.get("autofix_best") else None
+                # ★ UI用：autofix_dict（candidates テーブル用）
+                autofix_dict = outx.get("autofix_dict", None)
 
-                # auto_fix 要約（テンプレの “差分” 表示は best_candidate から作る）
-                fx = outx.get("autofix", None)
-                if fx is not None:
-                    # best_policy は object 経由で取れない環境もあるので、diffは best_candidate の diffs を優先
-                    diffs = []
-                    if best_candidate and isinstance(best_candidate.get("diffs", None), list):
-                        diffs = list(best_candidate.get("diffs") or [])
+                if isinstance(autofix_dict, dict):
+                    # candidates
+                    fix_candidates = list(autofix_dict.get("candidates", []) or [])
+                    fix_best_name = str(autofix_dict.get("best_name", "") or "")
+
+                    # best diffs を “上の要約枠” にも流用（今のテンプレ互換）
+                    best = autofix_dict.get("best", None)
+                    if isinstance(best, dict):
+                        fix_summary = {
+                            "used": True,
+                            "best_name": fix_best_name,
+                            "candidates_count": int(autofix_dict.get("candidates_count", 0) or 0),
+                            "diffs": list(best.get("diffs", []) or []),
+                        }
                     else:
-                        # 保険：policy差分（旧ロジック）
-                        try:
-                            best = getattr(fx, "best", None)
-                            best_policy = getattr(best, "policy", None) or {}
-                            diffs = _diff_policy_simple(policy, best_policy)
-                        except Exception:
-                            diffs = []
-
-                    fix_summary = {
-                        "used": True,
-                        "best_name": str((best_candidate or {}).get("name", "") or ""),
-                        "candidates_count": int(len(candidates_rows)),
-                        "diffs": diffs,
-                    }
+                        # best が取れないときでも候補数は出す
+                        fix_summary = {
+                            "used": True,
+                            "best_name": fix_best_name,
+                            "candidates_count": int(autofix_dict.get("candidates_count", 0) or 0),
+                            "diffs": [],
+                        }
                 else:
-                    fix_summary = {"used": False, "best_name": "", "candidates_count": 0, "diffs": []}
+                    # autofixが無い/未実行/NO candidates
+                    fix_candidates = []
+                    fix_best_name = ""
+                    fx = outx.get("autofix", None)
+                    if fx is not None:
+                        # object が返ってきているが dict 生成できなかったケース
+                        fix_summary = {"used": True, "best_name": "", "candidates_count": 0, "diffs": []}
+                    else:
+                        fix_summary = {"used": False, "best_name": "", "candidates_count": 0, "diffs": []}
 
             except Exception as e:
                 # ここで落ちるなら、安全に通常 backtest へ退避
@@ -307,8 +302,8 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
             base_judge = None
             applied_judge = None
             fix_summary = None
-            candidates_rows = []
-            best_candidate = None
+            fix_candidates = []
+            fix_best_name = ""
 
     ctx = {
         # form echo
@@ -318,7 +313,6 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
         "form_top": form_top,
         "form_scan_limit": form_scan_limit,
         "form_pre_rank_pool": form_pre_rank_pool,
-        "form_judge_mode": form_judge_mode,  # ★追加
         # meta
         "policy_id": policy_id,
         "budget_trade_loss_yen": budget_trade_loss_yen,
@@ -341,8 +335,8 @@ def daytrade_backtest_view(request: HttpRequest) -> HttpResponse:
         "base_judge": base_judge,
         "applied_judge": applied_judge,
         "fix_summary": fix_summary,
-        # ★ candidates テーブル用
-        "candidates_rows": candidates_rows,
-        "best_candidate": best_candidate,
+        # ★ candidates table
+        "fix_candidates": fix_candidates,
+        "fix_best_name": fix_best_name,
     }
     return render(request, "aiapp/daytrade_backtest.html", ctx)
