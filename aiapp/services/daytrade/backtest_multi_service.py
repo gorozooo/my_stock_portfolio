@@ -10,6 +10,10 @@
 - Judge で NO_GO のときに auto_fix を回して、GO になる案を探す（本番想定）。
 - UIで candidates をテーブル表示できるように、
   AutoFixResult を “シリアライズ(dict化)” して返す。
+
+今回の修正（肝）
+- judge_mode（dev/prod）をこのサービスの入口から渡せるようにする
+- base_judge / auto_fix / applied_judge が同じ judge_mode を使う（ブレ防止）
 """
 
 from __future__ import annotations
@@ -471,6 +475,7 @@ def run_daytrade_backtest_multi_with_judge_autofix(
     verbose_log: bool = True,
     enable_autofix: bool = True,
     autofix_max_candidates: int = 10,
+    judge_mode: str = "prod",  # ★追加：dev/prod を統一する
 ) -> Dict[str, Any]:
     """
     本番想定版：
@@ -481,6 +486,9 @@ def run_daytrade_backtest_multi_with_judge_autofix(
 
     追加：
     - autofix_dict を返す（UIで candidates テーブル表示用）
+
+    今回の追加：
+    - judge_mode を受け取り、Judge と auto_fix が同じ基準で判定する
     """
     # ---- base run ----
     base = run_daytrade_backtest_multi(
@@ -491,7 +499,12 @@ def run_daytrade_backtest_multi_with_judge_autofix(
         dates=dates,
         verbose_log=verbose_log,
     )
-    base_judge = judge_backtest_results(base.get("collected_day_results", []) or [], policy)
+    # ★ mode を統一
+    base_judge = judge_backtest_results(
+        base.get("collected_day_results", []) or [],
+        policy,
+        mode=str(judge_mode or "prod"),
+    )
 
     applied = base
     applied_policy = policy
@@ -514,6 +527,7 @@ def run_daytrade_backtest_multi_with_judge_autofix(
             base_policy=policy,
             day_results_provider=_provider,
             max_candidates=int(autofix_max_candidates),
+            judge_mode=str(judge_mode or "prod"),  # ★ここがブレ防止の本丸
         )
 
         applied_policy = autofix.best.policy
