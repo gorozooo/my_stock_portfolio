@@ -3,27 +3,12 @@
 ファイル: aiapp/services/daytrade/policy_schema.py
 
 これは何？
-- policies/daytrade/active.yml（デイトレ全自動の「憲法」= PolicySnapshot）を読み込んだあと、
-  「必要な項目が揃っているか」「構造が壊れていないか」をチェック（バリデーション）するためのファイルです。
-- 全自動では、設定ファイルのミスが事故につながるので、ここで早めに止めます。
+- policies/daytrade/active.yml（デイトレ全自動の「憲法」）を読み込んだあと、
+  必須キー欠落や構造崩れを検知して、事故を防ぐバリデーション。
 
-なぜ必要？
-- YAMLのインデントミス、キーの欠落、型の間違い（リストのはずが文字列など）を検知して、
-  「壊れた設定のまま全自動が走る」事故を防ぎます。
-
-置き場所（重要）
-- プロジェクトルート（manage.py がある階層）から見て:
-  aiapp/services/daytrade/policy_schema.py
-
-関連する設定ファイル（YAML）
-- active.yml（本番が読む“現行憲法”）:
-  policies/daytrade/active.yml
-- snapshots（履歴。バックテストやFixerで増える想定）:
-  policies/daytrade/snapshots/*.yml
-
-注意
-- このフェーズ1では「厳密な数値レンジ」より「構造が正しいこと」を優先しています。
-  後でフェーズが進んだら、範囲チェック（0〜1など）も強化できます。
+注意（Judgeしきい値）
+- 新形式: judge_thresholds: { dev:{...}, prod:{...} } を推奨
+- 互換: 旧形式 judge_thresholds（フラット）も許可（prod扱い）
 """
 
 from __future__ import annotations
@@ -61,13 +46,19 @@ def _require(obj: Dict[str, Any], key: str, path: str) -> Any:
     return obj[key]
 
 
+def _require_judge_thresholds_dict(th: Dict[str, Any], path: str) -> None:
+    """
+    judge_thresholds の中身（1セット）を検証する。
+    """
+    if not _is_dict(th):
+        raise PolicySchemaError(f"{path} must be a dict.")
+    for k in ["max_dd_pct", "max_consecutive_losses", "max_daylimit_days_pct", "min_avg_r"]:
+        _require(th, k, path)
+
+
 def validate_policy_dict(policy: Dict[str, Any]) -> None:
     """
     active.yml を読み込んだ dict を検証する（フェーズ1の最小スキーマ）。
-
-    目的:
-    - 「全自動の憲法(PolicySnapshot)」が壊れていないことを保証する
-    - 壊れているなら、ここで止めて事故を防ぐ
 
     期待するトップレベル構造:
       meta, capital, risk, time_filter, universe_filter, strategy,
@@ -168,9 +159,22 @@ def validate_policy_dict(policy: Dict[str, Any]) -> None:
         raise PolicySchemaError("policy.limits must be a dict.")
     _require(limits, "max_trades_per_day", "policy.limits")
 
-    # judge_thresholds
+    # judge_thresholds（新旧互換で検証）
     judge = policy["judge_thresholds"]
     if not _is_dict(judge):
         raise PolicySchemaError("policy.judge_thresholds must be a dict.")
-    for k in ["max_dd_pct", "max_consecutive_losses", "max_daylimit_days_pct", "min_avg_r"]:
-        _require(judge, k, "policy.judge_thresholds")
+
+    # 新形式: dev/prod を持つ
+    has_dev = _is_dict(judge.get("dev"))
+    has_prod = _is_dict(judge.get("prod"))
+
+    if has_dev or has_prod:
+        # dev/prod のうち、存在するものを検証
+        if has_dev:
+            _require_judge_thresholds_dict(judge["dev"], "policy.judge_thresholds.dev")
+        if has_prod:
+            _require_judge_thresholds_dict(judge["prod"], "policy.judge_thresholds.prod")
+        # dev/prod両方無いは上に引っかからないのでここには来ない
+    else:
+        # 旧形式: フラット
+        _require_judge_thresholds_dict(judge, "policy.judge_thresholds")
