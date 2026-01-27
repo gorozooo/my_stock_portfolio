@@ -1,3 +1,4 @@
+{# templates/aiapp/daytrade_backtest.html #}
 {% extends "base.html" %}
 {% load static humanize %}
 
@@ -13,6 +14,7 @@
     --ok: rgba(70, 220, 140, .18);
     --ng: rgba(255, 90, 90, .18);
     --chip: rgba(255,255,255,.08);
+    --warn: rgba(255, 210, 80, .18);
   }
 
   .dt-wrap{
@@ -285,20 +287,30 @@
     border-color: rgba(255,90,90,.35);
     background: rgba(255,90,90,.16);
   }
-
-  .pill{
-    display:inline-flex;
-    align-items:center;
-    gap:6px;
-    padding:6px 10px;
-    border-radius:999px;
-    border:1px solid rgba(255,255,255,.12);
-    background: rgba(255,255,255,.06);
-    font-size: 12px;
-    font-weight: 900;
+  .badge.warn{
+    border-color: rgba(255,210,80,.35);
+    background: rgba(255,210,80,.16);
   }
-  .pill.ok{ border-color: rgba(70,220,140,.35); background: rgba(70,220,140,.12); }
-  .pill.ng{ border-color: rgba(255,90,90,.35); background: rgba(255,90,90,.12); }
+
+  .diff-list{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .diff-item{
+    padding:8px 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,.10);
+    background: rgba(0,0,0,.10);
+  }
+  .diff-item .p{
+    font-size: 11px;
+    color: var(--muted2);
+  }
+
+  .best-row{
+    background: rgba(120,180,255,.10);
+  }
 </style>
 
 <div class="dt-wrap">
@@ -353,17 +365,6 @@
               <label>銘柄コード（例：7203 6758 9984）</label>
               <textarea name="tickers" placeholder="7203 6758 9984">{{ form_tickers|default:"" }}</textarea>
               <div class="note">空白/カンマ区切りOK。迷ったら空のままでも動く（おすすめに戻る）。</div>
-            </div>
-
-            <div class="field" style="margin-top:12px;">
-              <label>Judge の基準（しきい値）</label>
-              <select name="judge_mode">
-                {% with jm=form_judge_mode|default:"dev" %}
-                  <option value="dev"  {% if jm == "dev" %}selected{% endif %}>開発用（ゆるめ）</option>
-                  <option value="prod" {% if jm == "prod" %}selected{% endif %}>本番用（厳しめ）</option>
-                {% endwith %}
-              </select>
-              <div class="note">開発は「回るか/壊れてないか」を優先。本番は「事故らないか」を優先。</div>
             </div>
 
             <div class="btns">
@@ -466,14 +467,13 @@
 
         {% if base_judge %}
           <div class="note">
-            <span class="badge {% if base_judge.decision == 'GO' %}ok{% else %}ng{% endif %}">
-              元の判定：{{ base_judge.decision }}{% if base_judge.mode %}（{{ base_judge.mode }}）{% endif %}
-            </span>
+            <span class="badge {% if base_judge.decision == 'GO' %}ok{% else %}ng{% endif %}">元の判定：{{ base_judge.decision }}</span>
             {% if applied_judge %}
               &nbsp;→&nbsp;
-              <span class="badge {% if applied_judge.decision == 'GO' %}ok{% else %}ng{% endif %}">
-                採用後の判定：{{ applied_judge.decision }}{% if applied_judge.mode %}（{{ applied_judge.mode }}）{% endif %}
-              </span>
+              <span class="badge {% if applied_judge.decision == 'GO' %}ok{% else %}ng{% endif %}">採用後の判定：{{ applied_judge.decision }}</span>
+            {% endif %}
+            {% if base_judge.mode %}
+              &nbsp;<span class="badge warn">mode: {{ base_judge.mode }}</span>
             {% endif %}
           </div>
 
@@ -559,15 +559,6 @@
                   </tbody>
                 </table>
               </div>
-              {% if base_judge.metrics.thresholds %}
-                <div class="note" style="margin-top:10px;">
-                  しきい値：
-                  max_dd_pct={{ base_judge.metrics.thresholds.max_dd_pct }},
-                  max_consecutive_losses={{ base_judge.metrics.thresholds.max_consecutive_losses }},
-                  max_daylimit_days_pct={{ base_judge.metrics.thresholds.max_daylimit_days_pct }},
-                  min_avg_r={{ base_judge.metrics.thresholds.min_avg_r }}
-                </div>
-              {% endif %}
             </div>
           </details>
 
@@ -611,92 +602,92 @@
               </div>
             {% endif %}
 
-            <!-- ★ 追加：候補一覧（candidates）テーブル -->
-            <details style="margin-top:12px;">
-              <summary>auto_fix の候補一覧（candidates）を見る</summary>
-              <div class="details-b">
+            <!-- =========================
+                 ★ 候補一覧（candidates）
+                 ========================= -->
+            <div style="margin-top:14px;">
+              <details open>
+                <summary>候補一覧（auto_fix が試した順）</summary>
+                <div class="details-b">
 
-                {% if candidates_rows %}
-                  <div class="note" style="margin-bottom:8px;">
-                    目的：<b>「どの修正がどれだけ効いたか」</b>を見える化。ベストは最上段に★が付く。
-                  </div>
-
-                  <div class="table-wrap">
-                    <table style="min-width:960px;">
-                      <thead>
-                        <tr>
-                          <th>候補</th>
-                          <th>判定</th>
-                          <th class="num">avg_r</th>
-                          <th class="num">max_dd_pct</th>
-                          <th class="num">max_consecutive_losses</th>
-                          <th class="num">daylimit_days_pct</th>
-                          <th>NO_GO理由（要約）</th>
-                          <th>変更点（diff）</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {% for c in candidates_rows %}
+                  {% if fix_candidates %}
+                    <div class="table-wrap">
+                      <table style="min-width:980px;">
+                        <thead>
                           <tr>
-                            <td>
-                              <b>{{ c.name }}</b>
-                              {% if c.is_best %}
-                                &nbsp;<span class="pill ok">★ BEST</span>
-                              {% endif %}
-                              <div class="note">#{{ c.index }} / mode={{ c.judge_mode }}</div>
-                            </td>
-
-                            <td>
-                              {% if c.decision == "GO" %}
-                                <span class="pill ok">GO</span>
-                              {% else %}
-                                <span class="pill ng">NO_GO</span>
-                              {% endif %}
-                            </td>
-
-                            <td class="num">{{ c.metrics.avg_r }}</td>
-                            <td class="num">{{ c.metrics.max_dd_pct }}</td>
-                            <td class="num">{{ c.metrics.max_consecutive_losses }}</td>
-                            <td class="num">{{ c.metrics.daylimit_days_pct }}</td>
-
-                            <td style="white-space:normal;">
-                              {% if c.reasons %}
-                                {% for r in c.reasons %}
-                                  <div class="note">- {{ r }}</div>
-                                {% endfor %}
-                              {% else %}
-                                <span class="muted">（なし）</span>
-                              {% endif %}
-                            </td>
-
-                            <td style="white-space:normal;">
-                              {% if c.diffs %}
-                                {% for d in c.diffs %}
-                                  <div class="note">
-                                    • <b>{{ d.path }}</b>: {{ d.before }} → {{ d.after }}
-                                  </div>
-                                {% endfor %}
-                              {% else %}
-                                <span class="muted">（変更なし）</span>
-                              {% endif %}
-                            </td>
+                            <th>候補名</th>
+                            <th class="num">判定</th>
+                            <th class="num">平均R</th>
+                            <th class="num">最大DD率</th>
+                            <th class="num">最大連敗</th>
+                            <th class="num">日次上限ヒット率</th>
+                            <th>変更内容</th>
+                            <th>理由（NO_GOなら）</th>
                           </tr>
-                        {% endfor %}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody>
+                          {% for c in fix_candidates %}
+                            <tr class="{% if fix_best_name and c.name == fix_best_name %}best-row{% endif %}">
+                              <td>
+                                <b>{{ c.name }}</b>
+                                {% if fix_best_name and c.name == fix_best_name %}
+                                  &nbsp;<span class="badge warn">BEST</span>
+                                {% endif %}
+                              </td>
+                              <td class="num">
+                                <span class="badge {% if c.judge.decision == 'GO' %}ok{% else %}ng{% endif %}">
+                                  {{ c.judge.decision }}
+                                </span>
+                              </td>
+                              <td class="num">{{ c.judge.metrics.avg_r }}</td>
+                              <td class="num">{{ c.judge.metrics.max_dd_pct }}</td>
+                              <td class="num">{{ c.judge.metrics.max_consecutive_losses }}</td>
+                              <td class="num">{{ c.judge.metrics.daylimit_days_pct }}</td>
 
-                  {% if best_candidate %}
-                    <div class="note" style="margin-top:10px;">
-                      ベスト：<b>{{ best_candidate.name }}</b>（decision={{ best_candidate.decision }}）
+                              <td style="white-space: normal; min-width: 240px;">
+                                {% if c.diffs %}
+                                  <div class="diff-list">
+                                    {% for d in c.diffs %}
+                                      <div class="diff-item">
+                                        <div><b>{{ d.label }}</b></div>
+                                        <div class="p">{{ d.path }}</div>
+                                        <div class="p">before: <span class="muted">{{ d.before }}</span> → after: <b>{{ d.after }}</b></div>
+                                      </div>
+                                    {% endfor %}
+                                  </div>
+                                {% else %}
+                                  <span class="muted">（変更なし）</span>
+                                {% endif %}
+                              </td>
+
+                              <td style="white-space: normal; min-width: 280px;">
+                                {% if c.judge.reasons %}
+                                  <div class="diff-list">
+                                    {% for r in c.judge.reasons %}
+                                      <div class="diff-item">{{ r }}</div>
+                                    {% endfor %}
+                                  </div>
+                                {% else %}
+                                  <span class="muted">（理由なし＝GO）</span>
+                                {% endif %}
+                              </td>
+                            </tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
                     </div>
+
+                    <div class="note" style="margin-top:10px;">
+                      見方：まず「GO」が出た候補があるかを見る → その中で平均Rが高くてDDが浅いものが理想。<br>
+                      いまは “best_name” を BEST としてハイライトしてる（採用案の追跡用）。
+                    </div>
+                  {% else %}
+                    <div class="note">（候補はまだありません。NO_GO でも auto_fix が動いていない可能性があります）</div>
                   {% endif %}
 
-                {% else %}
-                  <div class="note">候補一覧はまだありません（GOだった / auto_fix未実行 / 失敗 のいずれか）。</div>
-                {% endif %}
-              </div>
-            </details>
+                </div>
+              </details>
+            </div>
 
           {% else %}
             <div class="note" style="margin-top:12px;">
