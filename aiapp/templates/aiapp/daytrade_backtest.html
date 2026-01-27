@@ -367,6 +367,18 @@
               <div class="note">空白/カンマ区切りOK。迷ったら空のままでも動く（おすすめに戻る）。</div>
             </div>
 
+            <!-- ★追加：Judge モード（dev/prod） -->
+            <div class="field" style="margin-top:12px;">
+              <label>判定モード（Judge）</label>
+              <select name="judge_mode">
+                {% with jm=form_judge_mode|default:"prod" %}
+                  <option value="prod" {% if jm == "prod" %}selected{% endif %}>prod（本番：安全側）</option>
+                  <option value="dev"  {% if jm == "dev" %}selected{% endif %}>dev（検証：緩め）</option>
+                {% endwith %}
+              </select>
+              <div class="note">※ 迷ったら prod。dev は「回して学ぶ用」で甘め。</div>
+            </div>
+
             <div class="btns">
               <button class="btn primary" type="submit">
                 ▶ バックテスト実行
