@@ -3,12 +3,33 @@
 ファイル: aiapp/services/daytrade/policy_schema.py
 
 これは何？
-- policies/daytrade/active.yml（デイトレ全自動の「憲法」）を読み込んだあと、
-  必須キー欠落や構造崩れを検知して、事故を防ぐバリデーション。
+- policies/daytrade/active.yml（デイトレ全自動の「憲法」= PolicySnapshot）を読み込んだあと、
+  「必要な項目が揃っているか」「構造が壊れていないか」をチェック（バリデーション）するためのファイルです。
+- 全自動では、設定ファイルのミスが事故につながるので、ここで早めに止めます。
 
-注意（Judgeしきい値）
-- 新形式: judge_thresholds: { dev:{...}, prod:{...} } を推奨
-- 互換: 旧形式 judge_thresholds（フラット）も許可（prod扱い）
+なぜ必要？
+- YAMLのインデントミス、キーの欠落、型の間違い（リストのはずが文字列など）を検知して、
+  「壊れた設定のまま全自動が走る」事故を防ぎます。
+
+置き場所（重要）
+- プロジェクトルート（manage.py がある階層）から見て:
+  aiapp/services/daytrade/policy_schema.py
+
+関連する設定ファイル（YAML）
+- active.yml（本番が読む“現行憲法”）:
+  policies/daytrade/active.yml
+- snapshots（履歴。バックテストやFixerで増える想定）:
+  policies/daytrade/snapshots/*.yml
+
+注意
+- このフェーズ1では「厳密な数値レンジ」より「構造が正しいこと」を優先しています。
+  後でフェーズが進んだら、範囲チェック（0〜1など）も強化できます。
+
+更新ポイント（今回）
+- judge_thresholds を dev/prod に分けた：
+  - judge_thresholds_prod : 本番用（推奨）
+  - judge_thresholds_dev  : 開発用（任意）
+  - 互換：旧 judge_thresholds は prod 扱いで許可
 """
 
 from __future__ import annotations
@@ -46,28 +67,46 @@ def _require(obj: Dict[str, Any], key: str, path: str) -> Any:
     return obj[key]
 
 
-def _require_judge_thresholds_dict(th: Dict[str, Any], path: str) -> None:
+def _validate_threshold_dict(th: Any, path: str) -> None:
     """
-    judge_thresholds の中身（1セット）を検証する。
+    judge_thresholds 系（prod/dev/legacy）の dict 構造を検証する。
+    ※ 数値の範囲チェックはここでは厳密にやらない（フェーズ1）
     """
+    if th is None:
+        raise PolicySchemaError(f"{path} must be a dict (got None).")
     if not _is_dict(th):
         raise PolicySchemaError(f"{path} must be a dict.")
+
     for k in ["max_dd_pct", "max_consecutive_losses", "max_daylimit_days_pct", "min_avg_r"]:
-        _require(th, k, path)
+        if k not in th:
+            raise PolicySchemaError(f"Missing required key: {path}.{k}")
+
+    # 型が極端に壊れてる場合だけ軽く止める（文字列など）
+    try:
+        float(th.get("max_dd_pct"))
+        int(th.get("max_consecutive_losses"))
+        float(th.get("max_daylimit_days_pct"))
+        float(th.get("min_avg_r"))
+    except Exception:
+        raise PolicySchemaError(f"{path} contains invalid types for thresholds.")
 
 
 def validate_policy_dict(policy: Dict[str, Any]) -> None:
     """
     active.yml を読み込んだ dict を検証する（フェーズ1の最小スキーマ）。
 
+    目的:
+    - 「全自動の憲法(PolicySnapshot)」が壊れていないことを保証する
+    - 壊れているなら、ここで止めて事故を防ぐ
+
     期待するトップレベル構造:
       meta, capital, risk, time_filter, universe_filter, strategy,
-      entry, exit, limits, judge_thresholds
+      entry, exit, limits, judge_thresholds(legacy) / judge_thresholds_prod
     """
     if not _is_dict(policy):
         raise PolicySchemaError("Policy root must be a mapping (dict).")
 
-    # Top-level required sections
+    # Top-level required sections（judge_thresholds は互換があるので後で特別扱い）
     for top in [
         "meta",
         "capital",
@@ -78,7 +117,6 @@ def validate_policy_dict(policy: Dict[str, Any]) -> None:
         "entry",
         "exit",
         "limits",
-        "judge_thresholds",
     ]:
         _require(policy, top, "policy")
 
@@ -159,22 +197,28 @@ def validate_policy_dict(policy: Dict[str, Any]) -> None:
         raise PolicySchemaError("policy.limits must be a dict.")
     _require(limits, "max_trades_per_day", "policy.limits")
 
-    # judge_thresholds（新旧互換で検証）
-    judge = policy["judge_thresholds"]
-    if not _is_dict(judge):
-        raise PolicySchemaError("policy.judge_thresholds must be a dict.")
+    # =========================================================
+    # judge thresholds（ここが今回の肝）
+    # - 新: judge_thresholds_prod / judge_thresholds_dev
+    # - 互換: judge_thresholds（旧キー）
+    #
+    # ルール:
+    # - judge_thresholds_prod があればそれを必須扱いで検証
+    # - 無ければ judge_thresholds（旧）が必須
+    # - judge_thresholds_dev はあれば検証、無ければOK
+    # =========================================================
+    has_prod = "judge_thresholds_prod" in policy
+    has_legacy = "judge_thresholds" in policy
 
-    # 新形式: dev/prod を持つ
-    has_dev = _is_dict(judge.get("dev"))
-    has_prod = _is_dict(judge.get("prod"))
-
-    if has_dev or has_prod:
-        # dev/prod のうち、存在するものを検証
-        if has_dev:
-            _require_judge_thresholds_dict(judge["dev"], "policy.judge_thresholds.dev")
-        if has_prod:
-            _require_judge_thresholds_dict(judge["prod"], "policy.judge_thresholds.prod")
-        # dev/prod両方無いは上に引っかからないのでここには来ない
+    if has_prod:
+        _validate_threshold_dict(policy.get("judge_thresholds_prod"), "policy.judge_thresholds_prod")
+    elif has_legacy:
+        _validate_threshold_dict(policy.get("judge_thresholds"), "policy.judge_thresholds")
     else:
-        # 旧形式: フラット
-        _require_judge_thresholds_dict(judge, "policy.judge_thresholds")
+        raise PolicySchemaError(
+            "Missing judge thresholds. Provide policy.judge_thresholds_prod (recommended) "
+            "or legacy policy.judge_thresholds."
+        )
+
+    if "judge_thresholds_dev" in policy:
+        _validate_threshold_dict(policy.get("judge_thresholds_dev"), "policy.judge_thresholds_dev")
