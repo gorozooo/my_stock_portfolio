@@ -285,6 +285,20 @@
     border-color: rgba(255,90,90,.35);
     background: rgba(255,90,90,.16);
   }
+
+  .pill{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:6px 10px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.12);
+    background: rgba(255,255,255,.06);
+    font-size: 12px;
+    font-weight: 900;
+  }
+  .pill.ok{ border-color: rgba(70,220,140,.35); background: rgba(70,220,140,.12); }
+  .pill.ng{ border-color: rgba(255,90,90,.35); background: rgba(255,90,90,.12); }
 </style>
 
 <div class="dt-wrap">
@@ -339,6 +353,17 @@
               <label>銘柄コード（例：7203 6758 9984）</label>
               <textarea name="tickers" placeholder="7203 6758 9984">{{ form_tickers|default:"" }}</textarea>
               <div class="note">空白/カンマ区切りOK。迷ったら空のままでも動く（おすすめに戻る）。</div>
+            </div>
+
+            <div class="field" style="margin-top:12px;">
+              <label>Judge の基準（しきい値）</label>
+              <select name="judge_mode">
+                {% with jm=form_judge_mode|default:"dev" %}
+                  <option value="dev"  {% if jm == "dev" %}selected{% endif %}>開発用（ゆるめ）</option>
+                  <option value="prod" {% if jm == "prod" %}selected{% endif %}>本番用（厳しめ）</option>
+                {% endwith %}
+              </select>
+              <div class="note">開発は「回るか/壊れてないか」を優先。本番は「事故らないか」を優先。</div>
             </div>
 
             <div class="btns">
@@ -441,10 +466,14 @@
 
         {% if base_judge %}
           <div class="note">
-            <span class="badge {% if base_judge.decision == 'GO' %}ok{% else %}ng{% endif %}">元の判定：{{ base_judge.decision }}</span>
+            <span class="badge {% if base_judge.decision == 'GO' %}ok{% else %}ng{% endif %}">
+              元の判定：{{ base_judge.decision }}{% if base_judge.mode %}（{{ base_judge.mode }}）{% endif %}
+            </span>
             {% if applied_judge %}
               &nbsp;→&nbsp;
-              <span class="badge {% if applied_judge.decision == 'GO' %}ok{% else %}ng{% endif %}">採用後の判定：{{ applied_judge.decision }}</span>
+              <span class="badge {% if applied_judge.decision == 'GO' %}ok{% else %}ng{% endif %}">
+                採用後の判定：{{ applied_judge.decision }}{% if applied_judge.mode %}（{{ applied_judge.mode }}）{% endif %}
+              </span>
             {% endif %}
           </div>
 
@@ -530,6 +559,15 @@
                   </tbody>
                 </table>
               </div>
+              {% if base_judge.metrics.thresholds %}
+                <div class="note" style="margin-top:10px;">
+                  しきい値：
+                  max_dd_pct={{ base_judge.metrics.thresholds.max_dd_pct }},
+                  max_consecutive_losses={{ base_judge.metrics.thresholds.max_consecutive_losses }},
+                  max_daylimit_days_pct={{ base_judge.metrics.thresholds.max_daylimit_days_pct }},
+                  min_avg_r={{ base_judge.metrics.thresholds.min_avg_r }}
+                </div>
+              {% endif %}
             </div>
           </details>
 
@@ -537,14 +575,10 @@
             <div class="note" style="margin-top:12px;">
               <b>auto_fix：</b>
               {% if fix_summary %}
-                {% if fix_summary.error %}
-                  エラー：{{ fix_summary.error }}
+                {% if fix_summary.used %}
+                  ベスト案「{{ fix_summary.best_name }}」を採用（試した候補：{{ fix_summary.candidates_count }}件）
                 {% else %}
-                  {% if fix_summary.used %}
-                    ベスト案「{{ fix_summary.best_name }}」を採用（試した候補：{{ fix_summary.candidates_count }}件）
-                  {% else %}
-                    今回は auto_fix の採用は無し（そのまま）
-                  {% endif %}
+                  今回は auto_fix の採用は無し（そのまま）
                 {% endif %}
               {% else %}
                 未実行
@@ -577,66 +611,73 @@
               </div>
             {% endif %}
 
-            <!-- ★追加：候補一覧（candidates）テーブル -->
-            {% if fix_candidates %}
-              <details style="margin-top:12px;">
-                <summary>auto_fix の候補一覧（candidates）を見る</summary>
-                <div class="details-b">
+            <!-- ★ 追加：候補一覧（candidates）テーブル -->
+            <details style="margin-top:12px;">
+              <summary>auto_fix の候補一覧（candidates）を見る</summary>
+              <div class="details-b">
 
-                  <div class="note">
-                    見方：<b>decision</b> が GO の案が出たら勝ち。出ない場合は avg_r を上げつつ DD を抑える案が「次の手」。
+                {% if candidates_rows %}
+                  <div class="note" style="margin-bottom:8px;">
+                    目的：<b>「どの修正がどれだけ効いたか」</b>を見える化。ベストは最上段に★が付く。
                   </div>
 
-                  <div class="table-wrap" style="margin-top:8px;">
-                    <table style="min-width:980px;">
+                  <div class="table-wrap">
+                    <table style="min-width:960px;">
                       <thead>
                         <tr>
-                          <th>#</th>
-                          <th>候補名</th>
+                          <th>候補</th>
                           <th>判定</th>
                           <th class="num">avg_r</th>
                           <th class="num">max_dd_pct</th>
                           <th class="num">max_consecutive_losses</th>
                           <th class="num">daylimit_days_pct</th>
-                          <th class="num">trades</th>
-                          <th>変更（要約）</th>
-                          <th>NO_GO理由</th>
+                          <th>NO_GO理由（要約）</th>
+                          <th>変更点（diff）</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {% for c in fix_candidates %}
+                        {% for c in candidates_rows %}
                           <tr>
-                            <td class="num">{{ c.idx }}</td>
                             <td>
-                              <b>
-                                {% if c.is_best %}★ {% endif %}
-                                {{ c.name }}
-                              </b>
+                              <b>{{ c.name }}</b>
+                              {% if c.is_best %}
+                                &nbsp;<span class="pill ok">★ BEST</span>
+                              {% endif %}
+                              <div class="note">#{{ c.index }} / mode={{ c.judge_mode }}</div>
                             </td>
+
                             <td>
-                              <span class="badge {% if c.decision == 'GO' %}ok{% else %}ng{% endif %}">
-                                {{ c.decision }}
-                              </span>
-                            </td>
-                            <td class="num {% if c.avg_r < 0 %}neg{% elif c.avg_r > 0 %}pos{% endif %}">{{ c.avg_r }}</td>
-                            <td class="num">{{ c.max_dd_pct }}</td>
-                            <td class="num">{{ c.max_consecutive_losses }}</td>
-                            <td class="num">{{ c.daylimit_days_pct }}</td>
-                            <td class="num">{{ c.total_trades }}</td>
-                            <td class="muted" style="white-space: normal;">
-                              {% if c.diff_text %}
-                                {{ c.diff_text }}
+                              {% if c.decision == "GO" %}
+                                <span class="pill ok">GO</span>
                               {% else %}
-                                （差分なし / 監視外の差分のみ）
+                                <span class="pill ng">NO_GO</span>
                               {% endif %}
                             </td>
-                            <td style="white-space: normal;">
+
+                            <td class="num">{{ c.metrics.avg_r }}</td>
+                            <td class="num">{{ c.metrics.max_dd_pct }}</td>
+                            <td class="num">{{ c.metrics.max_consecutive_losses }}</td>
+                            <td class="num">{{ c.metrics.daylimit_days_pct }}</td>
+
+                            <td style="white-space:normal;">
                               {% if c.reasons %}
                                 {% for r in c.reasons %}
-                                  <div class="muted">- {{ r }}</div>
+                                  <div class="note">- {{ r }}</div>
                                 {% endfor %}
                               {% else %}
-                                <span class="muted">（理由なし）</span>
+                                <span class="muted">（なし）</span>
+                              {% endif %}
+                            </td>
+
+                            <td style="white-space:normal;">
+                              {% if c.diffs %}
+                                {% for d in c.diffs %}
+                                  <div class="note">
+                                    • <b>{{ d.path }}</b>: {{ d.before }} → {{ d.after }}
+                                  </div>
+                                {% endfor %}
+                              {% else %}
+                                <span class="muted">（変更なし）</span>
                               {% endif %}
                             </td>
                           </tr>
@@ -645,13 +686,17 @@
                     </table>
                   </div>
 
-                  <div class="note" style="margin-top:10px;">
-                    「★」は採用されたベスト案。ベストでも NO_GO の場合は、候補の “失敗理由” を見れば次の修正方向が一発で分かる。
-                  </div>
+                  {% if best_candidate %}
+                    <div class="note" style="margin-top:10px;">
+                      ベスト：<b>{{ best_candidate.name }}</b>（decision={{ best_candidate.decision }}）
+                    </div>
+                  {% endif %}
 
-                </div>
-              </details>
-            {% endif %}
+                {% else %}
+                  <div class="note">候補一覧はまだありません（GOだった / auto_fix未実行 / 失敗 のいずれか）。</div>
+                {% endif %}
+              </div>
+            </details>
 
           {% else %}
             <div class="note" style="margin-top:12px;">
