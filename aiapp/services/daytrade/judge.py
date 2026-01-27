@@ -5,18 +5,20 @@
 これは何？
 - デイトレ戦略を「本番で回してよいか」を機械的に判定する Judge。
 - バックテストの期間結果（DayResultの配列）を入力として、
-  policy 内の judge_thresholds_* を基準に GO / NO-GO を返す。
+  policy 内の judge_thresholds を基準に GO / NO-GO を返す。
 
 モード
-- mode="dev": judge_thresholds_dev を使う（開発用）
-- mode="prod": judge_thresholds_prod を使う（本番用）
-- 互換: 旧 judge_thresholds は prod 扱い
+- mode="dev": judge_thresholds.dev を使う（開発用）
+- mode="prod": judge_thresholds.prod を使う（本番用）
+- 互換:
+  - 旧 judge_thresholds（フラット）は prod 扱い
+  - judge_thresholds_dev / judge_thresholds_prod も拾う
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 @dataclass
@@ -27,23 +29,58 @@ class JudgeResult:
     mode: str = "prod"          # "dev" or "prod"
 
 
+def _safe_dict(x: Any) -> Dict[str, Any]:
+    return x if isinstance(x, dict) else {}
+
+
 def _pick_thresholds(policy: Dict[str, Any], mode: str) -> Dict[str, Any]:
+    """
+    しきい値の取り出し優先順位（安全＆互換）：
+    1) judge_thresholds: {dev:{}, prod:{}} のネスト形式
+    2) judge_thresholds_dev / judge_thresholds_prod（旧案）
+    3) judge_thresholds（フラット：旧形式）は prod 扱い
+    """
     mode = (mode or "prod").strip().lower()
+    p = _safe_dict(policy)
+
+    # 1) ネスト形式
+    jt = _safe_dict(p.get("judge_thresholds"))
+    if jt:
+        dev = _safe_dict(jt.get("dev"))
+        prod = _safe_dict(jt.get("prod"))
+
+        if mode == "dev":
+            if dev:
+                return dev
+            # dev が無い場合は prod を使う（安全側）
+            if prod:
+                return prod
+            # それも無ければフラット扱いへ落とす（下へ）
+
+        # prod
+        if prod:
+            return prod
+
+        # judge_thresholds がフラット（旧形式）だった場合
+        # （dev/prodキーが無いなら、そのままフラットとみなす）
+        # 例: {"max_dd_pct":0.02,...}
+        if any(k in jt for k in ["max_dd_pct", "max_consecutive_losses", "max_daylimit_days_pct", "min_avg_r"]):
+            return jt
+
+    # 2) 旧案キー
     if mode == "dev":
-        th = policy.get("judge_thresholds_dev", {}) or {}
-        if isinstance(th, dict) and th:
-            return th
-        # devが無い場合は prod を使う（安全側）
-        mode = "prod"
+        th_dev = _safe_dict(p.get("judge_thresholds_dev"))
+        if th_dev:
+            return th_dev
+        # 無ければ prod へ
 
-    # prod
-    th = policy.get("judge_thresholds_prod", None)
-    if isinstance(th, dict) and th:
-        return th
+    th_prod = _safe_dict(p.get("judge_thresholds_prod"))
+    if th_prod:
+        return th_prod
 
-    # 互換: 旧キー
-    th2 = policy.get("judge_thresholds", {}) or {}
-    return th2 if isinstance(th2, dict) else {}
+    # 3) 最終 fallback（旧 judge_thresholds フラット）
+    th_flat = _safe_dict(p.get("judge_thresholds"))
+    return th_flat
 
 
 def judge_backtest_results(
@@ -51,8 +88,8 @@ def judge_backtest_results(
     policy: Dict[str, Any],
     mode: str = "prod",
 ) -> JudgeResult:
-    thresholds = _pick_thresholds(policy, mode)
     mode = (mode or "prod").strip().lower()
+    thresholds = _pick_thresholds(policy, mode)
 
     max_dd_pct_limit = float(thresholds.get("max_dd_pct", 0.0) or 0.0)
     max_consecutive_losses_limit = int(thresholds.get("max_consecutive_losses", 0) or 0)
@@ -69,7 +106,7 @@ def judge_backtest_results(
         )
 
     # --- 集計 ---
-    all_trades = []
+    all_trades: List[Any] = []
     daylimit_days = 0
     max_dd_yen = 0
     max_consecutive_losses = 0
@@ -99,7 +136,7 @@ def judge_backtest_results(
         except Exception:
             avg_r = 0.0
 
-    base_capital = float(policy.get("capital", {}).get("base_capital", 1) or 1)
+    base_capital = float(_safe_dict(policy.get("capital", {})).get("base_capital", 1) or 1)
     max_dd_pct = abs(float(max_dd_yen)) / float(base_capital) if base_capital > 0 else 9.0
     daylimit_days_pct = float(daylimit_days) / float(total_days) if total_days > 0 else 1.0
 
