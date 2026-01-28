@@ -18,6 +18,11 @@
   - exec_guards.price_filters.fake_breakout_bars を「VWAP割れ連続本数」として使う
     例：2なら「2本連続で close < vwap」のときだけ exit
   - exit reason は既存の "close_below_vwap" を維持（集計/レポート互換）
+
+追加（今回）
+- entry.require の volume_increase を実装
+  - volume_increase: true のときだけ「出来高増加」をエントリー条件に加える
+  - ただし Bar に volume が無い/NaN の場合は落とさず、条件を課さない（安全運用）
 """
 
 from __future__ import annotations
@@ -64,6 +69,7 @@ class VWAPPullbackLongStrategy(BaseStrategy):
     1) 現在価格がVWAPより上
     2) 直近でVWAP付近まで押している（prev.low が VWAP±near_vwap_pct% 以内）
     3) 現在足が陽線（反発確認）
+    4) （任意）出来高増加（entry.require.volume_increase が true のとき）
 
     イグジット条件（設定駆動）
     - exit.exit_on_vwap_break が true のときだけ VWAP割れ exit を有効化
@@ -110,6 +116,19 @@ class VWAPPullbackLongStrategy(BaseStrategy):
             n = 10
         return n
 
+    def _get_volume_safe(self, b: Bar) -> float:
+        """
+        Bar の volume が環境差分で無い/型が違う場合に落とさない。
+        取れない場合は NaN を返す。
+        """
+        try:
+            v = getattr(b, "volume", None)
+            if v is None:
+                return float("nan")
+            return float(v)
+        except Exception:
+            return float("nan")
+
     def on_bar(self, i: int, bars: List[Bar], has_position: bool, policy: Dict[str, Any]) -> StrategySignal:
         if i < 1:
             return StrategySignal(action="hold", reason="not_enough_bars")
@@ -122,6 +141,9 @@ class VWAPPullbackLongStrategy(BaseStrategy):
         pullback_max = 999.0
         near_vwap_pct = 0.2  # 「%」として扱う（0.2%）
 
+        # ★追加：出来高増加を要求するか
+        require_volume_increase = False
+
         # entry.require の中から必要項目を拾う
         entry_rules = (policy.get("entry", {}) or {}).get("require", []) or []
         for rule in entry_rules:
@@ -131,6 +153,8 @@ class VWAPPullbackLongStrategy(BaseStrategy):
                     pullback_min, pullback_max = float(v[0]), float(v[1])
             if isinstance(rule, dict) and "near_vwap_pct" in rule:
                 near_vwap_pct = float(rule["near_vwap_pct"])
+            if isinstance(rule, dict) and "volume_increase" in rule:
+                require_volume_increase = bool(rule["volume_increase"])
 
         price = float(bar.close)
         vwap = float(bar.vwap)
@@ -159,6 +183,17 @@ class VWAPPullbackLongStrategy(BaseStrategy):
             # 3) 反発確認（陽線）
             if float(bar.close) <= float(bar.open):
                 return StrategySignal(action="hold", reason="no_rebound_candle")
+
+            # 4) （任意）出来高増加
+            if require_volume_increase:
+                v_now = self._get_volume_safe(bar)
+                v_prev = self._get_volume_safe(prev)
+
+                # volumeが取れない/NaN/0 なら判定不能 → 条件は課さない（安全）
+                # ここで強制holdにすると「環境差で全トレード0」になって事故るので避ける
+                if self._is_finite(v_now) and self._is_finite(v_prev) and float(v_prev) > 0.0:
+                    if float(v_now) <= float(v_prev):
+                        return StrategySignal(action="hold", reason="no_volume_increase")
 
             return StrategySignal(action="enter", reason="vwap_pullback_rebound")
 
