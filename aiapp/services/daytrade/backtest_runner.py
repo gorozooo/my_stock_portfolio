@@ -250,8 +250,8 @@ def run_backtest_one_day(
     vwap_exit_grace_enable = _get_bool(vwap_grace_cfg, "enable", False)
     vwap_exit_grace_min_r = _get_float(vwap_grace_cfg, "min_r_to_allow_exit", 0.0)
     vwap_exit_grace_minutes = _get_int(vwap_grace_cfg, "grace_minutes_after_entry", 0)
-    if vwap_exit_grace_min_r < 0:
-        vwap_exit_grace_min_r = 0.0
+    if vwap_exit_grace_min_r < -10.0:
+        vwap_exit_grace_min_r = -10.0
     if vwap_exit_grace_minutes < 0:
         vwap_exit_grace_minutes = 0
 
