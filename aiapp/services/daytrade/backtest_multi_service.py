@@ -578,6 +578,7 @@ def run_daytrade_backtest_multi_with_judge_autofix(
                 policy=applied_policy,
                 judge_result=applied_judge,
                 extra=extra,
+                mode=str(judge_mode or "prod"),
             )
 
             if verbose_log:
