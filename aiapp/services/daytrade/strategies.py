@@ -12,18 +12,12 @@
   backtest_runner.py 側も strategies.py を import してしまい循環importが発生しました。
 - そのため共通型は types.py に分離し、ここでは types.py から import します。
 
-置き場所（重要）
-- プロジェクトルート（manage.py がある階層）から見て:
-  aiapp/services/daytrade/strategies.py
-
-現在入っている戦略
-- VWAPPullbackLongStrategy
-  → 「VWAPより上で、浅い押し目からの反発」を狙う
-
-更新（今回）
-- exit 条件を「VWAP割れ 2本連続確認」に変更
-  目的：1本だけのノイズ割れでの早すぎる撤退を減らす
-  ※ exit reason は既存の "close_below_vwap" を維持（集計/レポート互換）
+更新（今回の狙い）
+- exit 条件を「設定（active.yml）駆動」にする。
+  - exit.exit_on_vwap_break が false なら VWAP割れ exit を無効化
+  - exec_guards.price_filters.fake_breakout_bars を「VWAP割れ連続本数」として使う
+    例：2なら「2本連続で close < vwap」のときだけ exit
+  - exit reason は既存の "close_below_vwap" を維持（集計/レポート互換）
 """
 
 from __future__ import annotations
@@ -32,6 +26,34 @@ import math
 from typing import Any, Dict, List
 
 from .types import Bar, BaseStrategy, StrategySignal
+
+
+def _get_bool(d: Dict[str, Any], key: str, default: bool) -> bool:
+    try:
+        v = d.get(key, default)
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return bool(v)
+        if isinstance(v, str):
+            s = v.strip().lower()
+            if s in ("1", "true", "yes", "y", "on"):
+                return True
+            if s in ("0", "false", "no", "n", "off"):
+                return False
+        return bool(v)
+    except Exception:
+        return bool(default)
+
+
+def _get_int(d: Dict[str, Any], key: str, default: int) -> int:
+    try:
+        v = d.get(key, default)
+        if v is None:
+            return int(default)
+        return int(v)
+    except Exception:
+        return int(default)
 
 
 class VWAPPullbackLongStrategy(BaseStrategy):
@@ -43,9 +65,10 @@ class VWAPPullbackLongStrategy(BaseStrategy):
     2) 直近でVWAP付近まで押している（prev.low が VWAP±near_vwap_pct% 以内）
     3) 現在足が陽線（反発確認）
 
-    イグジット条件（更新）
-    - VWAPを割った（保守）を「2本連続確認」に変更
-      -> 直近2本連続で close < vwap のとき exit
+    イグジット条件（設定駆動）
+    - exit.exit_on_vwap_break が true のときだけ VWAP割れ exit を有効化
+    - exec_guards.price_filters.fake_breakout_bars 本連続で close < vwap のとき exit
+      ※ reason は "close_below_vwap" を維持
     """
 
     def _is_finite(self, x: float) -> bool:
@@ -60,6 +83,33 @@ class VWAPPullbackLongStrategy(BaseStrategy):
             return False
         return float(b.close) < float(b.vwap)
 
+    def _vwap_exit_enabled(self, policy: Dict[str, Any]) -> bool:
+        exit_cfg = policy.get("exit", {}) or {}
+        if not isinstance(exit_cfg, dict):
+            exit_cfg = {}
+        return _get_bool(exit_cfg, "exit_on_vwap_break", True)
+
+    def _vwap_exit_confirm_bars(self, policy: Dict[str, Any]) -> int:
+        """
+        VWAP割れの“連続確認本数”を設定から取る。
+        既存キー：exec_guards.price_filters.fake_breakout_bars を流用。
+        """
+        exec_guards = policy.get("exec_guards", {}) or {}
+        if not isinstance(exec_guards, dict):
+            exec_guards = {}
+        price_filters = exec_guards.get("price_filters", {}) or {}
+        if not isinstance(price_filters, dict):
+            price_filters = {}
+
+        n = _get_int(price_filters, "fake_breakout_bars", 2)
+        # ガード：1未満は1に丸める（0だと判定が壊れる）
+        if n < 1:
+            n = 1
+        # 安全上限（暴走防止）：極端に大きい値を抑える
+        if n > 10:
+            n = 10
+        return n
+
     def on_bar(self, i: int, bars: List[Bar], has_position: bool, policy: Dict[str, Any]) -> StrategySignal:
         if i < 1:
             return StrategySignal(action="hold", reason="not_enough_bars")
@@ -73,7 +123,7 @@ class VWAPPullbackLongStrategy(BaseStrategy):
         near_vwap_pct = 0.2  # 「%」として扱う（0.2%）
 
         # entry.require の中から必要項目を拾う
-        entry_rules = policy.get("entry", {}).get("require", [])
+        entry_rules = (policy.get("entry", {}) or {}).get("require", []) or []
         for rule in entry_rules:
             if isinstance(rule, dict) and "pullback_pct_range" in rule:
                 v = rule["pullback_pct_range"]
@@ -112,13 +162,32 @@ class VWAPPullbackLongStrategy(BaseStrategy):
 
             return StrategySignal(action="enter", reason="vwap_pullback_rebound")
 
-        # --- イグジット（VWAP割れ 2本連続確認） ---
-        # 直近2本（prev と bar）が連続で close < vwap のときだけ exit
-        if self._below_vwap(prev) and self._below_vwap(bar):
+        # --- イグジット（VWAP割れ：設定駆動） ---
+        if not self._vwap_exit_enabled(policy):
+            # VWAP割れでの撤退を使わないモード
+            return StrategySignal(action="hold", reason="vwap_exit_disabled")
+
+        confirm_n = self._vwap_exit_confirm_bars(policy)
+
+        # i が小さくて確認本数に足りない場合
+        if i < (confirm_n - 1):
+            if self._below_vwap(bar):
+                return StrategySignal(action="hold", reason="below_vwap_wait_confirm")
+            return StrategySignal(action="hold", reason="in_position")
+
+        # 直近 confirm_n 本が連続で close < vwap なら exit
+        all_below = True
+        for k in range(confirm_n):
+            b = bars[i - k]
+            if not self._below_vwap(b):
+                all_below = False
+                break
+
+        if all_below:
             # ★ exit_breakdown互換のため reason は据え置き
             return StrategySignal(action="exit", reason="close_below_vwap")
 
-        # 1本だけ割れた段階は「確認待ち」
+        # まだ確定してないが割れているなら「確認待ち」
         if self._below_vwap(bar):
             return StrategySignal(action="hold", reason="below_vwap_wait_confirm")
 
