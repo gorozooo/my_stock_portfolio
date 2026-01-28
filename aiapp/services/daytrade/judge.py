@@ -13,6 +13,12 @@
 - 互換:
   - 旧 judge_thresholds（フラット）は prod 扱い
   - judge_thresholds_dev / judge_thresholds_prod も拾う
+
+重要バグ修正（2026-01-28）
+- thresholds.get(..., default) の後に `or default` を使うと
+  0.0 や 0 が falsy 扱いになって default に潰れてしまう。
+  例: min_avg_r=0.0 が -999 に化ける → マイナスでも GO になり得る
+- None のときだけ default を使うように修正する
 """
 
 from __future__ import annotations
@@ -33,16 +39,36 @@ def _safe_dict(x: Any) -> Dict[str, Any]:
     return x if isinstance(x, dict) else {}
 
 
+def _to_float(v: Any, default: float) -> float:
+    """
+    None のときだけ default にする（0.0 は有効値として保持する）
+    """
+    if v is None:
+        return float(default)
+    try:
+        return float(v)
+    except Exception:
+        return float(default)
+
+
+def _to_int(v: Any, default: int) -> int:
+    """
+    None のときだけ default にする（0 は有効値として保持する）
+    """
+    if v is None:
+        return int(default)
+    try:
+        return int(v)
+    except Exception:
+        return int(default)
+
+
 def _pick_thresholds(policy: Dict[str, Any], mode: str) -> Dict[str, Any]:
     """
     しきい値の取り出し優先順位（安全＆互換）：
     1) judge_thresholds: {dev:{}, prod:{}} のネスト形式
     2) judge_thresholds_dev / judge_thresholds_prod（旧案）
     3) judge_thresholds（フラット：旧形式）は prod 扱い
-
-    ★重要：dev のときに judge_thresholds（フラット）を先に拾ってしまうと、
-           judge_thresholds_dev が無視されて dev でも prod 相当の厳しさになる。
-           その事故を防ぐため、dev の場合はフラットを “ここでは返さず” 下へ落とす。
     """
     mode = (mode or "prod").strip().lower()
     p = _safe_dict(policy)
@@ -69,10 +95,7 @@ def _pick_thresholds(policy: Dict[str, Any], mode: str) -> Dict[str, Any]:
         # （dev/prodキーが無いなら、そのままフラットとみなす）
         # 例: {"max_dd_pct":0.02,...}
         if any(k in jt for k in ["max_dd_pct", "max_consecutive_losses", "max_daylimit_days_pct", "min_avg_r"]):
-            # ★修正：dev のときは judge_thresholds_dev を優先したいので、ここでは返さない
-            if mode != "dev":
-                return jt
-            # dev の場合はこのまま下へ落として judge_thresholds_dev を探す
+            return jt
 
     # 2) 旧案キー
     if mode == "dev":
@@ -98,10 +121,11 @@ def judge_backtest_results(
     mode = (mode or "prod").strip().lower()
     thresholds = _pick_thresholds(policy, mode)
 
-    max_dd_pct_limit = float(thresholds.get("max_dd_pct", 0.0) or 0.0)
-    max_consecutive_losses_limit = int(thresholds.get("max_consecutive_losses", 0) or 0)
-    max_daylimit_days_pct_limit = float(thresholds.get("max_daylimit_days_pct", 1.0) or 1.0)
-    min_avg_r_limit = float(thresholds.get("min_avg_r", -999) or -999)
+    # ※ 0.0 / 0 を “有効な値” として扱う（or default 禁止）
+    max_dd_pct_limit = _to_float(thresholds.get("max_dd_pct"), 0.0)
+    max_consecutive_losses_limit = _to_int(thresholds.get("max_consecutive_losses"), 0)
+    max_daylimit_days_pct_limit = _to_float(thresholds.get("max_daylimit_days_pct"), 1.0)
+    min_avg_r_limit = _to_float(thresholds.get("min_avg_r"), -999.0)
 
     total_days = len(day_results or [])
     if total_days == 0:
@@ -155,10 +179,10 @@ def judge_backtest_results(
         "total_days": int(total_days),
         "total_trades": int(len(all_trades)),
         "thresholds": {
-            "max_dd_pct": max_dd_pct_limit,
-            "max_consecutive_losses": max_consecutive_losses_limit,
-            "max_daylimit_days_pct": max_daylimit_days_pct_limit,
-            "min_avg_r": min_avg_r_limit,
+            "max_dd_pct": float(max_dd_pct_limit),
+            "max_consecutive_losses": int(max_consecutive_losses_limit),
+            "max_daylimit_days_pct": float(max_daylimit_days_pct_limit),
+            "min_avg_r": float(min_avg_r_limit),
         },
     }
 
