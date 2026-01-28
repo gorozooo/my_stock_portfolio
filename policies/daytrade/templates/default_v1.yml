@@ -38,14 +38,14 @@ entry:
     - volume_increase: false
 
 exit:
-  take_profit_r: 1.5
+  take_profit_r: 1.0
   max_hold_minutes: 25
   exit_on_vwap_break: true
 
   vwap_exit_grace:
     enable: true
-    min_r_to_allow_exit: 0.3
-    grace_minutes_after_entry: 5
+    min_r_to_allow_exit: -10
+    grace_minutes_after_entry: 3
 
   time_limit_profit_guard:
     enable: false
