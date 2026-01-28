@@ -39,6 +39,10 @@ def _pick_thresholds(policy: Dict[str, Any], mode: str) -> Dict[str, Any]:
     1) judge_thresholds: {dev:{}, prod:{}} のネスト形式
     2) judge_thresholds_dev / judge_thresholds_prod（旧案）
     3) judge_thresholds（フラット：旧形式）は prod 扱い
+
+    ★重要：dev のときに judge_thresholds（フラット）を先に拾ってしまうと、
+           judge_thresholds_dev が無視されて dev でも prod 相当の厳しさになる。
+           その事故を防ぐため、dev の場合はフラットを “ここでは返さず” 下へ落とす。
     """
     mode = (mode or "prod").strip().lower()
     p = _safe_dict(policy)
@@ -65,7 +69,10 @@ def _pick_thresholds(policy: Dict[str, Any], mode: str) -> Dict[str, Any]:
         # （dev/prodキーが無いなら、そのままフラットとみなす）
         # 例: {"max_dd_pct":0.02,...}
         if any(k in jt for k in ["max_dd_pct", "max_consecutive_losses", "max_daylimit_days_pct", "min_avg_r"]):
-            return jt
+            # ★修正：dev のときは judge_thresholds_dev を優先したいので、ここでは返さない
+            if mode != "dev":
+                return jt
+            # dev の場合はこのまま下へ落として judge_thresholds_dev を探す
 
     # 2) 旧案キー
     if mode == "dev":
