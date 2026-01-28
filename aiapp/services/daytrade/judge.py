@@ -43,14 +43,12 @@ def _pick_thresholds(policy: Dict[str, Any], mode: str) -> Dict[str, Any]:
        - dev が無ければ prod へフォールバック（安全側）
     2) judge_thresholds_dev / judge_thresholds_prod（旧案）
     3) judge_thresholds（フラット旧形式）は "prod扱い" の互換用
-       - つまり dev では使わない（devは必ず *_dev を優先したい）
+       - dev では使わない（devは必ず *_dev を優先したい）
     """
     mode = (mode or "prod").strip().lower()
     p = _safe_dict(policy)
 
-    # --------
     # 1) ネスト形式（judge_thresholds.dev / judge_thresholds.prod）
-    # --------
     jt = _safe_dict(p.get("judge_thresholds"))
     if jt:
         dev = _safe_dict(jt.get("dev"))
@@ -68,13 +66,9 @@ def _pick_thresholds(policy: Dict[str, Any], mode: str) -> Dict[str, Any]:
                 return prod
             if dev:
                 return dev  # prodが無い異常ケースでも一応返す（保険）
+        # jt がフラット旧形式の可能性 → devではここで返さない
 
-        # ここに来た jt は「フラット旧形式」の可能性が高い
-        # → フラットは prod 扱いなので、devモードではここで返さない（下へ）
-
-    # --------
     # 2) 旧案キー（judge_thresholds_dev / judge_thresholds_prod）
-    # --------
     if mode == "dev":
         th_dev = _safe_dict(p.get("judge_thresholds_dev"))
         if th_dev:
@@ -85,12 +79,36 @@ def _pick_thresholds(policy: Dict[str, Any], mode: str) -> Dict[str, Any]:
     if th_prod:
         return th_prod
 
-    # --------
-    # 3) 最終 fallback（旧 judge_thresholds フラット）
-    # - これは prod 扱いの互換用
-    # --------
+    # 3) 最終 fallback（旧 judge_thresholds フラット：prod互換）
     th_flat = _safe_dict(p.get("judge_thresholds"))
     return th_flat
+
+
+def _get_float_allow_zero(thresholds: Dict[str, Any], key: str, default: float) -> float:
+    """
+    0.0 を潰さない safe float 取得。
+    - None / 未設定 / 変換失敗だけ default
+    """
+    try:
+        v = thresholds.get(key, None)
+        if v is None:
+            return float(default)
+        return float(v)
+    except Exception:
+        return float(default)
+
+
+def _get_int_allow_zero(thresholds: Dict[str, Any], key: str, default: int) -> int:
+    """
+    0 を潰さない safe int 取得。
+    """
+    try:
+        v = thresholds.get(key, None)
+        if v is None:
+            return int(default)
+        return int(v)
+    except Exception:
+        return int(default)
 
 
 def judge_backtest_results(
@@ -101,10 +119,11 @@ def judge_backtest_results(
     mode = (mode or "prod").strip().lower()
     thresholds = _pick_thresholds(policy, mode)
 
-    max_dd_pct_limit = float(thresholds.get("max_dd_pct", 0.0) or 0.0)
-    max_consecutive_losses_limit = int(thresholds.get("max_consecutive_losses", 0) or 0)
-    max_daylimit_days_pct_limit = float(thresholds.get("max_daylimit_days_pct", 1.0) or 1.0)
-    min_avg_r_limit = float(thresholds.get("min_avg_r", -999) or -999)
+    # ★ ここが今回の本丸：0.0 を潰さない
+    max_dd_pct_limit = _get_float_allow_zero(thresholds, "max_dd_pct", 0.0)
+    max_consecutive_losses_limit = _get_int_allow_zero(thresholds, "max_consecutive_losses", 0)
+    max_daylimit_days_pct_limit = _get_float_allow_zero(thresholds, "max_daylimit_days_pct", 1.0)
+    min_avg_r_limit = _get_float_allow_zero(thresholds, "min_avg_r", -999.0)
 
     total_days = len(day_results or [])
     if total_days == 0:
@@ -160,10 +179,10 @@ def judge_backtest_results(
         "total_days": int(total_days),
         "total_trades": int(len(all_trades)),
         "thresholds": {
-            "max_dd_pct": max_dd_pct_limit,
-            "max_consecutive_losses": max_consecutive_losses_limit,
-            "max_daylimit_days_pct": max_daylimit_days_pct_limit,
-            "min_avg_r": min_avg_r_limit,
+            "max_dd_pct": float(max_dd_pct_limit),
+            "max_consecutive_losses": int(max_consecutive_losses_limit),
+            "max_daylimit_days_pct": float(max_daylimit_days_pct_limit),
+            "min_avg_r": float(min_avg_r_limit),
         },
     }
 
