@@ -58,6 +58,13 @@
         keep_r: 0.05
         min_hold_minutes: 10
 
+追加（今回：本番とバックテストの整合）
+- early_stop（1分足本番の「早期撤退」をバックテストにも反映）
+  - active.yml の exec_guards.early_stop を参照
+  - planned_risk_yen（= budget.trade_loss_yen）に対する逆行割合 max_adverse_r で判定
+  - バックテストでは intrabar を考慮し、long の逆行は bar.low を使って adverse を評価する
+  - exit_reason は "early_stop" を保存
+
 置き場所
 - aiapp/services/daytrade/backtest_runner.py
 """
@@ -209,6 +216,7 @@ def run_backtest_one_day(
     strat_cfg = policy.get("strategy", {})
     exit_cfg = policy.get("exit", {})
     limits_cfg = policy.get("limits", {})
+    exec_cfg = policy.get("exec_guards", {}) or {}
 
     base_capital = int(capital_cfg["base_capital"])
     trade_loss_pct = float(risk_cfg["trade_loss_pct"])
@@ -250,6 +258,7 @@ def run_backtest_one_day(
     vwap_exit_grace_enable = _get_bool(vwap_grace_cfg, "enable", False)
     vwap_exit_grace_min_r = _get_float(vwap_grace_cfg, "min_r_to_allow_exit", 0.0)
     vwap_exit_grace_minutes = _get_int(vwap_grace_cfg, "grace_minutes_after_entry", 0)
+    # 異常値だけを丸める（負値も許容：-10 など）
     if vwap_exit_grace_min_r < -10.0:
         vwap_exit_grace_min_r = -10.0
     if vwap_exit_grace_minutes < 0:
@@ -274,6 +283,18 @@ def run_backtest_one_day(
         guard_keep_r = 0.0
     if guard_min_hold_minutes < 0:
         guard_min_hold_minutes = 0
+
+    # --- early_stop（本番exec_guardsと整合） ---
+    early_cfg = exec_cfg.get("early_stop", {}) or {}
+    if not isinstance(early_cfg, dict):
+        early_cfg = {}
+    early_stop_enable = _get_bool(early_cfg, "enable", True)
+    early_stop_max_adverse_r = _get_float(early_cfg, "max_adverse_r", 0.5)
+    if early_stop_max_adverse_r < 0:
+        early_stop_max_adverse_r = 0.0
+    # 安全上限（暴走防止）
+    if early_stop_max_adverse_r > 5.0:
+        early_stop_max_adverse_r = 5.0
 
     budget: RiskBudget = calc_risk_budget_yen(base_capital, trade_loss_pct, day_loss_pct)
 
@@ -362,7 +383,7 @@ def run_backtest_one_day(
             qty_calc = safe_qty_from_risk_long(
                 entry_price=entry_price,
                 stop_price=stop_price,
-                trade_loss_yen=effective_trade_loss_yen,  # ★バッファ適用
+                trade_loss_yen=effective_trade_loss_yen,  # ★バッファ適用（数量計算のみ）
             )
             if not qty_calc or qty_calc <= 0:
                 # リスク条件を満たせないので見送り
@@ -386,10 +407,11 @@ def run_backtest_one_day(
         # =========================
         # EXIT（優先順位）
         # 1) ストップ
-        # 2) 戦略exit（VWAP割れ等）※A案の猶予はここだけ
-        # 3) 利確（take_profit_r）
-        # 4) 利益保護ガード（トレーリング型）※“勝ちを守る”だけ
-        # 5) 時間切れ（max_hold_minutes）
+        # 2) early_stop（planned_risk_yen基準・intrabarはlowで評価）
+        # 3) 戦略exit（VWAP割れ等）※A案の猶予はここだけ
+        # 4) 利確（take_profit_r）
+        # 5) 利益保護ガード（トレーリング型）※“勝ちを守る”だけ
+        # 6) 時間切れ（max_hold_minutes）
         # =========================
         if has_position:
             # intratrade update (bar.high/low を使う：closeだけより現実的)
@@ -421,6 +443,18 @@ def run_backtest_one_day(
 
             hit_stop = float(bar.close) <= float(stop_price)
 
+            # --- early_stop（本番整合：planned_risk_yen=budget.trade_loss_yen） ---
+            # バックテストでは intrabar を考慮して long は bar.low で逆行を評価する
+            hit_early_stop = False
+            if early_stop_enable and (not hit_stop):
+                if denom_trade_loss > 0 and qty > 0:
+                    adverse_per_share = float(entry_price) - float(bar.low)  # long
+                    if adverse_per_share > 0:
+                        adverse_yen = float(adverse_per_share) * float(qty)
+                        adverse_r = float(adverse_yen) / float(denom_trade_loss)
+                        if adverse_r >= float(early_stop_max_adverse_r):
+                            hit_early_stop = True
+
             # --- 戦略exit（A案：猶予を入れるのはここだけ） ---
             hit_strategy_exit = (sig.action == "exit")
             if hit_strategy_exit and vwap_exit_grace_enable:
@@ -428,7 +462,7 @@ def run_backtest_one_day(
                 if entry_dt is not None and vwap_exit_grace_minutes > 0:
                     within_grace = held_minutes_now < float(vwap_exit_grace_minutes)
 
-                # 条件を満たす間は「戦略exitだけ」抑制（stop/take_profit/time_limitは別）
+                # 条件を満たす間は「戦略exitだけ」抑制（stop/early_stop/take_profit/time_limitは別）
                 if (float(r_now) < float(vwap_exit_grace_min_r)) or within_grace:
                     hit_strategy_exit = False
 
@@ -436,7 +470,7 @@ def run_backtest_one_day(
 
             # --- B案 改：利益保護ガード（トレーリング型） ---
             hit_profit_guard = False
-            if guard_enable and (not hit_stop) and (not hit_take_profit) and (not hit_strategy_exit):
+            if guard_enable and (not hit_stop) and (not hit_early_stop) and (not hit_take_profit) and (not hit_strategy_exit):
                 # 一定時間は発動しない（早すぎる“底売り”防止）
                 if held_minutes_now >= float(guard_min_hold_minutes):
                     # まず「十分伸びた（MFE達成）」が条件
@@ -452,10 +486,12 @@ def run_backtest_one_day(
                 if held_minutes_now >= float(max_hold_minutes):
                     hit_time_stop = True
 
-            if hit_stop or hit_strategy_exit or hit_take_profit or hit_profit_guard or hit_time_stop:
+            if hit_stop or hit_early_stop or hit_strategy_exit or hit_take_profit or hit_profit_guard or hit_time_stop:
                 # exit_reason（優先順位は仕様どおり）
                 if hit_stop:
                     exit_reason = "stop_loss"
+                elif hit_early_stop:
+                    exit_reason = "early_stop"
                 elif hit_strategy_exit:
                     rr = (sig.reason or "").strip()
                     exit_reason = f"strategy_exit({rr})" if rr else "strategy_exit"
