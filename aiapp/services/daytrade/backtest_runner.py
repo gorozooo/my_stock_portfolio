@@ -45,13 +45,10 @@
   - バックテストでは intrabar を考慮し、long の逆行は bar.low を使って adverse を評価する
   - exit_reason は "early_stop" を保存
 
-追加（今回：初心者向けログの土台）
-- DayResult に「exit理由ごとの回数」を日次でぶら下げる（型は壊さない）
-  - setattr(day_res, "exit_reason_counts", {...})
-  - UI/CLI側で集計して “何が多いか” が一発で分かるようにする
-
-置き場所
-- aiapp/services/daytrade/backtest_runner.py
+今回の改善（重要）
+- stop_loss / take_profit を intrabar（low/high）で判定する。
+  これにより「1本の中でstopを割っているのにcloseまで待つ」事故を防ぐ。
+  ※約定は仕様どおり next_bar.open + slippage のまま。
 """
 
 from __future__ import annotations
@@ -135,7 +132,6 @@ def _make_trade_safe(
     pnl_yen: int,
     r: float,
     exit_reason: str,
-    # optional metrics (存在するなら入れる)
     hold_minutes: Optional[float] = None,
     mfe_r: Optional[float] = None,
     mae_r: Optional[float] = None,
@@ -159,7 +155,6 @@ def _make_trade_safe(
             mae_r=mae_r,
         )
     except TypeError:
-        # 最小構成
         try:
             return Trade(
                 entry_dt=entry_dt,
@@ -172,7 +167,6 @@ def _make_trade_safe(
                 exit_reason=exit_reason,
             )
         except TypeError:
-            # さらに古い定義
             return Trade(
                 entry_dt=entry_dt,
                 exit_dt=exit_dt,
@@ -309,16 +303,10 @@ def run_backtest_one_day(
     max_consecutive_losses = 0
 
     # intratrade metrics
-    mfe_yen = 0.0
-    mae_yen = 0.0
+    mfe_yen = 0.0  # max favorable excursion (yen)
+    mae_yen = 0.0  # max adverse excursion (yen; negative)
     max_favorable_price = None
     min_adverse_price = None
-
-    # --- 日次カウンタ（初心者向け：何が起きたかを数える） ---
-    exit_reason_counts: Dict[str, int] = {}
-    def _count_reason(reason: str) -> None:
-        k = str(reason or "").strip() or "unknown"
-        exit_reason_counts[k] = int(exit_reason_counts.get(k, 0)) + 1
 
     date_str = bars[0].dt.date().isoformat()
 
@@ -356,7 +344,7 @@ def run_backtest_one_day(
             # Stop価格：VWAP割れ + 0.1%マージン（安全側）
             stop_price = float(bar.vwap) * (1.0 - 0.001)
 
-            # --- stop幅が浅すぎる場合は見送り ---
+            # --- ★ stop幅が浅すぎる場合は見送り ---
             min_stop = max(float(entry_price) * float(min_stop_pct), float(min_stop_yen))
             if min_stop > 0:
                 if abs(float(entry_price) - float(stop_price)) < float(min_stop):
@@ -369,7 +357,7 @@ def run_backtest_one_day(
             qty_calc = safe_qty_from_risk_long(
                 entry_price=entry_price,
                 stop_price=stop_price,
-                trade_loss_yen=effective_trade_loss_yen,  # 数量計算のみバッファ適用
+                trade_loss_yen=effective_trade_loss_yen,  # ★バッファ適用（数量計算のみ）
             )
             if not qty_calc or qty_calc <= 0:
                 entry_price = 0.0
@@ -395,11 +383,11 @@ def run_backtest_one_day(
         # 2) early_stop（planned_risk_yen基準・intrabarはlowで評価）
         # 3) 戦略exit（VWAP割れ等）※A案の猶予はここだけ
         # 4) 利確（take_profit_r）
-        # 5) 利益保護ガード（トレーリング型）
+        # 5) 利益保護ガード（トレーリング型）※“勝ちを守る”だけ
         # 6) 時間切れ（max_hold_minutes）
         # =========================
         if has_position:
-            # intratrade update (bar.high/low を使う)
+            # intratrade update（bar.high/low を使う）
             try:
                 if max_favorable_price is None:
                     max_favorable_price = float(entry_price)
@@ -414,8 +402,9 @@ def run_backtest_one_day(
             except Exception:
                 pass
 
-            unrealized_yen = (float(bar.close) - float(entry_price)) * float(qty)
-            r_now = (float(unrealized_yen) / denom_trade_loss) if denom_trade_loss > 0 else 0.0
+            # 現在値ベース（ガード計算などに使う）
+            unrealized_yen_close = (float(bar.close) - float(entry_price)) * float(qty)
+            r_now = (float(unrealized_yen_close) / denom_trade_loss) if denom_trade_loss > 0 else 0.0
             mfe_r = (float(mfe_yen) / denom_trade_loss) if denom_trade_loss > 0 else 0.0
             mae_r = (float(mae_yen) / denom_trade_loss) if denom_trade_loss > 0 else 0.0
 
@@ -426,7 +415,12 @@ def run_backtest_one_day(
                 except Exception:
                     held_minutes_now = 0.0
 
-            hit_stop = float(bar.close) <= float(stop_price)
+            # -------------------------
+            # ★改善：intrabar 判定に変更
+            # stop: bar.low <= stop_price
+            # take_profit: bar.high で判定
+            # -------------------------
+            hit_stop = float(bar.low) <= float(stop_price)
 
             # --- early_stop（本番整合：planned_risk_yen=budget.trade_loss_yen） ---
             hit_early_stop = False
@@ -449,9 +443,11 @@ def run_backtest_one_day(
                 if (float(r_now) < float(vwap_exit_grace_min_r)) or within_grace:
                     hit_strategy_exit = False
 
-            hit_take_profit = unrealized_yen >= take_profit_yen
+            # ★改善：利確も intrabar（high）で判定
+            unrealized_yen_high = (float(bar.high) - float(entry_price)) * float(qty)
+            hit_take_profit = float(unrealized_yen_high) >= float(take_profit_yen)
 
-            # --- 利益保護ガード（トレーリング型） ---
+            # --- B案 改：利益保護ガード（トレーリング型） ---
             hit_profit_guard = False
             if guard_enable and (not hit_stop) and (not hit_early_stop) and (not hit_take_profit) and (not hit_strategy_exit):
                 if held_minutes_now >= float(guard_min_hold_minutes):
@@ -508,7 +504,6 @@ def run_backtest_one_day(
                     mae_r=float(mae_r),
                 )
                 trades.append(tr)
-                _count_reason(exit_reason)
 
                 if pnl < 0:
                     consecutive_losses += 1
@@ -578,7 +573,6 @@ def run_backtest_one_day(
                 mae_r=float(mae_r),
             )
         )
-        _count_reason("force_close_end_of_day")
 
         if pnl < 0:
             consecutive_losses += 1
@@ -593,7 +587,7 @@ def run_backtest_one_day(
         if day_pnl <= -budget.day_loss_yen:
             day_limit_hit = True
 
-    day_res = DayResult(
+    return DayResult(
         date_str=date_str,
         trades=trades,
         pnl_yen=day_pnl,
@@ -601,11 +595,3 @@ def run_backtest_one_day(
         max_drawdown_yen=max_dd,
         max_consecutive_losses=max_consecutive_losses,
     )
-
-    # 型は壊さずに “付加情報” をぶら下げる（UI/CLI集計用）
-    try:
-        setattr(day_res, "exit_reason_counts", dict(exit_reason_counts))
-    except Exception:
-        pass
-
-    return day_res
