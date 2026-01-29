@@ -15,8 +15,14 @@
 - judge_mode（dev/prod）をこのサービスの入口から渡せるようにする
 - base_judge / auto_fix / applied_judge が同じ judge_mode を使う（ブレ防止）
 - UIで実行した Judge 結果も judge_snapshot に保存する（1日1ファイル）
-  - judge.json は1日1ファイルなので、applied（採用後）をメインに保存
-  - base_judge / autofix_dict などは extra にまとめて保存して上書き事故を避ける
+
+追加（今回：初心者向けログ）
+- backtest_runner が DayResult にぶら下げた exit_reason_counts を合算し、
+  kpi に exit_reason_counts を入れて返す
+  → “何が多いか” が一発で分かる（time_limit偏り等）
+
+置き場所
+- aiapp/services/daytrade/backtest_multi_service.py
 """
 
 from __future__ import annotations
@@ -37,22 +43,16 @@ from aiapp.services.daytrade.judge import JudgeResult, judge_backtest_results
 from aiapp.services.daytrade.auto_fix import AutoFixResult, FixCandidate, auto_fix_policy
 
 
-# =========================
-# 表示用（日本語ラベル）
-# =========================
-
 EXIT_REASON_LABEL = {
     "time_limit": "時間切れ（時間で終了）",
     "stop_loss": "損切り（ストップ）",
     "take_profit": "利確（利益確定）",
     "force_close_end_of_day": "引け強制決済（終了時刻）",
+    "time_limit_guard": "利益保護（トレーリング）",
+    "early_stop": "早期撤退（逆行初動）",
     "unknown": "不明",
 }
 
-
-# =========================
-# 集計データ構造
-# =========================
 
 @dataclass
 class Agg:
@@ -175,10 +175,6 @@ def update_agg(agg: Agg, day_res) -> None:
         pass
 
 
-# =========================
-# AutoFixResult を UI で扱える dict にする
-# =========================
-
 def _judge_to_dict(j: Optional[JudgeResult]) -> Dict[str, Any]:
     if j is None:
         return {"decision": "", "reasons": [], "metrics": {}, "mode": ""}
@@ -207,12 +203,14 @@ def _diff_policy_simple(base_policy: Dict[str, Any], cand_policy: Dict[str, Any]
     現状の auto_fix が触る想定:
       - exit.take_profit_r
       - exit.max_hold_minutes
+      - exec_guards.early_stop.max_adverse_r（将来拡張してもOK）
     """
     out: List[Dict[str, Any]] = []
 
     watch = [
         (["exit", "take_profit_r"], "利確ライン（R）"),
         (["exit", "max_hold_minutes"], "最大保有時間（分）"),
+        (["exec_guards", "early_stop", "max_adverse_r"], "早期撤退（逆行Rしきい値）"),
     ]
 
     for path, label in watch:
@@ -238,7 +236,6 @@ def _candidate_to_dict(base_policy: Dict[str, Any], c: FixCandidate) -> Dict[str
         "name": str(getattr(c, "name", "") or ""),
         "judge": jd,
         "diffs": _diff_policy_simple(base_policy, pj),
-        # よく見る数値だけ上に出す（テンプレが楽）
         "avg_r": float((jd.get("metrics") or {}).get("avg_r", 0.0) or 0.0),
         "max_dd_pct": float((jd.get("metrics") or {}).get("max_dd_pct", 0.0) or 0.0),
         "max_consecutive_losses": int((jd.get("metrics") or {}).get("max_consecutive_losses", 0) or 0),
@@ -265,10 +262,6 @@ def _autofix_to_dict(base_policy: Dict[str, Any], fx: Optional[AutoFixResult]) -
     return out
 
 
-# =========================
-# メイン：共通 backtest
-# =========================
-
 def run_daytrade_backtest_multi(
     *,
     n: int,
@@ -293,6 +286,9 @@ def run_daytrade_backtest_multi(
     exit_stats: Dict[str, Any] = {}
     collected_day_results: List[Any] = []
 
+    # 追加：全体の “exit理由カウント” を合算（初心者向けに分かりやすい）
+    exit_reason_counts_total: Dict[str, int] = {}
+
     total = Agg(max_dd_yen=0)
 
     if verbose_log:
@@ -315,6 +311,16 @@ def run_daytrade_backtest_multi(
 
             res = run_backtest_one_day(bars=bars, policy=policy)
             collected_day_results.append(res)
+
+            # 日次の exit_reason_counts を合算
+            try:
+                daily_counts = getattr(res, "exit_reason_counts", None)
+                if isinstance(daily_counts, dict):
+                    for k, v in daily_counts.items():
+                        kk = str(k or "").strip() or "unknown"
+                        exit_reason_counts_total[kk] = int(exit_reason_counts_total.get(kk, 0)) + int(v or 0)
+            except Exception:
+                pass
 
             update_agg(agg, res)
 
@@ -454,6 +460,14 @@ def run_daytrade_backtest_multi(
             }
         )
 
+    # 追加：exit_reason_counts_total を “見やすい順” に並べ替えたdict
+    exit_reason_counts_total_sorted: Dict[str, int] = {}
+    try:
+        for k, v in sorted(exit_reason_counts_total.items(), key=lambda x: (-int(x[1]), str(x[0]))):
+            exit_reason_counts_total_sorted[str(k)] = int(v)
+    except Exception:
+        exit_reason_counts_total_sorted = dict(exit_reason_counts_total)
+
     return {
         "rows": rows,
         "exit_rows": exit_rows,
@@ -463,6 +477,8 @@ def run_daytrade_backtest_multi(
             "winrate": fmt_pct(float(total_winrate)) if total_trades > 0 else "0.0%",
             "avg_r": f"{float(total_avg_r):.4f}",
             "max_dd_yen": int(total.max_dd_yen),
+            # ★初心者向け：まずこれを見る
+            "exit_reason_counts": exit_reason_counts_total_sorted,
         },
         "run_log_lines": run_log_lines,
         "collected_day_results": collected_day_results,
@@ -479,25 +495,12 @@ def run_daytrade_backtest_multi_with_judge_autofix(
     verbose_log: bool = True,
     enable_autofix: bool = True,
     autofix_max_candidates: int = 10,
-    judge_mode: str = "prod",  # dev/prod を統一する
-    save_snapshot: bool = True,  # ★追加：UI実行でも judge.json を保存する
+    judge_mode: str = "prod",
+    save_snapshot: bool = True,
 ) -> Dict[str, Any]:
-    """
-    本番想定版：
-    1) まず通常 backtest を回す
-    2) Judge する
-    3) NO_GO なら auto_fix を挟んで GO 案（または最良案）を探す
-    4) 採用案でもう一度 backtest を回して、UI/CLI に分かりやすく返す
-
-    追加：
-    - autofix_dict を返す（UIで candidates テーブル表示用）
-    - judge_mode を受け取り、Judge と auto_fix が同じ基準で判定する（ブレ防止）
-    - UI/CLI どちらからでも judge_snapshot を保存できる（後検証のため）
-    """
     if dates is None:
         dates = last_n_bdays_jst(n)
 
-    # ---- base run ----
     base = run_daytrade_backtest_multi(
         n=n,
         tickers=tickers,
@@ -507,7 +510,6 @@ def run_daytrade_backtest_multi_with_judge_autofix(
         verbose_log=verbose_log,
     )
 
-    # mode を統一
     base_judge = judge_backtest_results(
         base.get("collected_day_results", []) or [],
         policy,
@@ -527,7 +529,7 @@ def run_daytrade_backtest_multi_with_judge_autofix(
                 policy=p,
                 budget_trade_loss_yen=budget_trade_loss_yen,
                 dates=dates,
-                verbose_log=False,  # autofix内部は静かに
+                verbose_log=False,
             )
             return list(out.get("collected_day_results", []) or [])
 
@@ -552,11 +554,6 @@ def run_daytrade_backtest_multi_with_judge_autofix(
 
     autofix_dict = _autofix_to_dict(policy, autofix)
 
-    # =========================
-    # ★ judge snapshot 保存（UI/CLI共通）
-    # - judge.json は 1日1ファイルなので、applied をメインに残す
-    # - base / autofix は extra にまとめる
-    # =========================
     if bool(save_snapshot):
         try:
             from aiapp.services.daytrade.judge_snapshot import save_judge_snapshot
@@ -570,9 +567,10 @@ def run_daytrade_backtest_multi_with_judge_autofix(
                 "base_judge": _judge_to_dict(base_judge),
                 "applied_judge": _judge_to_dict(applied_judge),
                 "autofix_dict": autofix_dict,
+                # ★追加：kpiにも入ってるが、snapshotにも残す（後検証用）
+                "applied_kpi": dict((applied.get("kpi", {}) or {})),
             }
 
-            # 保存する policy は「実際に採用して評価したもの」を残す
             _p = save_judge_snapshot(
                 d=date.today(),
                 policy=applied_policy,
@@ -582,7 +580,6 @@ def run_daytrade_backtest_multi_with_judge_autofix(
             )
 
             if verbose_log:
-                # UIログに出すと分かりやすい（邪魔なら後でOFFにできる）
                 applied.get("run_log_lines", []).append(f"[judge_snapshot] saved: {_p}")
 
         except Exception as e:
@@ -595,6 +592,6 @@ def run_daytrade_backtest_multi_with_judge_autofix(
         "applied": applied,
         "applied_policy": applied_policy,
         "applied_judge": applied_judge,
-        "autofix": autofix,             # python object（内部用）
-        "autofix_dict": autofix_dict,   # UI用（candidates表示）
+        "autofix": autofix,
+        "autofix_dict": autofix_dict,
     }
