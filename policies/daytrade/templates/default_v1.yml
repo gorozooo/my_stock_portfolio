@@ -25,8 +25,8 @@ time_filter:
 
 universe_filter:
   min_volume_rank_pct: 30
-  min_atr_pct: 0.8
-  max_spread_pct: 0.15
+  min_atr_pct: 1.0
+  max_spread_pct: 0.10
   exclude_price_gt: 15000
 
 entry:
@@ -35,10 +35,10 @@ entry:
     - pullback_pct_range: [0.4, 0.65]
     - near_vwap_pct: 0.2
     - rebound_confirm: true
-    - volume_increase: false
+    - volume_increase: true
 
 exit:
-  take_profit_r: 1.0
+  take_profit_r: 0.7
   max_hold_minutes: 15
   exit_on_vwap_break: true
 
@@ -101,5 +101,5 @@ exec_guards:
     require_above_vwap: true
     fake_breakout_bars: 2      # 直近n本でブレイク確認
   early_stop:
-    enable: true
+    enable: false
     max_adverse_r: 0.35        # 逆行初動で即撤退（DD削減）
