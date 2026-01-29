@@ -34,29 +34,9 @@
 - vwap_exit_grace（VWAP割れ即exitの“猶予”）
   - active.yml の exit.vwap_exit_grace を参照
   - strategy_exit（VWAP割れ等）だけを抑制する（stop/take_profit/time_limitは最優先のまま）
-  - 例：
-    exit:
-      vwap_exit_grace:
-        enable: true
-        min_r_to_allow_exit: 0.3
-        grace_minutes_after_entry: 5
 
 追加（B案 改：運用品質）
 - time_limit_profit_guard（“勝ちを守る”ガード）をトレーリング型にする
-  - 既存ログで guard が 0%勝率になりやすい（戻りの底で投げる）問題を防ぐ
-  - 方式：
-    - MFE（最大含み益R）が trigger_mfe_r を超えたら「トレーリング開始」
-    - exit_line = max(mfe_r - trail_r, keep_r)
-      r_now <= exit_line で撤退（※keep_rで“利益が残る”ことを保証）
-    - min_hold_minutes で発動を遅らせる
-  - 例：
-    exit:
-      time_limit_profit_guard:
-        enable: true
-        trigger_mfe_r: 0.25
-        trail_r: 0.30
-        keep_r: 0.05
-        min_hold_minutes: 10
 
 追加（今回：本番とバックテストの整合）
 - early_stop（1分足本番の「早期撤退」をバックテストにも反映）
@@ -64,6 +44,11 @@
   - planned_risk_yen（= budget.trade_loss_yen）に対する逆行割合 max_adverse_r で判定
   - バックテストでは intrabar を考慮し、long の逆行は bar.low を使って adverse を評価する
   - exit_reason は "early_stop" を保存
+
+追加（今回：初心者向けログの土台）
+- DayResult に「exit理由ごとの回数」を日次でぶら下げる（型は壊さない）
+  - setattr(day_res, "exit_reason_counts", {...})
+  - UI/CLI側で集計して “何が多いか” が一発で分かるようにする
 
 置き場所
 - aiapp/services/daytrade/backtest_runner.py
@@ -231,7 +216,6 @@ def run_backtest_one_day(
         slippage_buffer_pct = 0.95
 
     # stop幅の下限（浅すぎるstopを弾く）
-    # 例: min_stop_pct=0.001(0.1%), min_stop_yen=2
     min_stop_pct = _get_float(risk_cfg, "min_stop_pct", 0.0)
     min_stop_yen = _get_float(risk_cfg, "min_stop_yen", 0.0)
     if min_stop_pct < 0:
@@ -258,7 +242,6 @@ def run_backtest_one_day(
     vwap_exit_grace_enable = _get_bool(vwap_grace_cfg, "enable", False)
     vwap_exit_grace_min_r = _get_float(vwap_grace_cfg, "min_r_to_allow_exit", 0.0)
     vwap_exit_grace_minutes = _get_int(vwap_grace_cfg, "grace_minutes_after_entry", 0)
-    # 異常値だけを丸める（負値も許容：-10 など）
     if vwap_exit_grace_min_r < -10.0:
         vwap_exit_grace_min_r = -10.0
     if vwap_exit_grace_minutes < 0:
@@ -292,7 +275,6 @@ def run_backtest_one_day(
     early_stop_max_adverse_r = _get_float(early_cfg, "max_adverse_r", 0.5)
     if early_stop_max_adverse_r < 0:
         early_stop_max_adverse_r = 0.0
-    # 安全上限（暴走防止）
     if early_stop_max_adverse_r > 5.0:
         early_stop_max_adverse_r = 5.0
 
@@ -327,10 +309,16 @@ def run_backtest_one_day(
     max_consecutive_losses = 0
 
     # intratrade metrics
-    mfe_yen = 0.0  # max favorable excursion (yen)
-    mae_yen = 0.0  # max adverse excursion (yen; negative)
+    mfe_yen = 0.0
+    mae_yen = 0.0
     max_favorable_price = None
     min_adverse_price = None
+
+    # --- 日次カウンタ（初心者向け：何が起きたかを数える） ---
+    exit_reason_counts: Dict[str, int] = {}
+    def _count_reason(reason: str) -> None:
+        k = str(reason or "").strip() or "unknown"
+        exit_reason_counts[k] = int(exit_reason_counts.get(k, 0)) + 1
 
     date_str = bars[0].dt.date().isoformat()
 
@@ -368,12 +356,10 @@ def run_backtest_one_day(
             # Stop価格：VWAP割れ + 0.1%マージン（安全側）
             stop_price = float(bar.vwap) * (1.0 - 0.001)
 
-            # --- ★ stop幅が浅すぎる場合は見送り ---
-            # min_stop = max(entry_price * min_stop_pct, min_stop_yen)
+            # --- stop幅が浅すぎる場合は見送り ---
             min_stop = max(float(entry_price) * float(min_stop_pct), float(min_stop_yen))
             if min_stop > 0:
                 if abs(float(entry_price) - float(stop_price)) < float(min_stop):
-                    # リセットして見送り
                     entry_price = 0.0
                     entry_dt = None
                     stop_price = 0.0
@@ -383,10 +369,9 @@ def run_backtest_one_day(
             qty_calc = safe_qty_from_risk_long(
                 entry_price=entry_price,
                 stop_price=stop_price,
-                trade_loss_yen=effective_trade_loss_yen,  # ★バッファ適用（数量計算のみ）
+                trade_loss_yen=effective_trade_loss_yen,  # 数量計算のみバッファ適用
             )
             if not qty_calc or qty_calc <= 0:
-                # リスク条件を満たせないので見送り
                 entry_price = 0.0
                 entry_dt = None
                 stop_price = 0.0
@@ -410,11 +395,11 @@ def run_backtest_one_day(
         # 2) early_stop（planned_risk_yen基準・intrabarはlowで評価）
         # 3) 戦略exit（VWAP割れ等）※A案の猶予はここだけ
         # 4) 利確（take_profit_r）
-        # 5) 利益保護ガード（トレーリング型）※“勝ちを守る”だけ
+        # 5) 利益保護ガード（トレーリング型）
         # 6) 時間切れ（max_hold_minutes）
         # =========================
         if has_position:
-            # intratrade update (bar.high/low を使う：closeだけより現実的)
+            # intratrade update (bar.high/low を使う)
             try:
                 if max_favorable_price is None:
                     max_favorable_price = float(entry_price)
@@ -444,7 +429,6 @@ def run_backtest_one_day(
             hit_stop = float(bar.close) <= float(stop_price)
 
             # --- early_stop（本番整合：planned_risk_yen=budget.trade_loss_yen） ---
-            # バックテストでは intrabar を考慮して long は bar.low で逆行を評価する
             hit_early_stop = False
             if early_stop_enable and (not hit_stop):
                 if denom_trade_loss > 0 and qty > 0:
@@ -462,22 +446,17 @@ def run_backtest_one_day(
                 if entry_dt is not None and vwap_exit_grace_minutes > 0:
                     within_grace = held_minutes_now < float(vwap_exit_grace_minutes)
 
-                # 条件を満たす間は「戦略exitだけ」抑制（stop/early_stop/take_profit/time_limitは別）
                 if (float(r_now) < float(vwap_exit_grace_min_r)) or within_grace:
                     hit_strategy_exit = False
 
             hit_take_profit = unrealized_yen >= take_profit_yen
 
-            # --- B案 改：利益保護ガード（トレーリング型） ---
+            # --- 利益保護ガード（トレーリング型） ---
             hit_profit_guard = False
             if guard_enable and (not hit_stop) and (not hit_early_stop) and (not hit_take_profit) and (not hit_strategy_exit):
-                # 一定時間は発動しない（早すぎる“底売り”防止）
                 if held_minutes_now >= float(guard_min_hold_minutes):
-                    # まず「十分伸びた（MFE達成）」が条件
                     if float(mfe_r) >= float(guard_trigger_mfe_r):
-                        # exit_line = max(mfe_r - trail_r, keep_r)
                         exit_line = max(float(mfe_r) - float(guard_trail_r), float(guard_keep_r))
-                        # “利益を守る”なので、利益が残るラインを割ったら撤退
                         if float(r_now) <= float(exit_line):
                             hit_profit_guard = True
 
@@ -487,7 +466,6 @@ def run_backtest_one_day(
                     hit_time_stop = True
 
             if hit_stop or hit_early_stop or hit_strategy_exit or hit_take_profit or hit_profit_guard or hit_time_stop:
-                # exit_reason（優先順位は仕様どおり）
                 if hit_stop:
                     exit_reason = "stop_loss"
                 elif hit_early_stop:
@@ -498,7 +476,7 @@ def run_backtest_one_day(
                 elif hit_take_profit:
                     exit_reason = "take_profit"
                 elif hit_profit_guard:
-                    exit_reason = "time_limit_guard"  # 既存集計キー互換（guard枠に入る）
+                    exit_reason = "time_limit_guard"
                 elif hit_time_stop:
                     exit_reason = "time_limit"
                 else:
@@ -530,6 +508,7 @@ def run_backtest_one_day(
                     mae_r=float(mae_r),
                 )
                 trades.append(tr)
+                _count_reason(exit_reason)
 
                 if pnl < 0:
                     consecutive_losses += 1
@@ -599,6 +578,7 @@ def run_backtest_one_day(
                 mae_r=float(mae_r),
             )
         )
+        _count_reason("force_close_end_of_day")
 
         if pnl < 0:
             consecutive_losses += 1
@@ -613,7 +593,7 @@ def run_backtest_one_day(
         if day_pnl <= -budget.day_loss_yen:
             day_limit_hit = True
 
-    return DayResult(
+    day_res = DayResult(
         date_str=date_str,
         trades=trades,
         pnl_yen=day_pnl,
@@ -621,3 +601,11 @@ def run_backtest_one_day(
         max_drawdown_yen=max_dd,
         max_consecutive_losses=max_consecutive_losses,
     )
+
+    # 型は壊さずに “付加情報” をぶら下げる（UI/CLI集計用）
+    try:
+        setattr(day_res, "exit_reason_counts", dict(exit_reason_counts))
+    except Exception:
+        pass
+
+    return day_res
