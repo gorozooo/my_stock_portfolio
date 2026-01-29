@@ -39,7 +39,6 @@ from aiapp.services.daytrade.bar_adapter_5m import df_to_bars_5m
 from aiapp.services.daytrade.backtest_runner import run_backtest_one_day
 
 from aiapp.services.daytrade.judge import JudgeResult, judge_backtest_results
-
 from aiapp.services.daytrade.auto_fix import AutoFixResult, FixCandidate, auto_fix_policy
 
 
@@ -522,6 +521,7 @@ def run_daytrade_backtest_multi_with_judge_autofix(
     autofix: Optional[AutoFixResult] = None
 
     if (base_judge.decision == "NO_GO") and bool(enable_autofix):
+
         def _provider(p: Dict[str, Any]) -> List[Any]:
             out = run_daytrade_backtest_multi(
                 n=n,
