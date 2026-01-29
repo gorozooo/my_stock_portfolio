@@ -49,6 +49,10 @@ exit:
 
   time_limit_profit_guard:
     enable: false
+    trigger_mfe_r: 0.35
+    trail_r: 0.35
+    keep_r: 0.05
+    min_hold_minutes: 12
 
 limits:
   max_trades_per_day: 3
@@ -98,4 +102,4 @@ exec_guards:
     fake_breakout_bars: 2      # 直近n本でブレイク確認
   early_stop:
     enable: true
-    max_adverse_r: 0.5         # 逆行初動で即撤退（DD削減）
+    max_adverse_r: 1.0         # 逆行初動で即撤退（DD削減）
