@@ -13,30 +13,14 @@
 - デイリミット到達で当日停止
 - 終端でポジションが残っていたら強制クローズ（確定損益にする）
 
-フェーズ5で入れるもの
-1) slippage_buffer_pct（数量計算の安全バッファ）
-   - active.yml の risk.slippage_buffer_pct を参照
-   - qty計算に使う「実効リスク予算」を減らし、滑っても実損が上限に収まりやすくする
+今回の改善（重要）
+- stop_price の決め方を改善して「浅すぎるストップ（ノイズ狩り）」を減らす
+  - min_stop_pct / min_stop_yen を “見送り判定” だけでなく stop 設計にも反映する
+  - stop は「vwap割れ基準」と「最低stop幅」を両方満たすように下げる
 
-2) take_profit_r / max_hold_minutes
-   - active.yml の exit.take_profit_r / exit.max_hold_minutes を参照
-   - 利確（例：1.5R）と時間切れ（例：15分）をバックテストで本番同様に効かせる
-
-3) min_stop_pct / min_stop_yen（stop幅が浅すぎる事故を防ぐ）
-   - active.yml の risk.min_stop_pct / risk.min_stop_yen を参照
-   - stop幅が浅すぎるシグナルは「見送り」する（補正はしない）
-   - early_stop が過敏になる根本原因を、入口で潰す
-
-追加（運用品質）
-- Trade に exit_reason を保存し、「何で決済した損益か」を後から分解できるようにする。
-
-追加（A案：運用品質）
-- vwap_exit_grace（VWAP割れ即exitの“猶予”）
-  - active.yml の exit.vwap_exit_grace を参照
-  - strategy_exit（VWAP割れ等）だけを抑制する（stop/take_profit/time_limitは最優先のまま）
-
-追加（B案 改：運用品質）
-- time_limit_profit_guard（“勝ちを守る”ガード）をトレーリング型にする
+- stop_loss / take_profit を intrabar（low/high）で判定する。
+  これにより「1本の中でstopを割っているのにcloseまで待つ」事故を防ぐ。
+  ※約定は仕様どおり next_bar.open + slippage のまま。
 
 追加（今回：本番とバックテストの整合）
 - early_stop（1分足本番の「早期撤退」をバックテストにも反映）
@@ -44,11 +28,6 @@
   - planned_risk_yen（= budget.trade_loss_yen）に対する逆行割合 max_adverse_r で判定
   - バックテストでは intrabar を考慮し、long の逆行は bar.low を使って adverse を評価する
   - exit_reason は "early_stop" を保存
-
-今回の改善（重要）
-- stop_loss / take_profit を intrabar（low/high）で判定する。
-  これにより「1本の中でstopを割っているのにcloseまで待つ」事故を防ぐ。
-  ※約定は仕様どおり next_bar.open + slippage のまま。
 """
 
 from __future__ import annotations
@@ -265,6 +244,7 @@ def run_backtest_one_day(
     early_cfg = exec_cfg.get("early_stop", {}) or {}
     if not isinstance(early_cfg, dict):
         early_cfg = {}
+    # policy未設定なら「安全側」= True に倒す（ただしactive.ymlで enable:false を想定）
     early_stop_enable = _get_bool(early_cfg, "enable", True)
     early_stop_max_adverse_r = _get_float(early_cfg, "max_adverse_r", 0.5)
     if early_stop_max_adverse_r < 0:
@@ -341,18 +321,27 @@ def run_backtest_one_day(
             entry_price = float(fill.price)
             entry_dt = next_bar.dt
 
-            # Stop価格：VWAP割れ + 0.1%マージン（安全側）
-            stop_price = float(bar.vwap) * (1.0 - 0.001)
+            # --- ★改善：stop幅（最低stop）を満たすように stop を設計する ---
+            # まず候補：VWAP割れ + margin（安全側）
+            # marginは固定でもいいが、浅すぎ問題が出やすいので少し厚く（0.15%）
+            vwap_based_stop = float(bar.vwap) * (1.0 - 0.0015)
 
-            # --- ★ stop幅が浅すぎる場合は見送り ---
+            # 最低stop幅（円/％）
             min_stop = max(float(entry_price) * float(min_stop_pct), float(min_stop_yen))
-            if min_stop > 0:
-                if abs(float(entry_price) - float(stop_price)) < float(min_stop):
-                    entry_price = 0.0
-                    entry_dt = None
-                    stop_price = 0.0
-                    qty = 0
-                    continue
+
+            # 「最低stop幅」を満たす stop（= entry - min_stop）
+            width_based_stop = float(entry_price) - float(min_stop)
+
+            # 実stopは “より下” を採用（浅すぎるstopを避ける）
+            stop_price = float(min(vwap_based_stop, width_based_stop))
+
+            # それでも stop が entry と同値以上なら壊れてるので見送り
+            if stop_price >= entry_price:
+                entry_price = 0.0
+                entry_dt = None
+                stop_price = 0.0
+                qty = 0
+                continue
 
             qty_calc = safe_qty_from_risk_long(
                 entry_price=entry_price,
@@ -416,7 +405,7 @@ def run_backtest_one_day(
                     held_minutes_now = 0.0
 
             # -------------------------
-            # ★改善：intrabar 判定に変更
+            # ★intrabar 判定
             # stop: bar.low <= stop_price
             # take_profit: bar.high で判定
             # -------------------------
@@ -443,11 +432,11 @@ def run_backtest_one_day(
                 if (float(r_now) < float(vwap_exit_grace_min_r)) or within_grace:
                     hit_strategy_exit = False
 
-            # ★改善：利確も intrabar（high）で判定
+            # 利確 intrabar（high）
             unrealized_yen_high = (float(bar.high) - float(entry_price)) * float(qty)
             hit_take_profit = float(unrealized_yen_high) >= float(take_profit_yen)
 
-            # --- B案 改：利益保護ガード（トレーリング型） ---
+            # --- 利益保護ガード（トレーリング型） ---
             hit_profit_guard = False
             if guard_enable and (not hit_stop) and (not hit_early_stop) and (not hit_take_profit) and (not hit_strategy_exit):
                 if held_minutes_now >= float(guard_min_hold_minutes):
