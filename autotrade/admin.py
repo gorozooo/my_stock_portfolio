@@ -1,3 +1,14 @@
+"""
+[FILE] autotrade/admin.py
+[PATH] <project_root>/autotrade/admin.py
+
+このファイルは何？
+- Django管理画面（/admin/）で AutoTradeDailyState を見やすく表示する設定です。
+
+初心者ポイント：
+- ダッシュボードに何か変な値が入った時に、管理画面から確認できます。
+"""
+
 from django.contrib import admin
 from .models import AutoTradeDailyState
 
