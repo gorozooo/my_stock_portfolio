@@ -1,0 +1,97 @@
+/*
+[FILE] static/autotrade/dashboard.css
+[PATH] <project_root>/static/autotrade/dashboard.css
+
+このファイルは何？
+- iPhone 1画面ダッシュボードの見た目（CSS）だけを管理します。
+- HTMLから分離しているので、後々UIを触ってもロジックに影響しません。
+*/
+
+:root{
+  --bg:#0b0f14;
+  --card:rgba(255,255,255,.06);
+  --bd:rgba(255,255,255,.10);
+  --txt:rgba(255,255,255,.92);
+  --mut:rgba(255,255,255,.62);
+  --ok:#36d399;
+  --warn:#fbbf24;
+  --bad:#f87171;
+}
+
+body{
+  margin:0; background:var(--bg); color:var(--txt);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Hiragino Sans","Noto Sans JP",sans-serif;
+}
+
+.wrap{
+  max-width:980px; margin:0 auto;
+  padding:14px 12px 120px;
+}
+
+.top{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:10px; margin-bottom:12px;
+}
+
+.title{ font-size:18px; font-weight:900; }
+
+.badge{
+  padding:8px 10px; border:1px solid var(--bd); border-radius:14px;
+  background:var(--card); backdrop-filter: blur(10px);
+  font-weight:700; letter-spacing:.02em;
+}
+
+.grid{
+  display:grid; grid-template-columns:1fr; gap:12px;
+}
+
+.card{
+  border:1px solid var(--bd); border-radius:16px;
+  background:var(--card); padding:12px;
+  backdrop-filter: blur(10px);
+}
+
+.kpi{
+  display:grid; grid-template-columns:1fr 1fr; gap:10px;
+}
+.kpi .box{
+  border:1px solid var(--bd); border-radius:14px; padding:10px;
+  background:rgba(0,0,0,.18);
+}
+
+.label{ color:var(--mut); font-size:12px; margin-bottom:4px; }
+.val{ font-size:20px; font-weight:800; }
+.row{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.h{ font-weight:900; }
+.mut{ color:var(--mut); font-size:12px; }
+.mono{ font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; }
+
+.ok{ color:var(--ok); }
+.warn{ color:var(--warn); }
+.bad{ color:var(--bad); }
+
+.chips{ display:flex; gap:8px; flex-wrap:wrap; }
+.chip{
+  padding:6px 10px; border-radius:999px; border:1px solid var(--bd);
+  font-size:12px; background:rgba(0,0,0,.18);
+}
+
+.list{ margin-top:10px; }
+.list-row{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:8px 0; border-bottom:1px solid rgba(255,255,255,.08);
+}
+.ticker{ font-weight:800; }
+
+.btn-stop{
+  width:100%; padding:12px; border-radius:14px;
+  border:1px solid rgba(248,113,113,.55);
+  background:rgba(248,113,113,.10);
+  color:var(--txt); font-weight:900;
+}
+
+.mt10{ margin-top:10px; }
+.mb8{ margin-bottom:8px; }
+.mt6{ margin-top:6px; }
+
+.reason{ font-size:13px; }
