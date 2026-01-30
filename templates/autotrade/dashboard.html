@@ -1,91 +1,81 @@
-{% load static humanize %}
-<!--
-[FILE] templates/autotrade/dashboard.html
-[PATH] <project_root>/templates/autotrade/dashboard.html
+{# templates/autotrade/dashboard.html #}
+{% extends "base.html" %}
+{% load humanize %}
+{% load static %}
+{% block title %}AutoTrade Dashboard{% endblock %}
 
-このファイルは何？
-- iPhone 1画面ダッシュボードのHTML（構造だけ）です。
-- 見た目（CSS）と動き（JS）は static/autotrade/ に分離しています。
+{% block head %}
+<link rel="stylesheet" href="{% static 'autotrade/dashboard.css' %}?v=1">
+{% endblock %}
 
-初心者ポイント：
-- HTMLは「配置」だけ。デザインはdashboard.css、動きはdashboard.js。
--->
+{% block content %}
+<div class="autotrade-wrap">
 
-<!doctype html>
-<html lang="ja">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>AutoTrade Dashboard</title>
-
-  <link rel="stylesheet" href="{% static 'autotrade/dashboard.css' %}">
-</head>
-
-<body>
-<div class="wrap">
-
-  <div class="top">
+  <div class="autotrade-top">
     <div>
-      <div class="mut">Auto DayTrade（確定仕様）</div>
-      <div class="title">iPhone 1画面ダッシュボード</div>
+      <div class="autotrade-muted">Auto DayTrade（確定仕様）</div>
+      <div class="autotrade-title">iPhone 1画面ダッシュボード</div>
     </div>
 
     {% if state.gate_level == "FULL" %}
-      <div class="badge ok">🟢 フル稼働</div>
+      <div class="autotrade-badge is-ok">🟢 フル稼働</div>
     {% elif state.gate_level == "LIGHT" %}
-      <div class="badge warn">🟡 軽稼働</div>
+      <div class="autotrade-badge is-warn">🟡 軽稼働</div>
     {% else %}
-      <div class="badge bad">🔴 停止</div>
+      <div class="autotrade-badge is-bad">🔴 停止</div>
     {% endif %}
   </div>
 
-  <div class="grid">
+  <div class="autotrade-grid">
+
     <!-- KPI -->
-    <section class="card">
-      <div class="kpi">
-        <div class="box">
-          <div class="label">総資産（円）</div>
-          <div class="val">{{ state.equity_yen|intcomma }}</div>
+    <section class="autotrade-card">
+      <div class="autotrade-kpi">
+        <div class="autotrade-box">
+          <div class="autotrade-label">総資産（円）</div>
+          <div class="autotrade-val">{{ state.equity_yen|intcomma }}</div>
         </div>
 
-        <div class="box">
-          <div class="label">当日損益（円）</div>
-          <div class="val {% if state.pnl_day_yen >= 0 %}ok{% else %}bad{% endif %}">
+        <div class="autotrade-box">
+          <div class="autotrade-label">当日損益（円）</div>
+          <div class="autotrade-val {% if state.pnl_day_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
             {{ state.pnl_day_yen|intcomma }}
           </div>
         </div>
 
-        <div class="box">
-          <div class="label">累計損益（円）</div>
-          <div class="val {% if state.pnl_total_yen >= 0 %}ok{% else %}bad{% endif %}">
+        <div class="autotrade-box">
+          <div class="autotrade-label">累計損益（円）</div>
+          <div class="autotrade-val {% if state.pnl_total_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
             {{ state.pnl_total_yen|intcomma }}
           </div>
         </div>
 
-        <div class="box">
-          <div class="label">当日の戦略</div>
-          <div class="val mono">
+        <div class="autotrade-box">
+          <div class="autotrade-label">当日の戦略</div>
+          <div class="autotrade-val autotrade-mono">
             {% if state.strategy %}{{ state.strategy }}{% else %}未決定{% endif %}
           </div>
         </div>
       </div>
 
-      <div class="mt10">
-        <div class="label">停止/制限理由</div>
-        <div class="mono reason">{{ state.gate_reason|default:"-" }}</div>
+      <div class="autotrade-mt10">
+        <div class="autotrade-label">停止/制限理由</div>
+        <div class="autotrade-mono autotrade-reason">
+          {{ state.gate_reason|default:"-" }}
+        </div>
       </div>
     </section>
 
     <!-- Backtest -->
-    <section class="card">
-      <div class="row">
-        <div class="h">バックテスト（{{ state.strategy|default:"BREAKOUT" }}）</div>
-        <div class="mut">PF/DD/回数で自動判定</div>
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div class="autotrade-h">バックテスト（{{ state.strategy|default:"BREAKOUT" }}）</div>
+        <div class="autotrade-muted">PF/DD/回数で自動判定</div>
       </div>
 
-      <div class="chips mt10">
+      <div class="autotrade-chips autotrade-mt10">
         {% for r in bt_rows %}
-          <div class="chip mono">
+          <div class="autotrade-chip autotrade-mono">
             {{ r.window }}日: PF {{ r.pf|default:"-" }} / DD {{ r.max_dd|default:"-" }} / N {{ r.trades|default:"-" }}
           </div>
         {% endfor %}
@@ -93,54 +83,54 @@
     </section>
 
     <!-- Universe -->
-    <section class="card">
-      <div class="row">
-        <div class="h">今日の対象銘柄（5〜10）</div>
-        <div class="mut">毎朝自動</div>
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div class="autotrade-h">今日の対象銘柄（5〜10）</div>
+        <div class="autotrade-muted">毎朝自動</div>
       </div>
 
-      <div class="list mt10">
+      <div class="autotrade-list autotrade-mt10">
         {% if state.universe.picks %}
           {% for x in state.universe.picks %}
-            <div class="list-row">
-              <div class="mono ticker">{{ x.ticker }}</div>
-              <div class="mut">{{ x.reason }}</div>
+            <div class="autotrade-list-row">
+              <div class="autotrade-mono autotrade-ticker">{{ x.ticker }}</div>
+              <div class="autotrade-muted">{{ x.reason }}</div>
             </div>
           {% endfor %}
         {% else %}
-          <div class="mut">まだ準備されていません（朝ジョブ待ち）</div>
+          <div class="autotrade-muted">まだ準備されていません（朝ジョブ待ち）</div>
         {% endif %}
       </div>
     </section>
 
     <!-- Rules -->
-    <section class="card">
-      <div class="row">
-        <div class="h">今日の運用ルール（要約）</div>
-        <div class="mut">確定仕様</div>
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div class="autotrade-h">今日の運用ルール（要約）</div>
+        <div class="autotrade-muted">確定仕様</div>
       </div>
 
-      <div class="chips mt10">
-        <div class="chip">1回損失：0.15%（軽稼働は0.075%）</div>
-        <div class="chip">日次損失：1%</div>
-        <div class="chip">同時ポジ：フル2 / 軽1</div>
-        <div class="chip">回数：フル6 / 軽3</div>
-        <div class="chip">稼働：9:00〜14:30</div>
-        <div class="chip">15:00 全決済</div>
+      <div class="autotrade-chips autotrade-mt10">
+        <div class="autotrade-chip">1回損失：0.15%（軽稼働は0.075%）</div>
+        <div class="autotrade-chip">日次損失：1%</div>
+        <div class="autotrade-chip">同時ポジ：フル2 / 軽1</div>
+        <div class="autotrade-chip">回数：フル6 / 軽3</div>
+        <div class="autotrade-chip">稼働：9:00〜14:30</div>
+        <div class="autotrade-chip">15:00 全決済</div>
       </div>
     </section>
 
     <!-- Emergency Stop -->
-    <section class="card">
-      <div class="h mb8">非常停止</div>
-      <button class="btn-stop" id="btnStop" disabled>（実装予定）非常停止（ワンタップ）</button>
-      <div class="mut mt6">
+    <section class="autotrade-card">
+      <div class="autotrade-h autotrade-mb8">非常停止</div>
+      <button class="autotrade-btn-stop" id="btnStop" disabled>（実装予定）非常停止（ワンタップ）</button>
+      <div class="autotrade-muted autotrade-mt6">
         ※次フェーズで「停止フラグ」をDBに保存し、ジョブ側が参照して止まるようにします
       </div>
     </section>
+
   </div>
 </div>
 
-<script src="{% static 'autotrade/dashboard.js' %}"></script>
-</body>
-</html>
+<script src="{% static 'autotrade/dashboard.js' %}?v=1" defer></script>
+{% endblock %}
