@@ -1,3 +1,14 @@
+"""
+[FILE] autotrade/apps.py
+[PATH] <project_root>/autotrade/apps.py
+
+このファイルは何？
+- Djangoに「autotradeアプリが存在する」ことを知らせる設定ファイルです。
+
+初心者ポイント：
+- 通常は触りません。
+"""
+
 from django.apps import AppConfig
 
 
