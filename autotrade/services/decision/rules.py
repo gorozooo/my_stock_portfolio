@@ -4,11 +4,11 @@
 
 このファイルは何？
 - iPhone 1画面に表示する「今日の運用ルール要約」を作る部品です。
-- jobs や views は、この関数が返した JSON をそのまま保存/表示します。
+- gate_level（FULL/LIGHT/STOP）によって、運用の強さを変えます。
 
 初心者ポイント：
-- ルールは“設定の断片”が増えがちなので、ここで1つにまとめます。
-- 画面に出す文言もここで作ると、あとで直すのが楽です。
+- 画面に出す文言をここで作っておくと、あとで直すのが楽です。
+- 数字が増えても jobs や views を汚さずに済みます。
 """
 
 from __future__ import annotations
@@ -19,15 +19,15 @@ from django.conf import settings
 
 def build_rules_for_today(
     *,
-    equity_yen: Optional[int] = None,
-    strategy: Optional[str] = None,
+    gate_level: str,
+    strategy: Optional[str],
+    equity_yen: int,
 ) -> Dict[str, Any]:
     """
     今日のルール要約を作る（DB保存・画面表示用）
 
-    引数:
-      equity_yen: 総資産（省略なら settings の既定値）
-      strategy: "BREAKOUT" / "VWAP"（省略なら空）
+    gate_level:
+      "FULL" / "LIGHT" / "STOP"
 
     返り値（例）:
       {
@@ -35,6 +35,7 @@ def build_rules_for_today(
         "risk": {...},
         "limits": {...},
         "time": {...},
+        "mode": {...},
         "notes": [...]
       }
     """
@@ -50,10 +51,34 @@ def build_rules_for_today(
     session_end = str(getattr(settings, "AUTOTRADE_SESSION_END", "14:30"))
     force_close = str(getattr(settings, "AUTOTRADE_FORCE_CLOSE", "15:00"))
 
+    # gate による運用強度（初心者向けに分かりやすく）
+    # FULL  : 通常
+    # LIGHT : 半分運用（保守的）
+    # STOP  : 取引しない
+    if gate_level == "FULL":
+        lot_multiplier = 1.0
+        pos_limit = max_positions
+        trade_limit = max_trades
+        mode_label = "通常運用"
+        gate_note = "バックテストが安定しているので、通常どおり動かします。"
+    elif gate_level == "LIGHT":
+        lot_multiplier = 0.5
+        pos_limit = 1
+        trade_limit = max(1, max_trades // 2)
+        mode_label = "軽い運用（慎重）"
+        gate_note = "中長期の成績に不安があるので、枚数と回数を減らして慎重に動かします。"
+    else:  # STOP
+        lot_multiplier = 0.0
+        pos_limit = 0
+        trade_limit = 0
+        mode_label = "停止"
+        gate_note = "直近の成績が不安定なので、今日は自動売買しません。"
+
     trade_loss_yen = int(round(base_equity * trade_loss_pct))
     day_loss_yen = int(round(base_equity * day_loss_pct))
 
     notes = [
+        gate_note,
         "1回の負け上限に達したら、その取引は必ず終了します。",
         "1日の負け上限に達したら、その日は自動売買を停止します。",
         "15:00 に必ず全決済します（持ち越し禁止）。",
@@ -68,6 +93,11 @@ def build_rules_for_today(
             notes.append(f"今日の戦略は『{strategy}』です。")
 
     return {
+        "mode": {
+            "gate_level": gate_level,
+            "label": mode_label,
+            "lot_multiplier": lot_multiplier,
+        },
         "capital": {
             "equity_yen": base_equity,
         },
@@ -76,10 +106,10 @@ def build_rules_for_today(
             "trade_loss_yen": trade_loss_yen,
             "day_loss_pct": day_loss_pct,
             "day_loss_yen": day_loss_yen,
-            "max_positions": max_positions,
+            "max_positions": pos_limit,
         },
         "limits": {
-            "max_trades_per_day": max_trades,
+            "max_trades_per_day": trade_limit,
         },
         "time": {
             "session_start": session_start,
