@@ -1,6 +1,6 @@
 """
-[FILE] autotrade/services/universe_ranker.py
-[PATH] <project_root>/autotrade/services/universe_ranker.py
+[FILE] autotrade/services/universe/ranker.py
+[PATH] <project_root>/autotrade/services/universe/ranker.py
 
 このファイルは何？
 - 200候補を「日足メトリクス」でふるいにかけて、上位を返す部品です。
