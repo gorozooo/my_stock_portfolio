@@ -1,6 +1,6 @@
 """
 [FILE] autotrade/services/universe_service.py
-[PATH] <project_root>/autotrade/services/universe_service.py
+[PATH] <project_root>/autotrade/services/universe/service.py
 
 このファイルは何？
 - 「今日の対象銘柄（5〜10）」を最終決定するサービスです。
