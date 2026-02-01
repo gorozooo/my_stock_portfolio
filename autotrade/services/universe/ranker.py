@@ -13,9 +13,9 @@
 - 価格が極端 → 必要に応じて除外
 
 スコア
-- 流動性（売買代金）を最重要（50%）
-- ボラ（ATR%）を次点（35%）
-- 残りは朝指標で第2段で決める（ここでは未使用）
+- 流動性（売買代金）を最重要（60%）
+- ボラ（ATR%）を次点（40%）
+- 朝指標は第2段階で使用（ここでは未使用）
 
 初心者ポイント
 - ここで “事故りやすい銘柄” を徹底排除します。
@@ -24,21 +24,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
 
 import math
 
-from .universe_metrics import DailyMetrics
+# ★ 修正点：metrics.py に統一
+from .metrics import DailyMetrics
 
 
 @dataclass
 class RankConfig:
-    # フィルタ
-    min_avg_dv_yen: float = 300_000_000.0     # 3億円/日 目安（調整可）
-    min_price: float = 200.0                 # 200円未満は避ける（調整可）
-    max_price: float = 20_000.0              # 2万円超は避ける（調整可）
+    # フィルタ条件
+    min_avg_dv_yen: float = 300_000_000.0     # 3億円/日 目安
+    min_price: float = 200.0                 # 200円未満は避ける
+    max_price: float = 20_000.0              # 2万円超は避ける
     min_atr_pct: float = 0.008               # 0.8% 未満は動かなすぎ
-    max_atr_pct: float = 0.060               # 6% 超は荒すぎ（初期）
+    max_atr_pct: float = 0.060               # 6% 超は荒すぎ
+
     # スコア重み（この段階は日足のみ）
     w_liquidity: float = 0.60
     w_atr: float = 0.40
@@ -67,7 +69,7 @@ def filter_and_rank_daily(
 ):
     """
     戻り値：
-    - ranked: [{ticker, score, ...}] 上位 top_n
+    - ranked: [{ticker, score_daily, ...}] 上位 top_n
     - stats : フィルタ統計（何が何件落ちたか）
     """
     cfg = cfg or RankConfig()
@@ -121,12 +123,8 @@ def filter_and_rank_daily(
     atr_rank = _pct_rank(atrs)
 
     for i, r in enumerate(rows):
-        # dv は大きいほど良い
         s_liq = dv_rank.get(i, 0.0)
-        # atr は “大きいほど良い” ではないが、ここでは “動かなすぎ回避” と “荒すぎ回避” を済ませた後なので
-        # 大きいほど（ある程度）チャンスが出やすい、という意味で加点する
         s_atr = atr_rank.get(i, 0.0)
-
         r["score_daily"] = float(cfg.w_liquidity * s_liq + cfg.w_atr * s_atr)
 
     rows.sort(key=lambda x: x["score_daily"], reverse=True)
