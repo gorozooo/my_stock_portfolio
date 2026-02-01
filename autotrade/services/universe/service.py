@@ -1,5 +1,5 @@
 """
-[FILE] autotrade/services/universe_service.py
+[FILE] autotrade/services/universe/service.py
 [PATH] <project_root>/autotrade/services/universe/service.py
 
 このファイルは何？
