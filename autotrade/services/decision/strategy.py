@@ -78,8 +78,12 @@ def decide_strategy(
             "朝の値動きが小さめ、または往復が多めなので、"
             "行き過ぎからの戻りを狙う『VWAP押し目』が安定しやすいです。"
         )
-        # 往復が多いほどVWAP向き、値動きが小さいほどVWAP向き
-        confidence = min(1.0, 0.55 + max(0.0, (0.60 - range_pct / max(threshold, 1e-9)) * 0.20) + max(0.0, (chop_ratio - 0.55) * 0.30))
+        confidence = min(
+            1.0,
+            0.55
+            + max(0.0, (0.60 - range_pct / max(threshold, 1e-9)) * 0.20)
+            + max(0.0, (chop_ratio - 0.55) * 0.30)
+        )
 
     debug = {
         "range_pct": range_pct,
@@ -96,3 +100,25 @@ def decide_strategy(
         reason=reason,
         debug=debug,
     )
+
+
+def decide_strategy_for_state(state) -> StrategyDecision:
+    """
+    互換用：既存コード（stateを渡す）から呼べる入口。
+
+    方針：
+    - 朝の統計データが取れない場合は、事故を避けるため VWAP を選びやすくする。
+    - 実データの取り方は次フェーズで morning_data_service に正式接続する。
+    """
+
+    # 可能なら morning_data_service から取る（存在しなくても落ちない）
+    morning_stats: Dict[str, Any] = {}
+    try:
+        from autotrade.services.morning_data_service import get_morning_stats  # type: ignore
+        morning_stats = get_morning_stats(state=state) or {}
+    except Exception:
+        # まだ未実装/未接続なら空でOK（VWAP寄りになる）
+        morning_stats = {}
+
+    threshold = float(getattr(__import__("django.conf").conf.settings, "AUTOTRADE_STRATEGY_SWITCH_THRESHOLD", 0.012))
+    return decide_strategy(morning_stats=morning_stats, threshold=threshold)
