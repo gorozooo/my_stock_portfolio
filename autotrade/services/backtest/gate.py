@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 
 
 GATE_THRESHOLDS = {
@@ -30,7 +30,7 @@ GATE_THRESHOLDS = {
 }
 
 
-def _judge_single(metrics: Dict[str, Any]) -> (str, List[str]):
+def _judge_single(metrics: Dict[str, Any]) -> Tuple[str, List[str]]:
     dd = float(metrics.get("max_drawdown_pct") or 1.0)
     pf = float(metrics.get("profit_factor") or 0.0)
     trades = int(metrics.get("trades") or 0)
@@ -86,23 +86,27 @@ def judge_multi_window(metrics_by_window: Dict[int, Dict[str, Any]]) -> Dict[str
     }
 
 
-# =========================================================
-# 互換：旧 gate_service.gate_from_backtests の置き換え
-# =========================================================
-def gate_from_backtests(backtest: Dict[str, Any]) -> Dict[str, Any]:
+def gate_from_backtests(bt_by_window: Dict[int, Dict[str, Any]]) -> Tuple[str, str]:
     """
-    旧コード互換の入口。
+    旧 gate_service.gate_from_backtests の置き換え。
 
-    想定している backtest 形式（例）:
+    入力：
       {
-        "20": {"metrics": {...}},
-        "60": {"metrics": {...}},
-        "120": {"metrics": {...}}
+        20: {"metrics": {...}}  または {"max_drawdown_pct":..., ...}
+        60: {"metrics": {...}}
+        120:{...}
       }
+
+    戻り値：
+      (gate_level, reason_text)
     """
     metrics_by_window: Dict[int, Dict[str, Any]] = {}
     for w in (20, 60, 120):
-        m = ((backtest or {}).get(str(w)) or {}).get("metrics") or {}
-        metrics_by_window[w] = m
+        d = (bt_by_window or {}).get(int(w)) or {}
+        m = d.get("metrics") if isinstance(d, dict) else None
+        metrics_by_window[int(w)] = (m if isinstance(m, dict) else d) or {}
 
-    return judge_multi_window(metrics_by_window)
+    res = judge_multi_window(metrics_by_window)
+    gate_level = str(res.get("gate_level") or "STOP")
+    reason_text = "\n".join(res.get("reasons") or [])
+    return gate_level, reason_text
