@@ -1,6 +1,6 @@
 """
-[FILE] autotrade/services/universe_metrics.py
-[PATH] <project_root>/autotrade/services/universe_metrics.py
+[FILE] autotrade/services/universe/metrics.py
+[PATH] <project_root>/autotrade/services/universe/metrics.py
 
 このファイルは何？
 - 日足データから「流動性（売買代金）」と「ボラ（ATR%）」を計算する部品です。
