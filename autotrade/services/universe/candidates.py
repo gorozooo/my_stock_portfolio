@@ -1,6 +1,6 @@
 """
-[FILE] autotrade/services/universe_candidates_repo.py
-[PATH] <project_root>/autotrade/services/universe_candidates_repo.py
+[FILE] autotrade/services/universe/candidates.py
+[PATH] <project_root>/autotrade/services/universe/candidates.py
 
 このファイルは何？
 - 「銘柄候補リスト」を読み込むだけの責務（Repository）を持つファイルです。
