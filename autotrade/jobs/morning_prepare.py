@@ -10,7 +10,8 @@
   3) 20/60/120 のバックテストを “戦略ごと” に実行して保存する
 
 初心者ポイント：
-- まずは「動く土台」優先。銘柄選定は次フェーズで出来高/売買代金で強化します。
+- まずは「動く土台」優先。
+- 銘柄選定ロジック（出来高・売買代金・ボラ）は次フェーズで強化します。
 """
 
 from datetime import date
@@ -18,7 +19,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from autotrade.models import AutoTradeDailyState
-from autotrade.services.universe_service import build_daily_universe
+from autotrade.services.universe.service import build_daily_universe
 from autotrade.services.backtest.aggregate import run_backtests_for_universe
 
 
@@ -29,7 +30,7 @@ def run():
     # 1) 今日の銘柄（5〜10）を作る（現状：暫定ロジック）
     universe = build_daily_universe(limit=10)
 
-    # 2) バックテスト（戦略別× 20/60/120）
+    # 2) バックテスト（戦略別 × 20/60/120）
     bt = run_backtests_for_universe(
         picks=[x["ticker"] for x in universe.get("picks", [])],
         windows=settings.AUTOTRADE_BT_WINDOWS,
