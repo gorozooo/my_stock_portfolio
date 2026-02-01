@@ -4,20 +4,25 @@
 
 このファイルは何？
 - 日足データから「流動性（売買代金）」と「ボラ（ATR%）」を計算する部品です。
-- 200銘柄を扱うときの“第1関門”で、ここが速さと安定の中心になります。
+- universe 選定における“第1関門”で、速さと安定性をここで保証します。
+
+このファイルが保証すること（重要）
+- close / volume / high / low は「数値として計算できる状態」に正規化される
+- 数値にできない行は NaN として自然に除外される
+- 上流（ranker / service）は型や欠損を気にしなくてよい
 
 キャッシュの置き場所
 - media/autotrade/cache/daily_1d/<ticker>.csv
 
 初心者ポイント
-- 日足は1日1回しか変わらないので、キャッシュが効けばかなり速くなります。
+- データ取得元は信用せず、必ずここで“整形してから使う”のがコツです。
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Optional, Dict
+from typing import Optional
 
 import pandas as pd
 import yfinance as yf
@@ -30,7 +35,7 @@ class DailyMetrics:
     last_close: Optional[float] = None
 
     # 流動性（売買代金）
-    avg_dv_yen: Optional[float] = None  # average close*volume
+    avg_dv_yen: Optional[float] = None  # average(close * volume)
 
     # ボラ（ATR%）
     atr_pct: Optional[float] = None     # ATR / close
@@ -60,7 +65,7 @@ def _read_cache(path: str) -> pd.DataFrame:
         if df.empty:
             return df
         if "dt" in df.columns:
-            df["dt"] = pd.to_datetime(df["dt"])
+            df["dt"] = pd.to_datetime(df["dt"], errors="coerce")
             df = df.set_index("dt")
         return df
     except Exception:
@@ -81,18 +86,37 @@ def _write_cache(path: str, df: pd.DataFrame) -> None:
 
 def fetch_daily_1d(ticker: str, period: str = "180d", use_cache: bool = True) -> pd.DataFrame:
     path = _cache_path(ticker)
+
     if use_cache:
         cached = _read_cache(path)
         if not cached.empty:
             return cached
 
-    df = yf.download(ticker, interval="1d", period=period, auto_adjust=False, progress=False)
+    df = yf.download(
+        ticker,
+        interval="1d",
+        period=period,
+        auto_adjust=False,
+        progress=False,
+    )
+
     if df is None or df.empty:
         return pd.DataFrame()
 
     df = df.rename(columns={
-        "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"
-    }).dropna()
+        "Open": "open",
+        "High": "high",
+        "Low": "low",
+        "Close": "close",
+        "Volume": "volume",
+    })
+
+    # ★ 数値正規化（ここが最重要）
+    for col in ["open", "high", "low", "close", "volume"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.dropna(subset=["high", "low", "close", "volume"])
 
     _write_cache(path, df)
     return df
@@ -112,43 +136,59 @@ def _atr(df: pd.DataFrame, n: int = 14) -> pd.Series:
     return tr.rolling(n).mean()
 
 
-def compute_daily_metrics(ticker: str, lookback_days: int = 60, use_cache: bool = True) -> DailyMetrics:
+def compute_daily_metrics(
+    ticker: str,
+    lookback_days: int = 60,
+    use_cache: bool = True,
+) -> DailyMetrics:
     """
     直近 lookback_days から
-    - avg_dv_yen = mean(close*volume)
+    - avg_dv_yen = mean(close * volume)
     - atr_pct    = ATR14 / last_close
     """
     dm = DailyMetrics(ticker=ticker)
-    df = fetch_daily_1d(ticker, use_cache=use_cache)
 
+    df = fetch_daily_1d(ticker, use_cache=use_cache)
     if df is None or df.empty:
         dm.note = "no_data"
         return dm
 
-    if not all(x in df.columns for x in ["high", "low", "close", "volume"]):
+    required = ["high", "low", "close", "volume"]
+    if not all(c in df.columns for c in required):
         dm.note = "missing_cols"
         return dm
 
-    df = df.tail(max(lookback_days, 30)).copy()
+    df = df.tail(max(int(lookback_days), 30)).copy()
     if df.empty or len(df) < 20:
         dm.note = "too_short"
         return dm
 
-    last_close = float(df["close"].iloc[-1])
-    dm.last_close = last_close
+    last_close = df["close"].iloc[-1]
+    if pd.isna(last_close) or last_close <= 0:
+        dm.note = "invalid_close"
+        return dm
 
-    dv = (df["close"] * df["volume"]).astype(float)
+    dm.last_close = float(last_close)
+
+    # 売買代金（安全に計算）
+    dv = df["close"] * df["volume"]
+    dv = dv.dropna()
+    if dv.empty:
+        dm.note = "dv_na"
+        return dm
+
     dm.avg_dv_yen = float(dv.mean())
-
-    dm.avg_volume = float(df["volume"].astype(float).mean())
+    dm.avg_volume = float(df["volume"].dropna().mean())
 
     atr14 = _atr(df, n=14)
-    if atr14 is None or atr14.dropna().empty or last_close <= 0:
-        dm.atr_pct = None
+    if atr14 is None or atr14.dropna().empty:
         dm.note = "atr_na"
         return dm
 
-    atr_val = float(atr14.dropna().iloc[-1])
-    dm.atr_pct = float(atr_val / last_close) if last_close > 0 else None
+    atr_val = atr14.dropna().iloc[-1]
+    if pd.isna(atr_val) or atr_val <= 0:
+        dm.note = "atr_invalid"
+        return dm
 
+    dm.atr_pct = float(atr_val / dm.last_close)
     return dm
