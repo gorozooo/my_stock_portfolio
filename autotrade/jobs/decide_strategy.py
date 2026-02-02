@@ -29,12 +29,21 @@ def run():
     today = date.today()
     state, _ = AutoTradeDailyState.objects.get_or_create(date=today)
 
-    # 1) 戦略決定（※次フェーズで morning_data_service と正式接続して精度を上げる）
+    # 1) 戦略決定
     decision = decide_strategy_for_state(state)
     strategy = decision.strategy
 
     state.strategy = strategy
     state.strategy_decided_at = timezone.now()
+
+    # ★ 追加：戦略決定ログを保存（理由・confidence・debugまで）
+    state.strategy_decision = {
+        "strategy": decision.strategy,
+        "confidence": float(decision.confidence),
+        "reason": decision.reason,
+        "debug": decision.debug,
+        "created_at": timezone.now().isoformat(),
+    }
 
     # 2) その戦略のバックテスト結果でゲート判定
     # state.backtest は
