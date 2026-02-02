@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 
 @dataclass(frozen=True)
@@ -34,15 +34,15 @@ def decide_strategy(
     threshold: float = 0.012,
 ) -> StrategyDecision:
     """
-    9:30の戦略切替（実データ判定の入口）
+    9:30の戦略切替（実データ判定）
 
     引数:
       morning_stats:
         朝30分（9:00〜9:30）の統計をまとめた辞書を想定。
         例:
           {
-            "range_pct": 0.015,     # 値幅（%）
-            "trend_pct": 0.010,     # 始値→現在の方向（%）
+            "range_pct": 0.015,     # 値幅（1.5%）
+            "trend_pct": 0.010,     # 始値→終値の方向（+1.0% など）
             "chop_ratio": 0.60,     # 行ったり来たり度（0〜1、1ほど往復）
           }
 
@@ -55,43 +55,56 @@ def decide_strategy(
     """
 
     # ---- 安全に取り出す（無いキーがあっても落ちない） ----
-    range_pct = float(morning_stats.get("range_pct") or 0.0)
-    trend_pct = float(morning_stats.get("trend_pct") or 0.0)
-    chop_ratio = float(morning_stats.get("chop_ratio") or 0.0)
+    try:
+        range_pct = float(morning_stats.get("range_pct") or 0.0)
+    except Exception:
+        range_pct = 0.0
+
+    try:
+        trend_pct = float(morning_stats.get("trend_pct") or 0.0)
+    except Exception:
+        trend_pct = 0.0
+
+    try:
+        chop_ratio = float(morning_stats.get("chop_ratio") or 0.0)
+    except Exception:
+        chop_ratio = 0.0
 
     # ---- 判定思想（初心者向けに超シンプル） ----
     # ・朝の値動きが大きい → ブレイク（勢いに乗る）
     # ・朝の値動きが小さい / 往復が多い → VWAP（行き過ぎを戻す）
-    is_big_move = range_pct >= threshold
+    is_big_move = range_pct >= float(threshold)
     is_choppy = chop_ratio >= 0.55
 
+    # confidence は “目安” なので、落ちない設計を最優先にする
     if is_big_move and not is_choppy:
         strategy = "BREAKOUT"
         reason = (
-            "朝の値動きがしっかりあり、往復も少なめなので、"
+            "朝の値動きがしっかりあり、行ったり来たりも少なめなので、"
             "勢いに乗る『ブレイク』が向きやすいです。"
         )
-        confidence = min(1.0, 0.55 + (range_pct - threshold) / max(threshold, 1e-9) * 0.25)
+        # range_pct が threshold をどれだけ上回ったかで自信を少し上げる
+        bump = 0.0
+        if threshold > 0:
+            bump = (range_pct - threshold) / threshold
+        confidence = 0.60 + max(0.0, min(0.35, bump * 0.25))
     else:
         strategy = "VWAP"
         reason = (
-            "朝の値動きが小さめ、または往復が多めなので、"
+            "朝の値動きが小さめ、または行ったり来たりが多めなので、"
             "行き過ぎからの戻りを狙う『VWAP押し目』が安定しやすいです。"
         )
-        confidence = min(
-            1.0,
-            0.55
-            + max(0.0, (0.60 - range_pct / max(threshold, 1e-9)) * 0.20)
-            + max(0.0, (chop_ratio - 0.55) * 0.30)
-        )
+        # chop が高いほどVWAP寄りの自信が上がる
+        confidence = 0.60 + max(0.0, min(0.35, (chop_ratio - 0.55) * 0.50))
 
     debug = {
         "range_pct": range_pct,
         "trend_pct": trend_pct,
         "chop_ratio": chop_ratio,
-        "threshold": threshold,
-        "is_big_move": is_big_move,
-        "is_choppy": is_choppy,
+        "threshold": float(threshold),
+        "is_big_move": bool(is_big_move),
+        "is_choppy": bool(is_choppy),
+        "morning_stats_raw": morning_stats,
     }
 
     return StrategyDecision(
@@ -104,21 +117,20 @@ def decide_strategy(
 
 def decide_strategy_for_state(state) -> StrategyDecision:
     """
-    互換用：既存コード（stateを渡す）から呼べる入口。
+    state（AutoTradeDailyState）から朝統計を作って、戦略を決める入口。
 
-    方針：
-    - 朝の統計データが取れない場合は、事故を避けるため VWAP を選びやすくする。
-    - 実データの取り方は次フェーズで morning_data_service に正式接続する。
+    方針（事故防止）：
+    - 朝データが取れない場合は、無理にブレイクにしない（VWAP寄りになりやすい）
+    - 朝統計の作り方は morning_data_service に全部任せる（責務分離）
     """
+    from django.conf import settings
 
-    # 可能なら morning_data_service から取る（存在しなくても落ちない）
     morning_stats: Dict[str, Any] = {}
     try:
-        from autotrade.services.morning_data_service import get_morning_stats  # type: ignore
+        from autotrade.services.morning_data_service import get_morning_stats
         morning_stats = get_morning_stats(state=state) or {}
     except Exception:
-        # まだ未実装/未接続なら空でOK（VWAP寄りになる）
         morning_stats = {}
 
-    threshold = float(getattr(__import__("django.conf").conf.settings, "AUTOTRADE_STRATEGY_SWITCH_THRESHOLD", 0.012))
+    threshold = float(getattr(settings, "AUTOTRADE_STRATEGY_SWITCH_THRESHOLD", 0.012))
     return decide_strategy(morning_stats=morning_stats, threshold=threshold)
