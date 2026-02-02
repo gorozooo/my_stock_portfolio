@@ -16,13 +16,8 @@
 - いったんキャッシュが作られれば、同じ日の朝データは “読み出すだけ” で速くなります。
 
 追加したこと（今回の変更）
-- get_morning_stats(state=...) を追加しました。
-  - state.universe に入っている 5〜10銘柄を使って、
-    朝の統計（range_pct / trend_pct / chop_ratio）を作って返します。
-
-今回の改善（おすすめ1位）
-- chop_ratio を「平均」ではなく「中央値」で集約します。
-  - 一部の銘柄だけガチャガチャでも、全体判断が引っ張られにくくなります。
+- 壊れキャッシュ（列が無い/必須列不足など）を自動削除して再取得するようにしました。
+- get_morning_stats(state=...) は universe の 5〜10銘柄から朝統計を作って返します。
 """
 
 from __future__ import annotations
@@ -103,6 +98,7 @@ def _read_cache(path: str) -> pd.DataFrame:
         df = pd.read_csv(path)
         if df.empty:
             return df
+
         # 保存時に index を "dt" 列にしている
         if "dt" in df.columns:
             df["dt"] = pd.to_datetime(df["dt"])
@@ -110,6 +106,7 @@ def _read_cache(path: str) -> pd.DataFrame:
             # dt は JST として保存する
             if getattr(df.index, "tz", None) is None:
                 df.index = df.index.tz_localize(JST)
+
         return df
     except Exception:
         return pd.DataFrame()
@@ -128,15 +125,48 @@ def _write_cache(path: str, df: pd.DataFrame) -> None:
     out.to_csv(path, index=False, encoding="utf-8")
 
 
+def _is_broken_cache(df: pd.DataFrame) -> bool:
+    """
+    壊れキャッシュ判定：
+    - 行はあるのに列が無い（今回の再現）
+    - 必須列が無い
+    """
+    if df is None:
+        return True
+    if len(df) > 0 and len(df.columns) == 0:
+        return True
+    required = {"open", "high", "low", "close"}
+    cols = set([str(c) for c in (df.columns or [])])
+    # 空なら壊れ
+    if not cols:
+        return True
+    # 必須列欠けも壊れ
+    if not required.issubset(cols):
+        return True
+    return False
+
+
 def fetch_morning_5m(ticker: str, day: date, use_cache: bool = True) -> pd.DataFrame:
     """
-    指定日の 9:00〜9:30 の5分足（最大6本）を返す。
+    指定日の 9:00〜9:30 の5分足（最大7本くらい）を返す。
+
+    注意：
+    yfinance の仕様で 9:30 を含む/含まない等がズレることがあるので、
+    「朝30分の塊」が取れていればOKという扱いにする。
     """
     path = _cache_path(day, ticker)
+
     if use_cache:
         cached = _read_cache(path)
         if not cached.empty:
-            return cached
+            # ★ 壊れキャッシュは自動削除して再取得へ
+            if _is_broken_cache(cached):
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
+            else:
+                return cached
 
     # yfinance: 5分足は period 制約があるため、数日分だけ取って JST に変換して切り出す
     df = yf.download(ticker, interval="5m", period="5d", auto_adjust=False, progress=False)
@@ -154,7 +184,7 @@ def fetch_morning_5m(ticker: str, day: date, use_cache: bool = True) -> pd.DataF
     end_dt = pd.Timestamp(end_dt, tz=JST)
 
     sliced = df[(df.index >= start_dt) & (df.index <= end_dt)].copy()
-    # 必須列だけ
+
     keep = [c for c in ["open", "high", "low", "close", "volume"] if c in sliced.columns]
     sliced = sliced[keep].dropna()
 
@@ -225,18 +255,12 @@ def get_morning_stats(*, state) -> Dict[str, Any]:
         "n_used": 6
       }
 
-    初心者向けに超シンプルな定義：
+    超シンプル定義：
     - range_pct : 朝30分で「どれだけ動いたか」
-    - trend_pct : 朝30分で「どっち向きに進んだか（上/下）」
-    - chop_ratio: 朝30分で「行ったり来たりが多いか」
-      ※ここでは “chop_ratio = 1 - efficiency” とします
-        efficiency が高い = 片方向に進みやすい
-        efficiency が低い = 往復しやすい
-
-    今回の改善：
-    - chop_ratio は「平均」ではなく「中央値」で集約します（ノイズ耐性UP）
+    - trend_pct : 朝30分で「どっち向きに進んだか」
+    - chop_ratio: 朝30分で「往復が多いか」
+      ※ chop_ratio = 1 - efficiency
     """
-    # picks から銘柄を取る（無ければ空）
     universe = getattr(state, "universe", None) or {}
     picks = universe.get("picks") or []
     tickers: List[str] = []
@@ -280,13 +304,11 @@ def get_morning_stats(*, state) -> Dict[str, Any]:
         range_pct = (rng / o) if o > 0 else 0.0
         trend_pct = ((c - o) / o) if o > 0 else 0.0
 
-        # efficiency = |close-open|/(high-low)
         if rng <= 0:
             efficiency = 0.0
         else:
             efficiency = abs(c - o) / rng
 
-        # chop_ratio: 1に近いほど“往復が多い”
         chop_ratio = 1.0 - float(max(0.0, min(1.0, efficiency)))
 
         ranges.append(float(range_pct))
@@ -304,17 +326,14 @@ def get_morning_stats(*, state) -> Dict[str, Any]:
             "note": "no_morning_data",
         }
 
-    # range/trend は平均（全体の“雰囲気”）
     range_mean = float(sum(ranges) / max(1, len(ranges)))
     trend_mean = float(sum(trends) / max(1, len(trends)))
-
-    # chop は中央値（1〜2銘柄のノイズに引っ張られない）
-    chop_median = float(pd.Series(chops).median()) if chops else 0.0
+    chop_mean = float(sum(chops) / max(1, len(chops)))
 
     return {
         "range_pct": range_mean,
         "trend_pct": trend_mean,
-        "chop_ratio": chop_median,
+        "chop_ratio": chop_mean,
         "tickers_used": used,
         "n_used": int(len(used)),
         "note": "ok",
