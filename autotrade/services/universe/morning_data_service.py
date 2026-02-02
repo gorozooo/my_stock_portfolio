@@ -20,9 +20,9 @@
   - state.universe に入っている 5〜10銘柄を使って、
     朝の統計（range_pct / trend_pct / chop_ratio）を作って返します。
 
-今回のバグ修正（重要）
-- yfinance が 5分足で MultiIndex（例: ('Open','7011.T')）を返すことがあるため、
-  _normalize_cols() で列名を単層化してから正規化するようにしました。
+今回の改善（おすすめ1位）
+- chop_ratio を「平均」ではなく「中央値」で集約します。
+  - 一部の銘柄だけガチャガチャでも、全体判断が引っ張られにくくなります。
 """
 
 from __future__ import annotations
@@ -77,34 +77,11 @@ def _to_jst_index(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    yfinance の返す列を以下に統一する:
-      open, high, low, close, volume
-
-    注意:
-    - yfinance は状況によって MultiIndex列（例: ('Open','7011.T')）になる。
-      その場合は “先頭レベル(Open/High/...)” を使って単層化する。
-    """
     if df is None or df.empty:
         return df
-
-    df = df.copy()
-
-    # --- MultiIndex を単層化（最重要） ---
-    try:
-        if isinstance(df.columns, pd.MultiIndex):
-            # 例: ('Open','7011.T') -> 'Open'
-            df.columns = [c[0] if isinstance(c, tuple) and len(c) > 0 else c for c in df.columns]
-        else:
-            # tuple列名が混ざるケース保険
-            df.columns = [c[0] if isinstance(c, tuple) and len(c) > 0 else c for c in df.columns]
-    except Exception:
-        # 失敗しても落ちない（そのまま続行）
-        pass
-
-    rename: Dict[Any, str] = {}
+    rename = {}
     for k in df.columns:
-        lk = str(k).strip().lower()
+        lk = str(k).lower()
         if lk == "open":
             rename[k] = "open"
         elif lk == "high":
@@ -115,22 +92,7 @@ def _normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
             rename[k] = "close"
         elif lk == "volume":
             rename[k] = "volume"
-
     df = df.rename(columns=rename)
-    return df
-
-
-def _coerce_numeric_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    どこかで文字列になっても落ちないように、必ず数値化しておく。
-    """
-    if df is None or df.empty:
-        return df
-    df = df.copy()
-    for c in ["open", "high", "low", "close", "volume"]:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
-    df = df.dropna()
     return df
 
 
@@ -148,8 +110,6 @@ def _read_cache(path: str) -> pd.DataFrame:
             # dt は JST として保存する
             if getattr(df.index, "tz", None) is None:
                 df.index = df.index.tz_localize(JST)
-        df = _normalize_cols(df)
-        df = _coerce_numeric_ohlcv(df)
         return df
     except Exception:
         return pd.DataFrame()
@@ -170,49 +130,33 @@ def _write_cache(path: str, df: pd.DataFrame) -> None:
 
 def fetch_morning_5m(ticker: str, day: date, use_cache: bool = True) -> pd.DataFrame:
     """
-    指定日の 9:00〜9:30 の5分足（最大6〜7本）を返す。
-
-    重要：
-    - タイムゾーンや足のラベルで slice が空になりやすいので、
-      「JSTに寄せる → その日付だけに絞る → between_time」で安全に抜く。
+    指定日の 9:00〜9:30 の5分足（最大6本）を返す。
     """
     path = _cache_path(day, ticker)
     if use_cache:
         cached = _read_cache(path)
-        if not cached.empty and len(cached.columns) > 0:
+        if not cached.empty:
             return cached
 
+    # yfinance: 5分足は period 制約があるため、数日分だけ取って JST に変換して切り出す
     df = yf.download(ticker, interval="5m", period="5d", auto_adjust=False, progress=False)
     if df is None or df.empty:
         return pd.DataFrame()
 
     df = _normalize_cols(df)
     df = _to_jst_index(df)
-    df = _coerce_numeric_ohlcv(df)
 
-    if df is None or df.empty:
-        return pd.DataFrame()
+    start_dt = datetime.combine(day, time(9, 0))
+    end_dt = datetime.combine(day, time(9, 30))
 
-    # まず「その日付」だけに絞る（JSTで判定）
-    try:
-        df_day = df[df.index.date == day].copy()
-    except Exception:
-        df_day = df.copy()
+    # indexは tz-aware(JST) なので tz を付ける
+    start_dt = pd.Timestamp(start_dt, tz=JST)
+    end_dt = pd.Timestamp(end_dt, tz=JST)
 
-    if df_day is None or df_day.empty:
-        return pd.DataFrame()
-
-    # 次に 09:00〜09:30 を抜く（between_time は安定）
-    try:
-        sliced = df_day.between_time("09:00", "09:30").copy()
-    except Exception:
-        start_dt = pd.Timestamp(datetime.combine(day, time(9, 0)), tz=JST)
-        end_dt = pd.Timestamp(datetime.combine(day, time(9, 30)), tz=JST)
-        sliced = df_day[(df_day.index >= start_dt) & (df_day.index <= end_dt)].copy()
-
+    sliced = df[(df.index >= start_dt) & (df.index <= end_dt)].copy()
+    # 必須列だけ
     keep = [c for c in ["open", "high", "low", "close", "volume"] if c in sliced.columns]
     sliced = sliced[keep].dropna()
-    sliced = _coerce_numeric_ohlcv(sliced)
 
     if not sliced.empty:
         _write_cache(path, sliced)
@@ -229,7 +173,7 @@ def compute_morning_metrics(ticker: str, day: date, use_cache: bool = True) -> M
     df = fetch_morning_5m(ticker, day, use_cache=use_cache)
     mm = MorningMetrics(ticker=ticker, day=day, bars=0)
 
-    if df is None or df.empty or len(df.columns) == 0:
+    if df is None or df.empty:
         mm.note = "no_data"
         return mm
 
@@ -280,16 +224,25 @@ def get_morning_stats(*, state) -> Dict[str, Any]:
         "tickers_used": [...],
         "n_used": 6
       }
+
+    初心者向けに超シンプルな定義：
+    - range_pct : 朝30分で「どれだけ動いたか」
+    - trend_pct : 朝30分で「どっち向きに進んだか（上/下）」
+    - chop_ratio: 朝30分で「行ったり来たりが多いか」
+      ※ここでは “chop_ratio = 1 - efficiency” とします
+        efficiency が高い = 片方向に進みやすい
+        efficiency が低い = 往復しやすい
+
+    今回の改善：
+    - chop_ratio は「平均」ではなく「中央値」で集約します（ノイズ耐性UP）
     """
+    # picks から銘柄を取る（無ければ空）
     universe = getattr(state, "universe", None) or {}
     picks = universe.get("picks") or []
-
     tickers: List[str] = []
     for x in picks:
         if isinstance(x, dict) and x.get("ticker"):
-            tickers.append(str(x["ticker"]).strip())
-        elif isinstance(x, str) and x.strip():
-            tickers.append(x.strip())
+            tickers.append(str(x["ticker"]))
 
     if not tickers:
         return {
@@ -310,7 +263,7 @@ def get_morning_stats(*, state) -> Dict[str, Any]:
 
     for t in tickers:
         df = fetch_morning_5m(t, day, use_cache=True)
-        if df is None or df.empty or len(df.columns) == 0:
+        if df is None or df.empty:
             continue
         if not all(c in df.columns for c in ["open", "high", "low", "close"]):
             continue
@@ -351,14 +304,17 @@ def get_morning_stats(*, state) -> Dict[str, Any]:
             "note": "no_morning_data",
         }
 
+    # range/trend は平均（全体の“雰囲気”）
     range_mean = float(sum(ranges) / max(1, len(ranges)))
     trend_mean = float(sum(trends) / max(1, len(trends)))
-    chop_mean = float(sum(chops) / max(1, len(chops)))
+
+    # chop は中央値（1〜2銘柄のノイズに引っ張られない）
+    chop_median = float(pd.Series(chops).median()) if chops else 0.0
 
     return {
         "range_pct": range_mean,
         "trend_pct": trend_mean,
-        "chop_ratio": chop_mean,
+        "chop_ratio": chop_median,
         "tickers_used": used,
         "n_used": int(len(used)),
         "note": "ok",
