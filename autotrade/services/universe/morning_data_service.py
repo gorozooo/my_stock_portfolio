@@ -1,6 +1,6 @@
 """
-[FILE] autotrade/services/morning_data_service.py
-[PATH] <project_root>/autotrade/services/morning_data_service.py
+[FILE] autotrade/services/universe/morning_data_service.py
+[PATH] <project_root>/autotrade/services/universe/morning_data_service.py
 
 このファイルは何？
 - 「朝30分（9:00〜9:30）の5分足」を取得してキャッシュし、
