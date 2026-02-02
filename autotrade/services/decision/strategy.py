@@ -1,16 +1,3 @@
-"""
-[FILE] autotrade/services/decision/strategy.py
-[PATH] <project_root>/autotrade/services/decision/strategy.py
-
-このファイルは何？
-- 9:30 に「今日の戦略」を決めるロジックです。
-- job（時間の入口）から呼ばれる“中身”で、job本体は薄く保ちます。
-
-初心者ポイント：
-- 「難しい判定」を jobs から隔離して、あとで見返しても混乱しないようにしています。
-- ここは“判断だけ”をやります（保存や画面は触りません）。
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -171,18 +158,30 @@ def decide_strategy_for_state(state) -> StrategyDecision:
     """
     state（AutoTradeDailyState）から朝統計を作って、戦略を決める入口。
 
-    方針（事故防止）：
-    - 朝データが取れない場合は、無理にブレイクにしない（VWAP寄りになりやすい）
-    - 朝統計の作り方は morning_data_service に全部任せる（責務分離）
+    方針（再現性ファースト）：
+    - state.morning_stats がある場合は、それを「正」として使う（9:30で固定）
+    - 無い場合だけ morning_data_service で計算する（互換用）
     """
     from django.conf import settings
 
+    # 1) まず「固定保存された朝統計」を優先
     morning_stats: Dict[str, Any] = {}
     try:
-        from autotrade.services.universe.morning_data_service import get_morning_stats
-        morning_stats = get_morning_stats(state=state) or {}
+        ms = getattr(state, "morning_stats", None)
+        if isinstance(ms, dict) and ms:
+            morning_stats = ms
+        else:
+            morning_stats = {}
     except Exception:
         morning_stats = {}
+
+    # 2) 無ければ計算（互換）
+    if not morning_stats:
+        try:
+            from autotrade.services.universe.morning_data_service import get_morning_stats
+            morning_stats = get_morning_stats(state=state) or {}
+        except Exception:
+            morning_stats = {}
 
     threshold = float(getattr(settings, "AUTOTRADE_STRATEGY_SWITCH_THRESHOLD", 0.012))
 
