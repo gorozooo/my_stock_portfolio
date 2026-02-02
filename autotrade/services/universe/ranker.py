@@ -3,20 +3,21 @@
 [PATH] <project_root>/autotrade/services/universe/ranker.py
 
 このファイルは何？
-- 候補（最大200）を「日足メトリクス」でふるいにかけて、上位だけを返す部品です。
-- “なぜこの銘柄が上位なのか” を説明できるように、スコアを分解して返します。
+- 候補（最大200）を「日足メトリクス」でふるいにかけて、上位を返す部品です。
+- ここでは 5分足は使いません（重いので）。まず日足だけで“事故りやすい銘柄”を落とします。
 
-ここで使う日足メトリクス（初心者向け）
-- 売買代金（円/日）: 大きいほど「注文が通りやすい」
-- ATR%（1日の動き）: 小さすぎ→動かない / 大きすぎ→荒い → “ちょうど良い”が最強
+初心者向けの判断軸（この段階で見るのは2つだけ）
+1) 売買代金（avg_dv_yen）
+   - 大きいほど「約定しやすい」＝安全
+2) ATR%（atr_pct）
+   - 小さすぎ → 動かない（チャンス少）
+   - 大きすぎ → 荒すぎ（事故りやすい）
+   - つまり “ちょうど良いゾーン” を高得点にする
 
-このファイルのゴール（超重要）
-- 上位銘柄の行に「why（理由の文章）」を載せる
-  → 画面にそのまま出せる（＝説明可能）
-
-戻り値の形（service.pyが期待する形を壊さない）
-- ranked: [{ticker, price, avg_dv_yen, atr_pct, score_daily, ...}] 上位 top_n
-- stats : フィルタ統計（何が何件落ちたか）
+このファイルのポイント
+- 「なぜこの銘柄が上なのか」を説明できるように
+  各銘柄に why（理由の箇条書き）を付けます。
+- UI側は why をそのまま表示すればOK。
 """
 
 from __future__ import annotations
@@ -29,99 +30,101 @@ import math
 from .metrics import DailyMetrics
 
 
+# =====================
+# 設定（フィルタ＆重み）
+# =====================
 @dataclass
 class RankConfig:
-    # --- フィルタ（安全のための足切り） ---
-    min_avg_dv_yen: float = 300_000_000.0  # 3億円/日 目安（調整可）
-    min_price: float = 200.0              # 200円未満は避ける（調整可）
-    max_price: float = 20_000.0           # 2万円超は避ける（調整可）
-    min_atr_pct: float = 0.008            # 0.8% 未満は動かなすぎ
-    max_atr_pct: float = 0.060            # 6% 超は荒すぎ（初期）
+    # フィルタ（落とす基準）
+    min_avg_dv_yen: float = 300_000_000.0     # 平均売買代金：3億円/日 目安
+    min_price: float = 200.0                 # 200円未満は避ける
+    max_price: float = 20_000.0              # 2万円超は避ける
+    min_atr_pct: float = 0.008               # 0.8%未満は動かなすぎ
+    max_atr_pct: float = 0.060               # 6%超は荒すぎ
 
-    # --- スコア重み（この段階は日足のみ） ---
-    # 流動性（売買代金）を重視しつつ、ATR%は「ちょうど良さ」を評価する
-    w_liquidity: float = 0.60
-    w_atr: float = 0.40
+    # スコア重み（日足のみ）
+    w_liquidity: float = 0.60                # 流動性（約定しやすさ）
+    w_atr: float = 0.40                      # ATRの“ちょうど良さ”
 
-    # ATR%の「理想の中心位置」
-    # 例：min=0.8% max=6.0% なら中間(約3.4%)あたりが “ちょうど良い”
-    atr_ideal_center_ratio: float = 0.50  # 0.0=下限寄り, 1.0=上限寄り（基本は0.5）
+    # ATRの“理想中心”を min〜max のどこに置くか（0.0〜1.0）
+    # 例：0.50なら真ん中、0.35なら少し穏やか寄り
+    atr_ideal_center_ratio: float = 0.50
 
 
-def _pct_rank(values: List[float]) -> Dict[int, float]:
+# =====================
+# 表示補助（初心者向け）
+# =====================
+def _yen_short(x: float) -> str:
     """
-    値の順位を 0〜1 に正規化（単純ランク）
-    - 0.0 が最小、1.0 が最大
+    例：
+    1200000000 -> "12.0億円"
+    350000000  -> "3.5億円"
     """
-    xs = [(i, v) for i, v in enumerate(values)]
-    xs.sort(key=lambda x: x[1])
-    n = len(xs)
+    if x is None or not math.isfinite(float(x)):
+        return "-"
+    x = float(x)
+    oku = x / 100_000_000.0
+    if oku >= 1.0:
+        return f"{oku:.1f}億円"
+    man = x / 10_000.0
+    if man >= 1.0:
+        return f"{man:.0f}万円"
+    return f"{x:.0f}円"
+
+
+def _pct(x: float) -> str:
+    if x is None or not math.isfinite(float(x)):
+        return "-"
+    return f"{float(x) * 100:.2f}%"
+
+
+# =====================
+# スコア用ユーティリティ
+# =====================
+def _rank_0_1(values: List[float]) -> List[float]:
+    """
+    値を 0〜1 に正規化（単純ランク）
+    - 小さいほど0、大きいほど1
+    """
+    n = len(values)
     if n <= 1:
-        return {xs[0][0]: 1.0} if n == 1 else {}
-    out = {}
-    for r, (i, _v) in enumerate(xs):
+        return [1.0] * n
+    idx = list(range(n))
+    idx.sort(key=lambda i: values[i])
+    out = [0.0] * n
+    for r, i in enumerate(idx):
         out[i] = r / (n - 1)
     return out
 
 
-def _clip01(x: float) -> float:
-    if x < 0.0:
-        return 0.0
-    if x > 1.0:
-        return 1.0
-    return x
-
-
-def _fmt_yen_dv(dv_yen: float) -> str:
+def _atr_ideal_score(atr: float, cfg: RankConfig) -> float:
     """
-    売買代金を初心者向けに見やすく（億円/日）
-    """
-    if dv_yen is None or not math.isfinite(dv_yen):
-        return "不明"
-    oku = dv_yen / 100_000_000.0
-    return f"{oku:.1f}億円/日"
+    ATR%を「ちょうど良いほど高得点」にする。
 
-
-def _fmt_price(yen: float) -> str:
-    if yen is None or not math.isfinite(yen):
-        return "不明"
-    return f"{yen:,.0f}円"
-
-
-def _fmt_pct(x: float) -> str:
-    if x is None or not math.isfinite(x):
-        return "不明"
-    return f"{(x * 100.0):.2f}%"
-
-
-def _atr_preference_score(atr_pct: float, cfg: RankConfig) -> float:
-    """
-    ATR%は「大きいほど良い」ではなく「ちょうど良い」を評価する。
-
-    仕組み（初心者向け）
-    - 下限(min)〜上限(max)の間に “理想の中心” を置く
-    - 中心に近いほどスコアが高い
-    - 端（min付近 / max付近）に寄るほどスコアが下がる
+    - min〜max の範囲内にいることは filter で保証済み
+    - その上で “理想中心” に近いほど良い（山型）
     """
     lo = float(cfg.min_atr_pct)
     hi = float(cfg.max_atr_pct)
     if hi <= lo:
         return 0.0
 
-    # 理想中心（min〜maxの間）
     center = lo + (hi - lo) * float(cfg.atr_ideal_center_ratio)
-
-    # 距離を 0〜1 に
     half = (hi - lo) / 2.0
-    if half <= 0:
-        return 0.0
 
-    d = abs(float(atr_pct) - center) / half  # centerなら0、端なら1程度
-    s = 1.0 - d
-    return _clip01(s)
+    # center からの距離（0が理想）
+    dist = abs(float(atr) - center)
+
+    # 距離が half を超えると0点、中心で1点
+    score = 1.0 - (dist / max(half, 1e-9))
+    return float(max(0.0, min(1.0, score)))
 
 
+# =====================
+# メイン：フィルタ＆ランキング
+# =====================
 def filter_and_rank_daily(
+    *,
     candidates: List[str],
     metrics_map: Dict[str, DailyMetrics],
     cfg: Optional[RankConfig] = None,
@@ -134,7 +137,6 @@ def filter_and_rank_daily(
     """
     cfg = cfg or RankConfig()
 
-    rows: List[dict] = []
     stats = {
         "no_data": 0,
         "dv_low": 0,
@@ -143,10 +145,17 @@ def filter_and_rank_daily(
         "ok": 0,
     }
 
-    # 1) フィルタ（事故りやすいものを落とす）
+    rows: List[dict] = []
+
+    # 1) まずフィルタで落とす（事故りやすいのはここで除外）
     for t in candidates:
         m = metrics_map.get(t)
-        if not m or m.last_close is None or m.avg_dv_yen is None or m.atr_pct is None:
+        if not m:
+            stats["no_data"] += 1
+            continue
+
+        # 必須
+        if m.last_close is None or m.avg_dv_yen is None or m.atr_pct is None:
             stats["no_data"] += 1
             continue
 
@@ -154,75 +163,67 @@ def filter_and_rank_daily(
         dv = float(m.avg_dv_yen)
         atr = float(m.atr_pct)
 
-        if dv < cfg.min_avg_dv_yen:
+        # 売買代金が薄い → 約定しづらい
+        if dv < float(cfg.min_avg_dv_yen):
             stats["dv_low"] += 1
             continue
 
-        if price < cfg.min_price or price > cfg.max_price:
+        # 値段が極端 → 取り扱いが難しくなりやすい
+        if price < float(cfg.min_price) or price > float(cfg.max_price):
             stats["price_out"] += 1
             continue
 
-        if atr < cfg.min_atr_pct or atr > cfg.max_atr_pct:
+        # ATR%がゾーン外 → 動かなすぎ or 荒すぎ
+        if atr < float(cfg.min_atr_pct) or atr > float(cfg.max_atr_pct):
             stats["atr_out"] += 1
             continue
 
+        stats["ok"] += 1
         rows.append({
             "ticker": t,
             "price": price,
             "avg_dv_yen": dv,
             "atr_pct": atr,
         })
-        stats["ok"] += 1
 
     if not rows:
         return [], stats
 
-    # 2) スコア材料（正規化）
+    # 2) スコア化（分解して作る）
     dvs = [r["avg_dv_yen"] for r in rows]
-    dv_rank = _pct_rank(dvs)  # 大きいほど良い（0..1）
+    dv_rank = _rank_0_1(dvs)  # 売買代金：大きいほど良い
 
-    # 3) スコア計算（説明可能な内訳にする）
     for i, r in enumerate(rows):
-        dv = float(r["avg_dv_yen"])
-        atr = float(r["atr_pct"])
+        # スコア要素①：流動性（約定しやすさ）
+        score_liq = float(dv_rank[i])
 
-        score_liquidity = float(dv_rank.get(i, 0.0))  # 0..1
-        score_atr = float(_atr_preference_score(atr, cfg))  # 0..1（ちょうど良さ）
+        # スコア要素②：ATRの“ちょうど良さ”
+        score_atr = float(_atr_ideal_score(float(r["atr_pct"]), cfg))
 
-        score_daily = float(cfg.w_liquidity * score_liquidity + cfg.w_atr * score_atr)
+        # 合成（日足スコア）
+        score_daily = float(cfg.w_liquidity * score_liq + cfg.w_atr * score_atr)
 
-        # --- 初心者向けの理由（why）を作る ---
+        # 3) 理由（why）を作る：UIにそのまま出せる日本語
         why: List[str] = []
 
-        # 売買代金（流動性）
-        if score_liquidity >= 0.80:
-            why.append(f"売買代金が大きく、注文が通りやすい（{_fmt_yen_dv(dv)}）")
-        elif score_liquidity >= 0.55:
-            why.append(f"売買代金は十分（{_fmt_yen_dv(dv)}）")
-        else:
-            why.append(f"売買代金は最低条件はクリア（{_fmt_yen_dv(dv)}）")
+        # 売買代金の説明
+        dv_yen = float(r["avg_dv_yen"])
+        why.append(f"売買代金が十分（約定しやすい）：平均 {_yen_short(dv_yen)}/日")
 
-        # ATR%（動き）
-        # 「高い/低い」ではなく「ちょうど良い/端に寄ってる」を説明
-        atr_lo = float(cfg.min_atr_pct)
-        atr_hi = float(cfg.max_atr_pct)
-        center = atr_lo + (atr_hi - atr_lo) * float(cfg.atr_ideal_center_ratio)
+        # ATR%の説明（専門語を避ける）
+        atr_pct = float(r["atr_pct"])
+        why.append(f"値動きが適度（動くけど荒すぎない）：ATR {_pct(atr_pct)}")
 
-        if abs(atr - center) <= (atr_hi - atr_lo) * 0.12:
-            why.append(f"動きがちょうど良い（ATR%={_fmt_pct(atr)}）")
-        elif atr < center:
-            why.append(f"動きはやや小さめ（ATR%={_fmt_pct(atr)}）→ 速く伸びにくいかも")
-        else:
-            why.append(f"動きはやや大きめ（ATR%={_fmt_pct(atr)}）→ 荒くなる可能性")
+        # スコアの見える化（内部値だけど初心者にも見せてOK）
+        # ※ UIで小さく出す用
+        why.append(f"内訳：流動性 {score_liq:.2f} / 動きやすさ {score_atr:.2f}")
 
-        # 価格帯（初心者向けの安心材料）
-        why.append(f"価格帯={_fmt_price(r['price'])}")
-
-        r["score_liquidity"] = score_liquidity
+        r["score_liquidity"] = score_liq
         r["score_atr"] = score_atr
         r["score_daily"] = score_daily
         r["why"] = why
 
+    # 4) 並べ替え → 上位
     rows.sort(key=lambda x: x["score_daily"], reverse=True)
     ranked = rows[:max(1, int(top_n))]
 
