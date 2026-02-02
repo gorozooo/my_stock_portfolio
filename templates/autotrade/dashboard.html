@@ -17,12 +17,16 @@
       <div class="autotrade-title">iPhone 1画面ダッシュボード</div>
     </div>
 
-    {% if state.gate_level == "FULL" %}
-      <div class="autotrade-badge is-ok">🟢 フル稼働</div>
-    {% elif state.gate_level == "LIGHT" %}
-      <div class="autotrade-badge is-warn">🟡 軽稼働</div>
+    {% if state.emergency_stop %}
+      <div class="autotrade-badge is-bad">🛑 非常停止</div>
     {% else %}
-      <div class="autotrade-badge is-bad">🔴 停止</div>
+      {% if state.gate_level == "FULL" %}
+        <div class="autotrade-badge is-ok">🟢 フル稼働</div>
+      {% elif state.gate_level == "LIGHT" %}
+        <div class="autotrade-badge is-warn">🟡 軽稼働</div>
+      {% else %}
+        <div class="autotrade-badge is-bad">🔴 停止</div>
+      {% endif %}
     {% endif %}
   </div>
 
@@ -123,10 +127,23 @@
     <!-- Emergency Stop -->
     <section class="autotrade-card">
       <div class="autotrade-h autotrade-mb8">非常停止</div>
-      <button class="autotrade-btn-stop" id="btnStop" disabled>（実装予定）非常停止（ワンタップ）</button>
-      <div class="autotrade-muted autotrade-mt6">
-        ※次フェーズで「停止フラグ」をDBに保存し、ジョブ側が参照して止まるようにします
-      </div>
+
+      {% if state.emergency_stop %}
+        <button class="autotrade-btn-stop" id="btnStop" disabled>🛑 非常停止中</button>
+        <div class="autotrade-muted autotrade-mt6">
+          停止時刻: {{ state.emergency_stopped_at|date:"Y-m-d H:i:s" }} /
+          理由: {{ state.emergency_stop_reason|default:"-" }}
+        </div>
+      {% else %}
+        <button
+          class="autotrade-btn-stop"
+          id="btnStop"
+          data-url="{% url 'autotrade:api_emergency_stop' %}"
+        >非常停止（ワンタップ）</button>
+        <div class="autotrade-muted autotrade-mt6">
+          ※押すと即停止フラグを保存します（ジョブ側は次で参照して止めます）
+        </div>
+      {% endif %}
     </section>
 
   </div>
