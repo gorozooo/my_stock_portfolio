@@ -28,38 +28,26 @@ class AutoTradeDailyState(models.Model):
     strategy_decided_at = models.DateTimeField(null=True, blank=True)
 
     # ★ 追加：朝30分の統計（9:30時点で固定保存して再現性を担保）
-    # 例:
-    # {
-    #   "range_pct": 0.0195,
-    #   "trend_pct": 0.0080,
-    #   "chop_ratio": 0.55,
-    #   "tickers_used": ["7011.T", ...],
-    #   "n_used": 10,
-    #   "note": "ok"
-    # }
     morning_stats = models.JSONField(default=dict, blank=True)
 
     # ★ 追加：戦略決定のログ（理由・confidence・debug まで保存）
-    # 例:
-    # {
-    #   "strategy":"BREAKOUT",
-    #   "confidence":0.78,
-    #   "reason":"朝の値動きは大きく...",
-    #   "debug":{...},
-    #   "created_at":"2026-02-02T09:30:00+09:00"
-    # }
     strategy_decision = models.JSONField(default=dict, blank=True)
 
     # 今日の銘柄（5〜10）や理由（表示用）
-    # 例: {"picks":[{"ticker":"7203.T","reason":"出来高が多い"}]}
     universe = models.JSONField(default=dict, blank=True)
 
     # バックテスト結果（strategy別、window別）
-    # 例: {"BREAKOUT":{"20":{...},"60":{...},"120":{...}}}
     backtest = models.JSONField(default=dict, blank=True)
 
     # 今日のルール要約（リスク、回数、時間など）
     rules = models.JSONField(default=dict, blank=True)
+
+    # =========================================================
+    # ★ 追加：非常停止（ワンタップ停止）
+    # =========================================================
+    emergency_stop = models.BooleanField(default=False)
+    emergency_stop_reason = models.CharField(max_length=200, blank=True, default="")
+    emergency_stopped_at = models.DateTimeField(null=True, blank=True)
 
     updated_at = models.DateTimeField(default=timezone.now)
 
@@ -173,13 +161,6 @@ class AutoTradeBacktestRun(models.Model):
     period_set = models.CharField(max_length=20)
 
     # 結果サマリー
-    # 必須キー：
-    # - total_pnl_yen
-    # - win_rate_pct
-    # - ev_per_trade_yen
-    # - pf
-    # - max_dd_pct
-    # - trades
     result_summary = models.JSONField()
 
     # 🟢 / 🟡 / 🔴
