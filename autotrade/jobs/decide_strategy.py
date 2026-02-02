@@ -1,20 +1,3 @@
-"""
-[FILE] autotrade/jobs/decide_strategy.py
-[PATH] <project_root>/autotrade/jobs/decide_strategy.py
-
-このファイルは何？
-- 9:30 に動く「戦略決定＆ゲート確定ジョブ」です。
-
-役割（jobsの責務はこれだけにする）：
-  1) 今日の戦略（BREAKOUT or VWAP）を決める（decision/strategy.py）
-  2) その戦略のバックテスト結果から、3段階ゲート（FULL/LIGHT/STOP）を決める（backtest/gate.py）
-  3) その日の運用ルール（同時ポジ、最大回数など）を確定して保存する（decision/rules.py）
-
-初心者ポイント：
-- job は「時間で動く入口」だけ。
-- 中身（判断ロジック）は services に寄せて、後で見返しても迷子にならないようにします。
-"""
-
 from datetime import date
 from django.conf import settings
 from django.utils import timezone
@@ -29,7 +12,22 @@ def run():
     today = date.today()
     state, _ = AutoTradeDailyState.objects.get_or_create(date=today)
 
-    # 1) 戦略決定
+    # 0) 朝統計を 9:30 時点で固定保存（再現性の要）
+    # ここで state.morning_stats が埋まるので、その後の戦略決定はブレない
+    try:
+        from autotrade.services.universe.morning_data_service import get_morning_stats
+        state.morning_stats = get_morning_stats(state=state) or {}
+    except Exception:
+        state.morning_stats = {
+            "range_pct": 0.0,
+            "trend_pct": 0.0,
+            "chop_ratio": 0.0,
+            "tickers_used": [],
+            "n_used": 0,
+            "note": "error",
+        }
+
+    # 1) 戦略決定（state.morning_stats があればそれを優先して使う）
     decision = decide_strategy_for_state(state)
     strategy = decision.strategy
 
