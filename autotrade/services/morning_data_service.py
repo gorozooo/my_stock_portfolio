@@ -14,14 +14,19 @@
 
 初心者ポイント
 - いったんキャッシュが作られれば、同じ日の朝データは “読み出すだけ” で速くなります。
+
+追加したこと（今回の変更）
+- get_morning_stats(state=...) を追加しました。
+  - state.universe に入っている 5〜10銘柄を使って、
+    朝の統計（range_pct / trend_pct / chop_ratio）を作って返します。
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
-from typing import Optional, Tuple
+from datetime import date, datetime, time
+from typing import Optional, Dict, Any, List
 
 import pandas as pd
 import yfinance as yf
@@ -192,3 +197,116 @@ def compute_morning_metrics(ticker: str, day: date, use_cache: bool = True) -> M
         mm.efficiency = float(abs(c - o) / rng)
 
     return mm
+
+
+def _safe_float(x: Any, default: float = 0.0) -> float:
+    try:
+        if x is None:
+            return float(default)
+        return float(x)
+    except Exception:
+        return float(default)
+
+
+def get_morning_stats(*, state) -> Dict[str, Any]:
+    """
+    state（AutoTradeDailyState）から「朝30分の統計」を作って返す。
+
+    返す値（decide_strategy が期待する形）
+      {
+        "range_pct": 0.015,     # 値幅（1.5%）
+        "trend_pct": 0.010,     # 始値→終値の方向（+1.0% など）
+        "chop_ratio": 0.60,     # 行ったり来たり度（0〜1、1ほど往復）
+        "tickers_used": [...],
+        "n_used": 6
+      }
+
+    初心者向けに超シンプルな定義：
+    - range_pct : 朝30分で「どれだけ動いたか」
+    - trend_pct : 朝30分で「どっち向きに進んだか（上/下）」
+    - chop_ratio: 朝30分で「行ったり来たりが多いか」
+      ※ここでは “chop_ratio = 1 - efficiency” とします
+        efficiency が高い = 片方向に進みやすい
+        efficiency が低い = 往復しやすい
+    """
+    # picks から銘柄を取る（無ければ空）
+    universe = getattr(state, "universe", None) or {}
+    picks = universe.get("picks") or []
+    tickers: List[str] = []
+    for x in picks:
+        if isinstance(x, dict) and x.get("ticker"):
+            tickers.append(str(x["ticker"]))
+
+    if not tickers:
+        return {
+            "range_pct": 0.0,
+            "trend_pct": 0.0,
+            "chop_ratio": 0.0,
+            "tickers_used": [],
+            "n_used": 0,
+            "note": "no_picks",
+        }
+
+    day = getattr(state, "date", None) or date.today()
+
+    ranges: List[float] = []
+    trends: List[float] = []
+    chops: List[float] = []
+    used: List[str] = []
+
+    for t in tickers:
+        df = fetch_morning_5m(t, day, use_cache=True)
+        if df is None or df.empty:
+            continue
+        if not all(c in df.columns for c in ["open", "high", "low", "close"]):
+            continue
+
+        o = _safe_float(df["open"].iloc[0], default=0.0)
+        if o <= 0:
+            continue
+
+        h = _safe_float(df["high"].max(), default=o)
+        l = _safe_float(df["low"].min(), default=o)
+        c = _safe_float(df["close"].iloc[-1], default=o)
+
+        rng = max(h - l, 0.0)
+        range_pct = (rng / o) if o > 0 else 0.0
+        trend_pct = ((c - o) / o) if o > 0 else 0.0
+
+        # efficiency = |close-open|/(high-low)
+        if rng <= 0:
+            efficiency = 0.0
+        else:
+            efficiency = abs(c - o) / rng
+
+        # chop_ratio: 1に近いほど“往復が多い”
+        chop_ratio = 1.0 - float(max(0.0, min(1.0, efficiency)))
+
+        ranges.append(float(range_pct))
+        trends.append(float(trend_pct))
+        chops.append(float(chop_ratio))
+        used.append(t)
+
+    if not used:
+        return {
+            "range_pct": 0.0,
+            "trend_pct": 0.0,
+            "chop_ratio": 0.0,
+            "tickers_used": [],
+            "n_used": 0,
+            "note": "no_morning_data",
+        }
+
+    # 集約は「平均」でまず安定させる（必要なら中央値に変更可能）
+    range_mean = float(sum(ranges) / max(1, len(ranges)))
+    trend_mean = float(sum(trends) / max(1, len(trends)))
+    chop_mean = float(sum(chops) / max(1, len(chops)))
+
+    return {
+        "range_pct": range_mean,
+        "trend_pct": trend_mean,
+        "chop_ratio": chop_mean,
+        "tickers_used": used,
+        "n_used": int(len(used)),
+        "note": "ok",
+    }
