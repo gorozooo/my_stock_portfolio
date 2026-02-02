@@ -52,6 +52,17 @@ class AutoTradeDailyState(models.Model):
     strategy = models.CharField(max_length=20, blank=True, default="")
     strategy_decided_at = models.DateTimeField(null=True, blank=True)
 
+    # ★ 追加：戦略決定のログ（理由・confidence・debug まで保存）
+    # 例:
+    # {
+    #   "strategy":"BREAKOUT",
+    #   "confidence":0.78,
+    #   "reason":"朝の値動きは大きく...",
+    #   "debug":{...},
+    #   "created_at":"2026-02-02T09:30:00+09:00"
+    # }
+    strategy_decision = models.JSONField(default=dict, blank=True)
+
     # 今日の銘柄（5〜10）や理由（表示用）
     # 例: {"picks":[{"ticker":"7203.T","reason":"出来高が多い"}]}
     universe = models.JSONField(default=dict, blank=True)
