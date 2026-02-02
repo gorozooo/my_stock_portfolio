@@ -18,6 +18,7 @@
 追加したこと（今回の変更）
 - 壊れキャッシュ（列が無い/必須列不足など）を自動削除して再取得するようにしました。
 - get_morning_stats(state=...) は universe の 5〜10銘柄から朝統計を作って返します。
+- 集約方式（mean/median/wmean）を settings で切り替えできるようにしました（デフォ median）。
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import date, datetime, time
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
 import pandas as pd
 import yfinance as yf
@@ -140,7 +141,7 @@ def _is_broken_cache(df: pd.DataFrame) -> bool:
 
     required = {"open", "high", "low", "close"}
 
-    # ★ Pandas Index の truthiness 問題を避けて、必ず list 化する
+    # Pandas Index の truthiness 問題を避けて、必ず list 化する
     cols_list = list(df.columns)
     cols = set(str(c) for c in cols_list)
 
@@ -162,7 +163,7 @@ def fetch_morning_5m(ticker: str, day: date, use_cache: bool = True) -> pd.DataF
     if use_cache:
         cached = _read_cache(path)
         if not cached.empty:
-            # ★ 壊れキャッシュは自動削除して再取得へ
+            # 壊れキャッシュは自動削除して再取得へ
             if _is_broken_cache(cached):
                 try:
                     os.remove(path)
@@ -201,7 +202,7 @@ def compute_morning_metrics(ticker: str, day: date, use_cache: bool = True) -> M
     """
     朝30分の指標
     - range_pct  : (high-low)/open
-    - efficiency : |close-open|/(high-low)
+    - efficiency : |close-open|k/(high-low)
     """
     df = fetch_morning_5m(ticker, day, use_cache=use_cache)
     mm = MorningMetrics(ticker=ticker, day=day, bars=0)
@@ -245,9 +246,66 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
         return float(default)
 
 
+def _median(xs: List[float]) -> float:
+    if not xs:
+        return 0.0
+    ys = sorted(float(x) for x in xs)
+    n = len(ys)
+    m = n // 2
+    if n % 2 == 1:
+        return float(ys[m])
+    return float((ys[m - 1] + ys[m]) / 2.0)
+
+
+def _weighted_mean(xs: List[float], ws: List[float]) -> float:
+    if not xs or not ws or len(xs) != len(ws):
+        return 0.0
+    # 0以下の重みは弾く
+    pairs = [(float(x), float(w)) for x, w in zip(xs, ws) if float(w) > 0]
+    if not pairs:
+        return 0.0
+    s_w = sum(w for _, w in pairs)
+    if s_w <= 0:
+        return 0.0
+    return float(sum(x * w for x, w in pairs) / s_w)
+
+
+def _pick_weights_from_universe(universe: Dict[str, Any], tickers: List[str]) -> List[float]:
+    """
+    universe.picks から avg_dv_yen を拾って重みにする（無ければ 1.0）
+    """
+    picks = universe.get("picks") or []
+    dv_map: Dict[str, float] = {}
+    for p in picks:
+        if not isinstance(p, dict):
+            continue
+        t = p.get("ticker")
+        if not t:
+            continue
+        dv = p.get("avg_dv_yen")
+        try:
+            dv_map[str(t)] = float(dv) if dv is not None else 1.0
+        except Exception:
+            dv_map[str(t)] = 1.0
+
+    ws: List[float] = []
+    for t in tickers:
+        w = dv_map.get(str(t), 1.0)
+        try:
+            w = float(w)
+        except Exception:
+            w = 1.0
+        # 極端な値でも壊れないように下限だけ置く
+        ws.append(max(1.0, w))
+    return ws
+
+
 def get_morning_stats(*, state) -> Dict[str, Any]:
     """
     state（AutoTradeDailyState）から「朝30分の統計」を作って返す。
+
+    集約方式（settingsで切替）:
+      AUTOTRADE_MORNING_AGG = "median" (default) / "mean" / "wmean"
     """
     universe = getattr(state, "universe", None) or {}
     picks = universe.get("picks") or []
@@ -292,17 +350,19 @@ def get_morning_stats(*, state) -> Dict[str, Any]:
         range_pct = (rng / o) if o > 0 else 0.0
         trend_pct = ((c - o) / o) if o > 0 else 0.0
 
+        # efficiency = |close-open|/(high-low)
         if rng <= 0:
             efficiency = 0.0
         else:
             efficiency = abs(c - o) / rng
 
+        # chop_ratio: 1に近いほど“往復が多い”
         chop_ratio = 1.0 - float(max(0.0, min(1.0, efficiency)))
 
         ranges.append(float(range_pct))
         trends.append(float(trend_pct))
         chops.append(float(chop_ratio))
-        used.append(t)
+        used.append(str(t))
 
     if not used:
         return {
@@ -314,15 +374,33 @@ def get_morning_stats(*, state) -> Dict[str, Any]:
             "note": "no_morning_data",
         }
 
-    range_mean = float(sum(ranges) / max(1, len(ranges)))
-    trend_mean = float(sum(trends) / max(1, len(trends)))
-    chop_mean = float(sum(chops) / max(1, len(chops)))
+    agg = str(getattr(settings, "AUTOTRADE_MORNING_AGG", "median") or "median").lower().strip()
+
+    if agg == "mean":
+        range_val = float(sum(ranges) / max(1, len(ranges)))
+        trend_val = float(sum(trends) / max(1, len(trends)))
+        chop_val = float(sum(chops) / max(1, len(chops)))
+        note = "ok_mean"
+
+    elif agg == "wmean":
+        ws = _pick_weights_from_universe(universe, used)
+        range_val = _weighted_mean(ranges, ws)
+        trend_val = _weighted_mean(trends, ws)
+        chop_val = _weighted_mean(chops, ws)
+        note = "ok_wmean"
+
+    else:
+        # default: median（外れ値に強い）
+        range_val = _median(ranges)
+        trend_val = _median(trends)
+        chop_val = _median(chops)
+        note = "ok_median"
 
     return {
-        "range_pct": range_mean,
-        "trend_pct": trend_mean,
-        "chop_ratio": chop_mean,
+        "range_pct": float(range_val),
+        "trend_pct": float(trend_val),
+        "chop_ratio": float(chop_val),
         "tickers_used": used,
         "n_used": int(len(used)),
-        "note": "ok",
+        "note": note,
     }
