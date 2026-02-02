@@ -127,7 +127,7 @@ def decide_strategy_for_state(state) -> StrategyDecision:
 
     morning_stats: Dict[str, Any] = {}
     try:
-        from autotrade.services.morning_data_service import get_morning_stats
+        from autotrade.services.universe.morning_data_service import get_morning_stats
         morning_stats = get_morning_stats(state=state) or {}
     except Exception:
         morning_stats = {}
