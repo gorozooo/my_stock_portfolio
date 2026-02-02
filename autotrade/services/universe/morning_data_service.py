@@ -133,26 +133,29 @@ def _is_broken_cache(df: pd.DataFrame) -> bool:
     """
     if df is None:
         return True
+
+    # 「行はあるのに列が0」は壊れ
     if len(df) > 0 and len(df.columns) == 0:
         return True
+
     required = {"open", "high", "low", "close"}
-    cols = set([str(c) for c in (df.columns or [])])
-    # 空なら壊れ
-    if not cols:
+
+    # ★ Pandas Index の truthiness 問題を避けて、必ず list 化する
+    cols_list = list(df.columns)
+    cols = set(str(c) for c in cols_list)
+
+    if len(cols) == 0:
         return True
-    # 必須列欠けも壊れ
+
     if not required.issubset(cols):
         return True
+
     return False
 
 
 def fetch_morning_5m(ticker: str, day: date, use_cache: bool = True) -> pd.DataFrame:
     """
     指定日の 9:00〜9:30 の5分足（最大7本くらい）を返す。
-
-    注意：
-    yfinance の仕様で 9:30 を含む/含まない等がズレることがあるので、
-    「朝30分の塊」が取れていればOKという扱いにする。
     """
     path = _cache_path(day, ticker)
 
@@ -245,21 +248,6 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
 def get_morning_stats(*, state) -> Dict[str, Any]:
     """
     state（AutoTradeDailyState）から「朝30分の統計」を作って返す。
-
-    返す値（decide_strategy が期待する形）
-      {
-        "range_pct": 0.015,     # 値幅（1.5%）
-        "trend_pct": 0.010,     # 始値→終値の方向（+1.0% など）
-        "chop_ratio": 0.60,     # 行ったり来たり度（0〜1、1ほど往復）
-        "tickers_used": [...],
-        "n_used": 6
-      }
-
-    超シンプル定義：
-    - range_pct : 朝30分で「どれだけ動いたか」
-    - trend_pct : 朝30分で「どっち向きに進んだか」
-    - chop_ratio: 朝30分で「往復が多いか」
-      ※ chop_ratio = 1 - efficiency
     """
     universe = getattr(state, "universe", None) or {}
     picks = universe.get("picks") or []
