@@ -92,6 +92,20 @@ def _normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _coerce_numeric_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    どこかで文字列になっても落ちないように、必ず数値化しておく。
+    """
+    if df is None or df.empty:
+        return df
+    df = df.copy()
+    for c in ["open", "high", "low", "close", "volume"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+    df = df.dropna()
+    return df
+
+
 def _read_cache(path: str) -> pd.DataFrame:
     if not os.path.exists(path):
         return pd.DataFrame()
@@ -106,6 +120,8 @@ def _read_cache(path: str) -> pd.DataFrame:
             # dt は JST として保存する
             if getattr(df.index, "tz", None) is None:
                 df.index = df.index.tz_localize(JST)
+        df = _normalize_cols(df)
+        df = _coerce_numeric_ohlcv(df)
         return df
     except Exception:
         return pd.DataFrame()
@@ -127,6 +143,10 @@ def _write_cache(path: str, df: pd.DataFrame) -> None:
 def fetch_morning_5m(ticker: str, day: date, use_cache: bool = True) -> pd.DataFrame:
     """
     指定日の 9:00〜9:30 の5分足（最大6本）を返す。
+
+    重要：
+    - タイムゾーンや足のラベルで slice が空になりやすいので、
+      「JSTに寄せる → その日付だけに絞る → between_time」で安全に抜く。
     """
     path = _cache_path(day, ticker)
     if use_cache:
@@ -141,18 +161,32 @@ def fetch_morning_5m(ticker: str, day: date, use_cache: bool = True) -> pd.DataF
 
     df = _normalize_cols(df)
     df = _to_jst_index(df)
+    df = _coerce_numeric_ohlcv(df)
 
-    start_dt = datetime.combine(day, time(9, 0))
-    end_dt = datetime.combine(day, time(9, 30))
+    if df is None or df.empty:
+        return pd.DataFrame()
 
-    # indexは tz-aware(JST) なので tz を付ける
-    start_dt = pd.Timestamp(start_dt, tz=JST)
-    end_dt = pd.Timestamp(end_dt, tz=JST)
+    # まず「その日付」だけに絞る（JSTで判定）
+    try:
+        df_day = df[df.index.date == day].copy()
+    except Exception:
+        df_day = df.copy()
 
-    sliced = df[(df.index >= start_dt) & (df.index <= end_dt)].copy()
-    # 必須列だけ
+    if df_day is None or df_day.empty:
+        return pd.DataFrame()
+
+    # 次に 09:00〜09:30 を抜く（between_time は安定）
+    try:
+        sliced = df_day.between_time("09:00", "09:30").copy()
+    except Exception:
+        # between_time が使えない形式なら、最後の手段で従来式
+        start_dt = pd.Timestamp(datetime.combine(day, time(9, 0)), tz=JST)
+        end_dt = pd.Timestamp(datetime.combine(day, time(9, 30)), tz=JST)
+        sliced = df_day[(df_day.index >= start_dt) & (df_day.index <= end_dt)].copy()
+
     keep = [c for c in ["open", "high", "low", "close", "volume"] if c in sliced.columns]
     sliced = sliced[keep].dropna()
+    sliced = _coerce_numeric_ohlcv(sliced)
 
     if not sliced.empty:
         _write_cache(path, sliced)
@@ -220,23 +254,18 @@ def get_morning_stats(*, state) -> Dict[str, Any]:
         "tickers_used": [...],
         "n_used": 6
       }
-
-    初心者向けに超シンプルな定義：
-    - range_pct : 朝30分で「どれだけ動いたか」
-    - trend_pct : 朝30分で「どっち向きに進んだか（上/下）」
-    - chop_ratio: 朝30分で「行ったり来たりが多いか」
-      ※ここでは “chop_ratio = 1 - efficiency” とします
-        efficiency が高い = 片方向に進みやすい
-        efficiency が低い = 往復しやすい
     """
-    # picks から銘柄を取る（無ければ空）
     universe = getattr(state, "universe", None) or {}
     picks = universe.get("picks") or []
+
     tickers: List[str] = []
     for x in picks:
         if isinstance(x, dict) and x.get("ticker"):
-            tickers.append(str(x["ticker"]))
+            tickers.append(str(x["ticker"]).strip())
+        elif isinstance(x, str) and x.strip():
+            tickers.append(x.strip())
 
+    # 0件なら “picksが無い” 扱い（ここは設計通り）
     if not tickers:
         return {
             "range_pct": 0.0,
@@ -297,7 +326,6 @@ def get_morning_stats(*, state) -> Dict[str, Any]:
             "note": "no_morning_data",
         }
 
-    # 集約は「平均」でまず安定させる（必要なら中央値に変更可能）
     range_mean = float(sum(ranges) / max(1, len(ranges)))
     trend_mean = float(sum(trends) / max(1, len(trends)))
     chop_mean = float(sum(chops) / max(1, len(chops)))
