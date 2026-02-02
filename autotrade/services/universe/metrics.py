@@ -3,8 +3,8 @@
 [PATH] <project_root>/autotrade/services/universe/metrics.py
 
 このファイルは何？
-- 日足データから「流動性（売買代金）」と「ボラ（ATR%）」を計算する部品です。
-- 200銘柄を扱うときの“第1関門”で、ここが速さと安定の中心になります。
+- 日足データから「流動性（売買代金・出来高）」と「動き（ATR）」を計算する部品です。
+- universe 選定の第1関門で、200銘柄を高速・安定に“ふるい”にかけるのが役目です。
 
 このファイルが保証すること（重要）
 - close / volume / high / low は「数値として計算できる状態」に正規化される
@@ -14,8 +14,10 @@
 キャッシュの置き場所
 - media/autotrade/cache/daily_1d/<ticker>.csv
 
-初心者ポイント
-- 取得元は信用せず、必ずここで“整形してから使う”のがコツです。
+初心者ポイント（このファイルの読み方）
+- 「出来高」＝取引された株数（少ないと約定しにくい）
+- 「売買代金」＝取引されたお金の量（多いほど注文が通りやすい）
+- 「ATR」＝日々の値動きの大きさ（小さすぎると動かない／大きすぎると荒い）
 """
 
 from __future__ import annotations
@@ -34,15 +36,30 @@ class DailyMetrics:
     ticker: str
     last_close: Optional[float] = None
 
-    # 流動性（売買代金）
-    avg_dv_yen: Optional[float] = None  # average(close * volume)
+    # --- 流動性（注文の通りやすさ） ---
+    avg_volume: Optional[float] = None      # 平均出来高（株数）
+    avg_dv_yen: Optional[float] = None      # 平均売買代金（円） = mean(close * volume)
 
-    # ボラ（ATR%）
-    atr_pct: Optional[float] = None     # ATR / close
+    # --- 動き（値動きの大きさ） ---
+    atr_yen: Optional[float] = None         # ATR（円）
+    atr_pct: Optional[float] = None         # ATR / close（割合）
 
-    # 参考
-    avg_volume: Optional[float] = None
+    # 備考（no_data / atr_na など）
     note: str = ""
+
+    def to_debug_dict(self) -> dict:
+        """
+        画面表示やログに使いやすい形にする（※この段階ではUIは作らない）
+        """
+        return {
+            "ticker": self.ticker,
+            "last_close": self.last_close,
+            "avg_volume": self.avg_volume,
+            "avg_dv_yen": self.avg_dv_yen,
+            "atr_yen": self.atr_yen,
+            "atr_pct": self.atr_pct,
+            "note": self.note,
+        }
 
 
 def _cache_dir() -> str:
@@ -92,7 +109,6 @@ def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
 
-    # 列名の揺れに対応（念のため）
     df = df.rename(columns={
         "Open": "open",
         "High": "high",
@@ -105,17 +121,14 @@ def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # 必須列が揃わない場合は空にする（上流で no_data 扱い）
     required = ["high", "low", "close", "volume"]
     if not all(c in df.columns for c in required):
         return pd.DataFrame()
 
-    # 数値化できなかった行は落とす
     df = df.dropna(subset=required)
 
     # volume が 0 や負値は意味がないので落とす（保険）
-    if "volume" in df.columns:
-        df = df[df["volume"] > 0]
+    df = df[df["volume"] > 0]
 
     return df
 
@@ -123,14 +136,12 @@ def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
 def fetch_daily_1d(ticker: str, period: str = "180d", use_cache: bool = True) -> pd.DataFrame:
     path = _cache_path(ticker)
 
-    # 1) キャッシュ
     if use_cache:
         cached = _read_cache(path)
         cached = _normalize_ohlcv(cached)
         if not cached.empty:
             return cached
 
-    # 2) 取得（yfinance）
     df = yf.download(
         ticker,
         interval="1d",
@@ -168,13 +179,14 @@ def compute_daily_metrics(
 ) -> DailyMetrics:
     """
     直近 lookback_days から
+    - avg_volume = mean(volume)
     - avg_dv_yen = mean(close * volume)
-    - atr_pct    = ATR14 / last_close
+    - atr_yen    = ATR14（円）
+    - atr_pct    = ATR14 / last_close（割合）
     """
     dm = DailyMetrics(ticker=ticker)
 
     df = fetch_daily_1d(ticker, use_cache=use_cache)
-
     if df is None or df.empty:
         dm.note = "no_data"
         return dm
@@ -196,17 +208,18 @@ def compute_daily_metrics(
 
     dm.last_close = last_close
 
-    # 売買代金（安全に計算）
+    # 出来高（株数）
+    vol = df["volume"].dropna()
+    dm.avg_volume = float(vol.mean()) if not vol.empty else None
+
+    # 売買代金（円）
     dv = (df["close"] * df["volume"]).dropna()
     if dv.empty:
         dm.note = "dv_na"
         return dm
-
     dm.avg_dv_yen = float(dv.mean())
 
-    vol = df["volume"].dropna()
-    dm.avg_volume = float(vol.mean()) if not vol.empty else None
-
+    # ATR（円・割合）
     atr14 = _atr(df, n=14)
     if atr14 is None or atr14.dropna().empty:
         dm.note = "atr_na"
@@ -217,5 +230,7 @@ def compute_daily_metrics(
         dm.note = "atr_invalid"
         return dm
 
+    dm.atr_yen = float(atr_val)
     dm.atr_pct = float(float(atr_val) / last_close)
+
     return dm
