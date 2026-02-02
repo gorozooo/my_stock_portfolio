@@ -32,6 +32,9 @@ def decide_strategy(
     *,
     morning_stats: Dict[str, Any],
     threshold: float = 0.012,
+    chop_low: float = 0.50,
+    chop_high: float = 0.65,
+    trend_min_abs: float = 0.004,
 ) -> StrategyDecision:
     """
     9:30の戦略切替（実データ判定）
@@ -47,62 +50,111 @@ def decide_strategy(
           }
 
       threshold:
-        “値動きが大きい”と判断する閾値（%ではなく小数）
+        “値動きが大きい”と判断する閾値（小数）
         例 0.012 = 1.2%
 
-    返り値:
-      StrategyDecision
+      chop_low / chop_high:
+        往復度(chop_ratio)の「グレーゾーン」を作るための境界
+        - chop_ratio <= chop_low  : 往復が少ない（トレンド寄り）
+        - chop_low < ... < chop_high : グレー（どっちとも言える）
+        - chop_ratio >= chop_high : 往復が多い（VWAP寄り）
+
+      trend_min_abs:
+        グレーゾーンの時に「方向感がある」と言える最低ライン
+        例 0.004 = 0.4%
     """
 
     # ---- 安全に取り出す（無いキーがあっても落ちない） ----
-    try:
-        range_pct = float(morning_stats.get("range_pct") or 0.0)
-    except Exception:
-        range_pct = 0.0
+    def _safe_float(x: Any, default: float = 0.0) -> float:
+        try:
+            if x is None:
+                return float(default)
+            return float(x)
+        except Exception:
+            return float(default)
 
-    try:
-        trend_pct = float(morning_stats.get("trend_pct") or 0.0)
-    except Exception:
-        trend_pct = 0.0
+    range_pct = _safe_float(morning_stats.get("range_pct"), 0.0)
+    trend_pct = _safe_float(morning_stats.get("trend_pct"), 0.0)
+    chop_ratio = _safe_float(morning_stats.get("chop_ratio"), 0.0)
 
-    try:
-        chop_ratio = float(morning_stats.get("chop_ratio") or 0.0)
-    except Exception:
-        chop_ratio = 0.0
+    threshold = float(threshold)
+    chop_low = float(chop_low)
+    chop_high = float(chop_high)
+    trend_min_abs = float(trend_min_abs)
 
-    # ---- 判定思想（初心者向けに超シンプル） ----
-    # ・朝の値動きが大きい → ブレイク（勢いに乗る）
-    # ・朝の値動きが小さい / 往復が多い → VWAP（行き過ぎを戻す）
-    is_big_move = range_pct >= float(threshold)
-    is_choppy = chop_ratio >= 0.55
+    # ---- 判定の土台 ----
+    # ・朝の値動きが大きい → ブレイク候補
+    # ・ただし往復が多いなら危ないのでVWAP寄り
+    is_big_move = range_pct >= threshold
 
-    # confidence は “目安” なので、落ちない設計を最優先にする
-    if is_big_move and not is_choppy:
+    # 往復度のゾーン分け
+    is_trendy = chop_ratio <= chop_low
+    is_choppy = chop_ratio >= chop_high
+    is_gray = (not is_trendy) and (not is_choppy)  # ちょうど中間
+
+    # ---- 結論 ----
+    # 1) 値動きが大きい + 往復が少ない → BREAKOUT
+    # 2) 値動きが大きい + グレー → 方向感(trend_pct)で決める
+    # 3) それ以外（値動き小さい or 往復多い） → VWAP
+    if is_big_move and is_trendy:
         strategy = "BREAKOUT"
         reason = (
             "朝の値動きがしっかりあり、行ったり来たりも少なめなので、"
             "勢いに乗る『ブレイク』が向きやすいです。"
         )
-        # range_pct が threshold をどれだけ上回ったかで自信を少し上げる
+
+        # range_pct が threshold をどれだけ上回ったかで自信を上げる（上げすぎない）
         bump = 0.0
         if threshold > 0:
             bump = (range_pct - threshold) / threshold
-        confidence = 0.60 + max(0.0, min(0.35, bump * 0.25))
+        confidence = 0.62 + max(0.0, min(0.35, bump * 0.22))
+
+    elif is_big_move and is_gray:
+        # グレーの日は「方向感」があるならブレイク、なければVWAP
+        has_trend = abs(trend_pct) >= trend_min_abs
+
+        if has_trend:
+            strategy = "BREAKOUT"
+            reason = (
+                "朝の値動きは大きく、行ったり来たりは中くらいですが、"
+                "方向感も出ているため『ブレイク』で取りやすい状況です。"
+            )
+            # グレーなので自信は控えめスタート
+            # trend が強いほど少し上げる
+            t = min(1.0, abs(trend_pct) / max(trend_min_abs, 1e-9))
+            confidence = 0.58 + min(0.25, t * 0.18) + min(0.10, (range_pct / max(threshold, 1e-9) - 1.0) * 0.05)
+        else:
+            strategy = "VWAP"
+            reason = (
+                "朝の値動きは大きいですが、行ったり来たりも混ざっていて"
+                "方向感が弱いので、行き過ぎからの戻りを狙う『VWAP押し目』が安定しやすいです。"
+            )
+            # グレーVWAPはやや低め
+            confidence = 0.58 + min(0.20, (chop_ratio - chop_low) / max((chop_high - chop_low), 1e-9) * 0.20)
+
     else:
+        # 値動きが小さい or 往復が多い → VWAP
         strategy = "VWAP"
         reason = (
             "朝の値動きが小さめ、または行ったり来たりが多めなので、"
             "行き過ぎからの戻りを狙う『VWAP押し目』が安定しやすいです。"
         )
-        # chop が高いほどVWAP寄りの自信が上がる
-        confidence = 0.60 + max(0.0, min(0.35, (chop_ratio - 0.55) * 0.50))
+        # chopが高いほどVWAP寄りの自信が上がる
+        # big_move じゃないなら控えめ
+        base = 0.60 if not is_big_move else 0.58
+        confidence = base + max(0.0, min(0.35, (chop_ratio - 0.55) * 0.50))
 
     debug = {
-        "range_pct": range_pct,
-        "trend_pct": trend_pct,
-        "chop_ratio": chop_ratio,
+        "range_pct": float(range_pct),
+        "trend_pct": float(trend_pct),
+        "chop_ratio": float(chop_ratio),
         "threshold": float(threshold),
+        "chop_low": float(chop_low),
+        "chop_high": float(chop_high),
+        "trend_min_abs": float(trend_min_abs),
         "is_big_move": bool(is_big_move),
+        "is_trendy": bool(is_trendy),
+        "is_gray": bool(is_gray),
         "is_choppy": bool(is_choppy),
         "morning_stats_raw": morning_stats,
     }
@@ -133,4 +185,16 @@ def decide_strategy_for_state(state) -> StrategyDecision:
         morning_stats = {}
 
     threshold = float(getattr(settings, "AUTOTRADE_STRATEGY_SWITCH_THRESHOLD", 0.012))
-    return decide_strategy(morning_stats=morning_stats, threshold=threshold)
+
+    # グレーゾーン境界（設定があれば上書きできるようにする）
+    chop_low = float(getattr(settings, "AUTOTRADE_CHOP_LOW", 0.50))
+    chop_high = float(getattr(settings, "AUTOTRADE_CHOP_HIGH", 0.65))
+    trend_min_abs = float(getattr(settings, "AUTOTRADE_TREND_MIN_ABS", 0.004))
+
+    return decide_strategy(
+        morning_stats=morning_stats,
+        threshold=threshold,
+        chop_low=chop_low,
+        chop_high=chop_high,
+        trend_min_abs=trend_min_abs,
+    )
