@@ -1,28 +1,3 @@
-"""
-[FILE] autotrade/models.py
-[PATH] <project_root>/autotrade/models.py
-
-このファイルは何？
-- デイトレ自動売買に関する「状態・設定・検証結果」をDBで管理するモデル群です。
-- 役割ごとにモデルを分けており、後から機能が増えても破綻しない構造になっています。
-
-モデル一覧（役割）：
-1. AutoTradeDailyState
-   - iPhone 1画面ダッシュボード用
-   - 「今日どうなっているか」を1日1レコードで保持
-
-2. AutoTradeTuningProfile
-   - 調整用の作業台
-   - 画面で数値をいじると、まずここに保存される（下書き）
-
-3. AutoTradeSettingSnapshot
-   - 設定の固定版（再現性の要）
-   - バックテストや本番は必ずこのスナップショットを使う
-
-4. AutoTradeBacktestRun
-   - 「どの設定で、どんな結果だったか」を保存する履歴
-"""
-
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
@@ -51,6 +26,18 @@ class AutoTradeDailyState(models.Model):
     # 今日の戦略：BREAKOUT / VWAP
     strategy = models.CharField(max_length=20, blank=True, default="")
     strategy_decided_at = models.DateTimeField(null=True, blank=True)
+
+    # ★ 追加：朝30分の統計（9:30時点で固定保存して再現性を担保）
+    # 例:
+    # {
+    #   "range_pct": 0.0195,
+    #   "trend_pct": 0.0080,
+    #   "chop_ratio": 0.55,
+    #   "tickers_used": ["7011.T", ...],
+    #   "n_used": 10,
+    #   "note": "ok"
+    # }
+    morning_stats = models.JSONField(default=dict, blank=True)
 
     # ★ 追加：戦略決定のログ（理由・confidence・debug まで保存）
     # 例:
