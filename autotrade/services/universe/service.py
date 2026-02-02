@@ -26,7 +26,7 @@ from typing import Dict, List
 
 from django.conf import settings
 
-from .universe_candidates_repo import load_candidates
+from .candidates import load_candidates
 from .metrics import compute_daily_metrics, DailyMetrics
 from .ranker import filter_and_rank_daily, RankConfig
 from .morning_data_service import compute_morning_metrics
