@@ -1,4 +1,4 @@
-// static/autotrade/js/dashboard.js?v=1
+// static/autotrade/dashboard.js?v=1
 
 (() => {
   const btn = document.getElementById("btnStop");
