@@ -1,3 +1,21 @@
+"""
+[FILE] autotrade/jobs/decide_strategy.py
+[PATH] <project_root>/autotrade/jobs/decide_strategy.py
+
+このファイルは何？
+- 9:30 に動く「戦略決定＆ゲート確定ジョブ」です（時間で動く入口）。
+
+役割（jobsの責務はこれだけ）：
+  1) 朝統計を 9:30 時点で固定保存（再現性の要）
+  2) 今日の戦略（BREAKOUT / VWAP）を決めて保存（decision/strategy.py）
+  3) バックテスト結果から 3段階ゲート（FULL/LIGHT/STOP）を決めて保存（backtest/gate.py）
+  4) その日の運用ルールを確定して保存（decision/rules.py）
+
+初心者ポイント：
+- job は「時間で動く入口」だけ。
+- 判断ロジックは services に寄せるので、後で見返しても迷子になりません。
+"""
+
 from datetime import date
 from django.conf import settings
 from django.utils import timezone
