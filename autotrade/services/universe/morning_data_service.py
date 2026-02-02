@@ -19,6 +19,10 @@
 - get_morning_stats(state=...) を追加しました。
   - state.universe に入っている 5〜10銘柄を使って、
     朝の統計（range_pct / trend_pct / chop_ratio）を作って返します。
+
+今回のバグ修正（重要）
+- yfinance が 5分足で MultiIndex（例: ('Open','7011.T')）を返すことがあるため、
+  _normalize_cols() で列名を単層化してから正規化するようにしました。
 """
 
 from __future__ import annotations
@@ -73,11 +77,34 @@ def _to_jst_index(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    yfinance の返す列を以下に統一する:
+      open, high, low, close, volume
+
+    注意:
+    - yfinance は状況によって MultiIndex列（例: ('Open','7011.T')）になる。
+      その場合は “先頭レベル(Open/High/...)” を使って単層化する。
+    """
     if df is None or df.empty:
         return df
-    rename = {}
+
+    df = df.copy()
+
+    # --- MultiIndex を単層化（最重要） ---
+    try:
+        if isinstance(df.columns, pd.MultiIndex):
+            # 例: ('Open','7011.T') -> 'Open'
+            df.columns = [c[0] if isinstance(c, tuple) and len(c) > 0 else c for c in df.columns]
+        else:
+            # tuple列名が混ざるケース保険
+            df.columns = [c[0] if isinstance(c, tuple) and len(c) > 0 else c for c in df.columns]
+    except Exception:
+        # 失敗しても落ちない（そのまま続行）
+        pass
+
+    rename: Dict[Any, str] = {}
     for k in df.columns:
-        lk = str(k).lower()
+        lk = str(k).strip().lower()
         if lk == "open":
             rename[k] = "open"
         elif lk == "high":
@@ -88,6 +115,7 @@ def _normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
             rename[k] = "close"
         elif lk == "volume":
             rename[k] = "volume"
+
     df = df.rename(columns=rename)
     return df
 
@@ -142,7 +170,7 @@ def _write_cache(path: str, df: pd.DataFrame) -> None:
 
 def fetch_morning_5m(ticker: str, day: date, use_cache: bool = True) -> pd.DataFrame:
     """
-    指定日の 9:00〜9:30 の5分足（最大6本）を返す。
+    指定日の 9:00〜9:30 の5分足（最大6〜7本）を返す。
 
     重要：
     - タイムゾーンや足のラベルで slice が空になりやすいので、
@@ -151,10 +179,9 @@ def fetch_morning_5m(ticker: str, day: date, use_cache: bool = True) -> pd.DataF
     path = _cache_path(day, ticker)
     if use_cache:
         cached = _read_cache(path)
-        if not cached.empty:
+        if not cached.empty and len(cached.columns) > 0:
             return cached
 
-    # yfinance: 5分足は period 制約があるため、数日分だけ取って JST に変換して切り出す
     df = yf.download(ticker, interval="5m", period="5d", auto_adjust=False, progress=False)
     if df is None or df.empty:
         return pd.DataFrame()
@@ -179,7 +206,6 @@ def fetch_morning_5m(ticker: str, day: date, use_cache: bool = True) -> pd.DataF
     try:
         sliced = df_day.between_time("09:00", "09:30").copy()
     except Exception:
-        # between_time が使えない形式なら、最後の手段で従来式
         start_dt = pd.Timestamp(datetime.combine(day, time(9, 0)), tz=JST)
         end_dt = pd.Timestamp(datetime.combine(day, time(9, 30)), tz=JST)
         sliced = df_day[(df_day.index >= start_dt) & (df_day.index <= end_dt)].copy()
@@ -203,7 +229,7 @@ def compute_morning_metrics(ticker: str, day: date, use_cache: bool = True) -> M
     df = fetch_morning_5m(ticker, day, use_cache=use_cache)
     mm = MorningMetrics(ticker=ticker, day=day, bars=0)
 
-    if df is None or df.empty:
+    if df is None or df.empty or len(df.columns) == 0:
         mm.note = "no_data"
         return mm
 
@@ -265,7 +291,6 @@ def get_morning_stats(*, state) -> Dict[str, Any]:
         elif isinstance(x, str) and x.strip():
             tickers.append(x.strip())
 
-    # 0件なら “picksが無い” 扱い（ここは設計通り）
     if not tickers:
         return {
             "range_pct": 0.0,
@@ -285,7 +310,7 @@ def get_morning_stats(*, state) -> Dict[str, Any]:
 
     for t in tickers:
         df = fetch_morning_5m(t, day, use_cache=True)
-        if df is None or df.empty:
+        if df is None or df.empty or len(df.columns) == 0:
             continue
         if not all(c in df.columns for c in ["open", "high", "low", "close"]):
             continue
