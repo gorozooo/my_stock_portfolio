@@ -1,3 +1,29 @@
+"""
+[FILE] autotrade/models.py
+[PATH] <project_root>/autotrade/models.py
+
+このファイルは何？
+- デイトレ自動売買に関する「状態・設定・検証結果」をDBで管理するモデル群です。
+
+モデル（役割）：
+1. AutoTradeDailyState
+   - iPhone 1画面ダッシュボード用：今日の状態を1日1レコードで保持
+   - morning_stats / strategy_decision を保存して再現性を担保
+
+2. AutoTradeTuningProfile
+   - 調整用の作業台：画面でいじる数値はまずここに保存（下書き）
+
+3. AutoTradeSettingSnapshot
+   - 設定の固定版：バックテストや本番は必ずこのスナップショットを使う
+
+4. AutoTradeBacktestRun
+   - 「どの設定で、どんな結果だったか」を保存する履歴
+
+初心者ポイント：
+- “再現性” の中心は Snapshot と DailyState の保存。
+- 後から機能が増えても破綻しないように、責務ごとにモデルを分けています。
+"""
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
