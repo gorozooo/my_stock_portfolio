@@ -3,17 +3,19 @@
 [PATH] <project_root>/autotrade/jobs/decide_strategy.py
 
 このファイルは何？
-- 9:30 に動く「戦略決定＆ゲート確定ジョブ」です（時間で動く入口）。
+- 9:30 に動く「戦略決定＆ゲート確定ジョブ」です。
 
-役割（jobsの責務はこれだけ）：
-  1) 朝統計を 9:30 時点で固定保存（再現性の要）
-  2) 今日の戦略（BREAKOUT / VWAP）を決めて保存（decision/strategy.py）
-  3) バックテスト結果から 3段階ゲート（FULL/LIGHT/STOP）を決めて保存（backtest/gate.py）
-  4) その日の運用ルールを確定して保存（decision/rules.py）
+役割（jobsの責務はこれだけにする）：
+  1) 今日の戦略（BREAKOUT or VWAP）を決める（decision/strategy.py）
+  2) その戦略のバックテスト結果から、3段階ゲート（FULL/LIGHT/STOP）を決める（backtest/gate.py）
+  3) その日の運用ルール（同時ポジ、最大回数など）を確定して保存する（decision/rules.py）
 
 初心者ポイント：
 - job は「時間で動く入口」だけ。
-- 判断ロジックは services に寄せるので、後で見返しても迷子になりません。
+- 中身（判断ロジック）は services に寄せて、後で見返しても迷子にならないようにします。
+
+今回の変更：
+- emergency_stop=True の日は “何があっても” ここで即 return（上書き事故を防ぐ）
 """
 
 from datetime import date
@@ -25,12 +27,23 @@ from autotrade.services.decision.strategy import decide_strategy_for_state
 from autotrade.services.backtest.gate import gate_from_backtests
 from autotrade.services.decision.rules import build_rules_for_today
 
+from autotrade.services.common.guards import is_emergency_stopped
+
 
 def run():
     today = date.today()
     state, _ = AutoTradeDailyState.objects.get_or_create(date=today)
 
-    # 0) 朝統計を 9:30 時点で固定保存（再現性の要）
+    # =========================================================
+    # 0) 非常停止ガード（最優先）
+    # =========================================================
+    # emergency_stop=True の日は、状態を一切上書きしない（凍結）
+    if is_emergency_stopped(state):
+        return
+
+    # =========================================================
+    # 1) 朝統計を 9:30 時点で固定保存（再現性の要）
+    # =========================================================
     # ここで state.morning_stats が埋まるので、その後の戦略決定はブレない
     try:
         from autotrade.services.universe.morning_data_service import get_morning_stats
@@ -45,7 +58,9 @@ def run():
             "note": "error",
         }
 
-    # 1) 戦略決定（state.morning_stats があればそれを優先して使う）
+    # =========================================================
+    # 2) 戦略決定（state.morning_stats があればそれを優先して使う）
+    # =========================================================
     decision = decide_strategy_for_state(state)
     strategy = decision.strategy
 
@@ -62,14 +77,12 @@ def run():
         "created_at": timezone.localtime(timezone.now()).isoformat(),
     }
 
-    # 2) その戦略のバックテスト結果でゲート判定
-    # state.backtest は
-    #   {"BREAKOUT": {"20": {...}, "60": {...}, "120": {...}}, "VWAP": {...}}
-    # の形を想定
+    # =========================================================
+    # 3) その戦略のバックテスト結果でゲート判定
+    # =========================================================
     bt_all = state.backtest if isinstance(state.backtest, dict) else {}
     bt_strategy = bt_all.get(strategy, {}) if isinstance(bt_all, dict) else {}
 
-    # windowキーは文字列 "20" "60" "120" を使う（JSON互換）
     windows = getattr(settings, "AUTOTRADE_BT_WINDOWS", [20, 60, 120])
     bt_by_window = {int(w): bt_strategy.get(str(w), {}) for w in windows}
 
@@ -77,7 +90,9 @@ def run():
     state.gate_level = gate_level
     state.gate_reason = reason
 
-    # 3) ルール確定（FULL/LIGHT/STOP で自動的に変わる）
+    # =========================================================
+    # 4) ルール確定（FULL/LIGHT/STOP で自動的に変わる）
+    # =========================================================
     equity_yen = state.equity_yen or getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)
     state.rules = build_rules_for_today(
         gate_level=gate_level,
