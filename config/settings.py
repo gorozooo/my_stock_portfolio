@@ -230,6 +230,9 @@ AUTOTRADE_DEFAULT_CANDIDATES = [
     "7011.T","9101.T","9104.T","8411.T","8604.T","8601.T","5401.T","5406.T",
 ]
 
+#"wmean"（売買代金重み）
+AUTOTRADE_MORNING_AGG = "wmean"
+
 # ==========================
 # ★ django-crontab（ジョブ）
 # ==========================
