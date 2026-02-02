@@ -36,13 +36,14 @@ def run():
     state.strategy = strategy
     state.strategy_decided_at = timezone.now()
 
-    # ★ 追加：戦略決定ログを保存（理由・confidence・debugまで）
+    # ★ 戦略決定ログを保存（理由・confidence・debugまで）
+    # created_at は UI 表示のため JST で保存（内部のDateTimeFieldはUTCでOK）
     state.strategy_decision = {
         "strategy": decision.strategy,
         "confidence": float(decision.confidence),
         "reason": decision.reason,
         "debug": decision.debug,
-        "created_at": timezone.now().isoformat(),
+        "created_at": timezone.localtime(timezone.now()).isoformat(),
     }
 
     # 2) その戦略のバックテスト結果でゲート判定
