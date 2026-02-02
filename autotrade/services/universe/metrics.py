@@ -3,21 +3,13 @@
 [PATH] <project_root>/autotrade/services/universe/metrics.py
 
 このファイルは何？
-- 日足データから「流動性（売買代金・出来高）」と「動き（ATR）」を計算する部品です。
-- universe 選定の第1関門で、200銘柄を高速・安定に“ふるい”にかけるのが役目です。
+- 日足データから「流動性（売買代金）」と「動きやすさ（ATR%）」を計算する部品です。
+- universe選定の“最初の関門”で、事故りやすい銘柄をここで落とします。
 
-このファイルが保証すること（重要）
-- close / volume / high / low は「数値として計算できる状態」に正規化される
-- 取得元が yfinance でも cache(CSV) でも、必ず同じ正規化ルールが適用される
-- 数値にできない行は NaN にして除外される（上流に負担を押し付けない）
-
-キャッシュの置き場所
-- media/autotrade/cache/daily_1d/<ticker>.csv
-
-初心者ポイント（このファイルの読み方）
-- 「出来高」＝取引された株数（少ないと約定しにくい）
-- 「売買代金」＝取引されたお金の量（多いほど注文が通りやすい）
-- 「ATR」＝日々の値動きの大きさ（小さすぎると動かない／大きすぎると荒い）
+初心者向けの考え方：
+- 売買代金が少ない → 約定しづらい → 触らない
+- 動かなすぎ → チャンスが少ない → 触らない
+- 動きすぎ → 事故りやすい → 触らない
 """
 
 from __future__ import annotations
@@ -31,37 +23,30 @@ import yfinance as yf
 from django.conf import settings
 
 
+# =====================
+# データ構造（結果の箱）
+# =====================
 @dataclass
 class DailyMetrics:
     ticker: str
+
+    # 終値
     last_close: Optional[float] = None
 
-    # --- 流動性（注文の通りやすさ） ---
-    avg_volume: Optional[float] = None      # 平均出来高（株数）
-    avg_dv_yen: Optional[float] = None      # 平均売買代金（円） = mean(close * volume)
+    # 流動性：平均売買代金（円）
+    avg_dv_yen: Optional[float] = None
 
-    # --- 動き（値動きの大きさ） ---
-    atr_yen: Optional[float] = None         # ATR（円）
-    atr_pct: Optional[float] = None         # ATR / close（割合）
+    # 動きやすさ：ATR ÷ 終値（割合）
+    atr_pct: Optional[float] = None
 
-    # 備考（no_data / atr_na など）
-    note: str = ""
-
-    def to_debug_dict(self) -> dict:
-        """
-        画面表示やログに使いやすい形にする（※この段階ではUIは作らない）
-        """
-        return {
-            "ticker": self.ticker,
-            "last_close": self.last_close,
-            "avg_volume": self.avg_volume,
-            "avg_dv_yen": self.avg_dv_yen,
-            "atr_yen": self.atr_yen,
-            "atr_pct": self.atr_pct,
-            "note": self.note,
-        }
+    # 参考情報
+    avg_volume: Optional[float] = None
+    note: str = ""   # 何かあったら理由を書く（debug用）
 
 
+# =====================
+# キャッシュ関連
+# =====================
 def _cache_dir() -> str:
     base = getattr(settings, "MEDIA_ROOT", "media")
     d = os.path.join(base, "autotrade", "cache", "daily_1d")
@@ -82,7 +67,7 @@ def _read_cache(path: str) -> pd.DataFrame:
         if df.empty:
             return df
         if "dt" in df.columns:
-            df["dt"] = pd.to_datetime(df["dt"], errors="coerce")
+            df["dt"] = pd.to_datetime(df["dt"])
             df = df.set_index("dt")
         return df
     except Exception:
@@ -101,44 +86,21 @@ def _write_cache(path: str, df: pd.DataFrame) -> None:
     out.to_csv(path, index=False, encoding="utf-8")
 
 
-def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+# =====================
+# 日足取得
+# =====================
+def fetch_daily_1d(
+    ticker: str,
+    period: str = "180d",
+    use_cache: bool = True,
+) -> pd.DataFrame:
     """
-    取得元（yfinance/CSVキャッシュ）が何であっても、
-    ここで「数値として安全なOHLCV」に統一する。
+    日足データを取得（キャッシュ優先）
     """
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    df = df.rename(columns={
-        "Open": "open",
-        "High": "high",
-        "Low": "low",
-        "Close": "close",
-        "Volume": "volume",
-    })
-
-    for col in ["open", "high", "low", "close", "volume"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    required = ["high", "low", "close", "volume"]
-    if not all(c in df.columns for c in required):
-        return pd.DataFrame()
-
-    df = df.dropna(subset=required)
-
-    # volume が 0 や負値は意味がないので落とす（保険）
-    df = df[df["volume"] > 0]
-
-    return df
-
-
-def fetch_daily_1d(ticker: str, period: str = "180d", use_cache: bool = True) -> pd.DataFrame:
     path = _cache_path(ticker)
 
     if use_cache:
         cached = _read_cache(path)
-        cached = _normalize_ohlcv(cached)
         if not cached.empty:
             return cached
 
@@ -150,87 +112,101 @@ def fetch_daily_1d(ticker: str, period: str = "180d", use_cache: bool = True) ->
         progress=False,
     )
 
-    df = _normalize_ohlcv(df)
     if df is None or df.empty:
         return pd.DataFrame()
+
+    df = df.rename(columns={
+        "Open": "open",
+        "High": "high",
+        "Low": "low",
+        "Close": "close",
+        "Volume": "volume",
+    })
+
+    df = df[["open", "high", "low", "close", "volume"]].dropna()
 
     _write_cache(path, df)
     return df
 
 
+# =====================
+# ATR計算
+# =====================
 def _atr(df: pd.DataFrame, n: int = 14) -> pd.Series:
     """
-    True Range:
-      TR = max(high-low, abs(high-prev_close), abs(low-prev_close))
-    ATR = rolling mean(TR, n)
+    ATR（平均的な値動き幅）
     """
     prev_close = df["close"].shift(1)
-    tr1 = (df["high"] - df["low"]).abs()
-    tr2 = (df["high"] - prev_close).abs()
-    tr3 = (df["low"] - prev_close).abs()
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    tr = pd.concat([
+        (df["high"] - df["low"]).abs(),
+        (df["high"] - prev_close).abs(),
+        (df["low"] - prev_close).abs(),
+    ], axis=1).max(axis=1)
+
     return tr.rolling(n).mean()
 
 
+# =====================
+# メイン：指標計算
+# =====================
 def compute_daily_metrics(
     ticker: str,
     lookback_days: int = 60,
     use_cache: bool = True,
 ) -> DailyMetrics:
     """
-    直近 lookback_days から
-    - avg_volume = mean(volume)
-    - avg_dv_yen = mean(close * volume)
-    - atr_yen    = ATR14（円）
-    - atr_pct    = ATR14 / last_close（割合）
+    日足から以下を計算：
+    - avg_dv_yen : 平均売買代金（円）
+    - atr_pct    : ATR ÷ 終値（割合）
     """
+
     dm = DailyMetrics(ticker=ticker)
 
     df = fetch_daily_1d(ticker, use_cache=use_cache)
-    if df is None or df.empty:
+
+    if df.empty:
         dm.note = "no_data"
         return dm
 
-    df = df.tail(max(int(lookback_days), 30)).copy()
-    if df.empty or len(df) < 20:
+    # --- 数値を必ず数値に直す（ここが超重要） ---
+    for col in ["open", "high", "low", "close", "volume"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.dropna()
+    df = df.tail(max(lookback_days, 30))
+
+    if len(df) < 20:
         dm.note = "too_short"
         return dm
 
     last_close = df["close"].iloc[-1]
-    if pd.isna(last_close):
-        dm.note = "invalid_close"
+    if pd.isna(last_close) or float(last_close) <= 0:
+        dm.note = "bad_close"
         return dm
 
     last_close = float(last_close)
-    if last_close <= 0:
-        dm.note = "invalid_close"
-        return dm
-
     dm.last_close = last_close
 
-    # 出来高（株数）
-    vol = df["volume"].dropna()
-    dm.avg_volume = float(vol.mean()) if not vol.empty else None
+    # --- 売買代金（流動性） ---
+    dv = df["close"] * df["volume"]
+    dv = dv.dropna()
 
-    # 売買代金（円）
-    dv = (df["close"] * df["volume"]).dropna()
     if dv.empty:
         dm.note = "dv_na"
         return dm
-    dm.avg_dv_yen = float(dv.mean())
 
-    # ATR（円・割合）
+    dm.avg_dv_yen = float(dv.mean())
+    dm.avg_volume = float(df["volume"].mean())
+
+    # --- ATR%（動きやすさ） ---
     atr14 = _atr(df, n=14)
-    if atr14 is None or atr14.dropna().empty:
+    atr14 = atr14.dropna()
+
+    if atr14.empty:
         dm.note = "atr_na"
         return dm
 
-    atr_val = atr14.dropna().iloc[-1]
-    if pd.isna(atr_val) or float(atr_val) <= 0:
-        dm.note = "atr_invalid"
-        return dm
-
-    dm.atr_yen = float(atr_val)
-    dm.atr_pct = float(float(atr_val) / last_close)
+    atr_val = float(atr14.iloc[-1])
+    dm.atr_pct = atr_val / last_close if last_close > 0 else None
 
     return dm
