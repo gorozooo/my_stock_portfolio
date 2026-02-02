@@ -1,3 +1,20 @@
+"""
+[FILE] autotrade/services/decision/strategy.py
+[PATH] <project_root>/autotrade/services/decision/strategy.py
+
+このファイルは何？
+- 9:30 に「今日の戦略」を決めるロジック（判断だけ）です。
+
+役割：
+  1) 朝統計（range/trend/chop）から BREAKOUT か VWAP を決定
+  2) confidence（目安）と、初心者向け理由文を生成
+  3) debug（内部確認用）を返す（保存や画面は触らない）
+
+初心者ポイント：
+- “判断だけ” をここに閉じ込めると、ジョブやUIが肥大化しません。
+- 再現性のため、state.morning_stats がある場合はそれを優先します。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
