@@ -15,6 +15,7 @@
 """
 
 from datetime import date
+from django.conf import settings
 from django.utils import timezone
 
 from autotrade.models import AutoTradeDailyState, AutoTradeSettingSnapshot
@@ -60,5 +61,9 @@ def run():
         snapshot=snapshot,
         picks=picks,
         target_date=today,
+        windows=tuple(getattr(settings, "AUTOTRADE_BT_WINDOWS", [20, 60, 120])),
+        rr_breakout=float(getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0)),
+        rr_vwap=float(getattr(settings, "AUTOTRADE_RR_VWAP", 1.5)),
+        base_equity_yen=int(getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)),
         force=True,
     )
