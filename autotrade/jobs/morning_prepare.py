@@ -15,7 +15,6 @@
 """
 
 from datetime import date
-from django.conf import settings
 from django.utils import timezone
 
 from autotrade.models import AutoTradeDailyState, AutoTradeSettingSnapshot
@@ -36,7 +35,7 @@ def run():
 
     # 1) 今日の銘柄（5〜10）
     universe = build_daily_universe(limit=10)
-    picks = [x["ticker"] for x in universe.get("picks", [])]
+    picks = [x.get("ticker") for x in (universe.get("picks") or []) if x.get("ticker")]
 
     state.universe = universe
     state.updated_at = timezone.now()
@@ -60,8 +59,6 @@ def run():
     run_detailed_backtests_for_universe(
         snapshot=snapshot,
         picks=picks,
-        windows=tuple(getattr(settings, "AUTOTRADE_BT_WINDOWS", [20, 60, 120])),
-        rr_breakout=float(getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0)),
-        rr_vwap=float(getattr(settings, "AUTOTRADE_RR_VWAP", 1.5)),
-        base_equity_yen=int(getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)),
+        target_date=today,
+        force=True,
     )
