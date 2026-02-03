@@ -135,6 +135,7 @@ def run_breakout(
                         AutoTradeExecution.objects.create(
                             user=user,
                             snapshot=snapshot,
+                            run_detail=run_meta,  # ★ 追加：run_metaに紐づける
                             mode=str(mode),
                             strategy="BREAKOUT",
                             ticker=ticker,
@@ -172,6 +173,7 @@ def run_breakout(
                         AutoTradeExecution.objects.create(
                             user=user,
                             snapshot=snapshot,
+                            run_detail=run_meta,  # ★ 追加
                             mode=str(mode),
                             strategy="BREAKOUT",
                             ticker=ticker,
@@ -225,6 +227,7 @@ def run_breakout(
                         AutoTradeExecution.objects.create(
                             user=user,
                             snapshot=snapshot,
+                            run_detail=run_meta,  # ★ 追加
                             mode=str(mode),
                             strategy="BREAKOUT",
                             ticker=ticker,
@@ -262,6 +265,7 @@ def run_breakout(
                         AutoTradeExecution.objects.create(
                             user=user,
                             snapshot=snapshot,
+                            run_detail=run_meta,  # ★ 追加
                             mode=str(mode),
                             strategy="BREAKOUT",
                             ticker=ticker,
