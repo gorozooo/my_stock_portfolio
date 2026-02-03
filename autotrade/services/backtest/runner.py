@@ -18,8 +18,8 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Any
-from datetime import date
+from typing import Dict, List, Any, Optional, Tuple
+from datetime import date as dt_date
 
 from django.db import transaction
 from django.utils import timezone
@@ -35,13 +35,13 @@ from autotrade.services.backtest.execution_metrics import summarize_executions
 from autotrade.services.backtest.gate import judge_multi_window
 from autotrade.services.common.guards import is_emergency_stopped
 
-# エンジン（Execution を吐く）
+# エンジン（Execution を吐く / 互換で旧集計も返せる）
 from autotrade.services.backtest.engine_breakout import run_breakout
 from autotrade.services.backtest.engine_vwap import run_vwap
 
 
-BACKTEST_WINDOWS = (20, 60, 120)
-STRATEGIES = ("BREAKOUT", "VWAP")
+DEFAULT_BACKTEST_WINDOWS: Tuple[int, int, int] = (20, 60, 120)
+STRATEGIES: Tuple[str, str] = ("BREAKOUT", "VWAP")
 
 
 # =========================================================
@@ -49,10 +49,14 @@ STRATEGIES = ("BREAKOUT", "VWAP")
 # =========================================================
 @transaction.atomic
 def run_detailed_backtests_for_universe(
-    snapshot: AutoTradeSettingSnapshot,
     *,
+    snapshot: AutoTradeSettingSnapshot,
     picks: List[str],
-    target_date: date | None = None,
+    target_date: Optional[dt_date] = None,
+    windows: Optional[Tuple[int, ...]] = None,
+    rr_breakout: Optional[float] = None,
+    rr_vwap: Optional[float] = None,
+    base_equity_yen: Optional[int] = None,
     force: bool = False,
 ) -> Dict[str, Any]:
     """
@@ -60,6 +64,9 @@ def run_detailed_backtests_for_universe(
 
     - snapshot: ACTIVE Snapshot（必須）
     - picks: 今日の銘柄リスト
+    - windows: 実行期間（例: (20,60,120)）
+    - rr_breakout / rr_vwap: RR（設定値）
+    - base_equity_yen: 基準資産（Snapshot優先、なければsettings）
     - force: True の場合、既存 Execution を削除して再実行
     """
 
@@ -77,13 +84,21 @@ def run_detailed_backtests_for_universe(
     if snapshot is None:
         raise ValueError("ACTIVE snapshot が存在しません。")
 
+    # -----------------------------------------------------
+    # 入力の正規化
+    # -----------------------------------------------------
+    picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
+    bt_windows = tuple(int(x) for x in (windows or tuple(getattr(settings, "AUTOTRADE_BT_WINDOWS", DEFAULT_BACKTEST_WINDOWS))))
+    rr_b = float(rr_breakout if rr_breakout is not None else getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0))
+    rr_v = float(rr_vwap if rr_vwap is not None else getattr(settings, "AUTOTRADE_RR_VWAP", 1.5))
+
+    snap_dict = snapshot.snapshot if isinstance(snapshot.snapshot, dict) else {}
+    if base_equity_yen is not None:
+        base_equity = int(base_equity_yen)
+    else:
+        base_equity = int(snap_dict.get("base_equity_yen", getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)))
+
     user = snapshot.user
-    base_equity = int(
-        snapshot.snapshot.get(
-            "base_equity_yen",
-            getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000),
-        )
-    )
 
     # -----------------------------------------------------
     # 既存データ削除（force）
@@ -92,18 +107,28 @@ def run_detailed_backtests_for_universe(
         AutoTradeExecution.objects.filter(
             snapshot=snapshot,
             mode="BACKTEST",
+            created_at__date=target_date,
         ).delete()
 
         AutoTradeBacktestRunDetail.objects.filter(
-            snapshot=snapshot
+            snapshot=snapshot,
+            executed_at__date=target_date,
         ).delete()
+
+    # picks が空なら何もしない（ただし状態は返す）
+    if not picks:
+        state.gate_level = "STOP"
+        state.gate_reason = "銘柄が0件のため、詳細バックテストを実行できません。"
+        state.updated_at = timezone.now()
+        state.save()
+        return {"ok": False, "reason": "no_picks"}
 
     metrics_by_window: Dict[int, Dict[str, Any]] = {}
 
     # -----------------------------------------------------
     # window × strategy ごとに実行
     # -----------------------------------------------------
-    for window in BACKTEST_WINDOWS:
+    for window in bt_windows:
         window_metrics_all: List[Dict[str, Any]] = []
 
         for strategy in STRATEGIES:
@@ -111,8 +136,8 @@ def run_detailed_backtests_for_universe(
             run_meta = AutoTradeBacktestRunDetail.objects.create(
                 user=user,
                 snapshot=snapshot,
-                strategy=strategy,
-                window_days=window,
+                strategy=str(strategy),
+                window_days=int(window),
                 start_date=target_date,
                 end_date=target_date,
             )
@@ -122,21 +147,25 @@ def run_detailed_backtests_for_universe(
                 if strategy == "BREAKOUT":
                     run_breakout(
                         ticker=ticker,
-                        window_days=window,
+                        window_days=int(window),
+                        rr=rr_b,
                         snapshot=snapshot,
                         mode="BACKTEST",
                         run_meta=run_meta,
+                        target_date=target_date,
                     )
                 else:
                     run_vwap(
                         ticker=ticker,
-                        window_days=window,
+                        window_days=int(window),
+                        rr=rr_v,
                         snapshot=snapshot,
                         mode="BACKTEST",
                         run_meta=run_meta,
+                        target_date=target_date,
                     )
 
-            # ---- Execution 集計 ----
+            # ---- Execution 集計（strategyごと）----
             qs = AutoTradeExecution.objects.filter(
                 snapshot=snapshot,
                 mode="BACKTEST",
@@ -151,20 +180,15 @@ def run_detailed_backtests_for_universe(
 
             window_metrics_all.append(metrics)
 
-        # ---- window 全体の代表値（strategy平均）----
+        # ---- window 全体の代表値（strategy合算＋PF平均＋DD最大）----
         if window_metrics_all:
-            metrics_by_window[window] = {
-                "trades": sum(m["trades"] for m in window_metrics_all),
-                "profit_factor": (
-                    sum(m["profit_factor"] for m in window_metrics_all)
-                    / len(window_metrics_all)
-                ),
-                "max_drawdown_pct": max(
-                    m["max_drawdown_pct"] for m in window_metrics_all
-                ),
+            metrics_by_window[int(window)] = {
+                "trades": int(sum(int(m.get("trades", 0)) for m in window_metrics_all)),
+                "profit_factor": float(sum(float(m.get("profit_factor", 0.0)) for m in window_metrics_all) / max(len(window_metrics_all), 1)),
+                "max_drawdown_pct": float(max(float(m.get("max_drawdown_pct", 1.0)) for m in window_metrics_all)),
             }
         else:
-            metrics_by_window[window] = {}
+            metrics_by_window[int(window)] = {}
 
     # -----------------------------------------------------
     # gate 判定
@@ -174,8 +198,8 @@ def run_detailed_backtests_for_universe(
     # -----------------------------------------------------
     # DailyState 更新
     # -----------------------------------------------------
-    state.gate_level = gate_result["gate_level"]
-    state.gate_reason = "\n".join(gate_result["reasons"])
+    state.gate_level = gate_result.get("gate_level") or "STOP"
+    state.gate_reason = "\n".join(gate_result.get("reasons") or [])
     state.updated_at = timezone.now()
     state.save()
 
