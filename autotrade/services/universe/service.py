@@ -136,18 +136,15 @@ def build_daily_universe(limit: int = 10, candidate_cap: int = 200) -> Dict:
     def score_total(x: dict) -> float:
         s = float(x.get("score_daily", 0.0))
 
-        rp = x.get("morning_range_pct")   # 朝の値幅（割合）
-        ef = x.get("morning_eff")         # 朝の効率（0〜1目安）
+        rp = x.get("morning_range_pct")
+        ef = x.get("morning_eff")
         bars = int(x.get("morning_bars", 0) or 0)
 
-        # 朝データが無いなら微減点（ただし落としきらない）
         if rp is None or ef is None or bars < 3:
             return s * 0.90
 
         bonus = 0.0
 
-        # 朝レンジは “ある程度あると良い”
-        # 0.2%未満: 弱い / 0.6%以上: しっかり / 2%以上: 荒い
         if rp >= 0.002:
             bonus += 0.05
         if rp >= 0.006:
@@ -155,7 +152,6 @@ def build_daily_universe(limit: int = 10, candidate_cap: int = 200) -> Dict:
         if rp >= 0.020:
             bonus -= 0.08
 
-        # 効率は “両端を避ける”（往復しすぎ／一方向すぎ）
         if ef < 0.25:
             bonus -= 0.03
         elif ef > 0.85:
@@ -183,11 +179,9 @@ def build_daily_universe(limit: int = 10, candidate_cap: int = 200) -> Dict:
         dv = x.get("avg_dv_yen")
         atr = x.get("atr_pct")
 
-        # rankerが作った“理由文”をそのまま使う（画面が説明できるようになる）
         why_lines = x.get("why") if isinstance(x.get("why"), list) else []
         why_lines = [str(s) for s in why_lines if str(s).strip()]
 
-        # 1行要約（初心者向け）
         if why_lines:
             reason_one = " / ".join(why_lines[:2])
         else:
@@ -197,20 +191,14 @@ def build_daily_universe(limit: int = 10, candidate_cap: int = 200) -> Dict:
             "ticker": t,
             "reason": reason_one,
             "reason_lines": why_lines,
-
-            # 日足メトリクス
             "avg_dv_yen": dv,
             "atr_pct": atr,
             "score_daily": x.get("score_daily"),
             "score_liquidity": x.get("score_liquidity"),
             "score_atr": x.get("score_atr"),
-
-            # 朝指標
             "morning_range_pct": x.get("morning_range_pct"),
             "morning_eff": x.get("morning_eff"),
             "morning_bars": x.get("morning_bars"),
-
-            # 最終スコア
             "score_total": x.get("score_total"),
         })
 
