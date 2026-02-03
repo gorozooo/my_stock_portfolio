@@ -88,7 +88,11 @@ def run_detailed_backtests_for_universe(
     # 入力の正規化
     # -----------------------------------------------------
     picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
-    bt_windows = tuple(int(x) for x in (windows or tuple(getattr(settings, "AUTOTRADE_BT_WINDOWS", DEFAULT_BACKTEST_WINDOWS))))
+    bt_windows = tuple(
+        int(x) for x in (
+            windows or tuple(getattr(settings, "AUTOTRADE_BT_WINDOWS", DEFAULT_BACKTEST_WINDOWS))
+        )
+    )
     rr_b = float(rr_breakout if rr_breakout is not None else getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0))
     rr_v = float(rr_vwap if rr_vwap is not None else getattr(settings, "AUTOTRADE_RR_VWAP", 1.5))
 
@@ -102,17 +106,19 @@ def run_detailed_backtests_for_universe(
 
     # -----------------------------------------------------
     # 既存データ削除（force）
+    # - run_detail ごと消す（run_detail FK が CASCADE なので executions も消える）
     # -----------------------------------------------------
     if force:
+        AutoTradeBacktestRunDetail.objects.filter(
+            snapshot=snapshot,
+            executed_at__date=target_date,
+        ).delete()
+
+        # 追加保険：run_detail無しで紛れ込んだBACKTESTが残っても困るので日付で掃除
         AutoTradeExecution.objects.filter(
             snapshot=snapshot,
             mode="BACKTEST",
             created_at__date=target_date,
-        ).delete()
-
-        AutoTradeBacktestRunDetail.objects.filter(
-            snapshot=snapshot,
-            executed_at__date=target_date,
         ).delete()
 
     # picks が空なら何もしない（ただし状態は返す）
@@ -165,12 +171,9 @@ def run_detailed_backtests_for_universe(
                         target_date=target_date,
                     )
 
-            # ---- Execution 集計（strategyごと）----
+            # ---- Execution 集計（この run_meta だけ）----
             qs = AutoTradeExecution.objects.filter(
-                snapshot=snapshot,
-                mode="BACKTEST",
-                strategy=strategy,
-                created_at__date=target_date,
+                run_detail=run_meta,
             )
 
             metrics = summarize_executions(
@@ -184,7 +187,10 @@ def run_detailed_backtests_for_universe(
         if window_metrics_all:
             metrics_by_window[int(window)] = {
                 "trades": int(sum(int(m.get("trades", 0)) for m in window_metrics_all)),
-                "profit_factor": float(sum(float(m.get("profit_factor", 0.0)) for m in window_metrics_all) / max(len(window_metrics_all), 1)),
+                "profit_factor": float(
+                    sum(float(m.get("profit_factor", 0.0)) for m in window_metrics_all)
+                    / max(len(window_metrics_all), 1)
+                ),
                 "max_drawdown_pct": float(max(float(m.get("max_drawdown_pct", 1.0)) for m in window_metrics_all)),
             }
         else:
