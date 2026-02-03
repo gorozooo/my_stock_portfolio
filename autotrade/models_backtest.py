@@ -103,7 +103,7 @@ class AutoTradeExecution(models.Model):
 # =========================================================
 # 2) バックテスト実行メタ情報
 # =========================================================
-class AutoTradeBacktestRunDetail(models.Model):
+class AutoTradeBacktestRun(models.Model):
     """
     バックテスト1回分の「実行メタ」
 
