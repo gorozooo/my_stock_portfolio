@@ -51,6 +51,17 @@ class AutoTradeExecution(models.Model):
         related_name="executions",
     )
 
+    # ★ 追加：詳細バックテストの実行メタに紐づける（window×strategy の混線防止）
+    # - BACKTEST では基本的に必ず入る
+    # - PAPER/LIVE では null でもOK（将来の拡張余地）
+    run_detail = models.ForeignKey(
+        "autotrade.AutoTradeBacktestRunDetail",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="executions",
+    )
+
     mode = models.CharField(max_length=10, choices=MODE_CHOICES)
     strategy = models.CharField(max_length=20, choices=STRATEGY_CHOICES)
     ticker = models.CharField(max_length=20)
