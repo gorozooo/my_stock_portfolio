@@ -201,4 +201,3 @@ class AutoTradeBacktestRun(models.Model):
     def __str__(self):
         return f"[BACKTEST] {self.snapshot.label} {self.gate_result}"
       
-from .models_backtest import AutoTradeExecution, AutoTradeBacktestRunDetail
