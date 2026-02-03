@@ -139,3 +139,11 @@ class AutoTradeBacktestRun(models.Model):
 
     def __str__(self):
         return f"[BACKTEST-SUM] {self.snapshot.label} {self.gate_result}"
+        
+# =========================================================
+# 詳細バックテスト / 実行ログ（別ファイル定義）
+# =========================================================
+from .models_backtest import (
+    AutoTradeExecution,
+    AutoTradeBacktestRunDetail,
+)
