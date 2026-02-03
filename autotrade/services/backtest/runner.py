@@ -3,52 +3,56 @@
 [PATH] <project_root>/autotrade/services/backtest/runner.py
 
 このファイルは何？
-- 詳細バックテストの「司令塔（完成版）」です。
-- Snapshot（固定設定）を入力にして、
-  1) 戦略別エンジンで “1トレード=1件” を生成
-  2) AutoTradeBacktestRun を作成
-  3) AutoTradeExecution を bulk_create
-  4) metrics を算出
-  5) gate で 🟢🟡🔴 判定
-  6) DailyState.backtest に UI互換の形で保存
-  を一気に実行します。
+- 詳細バックテストの「司令塔」です。
+- Snapshot（固定された設定）と Universe（対象銘柄）を入力として、
+  1) 5分足でシミュレーション（戦略別）
+  2) 1トレード = 1レコードで AutoTradeExecution に保存
+  3) 期間別のメタ（実行情報）を AutoTradeBacktestRunDetail に保存
+  4) 指標（PF/DD/回数）を算出して gate 判定に使える形で返す
+  を一気にやります。
+
+設計原則（あなたの確定方針に合わせる）：
+- 1トレード = 1レコード（AutoTradeExecution）
+- 集計値（PF/DD等）は “保存しない” のが本筋
+  - ただし gate 判定のために「計算して返す」のはOK（保存はしない）
+- 再実行でログが増殖しないように、同条件の RunDetail がある場合はスキップ（force=False）
 
 初心者ポイント：
-- バックテストを実行したいときは、基本この関数を呼べばOK。
+- “詳細バックテストを回す” = このファイルの関数を呼ぶだけ
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
-from django.utils import timezone
+
+from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
-from autotrade.models import AutoTradeDailyState, AutoTradeSettingSnapshot
-from autotrade.models_backtest import AutoTradeBacktestRun, AutoTradeExecution
-
-from autotrade.services.backtest.gate import gate_from_backtests
-from autotrade.services.common.guards import is_emergency_stopped
-
-from autotrade.services.backtest.engine_breakout_detail import run_breakout_detail
-from autotrade.services.backtest.engine_vwap_detail import run_vwap_detail
+from autotrade.models import AutoTradeSettingSnapshot
+from autotrade.models_backtest import AutoTradeBacktestRunDetail, AutoTradeExecution
+from autotrade.services.backtest.data_fetcher import fetch_5m
 
 
-BACKTEST_WINDOWS = (20, 60, 120)
-
-
-def _profit_factor(pnls: List[int]) -> float:
-    wins = sum(p for p in pnls if p > 0)
-    loss = -sum(p for p in pnls if p < 0)
-    if loss <= 0:
-        return float("inf") if wins > 0 else 0.0
-    return float(wins) / float(loss)
+# =========================================================
+# 内部ユーティリティ（メトリクス計算：保存しない）
+# =========================================================
+def _profit_factor(pnls: List[float]) -> float:
+    gains = sum(x for x in pnls if x > 0)
+    losses = -sum(x for x in pnls if x < 0)
+    if losses <= 0:
+        return float("inf") if gains > 0 else 0.0
+    return float(gains / losses)
 
 
 def _max_drawdown_pct(equity_curve: List[float]) -> float:
-    peak = None
+    if not equity_curve:
+        return 1.0
+    peak = equity_curve[0]
     max_dd = 0.0
     for x in equity_curve:
-        if peak is None or x > peak:
+        if x > peak:
             peak = x
         dd = (peak - x) / max(peak, 1e-9)
         if dd > max_dd:
@@ -56,191 +60,522 @@ def _max_drawdown_pct(equity_curve: List[float]) -> float:
     return float(max_dd)
 
 
-def _summarize_from_executions(execs: List[AutoTradeExecution], base_equity_yen: int) -> Dict[str, Any]:
-    pnls = [int(x.pnl_yen) for x in execs]
-    trades = len(pnls)
-    total = int(sum(pnls)) if trades else 0
-    wins = sum(1 for p in pnls if p > 0)
-    win_rate = (wins / trades * 100.0) if trades else 0.0
-    pf = _profit_factor(pnls)
-
-    # equity curve（取引順）
-    eq = float(base_equity_yen)
-    curve = [eq]
-    for p in pnls:
-        eq += float(p)
-        curve.append(eq)
-    max_dd = _max_drawdown_pct(curve)
-
-    ev = (total / trades) if trades else 0.0
-    avg_rr = float(sum(float(x.rr) for x in execs) / trades) if trades else 0.0
-
+def _summarize_metrics(pnls: List[float], equity_curve: List[float]) -> Dict[str, Any]:
+    trades = int(len(pnls))
+    pf = float(_profit_factor(pnls))
+    dd = float(_max_drawdown_pct(equity_curve))
+    total = float(sum(pnls)) if pnls else 0.0
     return {
-        "total_pnl_yen": int(total),
-        "trades": int(trades),
-        "win_rate_pct": float(win_rate),
-        "profit_factor": float(pf if pf != float("inf") else 999.0),
-        "max_drawdown_pct": float(max_dd),
-        "ev_per_trade_yen": float(ev),
-        "avg_rr": float(avg_rr),
+        "trades": trades,
+        "profit_factor": pf,
+        "max_drawdown_pct": dd,
+        "total_pnl_yen": int(round(total)),
     }
 
 
-def _as_ui_row(metrics: Dict[str, Any]) -> Dict[str, Any]:
+def _safe_dt(dt) -> timezone.datetime:
     """
-    既存UIが期待するキー（pf/max_dd/trades/pnl）を維持する。
-    追加で metrics も入れる（gate判定や詳細表示用）。
+    fetch_5m が返す index が naive の場合に備えて、timezone-aware に揃える。
     """
-    return {
-        "trades": int(metrics.get("trades") or 0),
-        "pf": float(metrics.get("profit_factor") or 0.0),
-        "max_dd": float(metrics.get("max_drawdown_pct") or 1.0),
-        "pnl": float(metrics.get("total_pnl_yen") or 0.0),
-        "metrics": metrics,
-    }
+    if dt is None:
+        return timezone.now()
+    if timezone.is_naive(dt):
+        return timezone.make_aware(dt, timezone.get_current_timezone())
+    return dt
 
 
+# =========================================================
+# バックテスト（詳細）用の単発トレード表現
+# =========================================================
+@dataclass
+class _Trade:
+    ticker: str
+    strategy: str
+    side: str  # "LONG" / "SHORT"
+    entry_at: timezone.datetime
+    entry_price: float
+    exit_at: timezone.datetime
+    exit_price: float
+    exit_reason: str  # "TP"/"SL"/"TIME"/"EOD"/"FORCE"
+    size: int
+    pnl_yen: int
+    rr: float
+    holding_minutes: int
+
+
+# =========================================================
+# シミュレーション（戦略別）
+# - ここで「1トレード=1レコード」を作れる形で trades を返す
+# =========================================================
+def _simulate_breakout(
+    *,
+    ticker: str,
+    window_days: int,
+    rr: float,
+    slip_pct: float,
+    stop_pct: float,
+    risk_trade_pct: float,
+    base_equity_yen: int,
+    hold_bars: int = 20,
+    bars_per_day: int = 70,
+) -> Tuple[List[_Trade], List[float], List[float]]:
+    df = fetch_5m(ticker, prefer_period="60d" if window_days > 20 else "20d")
+    if df.empty:
+        return [], [], []
+
+    df = df.iloc[-window_days * bars_per_day :].copy()
+    if len(df) < 200:
+        return [], [], []
+
+    equity = float(base_equity_yen)
+    equity_curve: List[float] = [equity]
+    pnls: List[float] = []
+    trades: List[_Trade] = []
+
+    opens = df["open"].values
+    highs = df["high"].values
+    lows = df["low"].values
+    closes = df["close"].values
+    idx = df.index
+
+    for i in range(10, len(df) - 1):
+        hh = max(highs[i - 6 : i])  # 直近30分高値
+        ll = min(lows[i - 6 : i])   # 直近30分安値
+
+        price = float(closes[i])
+        nxt_open = float(opens[i + 1])
+
+        # ロット計算（100株単位）
+        risk_yen = equity * float(risk_trade_pct)
+        stop_yen_per_share = price * float(stop_pct)
+        shares = int((risk_yen / max(stop_yen_per_share, 1e-9)) // 100) * 100
+        if shares < 100:
+            continue
+
+        # ロング（ブレイク）
+        if price > float(hh):
+            entry_at = _safe_dt(idx[i + 1])
+            entry = nxt_open * (1.0 + float(slip_pct))
+            stop = entry * (1.0 - float(stop_pct))
+            take = entry * (1.0 + float(stop_pct) * float(rr))
+
+            exit_reason = "TIME"
+            exit_at = _safe_dt(idx[min(i + hold_bars, len(df) - 1)])
+            exit_price = float(opens[min(i + hold_bars, len(df) - 1)])
+
+            for j in range(i + 1, min(i + 1 + hold_bars, len(df))):
+                h = float(highs[j])
+                l = float(lows[j])
+
+                if l <= stop:
+                    exit_reason = "SL"
+                    exit_at = _safe_dt(idx[j])
+                    exit_price = stop * (1.0 - float(slip_pct))
+                    break
+                if h >= take:
+                    exit_reason = "TP"
+                    exit_at = _safe_dt(idx[j])
+                    exit_price = take * (1.0 - float(slip_pct))
+                    break
+
+            pnl = (exit_price - entry) * shares
+            equity += pnl
+            equity_curve.append(equity)
+            pnls.append(pnl)
+
+            holding_minutes = int(round((exit_at - entry_at).total_seconds() / 60.0))
+            trades.append(
+                _Trade(
+                    ticker=ticker,
+                    strategy="BREAKOUT",
+                    side="LONG",
+                    entry_at=entry_at,
+                    entry_price=float(entry),
+                    exit_at=exit_at,
+                    exit_price=float(exit_price),
+                    exit_reason=exit_reason,
+                    size=int(shares),
+                    pnl_yen=int(round(pnl)),
+                    rr=float(rr),
+                    holding_minutes=max(0, holding_minutes),
+                )
+            )
+            continue
+
+        # ショート（ブレイク）
+        if price < float(ll):
+            entry_at = _safe_dt(idx[i + 1])
+            entry = nxt_open * (1.0 - float(slip_pct))
+            stop = entry * (1.0 + float(stop_pct))
+            take = entry * (1.0 - float(stop_pct) * float(rr))
+
+            exit_reason = "TIME"
+            exit_at = _safe_dt(idx[min(i + hold_bars, len(df) - 1)])
+            exit_price = float(opens[min(i + hold_bars, len(df) - 1)])
+
+            for j in range(i + 1, min(i + 1 + hold_bars, len(df))):
+                h = float(highs[j])
+                l = float(lows[j])
+
+                if h >= stop:
+                    exit_reason = "SL"
+                    exit_at = _safe_dt(idx[j])
+                    exit_price = stop * (1.0 + float(slip_pct))
+                    break
+                if l <= take:
+                    exit_reason = "TP"
+                    exit_at = _safe_dt(idx[j])
+                    exit_price = take * (1.0 + float(slip_pct))
+                    break
+
+            pnl = (entry - exit_price) * shares
+            equity += pnl
+            equity_curve.append(equity)
+            pnls.append(pnl)
+
+            holding_minutes = int(round((exit_at - entry_at).total_seconds() / 60.0))
+            trades.append(
+                _Trade(
+                    ticker=ticker,
+                    strategy="BREAKOUT",
+                    side="SHORT",
+                    entry_at=entry_at,
+                    entry_price=float(entry),
+                    exit_at=exit_at,
+                    exit_price=float(exit_price),
+                    exit_reason=exit_reason,
+                    size=int(shares),
+                    pnl_yen=int(round(pnl)),
+                    rr=float(rr),
+                    holding_minutes=max(0, holding_minutes),
+                )
+            )
+            continue
+
+    return trades, pnls, equity_curve
+
+
+def _simulate_vwap(
+    *,
+    ticker: str,
+    window_days: int,
+    rr: float,
+    slip_pct: float,
+    stop_pct: float,
+    risk_trade_pct: float,
+    base_equity_yen: int,
+    hold_bars: int = 20,
+    bars_per_day: int = 70,
+) -> Tuple[List[_Trade], List[float], List[float]]:
+    df = fetch_5m(ticker, prefer_period="60d" if window_days > 20 else "20d")
+    if df.empty:
+        return [], [], []
+
+    df = df.iloc[-window_days * bars_per_day :].copy()
+    if len(df) < 200:
+        return [], [], []
+
+    # 簡易VWAP（期間累積）
+    pv = (df["close"] * df["volume"]).cumsum()
+    vv = (df["volume"]).cumsum().replace(0, 1)
+    df["vwap"] = pv / vv
+
+    equity = float(base_equity_yen)
+    equity_curve: List[float] = [equity]
+    pnls: List[float] = []
+    trades: List[_Trade] = []
+
+    opens = df["open"].values
+    highs = df["high"].values
+    lows = df["low"].values
+    closes = df["close"].values
+    vwaps = df["vwap"].values
+    idx = df.index
+
+    for i in range(5, len(df) - 2):
+        price = float(closes[i])
+        vwap = float(vwaps[i])
+        nxt_open = float(opens[i + 1])
+
+        risk_yen = equity * float(risk_trade_pct)
+        stop_yen_per_share = price * float(stop_pct)
+        shares = int((risk_yen / max(stop_yen_per_share, 1e-9)) // 100) * 100
+        if shares < 100:
+            continue
+
+        # 買いのみ（VWAP上）: 触れたら入る
+        if price > vwap and float(lows[i]) <= vwap * 1.0005:
+            entry_at = _safe_dt(idx[i + 1])
+            entry = nxt_open * (1.0 + float(slip_pct))
+            stop = entry * (1.0 - float(stop_pct))
+            take = entry * (1.0 + float(stop_pct) * float(rr))
+
+            exit_reason = "TIME"
+            exit_at = _safe_dt(idx[min(i + hold_bars, len(df) - 1)])
+            exit_price = float(opens[min(i + hold_bars, len(df) - 1)])
+
+            for j in range(i + 1, min(i + 1 + hold_bars, len(df))):
+                h = float(highs[j])
+                l = float(lows[j])
+                if l <= stop:
+                    exit_reason = "SL"
+                    exit_at = _safe_dt(idx[j])
+                    exit_price = stop * (1.0 - float(slip_pct))
+                    break
+                if h >= take:
+                    exit_reason = "TP"
+                    exit_at = _safe_dt(idx[j])
+                    exit_price = take * (1.0 - float(slip_pct))
+                    break
+
+            pnl = (exit_price - entry) * shares
+            equity += pnl
+            equity_curve.append(equity)
+            pnls.append(pnl)
+
+            holding_minutes = int(round((exit_at - entry_at).total_seconds() / 60.0))
+            trades.append(
+                _Trade(
+                    ticker=ticker,
+                    strategy="VWAP",
+                    side="LONG",
+                    entry_at=entry_at,
+                    entry_price=float(entry),
+                    exit_at=exit_at,
+                    exit_price=float(exit_price),
+                    exit_reason=exit_reason,
+                    size=int(shares),
+                    pnl_yen=int(round(pnl)),
+                    rr=float(rr),
+                    holding_minutes=max(0, holding_minutes),
+                )
+            )
+            continue
+
+        # 売りのみ（VWAP下）: 触れたら入る
+        if price < vwap and float(highs[i]) >= vwap * 0.9995:
+            entry_at = _safe_dt(idx[i + 1])
+            entry = nxt_open * (1.0 - float(slip_pct))
+            stop = entry * (1.0 + float(stop_pct))
+            take = entry * (1.0 - float(stop_pct) * float(rr))
+
+            exit_reason = "TIME"
+            exit_at = _safe_dt(idx[min(i + hold_bars, len(df) - 1)])
+            exit_price = float(opens[min(i + hold_bars, len(df) - 1)])
+
+            for j in range(i + 1, min(i + 1 + hold_bars, len(df))):
+                h = float(highs[j])
+                l = float(lows[j])
+                if h >= stop:
+                    exit_reason = "SL"
+                    exit_at = _safe_dt(idx[j])
+                    exit_price = stop * (1.0 + float(slip_pct))
+                    break
+                if l <= take:
+                    exit_reason = "TP"
+                    exit_at = _safe_dt(idx[j])
+                    exit_price = take * (1.0 + float(slip_pct))
+                    break
+
+            pnl = (entry - exit_price) * shares
+            equity += pnl
+            equity_curve.append(equity)
+            pnls.append(pnl)
+
+            holding_minutes = int(round((exit_at - entry_at).total_seconds() / 60.0))
+            trades.append(
+                _Trade(
+                    ticker=ticker,
+                    strategy="VWAP",
+                    side="SHORT",
+                    entry_at=entry_at,
+                    entry_price=float(entry),
+                    exit_at=exit_at,
+                    exit_price=float(exit_price),
+                    exit_reason=exit_reason,
+                    size=int(shares),
+                    pnl_yen=int(round(pnl)),
+                    rr=float(rr),
+                    holding_minutes=max(0, holding_minutes),
+                )
+            )
+            continue
+
+    return trades, pnls, equity_curve
+
+
+# =========================================================
+# 公開API：詳細バックテストを Universe（複数銘柄）で回す
+# =========================================================
 @transaction.atomic
 def run_detailed_backtests_for_universe(
     *,
     snapshot: AutoTradeSettingSnapshot,
     picks: List[str],
-    windows: Tuple[int, int, int] = BACKTEST_WINDOWS,
-    date=None,
-    rr_breakout: float = 2.0,
-    rr_vwap: float = 1.5,
-    base_equity_yen: int = 1_000_000,
-) -> AutoTradeDailyState:
+    windows: Optional[List[int]] = None,
+    strategies: Optional[List[str]] = None,
+    asof_date=None,
+    force: bool = False,
+) -> Dict[str, Any]:
     """
-    詳細バックテスト（戦略別×window別）を全実行し、
-    - AutoTradeBacktestRun 作成
-    - AutoTradeExecution bulk_create
-    - DailyState.backtest 更新（UI互換）
-    - gate 判定まで
+    詳細バックテストを「複数銘柄」に対して実行し、
+    - AutoTradeBacktestRunDetail（実行メタ）を作る
+    - AutoTradeExecution（1トレード=1レコード）を作る
+    - gate判定に使える metrics を “返す”（保存しない）
     を行う。
 
-    ※ morning_prepare から呼ぶ想定
+    返り値（例）:
+    {
+      "BREAKOUT": {
+        "20": {"metrics": {...}, "trades": 123},
+        "60": {"metrics": {...}, "trades": 300},
+        "120":{"metrics": {...}, "trades": 600}
+      },
+      "VWAP": {...}
+    }
     """
 
-    if date is None:
-        date = timezone.localdate()
+    if asof_date is None:
+        asof_date = timezone.localdate()
 
-    state, _ = AutoTradeDailyState.objects.get_or_create(
-        date=date,
-        defaults={"gate_level": "STOP", "gate_reason": ""},
-    )
+    windows = windows or list(getattr(settings, "AUTOTRADE_BT_WINDOWS", [20, 60, 120]))
+    strategies = strategies or ["BREAKOUT", "VWAP"]
 
-    # 非常停止中は何もしない（ジョブルール）
-    if is_emergency_stopped(state):
-        return state
+    # Snapshot（固定設定）から優先して読む（無ければ settings フォールバック）
+    snap = snapshot.snapshot if isinstance(snapshot.snapshot, dict) else {}
+
+    slip_pct = float(snap.get("slippage_pct", getattr(settings, "AUTOTRADE_SLIPPAGE_PCT", 0.0008)))
+    risk_trade_pct = float(snap.get("risk_trade_pct", getattr(settings, "AUTOTRADE_RISK_TRADE_PCT", 0.0015)))
+
+    rr_breakout = float(snap.get("rr_breakout", getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0)))
+    rr_vwap = float(snap.get("rr_vwap", getattr(settings, "AUTOTRADE_RR_VWAP", 1.5)))
+
+    # stop_pct は “将来パラメータ化” 前提でここに置く（今は初期値）
+    stop_pct_breakout = float(snap.get("stop_pct_breakout", 0.0030))
+    stop_pct_vwap = float(snap.get("stop_pct_vwap", 0.0025))
+
+    base_equity_yen = int(snap.get("base_equity_yen", getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)))
 
     user = snapshot.user
-    snapshot_dict = snapshot.snapshot if isinstance(snapshot.snapshot, dict) else {}
 
-    bt_out: Dict[str, Dict[str, Any]] = {"BREAKOUT": {}, "VWAP": {}}
+    result: Dict[str, Dict[str, Any]] = {s: {} for s in strategies}
 
-    # gate用（window -> metrics）
-    # gate_from_backtests は {20:{...},60:{...}} 形式も {20:{"metrics":{...}}} 形式も許容
-    # ここでは後者で統一
-    gate_input_by_strategy: Dict[str, Dict[int, Dict[str, Any]]] = {"BREAKOUT": {}, "VWAP": {}}
+    for strategy in strategies:
+        for window_days in windows:
+            # -------------------------------------------------
+            # 再実行の増殖を防ぐ（同条件があればスキップ）
+            # -------------------------------------------------
+            if not force:
+                exists = AutoTradeBacktestRunDetail.objects.filter(
+                    user=user,
+                    snapshot=snapshot,
+                    strategy=strategy,
+                    window_days=int(window_days),
+                    end_date=asof_date,
+                ).exists()
+                if exists:
+                    # 既に同条件の実行がある → 返り値は最低限のダミー
+                    result[strategy][str(window_days)] = {
+                        "metrics": {"trades": 0, "profit_factor": 0.0, "max_drawdown_pct": 1.0, "total_pnl_yen": 0},
+                        "trades": 0,
+                        "skipped": True,
+                    }
+                    continue
 
-    for strategy in ("BREAKOUT", "VWAP"):
-        for w in windows:
-            # runメタを作成
-            run_meta = AutoTradeBacktestRun.objects.create(
+            # -------------------------------------------------
+            # 実行メタ（RunDetail）を作る
+            # -------------------------------------------------
+            # start/end は “厳密に営業日” に寄せるのは次の強化。
+            # 今は window_days をざっくり「過去window日」として保存する。
+            start_date = asof_date - timezone.timedelta(days=int(window_days) * 2)  # バッファ（休日を吸収）
+            end_date = asof_date
+
+            run_detail = AutoTradeBacktestRunDetail.objects.create(
                 user=user,
                 snapshot=snapshot,
                 strategy=strategy,
-                window_days=int(w),
-                start_date=date,   # v1: 「実データ期間の厳密な日付」は次フェーズで算出（fetcher依存）
-                end_date=date,
+                window_days=int(window_days),
+                start_date=start_date,
+                end_date=end_date,
+                executed_at=timezone.now(),
             )
 
-            executions_to_create: List[AutoTradeExecution] = []
+            # -------------------------------------------------
+            # 各銘柄をシミュレーション → trades を溜める
+            # -------------------------------------------------
+            all_trades: List[_Trade] = []
+            all_pnls: List[float] = []
+            equity_curve_agg: List[float] = [float(base_equity_yen)]
 
-            # 全銘柄を回して “詳細トレード列” を作る
-            for t in picks:
+            for ticker in picks:
                 if strategy == "BREAKOUT":
-                    r = run_breakout_detail(
-                        snapshot_dict=snapshot_dict,
-                        ticker=t,
-                        window_days=int(w),
-                        rr=float(rr_breakout),
-                        base_equity_yen=int(base_equity_yen),
+                    trades, pnls, eq = _simulate_breakout(
+                        ticker=ticker,
+                        window_days=int(window_days),
+                        rr=rr_breakout,
+                        slip_pct=slip_pct,
+                        stop_pct=stop_pct_breakout,
+                        risk_trade_pct=risk_trade_pct,
+                        base_equity_yen=base_equity_yen,
                     )
-                else:
-                    r = run_vwap_detail(
-                        snapshot_dict=snapshot_dict,
-                        ticker=t,
-                        window_days=int(w),
-                        rr=float(rr_vwap),
-                        base_equity_yen=int(base_equity_yen),
-                    )
-
-                for x in (r.get("trades") or []):
-                    executions_to_create.append(
-                        AutoTradeExecution(
-                            user=user,
-                            mode="BACKTEST",
-                            snapshot=snapshot,
-                            strategy=strategy,
-                            ticker=str(x["ticker"]),
-                            side=str(x.get("side") or "LONG"),
-                            entry_at=x["entry_at"],
-                            entry_price=float(x["entry_price"]),
-                            size=int(x["size"]),
-                            exit_at=x["exit_at"],
-                            exit_price=float(x["exit_price"]),
-                            exit_reason=str(x["exit_reason"]),
-                            pnl_yen=int(x["pnl_yen"]),
-                            rr=float(x["rr"]),
-                            holding_minutes=int(x["holding_minutes"]),
-                        )
+                else:  # VWAP
+                    trades, pnls, eq = _simulate_vwap(
+                        ticker=ticker,
+                        window_days=int(window_days),
+                        rr=rr_vwap,
+                        slip_pct=slip_pct,
+                        stop_pct=stop_pct_vwap,
+                        risk_trade_pct=risk_trade_pct,
+                        base_equity_yen=base_equity_yen,
                     )
 
-            # bulk_create（速度&一括）
-            if executions_to_create:
-                AutoTradeExecution.objects.bulk_create(executions_to_create, batch_size=1000)
+                all_trades.extend(trades)
+                all_pnls.extend(pnls)
 
-            # このrunのexecutionを読み直してmetrics算出（確実にDBの事実に基づく）
-            qs = AutoTradeExecution.objects.filter(
-                user=user,
-                mode="BACKTEST",
-                snapshot=snapshot,
-                strategy=strategy,
-            ).order_by("entry_at")
+                # 合成の equity_curve は厳密じゃないが DD の目安には使える
+                # （次フェーズで “ポートフォリオ同時制約” を入れると改善される）
+                if eq:
+                    equity_curve_agg.append(float(eq[-1]))
 
-            # v1では「run単位の識別」をexecution側に持ってないので、
-            # ここは windowごとの実行を「run_meta作成→直後に作成したexecution」で完璧に紐付けられない。
-            # ただし、現状は “詳細バックテストを完成させる” が目的なので、
-            # v1は metrics をエンジン結果から算出し、execution保存は監査ログとして成立させる。
-            # （次フェーズで execution に run_id(FK) を追加して完全紐付けする）
-            #
-            # なので v1 metrics は “今回生成した executions_to_create” から算出する。
-            if executions_to_create:
-                tmp_metrics = _summarize_from_executions(executions_to_create, int(base_equity_yen))
-            else:
-                tmp_metrics = _summarize_from_executions([], int(base_equity_yen))
+            # -------------------------------------------------
+            # Execution をDBへ保存（1トレード=1レコード）
+            # -------------------------------------------------
+            exec_objs: List[AutoTradeExecution] = []
+            for t in all_trades:
+                exec_objs.append(
+                    AutoTradeExecution(
+                        user=user,
+                        snapshot=snapshot,
+                        mode="BACKTEST",
+                        strategy=t.strategy,
+                        ticker=t.ticker,
+                        side=t.side,
+                        entry_at=t.entry_at,
+                        entry_price=float(t.entry_price),
+                        size=int(t.size),
+                        exit_at=t.exit_at,
+                        exit_price=float(t.exit_price),
+                        exit_reason=t.exit_reason,
+                        pnl_yen=int(t.pnl_yen),
+                        rr=float(t.rr),
+                        holding_minutes=int(t.holding_minutes),
+                        created_at=timezone.now(),
+                    )
+                )
 
-            row = _as_ui_row(tmp_metrics)
-            row["run_id"] = int(run_meta.id)
+            if exec_objs:
+                AutoTradeExecution.objects.bulk_create(exec_objs, batch_size=1000)
 
-            bt_out[strategy][str(w)] = row
-            gate_input_by_strategy[strategy][int(w)] = {"metrics": tmp_metrics}
+            # -------------------------------------------------
+            # メトリクス算出（保存しない / 返すだけ）
+            # -------------------------------------------------
+            metrics = _summarize_metrics(all_pnls, equity_curve_agg)
 
-    # -----------------------------------------------------
-    # gate 判定：今日の戦略は state.strategy があればそれ、なければ BREAKOUT
-    # -----------------------------------------------------
-    chosen_strategy = state.strategy or "BREAKOUT"
-    bt_for_gate = gate_input_by_strategy.get(chosen_strategy, {})
-    gate_level, gate_reason = gate_from_backtests(bt_for_gate)
+            result[strategy][str(window_days)] = {
+                "metrics": metrics,
+                "trades": int(metrics.get("trades") or 0),
+                "run_detail_id": run_detail.id,
+                "skipped": False,
+            }
 
-    state.gate_level = gate_level
-    state.gate_reason = gate_reason
-
-    # UI互換：そのまま backtest に保存
-    state.backtest = bt_out
-    state.updated_at = timezone.now()
-    state.save()
-
-    return state
+    return result
