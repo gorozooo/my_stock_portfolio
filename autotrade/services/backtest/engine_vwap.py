@@ -135,6 +135,7 @@ def run_vwap(
                             AutoTradeExecution.objects.create(
                                 user=user,
                                 snapshot=snapshot,
+                                run_detail=run_meta,  # ★ 追加
                                 mode=str(mode),
                                 strategy="VWAP",
                                 ticker=ticker,
@@ -172,6 +173,7 @@ def run_vwap(
                             AutoTradeExecution.objects.create(
                                 user=user,
                                 snapshot=snapshot,
+                                run_detail=run_meta,  # ★ 追加
                                 mode=str(mode),
                                 strategy="VWAP",
                                 ticker=ticker,
@@ -226,6 +228,7 @@ def run_vwap(
                             AutoTradeExecution.objects.create(
                                 user=user,
                                 snapshot=snapshot,
+                                run_detail=run_meta,  # ★ 追加
                                 mode=str(mode),
                                 strategy="VWAP",
                                 ticker=ticker,
@@ -263,6 +266,7 @@ def run_vwap(
                             AutoTradeExecution.objects.create(
                                 user=user,
                                 snapshot=snapshot,
+                                run_detail=run_meta,  # ★ 追加
                                 mode=str(mode),
                                 strategy="VWAP",
                                 ticker=ticker,
