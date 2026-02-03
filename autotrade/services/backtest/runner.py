@@ -49,8 +49,8 @@ STRATEGIES = ("BREAKOUT", "VWAP")
 # =========================================================
 @transaction.atomic
 def run_detailed_backtests_for_universe(
-    *,
     snapshot: AutoTradeSettingSnapshot,
+    *,
     picks: List[str],
     target_date: date | None = None,
     force: bool = False,
@@ -120,8 +120,7 @@ def run_detailed_backtests_for_universe(
             # ---- 各銘柄で Execution 生成 ----
             for ticker in picks:
                 if strategy == "BREAKOUT":
-                    executions = run_breakout(
-                        *,
+                    run_breakout(
                         ticker=ticker,
                         window_days=window,
                         snapshot=snapshot,
@@ -129,17 +128,13 @@ def run_detailed_backtests_for_universe(
                         run_meta=run_meta,
                     )
                 else:
-                    executions = run_vwap(
-                        *,
+                    run_vwap(
                         ticker=ticker,
                         window_days=window,
                         snapshot=snapshot,
                         mode="BACKTEST",
                         run_meta=run_meta,
                     )
-
-                # engine は AutoTradeExecution を直接作る想定
-                # 戻り値は使わない
 
             # ---- Execution 集計 ----
             qs = AutoTradeExecution.objects.filter(
@@ -160,8 +155,13 @@ def run_detailed_backtests_for_universe(
         if window_metrics_all:
             metrics_by_window[window] = {
                 "trades": sum(m["trades"] for m in window_metrics_all),
-                "profit_factor": sum(m["profit_factor"] for m in window_metrics_all) / len(window_metrics_all),
-                "max_drawdown_pct": max(m["max_drawdown_pct"] for m in window_metrics_all),
+                "profit_factor": (
+                    sum(m["profit_factor"] for m in window_metrics_all)
+                    / len(window_metrics_all)
+                ),
+                "max_drawdown_pct": max(
+                    m["max_drawdown_pct"] for m in window_metrics_all
+                ),
             }
         else:
             metrics_by_window[window] = {}
