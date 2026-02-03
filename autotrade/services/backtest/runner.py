@@ -44,6 +44,72 @@ DEFAULT_BACKTEST_WINDOWS: Tuple[int, int, int] = (20, 60, 120)
 STRATEGIES: Tuple[str, str] = ("BREAKOUT", "VWAP")
 
 
+def _merge_gate_results(
+    *,
+    gate_vwap: Dict[str, Any],
+    gate_breakout: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    戦略別ゲートを統合して、最終の gate_level / 理由 / 稼働戦略 を決める。
+
+    ルール（おすすめ・確定）：
+    - VWAPがSTOPなら最終STOP（安全第一）
+    - VWAPがLIGHT/FULLで、BREAKOUTがFULLなら最終FULL（両方OK）
+    - それ以外は最終LIGHT（VWAPのみ稼働）
+    """
+    lv_v = str((gate_vwap or {}).get("gate_level") or "STOP")
+    lv_b = str((gate_breakout or {}).get("gate_level") or "STOP")
+
+    active: List[str] = []
+    disabled: List[str] = []
+
+    if lv_v == "STOP":
+        final = "STOP"
+        disabled = ["VWAP", "BREAKOUT"]
+    else:
+        # VWAPは動かす（LIGHT or FULL）
+        active.append("VWAP")
+        if lv_b == "FULL":
+            final = "FULL"
+            active.append("BREAKOUT")
+        else:
+            final = "LIGHT"
+            disabled.append("BREAKOUT")
+
+    # 理由文（VWAP主軸 + BREAKOUTの扱い）
+    reasons: List[str] = []
+
+    # 先頭に最終宣言
+    if final == "FULL":
+        reasons.append("VWAP と BREAKOUT の両方が条件を満たしたため、フル稼働します。")
+    elif final == "LIGHT":
+        reasons.append("VWAP は条件を満たしましたが、BREAKOUT は不安定なため、VWAPのみ稼働します。")
+    else:
+        reasons.append("VWAP が条件を満たさないため、安全のため停止します。")
+
+    # 各戦略の理由
+    if gate_vwap:
+        rs = gate_vwap.get("reasons") or []
+        if rs:
+            reasons.append("【VWAP判定】")
+            reasons.extend([str(x) for x in rs])
+
+    if gate_breakout:
+        rs = gate_breakout.get("reasons") or []
+        if rs:
+            reasons.append("【BREAKOUT判定】")
+            reasons.extend([str(x) for x in rs])
+
+    return {
+        "gate_level": final,
+        "reasons": reasons,
+        "active_strategies": active,
+        "disabled_strategies": disabled,
+        "gate_vwap": gate_vwap,
+        "gate_breakout": gate_breakout,
+    }
+
+
 # =========================================================
 # 詳細バックテスト（Execution基準）
 # =========================================================
@@ -88,11 +154,7 @@ def run_detailed_backtests_for_universe(
     # 入力の正規化
     # -----------------------------------------------------
     picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
-    bt_windows = tuple(
-        int(x) for x in (
-            windows or tuple(getattr(settings, "AUTOTRADE_BT_WINDOWS", DEFAULT_BACKTEST_WINDOWS))
-        )
-    )
+    bt_windows = tuple(int(x) for x in (windows or tuple(getattr(settings, "AUTOTRADE_BT_WINDOWS", DEFAULT_BACKTEST_WINDOWS))))
     rr_b = float(rr_breakout if rr_breakout is not None else getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0))
     rr_v = float(rr_vwap if rr_vwap is not None else getattr(settings, "AUTOTRADE_RR_VWAP", 1.5))
 
@@ -106,111 +168,174 @@ def run_detailed_backtests_for_universe(
 
     # -----------------------------------------------------
     # 既存データ削除（force）
-    # - run_detail ごと消す（run_detail FK が CASCADE なので executions も消える）
+    #   - run_detail基準で掃除（created_at/date混在事故を避ける）
     # -----------------------------------------------------
     if force:
-        AutoTradeBacktestRunDetail.objects.filter(
+        # 同日の run_detail を拾ってまとめて消す
+        details = AutoTradeBacktestRunDetail.objects.filter(
             snapshot=snapshot,
             executed_at__date=target_date,
-        ).delete()
+        )
+        AutoTradeExecution.objects.filter(run_detail__in=details).delete()
+        details.delete()
 
-        # 追加保険：run_detail無しで紛れ込んだBACKTESTが残っても困るので日付で掃除
-        AutoTradeExecution.objects.filter(
-            snapshot=snapshot,
-            mode="BACKTEST",
-            created_at__date=target_date,
-        ).delete()
-
-    # picks が空なら何もしない（ただし状態は返す）
+    # picks が空なら何もしない（ただし状態は残す）
     if not picks:
         state.gate_level = "STOP"
         state.gate_reason = "銘柄が0件のため、詳細バックテストを実行できません。"
+        state.strategy = ""
+        state.strategy_decision = {
+            "mode": "STOP",
+            "active": [],
+            "disabled": ["VWAP", "BREAKOUT"],
+            "note": "no_picks",
+        }
+        state.backtest = {
+            "meta": {"date": str(target_date), "note": "no_picks"},
+            "by_window": {},
+            "gate": {},
+        }
         state.updated_at = timezone.now()
         state.save()
         return {"ok": False, "reason": "no_picks"}
 
-    metrics_by_window: Dict[int, Dict[str, Any]] = {}
+    # =====================================================
+    # window × strategy のメトリクス
+    #   metrics_by_window_strategy[window][strategy] = metrics
+    # =====================================================
+    metrics_by_window_strategy: Dict[int, Dict[str, Dict[str, Any]]] = {}
 
-    # -----------------------------------------------------
-    # window × strategy ごとに実行
-    # -----------------------------------------------------
     for window in bt_windows:
-        window_metrics_all: List[Dict[str, Any]] = []
+        metrics_by_window_strategy[int(window)] = {}
 
         for strategy in STRATEGIES:
-            # ---- 実行メタ作成 ----
-            run_meta = AutoTradeBacktestRunDetail.objects.create(
-                user=user,
+            # -------------------------------------------------
+            # 既存 run_detail を再利用（同日再実行で暴増殖を防ぐ）
+            # -------------------------------------------------
+            run_detail = AutoTradeBacktestRunDetail.objects.filter(
                 snapshot=snapshot,
                 strategy=str(strategy),
                 window_days=int(window),
-                start_date=target_date,
-                end_date=target_date,
-            )
+                executed_at__date=target_date,
+            ).order_by("-id").first()
 
-            # ---- 各銘柄で Execution 生成 ----
-            for ticker in picks:
-                if strategy == "BREAKOUT":
-                    run_breakout(
-                        ticker=ticker,
-                        window_days=int(window),
-                        rr=rr_b,
-                        snapshot=snapshot,
-                        mode="BACKTEST",
-                        run_meta=run_meta,
-                        target_date=target_date,
-                    )
-                else:
-                    run_vwap(
-                        ticker=ticker,
-                        window_days=int(window),
-                        rr=rr_v,
-                        snapshot=snapshot,
-                        mode="BACKTEST",
-                        run_meta=run_meta,
-                        target_date=target_date,
-                    )
+            if (run_detail is None) or force:
+                run_detail = AutoTradeBacktestRunDetail.objects.create(
+                    user=user,
+                    snapshot=snapshot,
+                    strategy=str(strategy),
+                    window_days=int(window),
+                    start_date=target_date,
+                    end_date=target_date,
+                )
 
-            # ---- Execution 集計（この run_meta だけ）----
-            qs = AutoTradeExecution.objects.filter(
-                run_detail=run_meta,
-            )
+            # -------------------------------------------------
+            # 既に Execution があるなら（force=False）再生成しない
+            # -------------------------------------------------
+            exists_exec = AutoTradeExecution.objects.filter(run_detail=run_detail).exists()
+            if (not exists_exec) or force:
+                # 念のため、同run_detailのExecutionが残ってたら掃除（force時）
+                if force and exists_exec:
+                    AutoTradeExecution.objects.filter(run_detail=run_detail).delete()
 
-            metrics = summarize_executions(
-                qs=qs,
-                base_equity=base_equity,
-            )
+                for ticker in picks:
+                    if strategy == "BREAKOUT":
+                        run_breakout(
+                            ticker=ticker,
+                            window_days=int(window),
+                            rr=rr_b,
+                            snapshot=snapshot,
+                            mode="BACKTEST",
+                            run_meta=run_detail,
+                            target_date=target_date,
+                        )
+                    else:
+                        run_vwap(
+                            ticker=ticker,
+                            window_days=int(window),
+                            rr=rr_v,
+                            snapshot=snapshot,
+                            mode="BACKTEST",
+                            run_meta=run_detail,
+                            target_date=target_date,
+                        )
 
-            window_metrics_all.append(metrics)
+            # -------------------------------------------------
+            # strategy × window の Execution を run_detail 基準で集計
+            # -------------------------------------------------
+            qs = AutoTradeExecution.objects.filter(run_detail=run_detail).order_by("exit_at")
+            metrics = summarize_executions(qs=qs, base_equity=base_equity)
+            metrics_by_window_strategy[int(window)][str(strategy)] = metrics
 
-        # ---- window 全体の代表値（strategy合算＋PF平均＋DD最大）----
-        if window_metrics_all:
-            metrics_by_window[int(window)] = {
-                "trades": int(sum(int(m.get("trades", 0)) for m in window_metrics_all)),
-                "profit_factor": float(
-                    sum(float(m.get("profit_factor", 0.0)) for m in window_metrics_all)
-                    / max(len(window_metrics_all), 1)
-                ),
-                "max_drawdown_pct": float(max(float(m.get("max_drawdown_pct", 1.0)) for m in window_metrics_all)),
-            }
-        else:
-            metrics_by_window[int(window)] = {}
+    # =====================================================
+    # 戦略別ゲート（gate.pyはそのまま使う）
+    # =====================================================
+    metrics_vwap: Dict[int, Dict[str, Any]] = {}
+    metrics_breakout: Dict[int, Dict[str, Any]] = {}
 
-    # -----------------------------------------------------
-    # gate 判定
-    # -----------------------------------------------------
-    gate_result = judge_multi_window(metrics_by_window)
+    for w in bt_windows:
+        w = int(w)
+        metrics_vwap[w] = (metrics_by_window_strategy.get(w) or {}).get("VWAP") or {}
+        metrics_breakout[w] = (metrics_by_window_strategy.get(w) or {}).get("BREAKOUT") or {}
 
-    # -----------------------------------------------------
-    # DailyState 更新
-    # -----------------------------------------------------
-    state.gate_level = gate_result.get("gate_level") or "STOP"
-    state.gate_reason = "\n".join(gate_result.get("reasons") or [])
+    gate_vwap = judge_multi_window(metrics_vwap)
+    gate_breakout = judge_multi_window(metrics_breakout)
+
+    merged = _merge_gate_results(gate_vwap=gate_vwap, gate_breakout=gate_breakout)
+
+    # =====================================================
+    # DailyState 更新（iPhone 1画面の意思決定をここで確定）
+    # =====================================================
+    final_level = str(merged.get("gate_level") or "STOP")
+    active = list(merged.get("active_strategies") or [])
+    disabled = list(merged.get("disabled_strategies") or [])
+
+    # LIGHT時は VWAPのみを明示
+    if final_level == "FULL":
+        state.strategy = "MIXED"
+    elif final_level == "LIGHT":
+        state.strategy = "VWAP"
+    else:
+        state.strategy = ""
+
+    state.gate_level = final_level
+    state.gate_reason = "\n".join([str(x) for x in (merged.get("reasons") or []) if str(x).strip()])
+    state.strategy_decided_at = timezone.now()
+    state.strategy_decision = {
+        "mode": final_level,
+        "active": active,
+        "disabled": disabled,
+        "rr": {"BREAKOUT": rr_b, "VWAP": rr_v},
+        "windows": list(bt_windows),
+    }
+
+    # 可視化用（Bで使う）
+    state.backtest = {
+        "meta": {
+            "date": str(target_date),
+            "base_equity_yen": int(base_equity),
+            "rr_breakout": float(rr_b),
+            "rr_vwap": float(rr_v),
+        },
+        "by_window": metrics_by_window_strategy,
+        "gate": {
+            "final": {"gate_level": final_level, "active": active, "disabled": disabled},
+            "VWAP": gate_vwap,
+            "BREAKOUT": gate_breakout,
+        },
+    }
+
     state.updated_at = timezone.now()
     state.save()
 
     return {
         "ok": True,
-        "gate": gate_result,
-        "metrics": metrics_by_window,
+        "gate": {
+            "final": final_level,
+            "vwap": gate_vwap,
+            "breakout": gate_breakout,
+            "active": active,
+            "disabled": disabled,
+        },
+        "metrics": metrics_by_window_strategy,
     }
