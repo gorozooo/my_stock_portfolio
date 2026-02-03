@@ -33,44 +33,36 @@ def _profit_factor(pnls: List[int]) -> float:
 
 def _max_drawdown(equity_curve: List[int]) -> float:
     """
-    最大ドローダウン（0〜1）
-
-    定義：
-      DD = (peak - equity) / peak
+    max drawdown (0.0〜1.0)
 
     注意：
-    - equity が 0 以下になると DD が 100%超になり得るが、
-      gate の入力としては「破綻」扱いで十分なので 1.0 にクランプする。
-    - 「なぜ破綻したか」は summarize_executions 側で min_equity を返して可視化する。
+    - equity が 0 以下に落ちると通常のDD定義が破綻するため、
+      その時点で「破綻扱い」として 1.0 を返す。
     """
     if not equity_curve:
-        return 0.0
+        return 1.0
 
     peak = equity_curve[0]
-    max_dd = 0.0
+    if peak <= 0:
+        return 1.0
 
+    max_dd = 0.0
     for v in equity_curve:
+        # 破綻（資産0以下）＝ DD 100%
+        if v <= 0:
+            return 1.0
+
         if v > peak:
             peak = v
 
-        # peak が 0 以下なら、評価不能（破綻扱い）
         if peak <= 0:
             return 1.0
 
         dd = (peak - v) / peak
-
-        # equity が 0 を割ると dd が 1 を超えるので、最大1.0にクランプ
-        if dd > 1.0:
-            dd = 1.0
-
         if dd > max_dd:
             max_dd = dd
 
-        # すでに 100% ならこれ以上悪化しないので早期終了
-        if max_dd >= 1.0:
-            return 1.0
-
-    return float(max_dd)
+    return max_dd
 
 
 # =========================================================
@@ -92,10 +84,8 @@ def summarize_executions(
       "profit_factor": 1.18,
       "max_drawdown_pct": 0.032,
       "total_pnl": 128000,
-
-      # デバッグ用（UIやgateは無視してOK）
-      "min_equity": 930000,
-      "max_equity": 1042000,
+      "min_equity": 980000,
+      "max_equity": 1120000,
     }
     """
 
@@ -117,21 +107,24 @@ def summarize_executions(
 
     wins = 0
 
-    # exit_at が同値のときに順序がブレると equity 曲線が揺れるので id で安定化
-    for e in qs.order_by("exit_at", "id"):
-        pnl = int(e.pnl_yen or 0)
-        pnls.append(pnl)
+    min_eq = equity
+    max_eq = equity
 
+    for e in qs.order_by("exit_at"):
+        pnl = int(e.pnl_yen)
+        pnls.append(pnl)
         equity += pnl
         equity_curve.append(equity)
+
+        if equity < min_eq:
+            min_eq = equity
+        if equity > max_eq:
+            max_eq = equity
 
         if pnl > 0:
             wins += 1
 
     win_rate = wins / trades if trades > 0 else 0.0
-
-    min_equity = min(equity_curve) if equity_curve else equity
-    max_equity = max(equity_curve) if equity_curve else equity
 
     return {
         "trades": int(trades),
@@ -139,6 +132,6 @@ def summarize_executions(
         "profit_factor": round(float(_profit_factor(pnls)), 3),
         "max_drawdown_pct": round(float(_max_drawdown(equity_curve)), 4),
         "total_pnl": int(sum(pnls)),
-        "min_equity": int(min_equity),
-        "max_equity": int(max_equity),
+        "min_equity": int(min_eq),
+        "max_equity": int(max_eq),
     }
