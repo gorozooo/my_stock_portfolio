@@ -6,27 +6,22 @@
 - 毎朝（cron）で動く「準備ジョブ」です。
 
 役割：
-  1) 銘柄候補（candidate）を読み込む
-  2) 今日のピック（5〜10）を作る（現状は暫定で先頭10）
-  3) 20/60/120 のバックテストを「戦略ごと」に実行して保存する
+  1) 今日のピック（5〜10）を作る
+  2) 詳細バックテスト（戦略別 × 20/60/120）を実行して保存する
 
 重要な設計ルール：
 - 非常停止（emergency_stop）が有効な日は、一切の状態更新を行わない
 - 止める責務は job に集約し、services は純粋関数として保つ
-
-初心者ポイント：
-- まずは「毎日同じ流れで状態が作られる」ことを優先
-- 銘柄選定ロジック（出来高・ボラ等）は次フェーズで強化します
 """
 
 from datetime import date
 from django.conf import settings
 from django.utils import timezone
 
-from autotrade.models import AutoTradeDailyState
+from autotrade.models import AutoTradeDailyState, AutoTradeSettingSnapshot
 from autotrade.services.universe.service import build_daily_universe
-from autotrade.services.backtest.aggregate import run_backtests_for_universe
 from autotrade.services.common.guards import is_emergency_stopped
+from autotrade.services.backtest.runner import run_detailed_backtests_for_universe
 
 
 def run():
@@ -37,21 +32,36 @@ def run():
     # ★ 非常停止ガード
     # =========================================================
     if is_emergency_stopped(state):
-        # 非常停止中は universe / backtest を一切更新しない
         return
 
-    # 1) 今日の銘柄（5〜10）を作る（現状：暫定ロジック）
+    # 1) 今日の銘柄（5〜10）
     universe = build_daily_universe(limit=10)
-
-    # 2) バックテスト（戦略別 × 20/60/120）
-    bt = run_backtests_for_universe(
-        picks=[x["ticker"] for x in universe.get("picks", [])],
-        windows=settings.AUTOTRADE_BT_WINDOWS,
-        rr_breakout=settings.AUTOTRADE_RR_BREAKOUT,
-        rr_vwap=settings.AUTOTRADE_RR_VWAP,
-    )
+    picks = [x["ticker"] for x in universe.get("picks", [])]
 
     state.universe = universe
-    state.backtest = bt
     state.updated_at = timezone.now()
     state.save()
+
+    # 2) 本番採用中（ACTIVE）のSnapshotを使う（なければ停止扱い）
+    snapshot = (
+        AutoTradeSettingSnapshot.objects
+        .filter(status="ACTIVE")
+        .order_by("-created_at")
+        .first()
+    )
+
+    if not snapshot or not picks:
+        # snapshot未設定や銘柄なしなら、backtestは空のまま
+        state.updated_at = timezone.now()
+        state.save()
+        return
+
+    # 3) 詳細バックテスト実行（DB保存＋DailyState更新＋gate判定）
+    run_detailed_backtests_for_universe(
+        snapshot=snapshot,
+        picks=picks,
+        windows=tuple(getattr(settings, "AUTOTRADE_BT_WINDOWS", [20, 60, 120])),
+        rr_breakout=float(getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0)),
+        rr_vwap=float(getattr(settings, "AUTOTRADE_RR_VWAP", 1.5)),
+        base_equity_yen=int(getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)),
+    )
