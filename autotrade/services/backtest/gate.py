@@ -30,30 +30,69 @@ GATE_THRESHOLDS = {
 }
 
 
+def _yen(x: Any) -> str:
+    try:
+        return f"{int(x):,}円"
+    except Exception:
+        return "0円"
+
+
+def _pct(x: Any) -> str:
+    try:
+        return f"{float(x) * 100:.1f}%"
+    except Exception:
+        return "0.0%"
+
+
 def _judge_single(metrics: Dict[str, Any]) -> Tuple[str, List[str]]:
+    """
+    metrics には summarize_executions の戻り値（trades/PF/DD/円分解）が入る想定。
+    """
     dd = float(metrics.get("max_drawdown_pct") or 1.0)
     pf = float(metrics.get("profit_factor") or 0.0)
     trades = int(metrics.get("trades") or 0)
 
+    dd_yen = int(metrics.get("max_drawdown_yen") or 0)
+    sum_win = int(metrics.get("sum_win_yen") or 0)
+    sum_loss = int(metrics.get("sum_loss_yen") or 0)  # 負の値の想定
+    total_pnl = int(metrics.get("total_pnl") or 0)
+    wins = int(metrics.get("wins") or 0)
+    losses = int(metrics.get("losses") or 0)
+
     full = GATE_THRESHOLDS["FULL"]
     if dd <= full["max_dd_pct"] and pf >= full["min_pf"] and trades >= full["min_trades"]:
-        return "FULL", ["成績が安定しており、問題ありません。"]
+        reasons = [
+            "成績が安定しており、問題ありません。",
+            f"最大落ち込み：-{_yen(dd_yen)}（-{_pct(dd)}）",
+            f"勝ち合計：+{_yen(sum_win)} / 負け合計：-{_yen(abs(sum_loss))}（PF={pf:.2f}）",
+            f"純損益：{_yen(total_pnl)}（勝{wins} / 負{losses}、合計{trades}回）",
+        ]
+        return "FULL", reasons
 
     light = GATE_THRESHOLDS["LIGHT"]
-    light_reasons: List[str] = []
+    rs: List[str] = []
+
     if dd > light["max_dd_pct"]:
-        light_reasons.append(f"資産の落ち込みが大きめです（最大 {dd*100:.1f}%）。")
+        rs.append(f"最大落ち込み：-{_yen(dd_yen)}（-{_pct(dd)}）が大きめです。")
+    else:
+        rs.append(f"最大落ち込み：-{_yen(dd_yen)}（-{_pct(dd)}）")
+
     if pf < light["min_pf"]:
-        light_reasons.append(f"利益と損失がほぼ同じです（PF={pf:.2f}）。")
+        rs.append(f"勝ち合計：+{_yen(sum_win)} / 負け合計：-{_yen(abs(sum_loss))} → 勝ち切れていません（PF={pf:.2f}）。")
+    else:
+        rs.append(f"勝ち合計：+{_yen(sum_win)} / 負け合計：-{_yen(abs(sum_loss))}（PF={pf:.2f}）")
+
     if trades < light["min_trades"]:
-        light_reasons.append(f"取引回数が少なく、信頼性が低めです（{trades}回）。")
+        rs.append(f"取引回数：{trades}回（最低{light['min_trades']}回必要）で信頼性が低めです。")
+    else:
+        rs.append(f"取引回数：{trades}回（勝{wins} / 負{losses}）")
 
-    if not light_reasons:
-        return "LIGHT", ["成績は十分ではありませんが、大きな問題はありません。"]
+    rs.append(f"純損益：{_yen(total_pnl)}")
 
-    rs = list(light_reasons)
-    rs.append("現時点では自動売買を止めるのが安全です。")
-    return "STOP", rs
+    if dd <= light["max_dd_pct"] and pf >= light["min_pf"] and trades >= light["min_trades"]:
+        return "LIGHT", rs + ["慎重運用（LIGHT）なら稼働可能です。"]
+
+    return "STOP", rs + ["現時点では自動売買を止めるのが安全です。"]
 
 
 def judge_multi_window(metrics_by_window: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
@@ -89,16 +128,6 @@ def judge_multi_window(metrics_by_window: Dict[int, Dict[str, Any]]) -> Dict[str
 def gate_from_backtests(bt_by_window: Dict[int, Dict[str, Any]]) -> Tuple[str, str]:
     """
     旧 gate_service.gate_from_backtests の置き換え。
-
-    入力：
-      {
-        20: {"metrics": {...}}  または {"max_drawdown_pct":..., ...}
-        60: {"metrics": {...}}
-        120:{...}
-      }
-
-    戻り値：
-      (gate_level, reason_text)
     """
     metrics_by_window: Dict[int, Dict[str, Any]] = {}
     for w in (20, 60, 120):
