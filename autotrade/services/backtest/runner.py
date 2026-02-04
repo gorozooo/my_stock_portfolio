@@ -48,6 +48,9 @@ def _merge_gate_results(
     *,
     gate_vwap: Dict[str, Any],
     gate_breakout: Dict[str, Any],
+    rr_breakout: float,
+    rr_vwap: float,
+    windows: Tuple[int, ...],
 ) -> Dict[str, Any]:
     """
     戦略別ゲートを統合して、最終の gate_level / 理由 / 稼働戦略 を決める。
@@ -56,6 +59,10 @@ def _merge_gate_results(
     - VWAPがSTOPなら最終STOP（安全第一）
     - VWAPがLIGHT/FULLで、BREAKOUTがFULLなら最終FULL（両方OK）
     - それ以外は最終LIGHT（VWAPのみ稼働）
+
+    重要：
+    - “理由文の中身（数字/円など）”は gate.py に一本化する。
+      runner.py は見出し（構造）だけ足す。
     """
     lv_v = str((gate_vwap or {}).get("gate_level") or "STOP")
     lv_b = str((gate_breakout or {}).get("gate_level") or "STOP")
@@ -67,7 +74,6 @@ def _merge_gate_results(
         final = "STOP"
         disabled = ["VWAP", "BREAKOUT"]
     else:
-        # VWAPは動かす（LIGHT or FULL）
         active.append("VWAP")
         if lv_b == "FULL":
             final = "FULL"
@@ -76,29 +82,34 @@ def _merge_gate_results(
             final = "LIGHT"
             disabled.append("BREAKOUT")
 
-    # 理由文（VWAP主軸 + BREAKOUTの扱い）
+    # 理由文：
+    # - gate.py の reasons（円入り）をそのまま表示する
+    # - runner は構造だけ提供
     reasons: List[str] = []
 
-    # 先頭に最終宣言
+    # 最終サマリ（ここは“数字を入れない”＝gate.pyの主役化）
     if final == "FULL":
-        reasons.append("VWAP と BREAKOUT の両方が条件を満たしたため、フル稼働します。")
+        reasons.append("【最終判定】FULL（VWAP + BREAKOUT 稼働）")
     elif final == "LIGHT":
-        reasons.append("VWAP は条件を満たしましたが、BREAKOUT は不安定なため、VWAPのみ稼働します。")
+        reasons.append("【最終判定】LIGHT（VWAP のみ稼働）")
     else:
-        reasons.append("VWAP が条件を満たさないため、安全のため停止します。")
+        reasons.append("【最終判定】STOP（安全のため稼働しない）")
 
-    # 各戦略の理由
+    reasons.append(f"【設定】windows={list(windows)} / RR(BREAKOUT)={rr_breakout:.2f} / RR(VWAP)={rr_vwap:.2f}")
+
+    # VWAP（gate.pyの理由をそのまま）
     if gate_vwap:
         rs = gate_vwap.get("reasons") or []
         if rs:
             reasons.append("【VWAP判定】")
-            reasons.extend([str(x) for x in rs])
+            reasons.extend([str(x) for x in rs if str(x).strip()])
 
+    # BREAKOUT（gate.pyの理由をそのまま）
     if gate_breakout:
         rs = gate_breakout.get("reasons") or []
         if rs:
             reasons.append("【BREAKOUT判定】")
-            reasons.extend([str(x) for x in rs])
+            reasons.extend([str(x) for x in rs if str(x).strip()])
 
     return {
         "gate_level": final,
@@ -281,7 +292,13 @@ def run_detailed_backtests_for_universe(
     gate_vwap = judge_multi_window(metrics_vwap)
     gate_breakout = judge_multi_window(metrics_breakout)
 
-    merged = _merge_gate_results(gate_vwap=gate_vwap, gate_breakout=gate_breakout)
+    merged = _merge_gate_results(
+        gate_vwap=gate_vwap,
+        gate_breakout=gate_breakout,
+        rr_breakout=rr_b,
+        rr_vwap=rr_v,
+        windows=bt_windows,
+    )
 
     # =====================================================
     # DailyState 更新（iPhone 1画面の意思決定をここで確定）
