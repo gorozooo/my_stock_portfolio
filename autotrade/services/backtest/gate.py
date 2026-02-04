@@ -59,13 +59,18 @@ def _judge_single(metrics: Dict[str, Any]) -> Tuple[str, List[str]]:
     wins = int(metrics.get("wins") or 0)
     losses = int(metrics.get("losses") or 0)
 
+    # 勝率（%）: win_rate が来ても来なくてもOKにする
+    # - 基本は wins/trades を採用（数が一致するので一番信頼できる）
+    win_rate = (wins / trades) if trades > 0 else 0.0
+    win_rate_pct = win_rate * 100.0
+
     full = GATE_THRESHOLDS["FULL"]
     if dd <= full["max_dd_pct"] and pf >= full["min_pf"] and trades >= full["min_trades"]:
         reasons = [
             "成績が安定しており、問題ありません。",
             f"最大落ち込み：-{_yen(dd_yen)}（-{_pct(dd)}）",
             f"勝ち合計：+{_yen(sum_win)} / 負け合計：-{_yen(abs(sum_loss))}（PF={pf:.2f}）",
-            f"純損益：{_yen(total_pnl)}（勝{wins} / 負{losses}、合計{trades}回）",
+            f"純損益：{_yen(total_pnl)}（勝{wins} / 負{losses}、勝率{win_rate_pct:.1f}%、合計{trades}回）",
         ]
         return "FULL", reasons
 
@@ -85,7 +90,7 @@ def _judge_single(metrics: Dict[str, Any]) -> Tuple[str, List[str]]:
     if trades < light["min_trades"]:
         rs.append(f"取引回数：{trades}回（最低{light['min_trades']}回必要）で信頼性が低めです。")
     else:
-        rs.append(f"取引回数：{trades}回（勝{wins} / 負{losses}）")
+        rs.append(f"取引回数：{trades}回（勝{wins} / 負{losses}、勝率{win_rate_pct:.1f}%）")
 
     rs.append(f"純損益：{_yen(total_pnl)}")
 
