@@ -8,6 +8,7 @@
 役割：
   1) 今日のピック（5〜10）を作る
   2) 詳細バックテスト（戦略別 × 20/60/120）を実行して保存する
+  3) （追加）候補SnapshotがFULLなら自動でACTIVEへ昇格する
 
 重要な設計ルール：
 - 非常停止（emergency_stop）が有効な日は、一切の状態更新を行わない
@@ -22,6 +23,9 @@ from autotrade.models import AutoTradeDailyState, AutoTradeSettingSnapshot
 from autotrade.services.universe.service import build_daily_universe
 from autotrade.services.common.guards import is_emergency_stopped
 from autotrade.services.backtest.runner import run_detailed_backtests_for_universe
+
+# ★ 追加：自動昇格
+from autotrade.services.tuning.auto_promote import auto_promote_if_ready
 
 
 def run():
@@ -66,4 +70,12 @@ def run():
         rr_vwap=float(getattr(settings, "AUTOTRADE_RR_VWAP", 1.5)),
         base_equity_yen=int(getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)),
         force=True,
+    )
+
+    # 4) ★ 自動昇格（OK不要・FULLのみ）
+    #    - CANDIDATEが今日のExecutionでFULLならACTIVEにする（世代交代）
+    #    - no_full_candidate なら何もしない
+    auto_promote_if_ready(
+        target_date=today,
+        windows=list(getattr(settings, "AUTOTRADE_BT_WINDOWS", [20, 60])),
     )
