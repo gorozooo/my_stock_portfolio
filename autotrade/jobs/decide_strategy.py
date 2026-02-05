@@ -3,19 +3,16 @@
 [PATH] <project_root>/autotrade/jobs/decide_strategy.py
 
 このファイルは何？
-- 9:30 に動く「戦略決定＆ゲート確定ジョブ」です。
+- 9:30 に動く「戦略決定＆ルール確定ジョブ」です。
 
-役割（jobsの責務はこれだけにする）：
-  1) 今日の戦略（BREAKOUT or VWAP）を決める（decision/strategy.py）
-  2) その戦略のバックテスト結果から、3段階ゲート（FULL/LIGHT/STOP）を決める（backtest/gate.py）
-  3) その日の運用ルール（同時ポジ、最大回数など）を確定して保存する（decision/rules.py）
-
-初心者ポイント：
-- job は「時間で動く入口」だけ。
-- 中身（判断ロジック）は services に寄せて、後で見返しても迷子にならないようにします。
+重要（ここが今回の修正点）：
+- gate判定は朝（morning_prepare/runner）でExecution基準で確定済み。
+- 9:30 job は gate を再計算しない（上書き事故を防ぐ）。
+- 9:30 は「朝統計で戦略を選ぶ」＋「gateのactiveに無い戦略は起動しない」＋「rules確定」だけ。
 
 今回の変更：
-- emergency_stop=True の日は “何があっても” ここで即 return（上書き事故を防ぐ）
+- state.backtest の新フォーマット（meta/by_window/gate）に合わせる
+- gate_reason を 9:30 で壊さない（朝の判定理由をそのまま使う）
 """
 
 from datetime import date
@@ -24,10 +21,22 @@ from django.utils import timezone
 
 from autotrade.models import AutoTradeDailyState
 from autotrade.services.decision.strategy import decide_strategy_for_state
-from autotrade.services.backtest.gate import gate_from_backtests
 from autotrade.services.decision.rules import build_rules_for_today
-
 from autotrade.services.common.guards import is_emergency_stopped
+
+
+def _get_gate_final_from_state(state: AutoTradeDailyState):
+    """
+    morning_prepare が作った backtest['gate']['final'] を読む。
+    無い場合は安全にSTOP扱い。
+    """
+    bt = state.backtest if isinstance(state.backtest, dict) else {}
+    gate = bt.get("gate") if isinstance(bt.get("gate"), dict) else {}
+    final = gate.get("final") if isinstance(gate.get("final"), dict) else {}
+    gate_level = str(final.get("gate_level") or state.gate_level or "STOP")
+    active = list(final.get("active") or [])
+    disabled = list(final.get("disabled") or [])
+    return gate_level, active, disabled
 
 
 def run():
@@ -37,14 +46,12 @@ def run():
     # =========================================================
     # 0) 非常停止ガード（最優先）
     # =========================================================
-    # emergency_stop=True の日は、状態を一切上書きしない（凍結）
     if is_emergency_stopped(state):
         return
 
     # =========================================================
     # 1) 朝統計を 9:30 時点で固定保存（再現性の要）
     # =========================================================
-    # ここで state.morning_stats が埋まるので、その後の戦略決定はブレない
     try:
         from autotrade.services.universe.morning_data_service import get_morning_stats
         state.morning_stats = get_morning_stats(state=state) or {}
@@ -59,46 +66,65 @@ def run():
         }
 
     # =========================================================
-    # 2) 戦略決定（state.morning_stats があればそれを優先して使う）
+    # 2) 戦略決定（朝統計ベース）
     # =========================================================
     decision = decide_strategy_for_state(state)
-    strategy = decision.strategy
+    wanted = str(decision.strategy or "")
 
-    state.strategy = strategy
+    # =========================================================
+    # 3) gate は「朝のExecution基準」を正として読む（再計算しない）
+    # =========================================================
+    gate_level, active, disabled = _get_gate_final_from_state(state)
+
+    # gateがSTOPなら、戦略は空（場中は動かさない）
+    if str(gate_level) == "STOP":
+        chosen = ""
+    else:
+        # gateのactiveに入ってる戦略だけ起動可
+        if wanted in active:
+            chosen = wanted
+        else:
+            # 9:30の判定が無効なら、activeの先頭（通常VWAP）へフォールバック
+            chosen = active[0] if active else ""
+
+    # =========================================================
+    # 4) state を更新（gate_reasonは壊さない）
+    # =========================================================
+    state.strategy = chosen
     state.strategy_decided_at = timezone.now()
 
-    # ★ 戦略決定ログを保存（理由・confidence・debugまで）
-    # created_at は UI 表示のため JST で保存（内部のDateTimeFieldはUTCでOK）
     state.strategy_decision = {
-        "strategy": decision.strategy,
+        "strategy_wanted": wanted,
+        "strategy": chosen,
         "confidence": float(decision.confidence),
         "reason": decision.reason,
         "debug": decision.debug,
+        "gate_level": gate_level,
+        "gate_active": active,
+        "gate_disabled": disabled,
         "created_at": timezone.localtime(timezone.now()).isoformat(),
     }
 
-    # =========================================================
-    # 3) その戦略のバックテスト結果でゲート判定
-    # =========================================================
-    bt_all = state.backtest if isinstance(state.backtest, dict) else {}
-    bt_strategy = bt_all.get(strategy, {}) if isinstance(bt_all, dict) else {}
-
-    windows = getattr(settings, "AUTOTRADE_BT_WINDOWS", [20, 60, 120])
-    bt_by_window = {int(w): bt_strategy.get(str(w), {}) for w in windows}
-
-    gate_level, reason = gate_from_backtests(bt_by_window)
-    state.gate_level = gate_level
-    state.gate_reason = reason
-
-    # =========================================================
-    # 4) ルール確定（FULL/LIGHT/STOP で自動的に変わる）
-    # =========================================================
+    # ルール確定（gate_level と chosen を使う）
     equity_yen = state.equity_yen or getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)
     state.rules = build_rules_for_today(
-        gate_level=gate_level,
-        strategy=strategy,
-        equity_yen=equity_yen,
+        gate_level=str(gate_level),
+        strategy=str(chosen) if chosen else None,
+        equity_yen=int(equity_yen),
     )
+
+    # gate_levelは朝の結果を採用（stateに入ってなければ補完）
+    state.gate_level = str(gate_level)
+
+    # gate_reasonは朝のものを尊重（ここで上書きしない）
+    # ただし gate_reason が空なら、最低限の説明だけ入れる
+    if not (state.gate_reason or "").strip():
+        if gate_level == "STOP":
+            state.gate_reason = "【最終判定】STOP（安全のため稼働しない）"
+        elif gate_level == "LIGHT":
+            state.gate_reason = "【最終判定】LIGHT（慎重に稼働）"
+        else:
+            state.gate_reason = "【最終判定】FULL（通常稼働）"
 
     state.updated_at = timezone.now()
     state.save()
