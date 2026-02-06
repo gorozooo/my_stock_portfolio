@@ -12,9 +12,8 @@
 - 昇格の根拠（evidence）を snapshot JSON に焼き付ける（再現性・説明責任）
 - emergency_stop の日は昇格しない（安全弁）
 
-今回の修正点（未完の解消）：
-- no_full_candidate の日でも「評価結果（evidence）」を CANDIDATE に保存する
-  → 設計X（UIで落第理由を見せる）の前提を満たす
+今回の変更ポイント：
+- run_detail 検索キーを executed_at__date から trade_date に変更（UTC/JST混線を根絶）
 """
 
 from __future__ import annotations
@@ -82,7 +81,6 @@ def _collect_metrics_for_snapshot(
     """
     by_window: Dict[int, Dict[str, Dict[str, Any]]] = {}
 
-    # base_equity は snapshot の値を優先（無ければ100万）
     snap_dict = snapshot.snapshot if isinstance(snapshot.snapshot, dict) else {}
     base_equity = int(snap_dict.get("base_equity_yen", 1_000_000))
 
@@ -92,7 +90,7 @@ def _collect_metrics_for_snapshot(
         for strat in STRATEGIES:
             rd = (
                 AutoTradeBacktestRunDetail.objects
-                .filter(snapshot=snapshot, strategy=str(strat), window_days=w, executed_at__date=target_date)
+                .filter(snapshot=snapshot, strategy=str(strat), window_days=w, trade_date=target_date)
                 .order_by("-id")
                 .first()
             )
@@ -104,7 +102,6 @@ def _collect_metrics_for_snapshot(
             m = summarize_executions(qs=qs, base_equity=base_equity)
             by_window[w][strat] = m
 
-    # strategy別に gate 判定（gate.py をそのまま使用）
     metrics_vwap = {int(w): (by_window[int(w)].get("VWAP") or {}) for w in windows}
     metrics_breakout = {int(w): (by_window[int(w)].get("BREAKOUT") or {}) for w in windows}
 
@@ -142,7 +139,6 @@ def _write_candidate_evidence(
         "final_gate_level": str(((ev.get("gate") or {}).get("gate_level")) or "STOP"),
     }
 
-    # ここが主役：UIに出す「証拠」
     snap_dict["evidence"] = {
         "date": str(target_date),
         "base_equity_yen": int(ev.get("base_equity_yen") or 1_000_000),
@@ -162,11 +158,6 @@ def auto_promote_if_ready(
 ) -> Dict[str, Any]:
     """
     今日のCANDIDATEを評価して、FULLなら自動昇格する。
-
-    前提：
-    - CANDIDATE snapshot は別ジョブ（オートチューニング等）で作られている想定
-    - そのCANDIDATEについて、同日に run_detail + Execution が既に存在していること
-      （無ければ評価できないのでスキップ）
     """
     if target_date is None:
         target_date = timezone.localdate()
@@ -176,12 +167,10 @@ def auto_promote_if_ready(
 
     windows = [int(x) for x in (windows or [])]
 
-    # emergency_stop の日は昇格もしない（安全弁）
     state, _ = AutoTradeDailyState.objects.get_or_create(date=target_date)
     if is_emergency_stopped(state):
         return {"ok": True, "skipped": True, "reason": "emergency_stop"}
 
-    # 現在のACTIVE
     active = (
         AutoTradeSettingSnapshot.objects
         .filter(status="ACTIVE")
@@ -189,7 +178,6 @@ def auto_promote_if_ready(
         .first()
     )
 
-    # 今日の候補（新しい順）
     candidates = (
         AutoTradeSettingSnapshot.objects
         .filter(status="CANDIDATE")
@@ -207,7 +195,6 @@ def auto_promote_if_ready(
         final = str(((ev.get("gate") or {}).get("gate_level")) or "STOP")
         evaluated.append({"id": cand.id, "label": cand.label, "final_gate_level": final})
 
-        # ★ ここが今回の修正点：FULLでなくても evidence を保存する
         _write_candidate_evidence(
             cand=cand,
             target_date=target_date,
@@ -216,11 +203,9 @@ def auto_promote_if_ready(
             note="auto_promote_if_ready",
         )
 
-        # あなたの方針：最初からFULL狙い → FULLのみ昇格
         if final != "FULL":
             continue
 
-        # ここまで来たら昇格する（最初に見つけたFULLを採用）
         promoted = cand
         promoted_eval = ev
         break
@@ -228,14 +213,12 @@ def auto_promote_if_ready(
     if not promoted:
         return {"ok": True, "promoted": False, "reason": "no_full_candidate", "evaluated": evaluated}
 
-    # ACTIVE世代交代（旧ACTIVEは残す）
     if active and active.id != promoted.id:
         active.status = "RETIRED"
         active.save(update_fields=["status"])
 
     promoted.status = "ACTIVE"
 
-    # snapshot JSON に「昇格ログ（証拠）」を焼き付け（evidenceは既に入ってる）
     snap_dict = promoted.snapshot if isinstance(promoted.snapshot, dict) else {}
     snap_dict["promote"] = {
         "promoted_at": timezone.localtime(timezone.now()).isoformat(),
