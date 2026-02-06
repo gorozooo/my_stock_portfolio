@@ -5,10 +5,9 @@
 このファイルは何？
 - 詳細バックテスト / ペーパー / 本番トレード共通の「事実ログ」を保存するモデル群です。
 
-設計原則：
-- 1トレード = 1レコード（絶対）
-- 集計値は保存しない
-- 再評価・再集計は後段サービスで行う
+今回の変更ポイント：
+- AutoTradeBacktestRunDetail に trade_date（JSTの“評価日キー”）を追加します。
+- executed_at__date のUTC/JSTズレを根絶し、「1日＝1スナップショット」をDBで保証します。
 """
 
 from django.conf import settings
@@ -91,6 +90,10 @@ class AutoTradeExecution(models.Model):
 class AutoTradeBacktestRunDetail(models.Model):
     """
     詳細バックテスト1回分の「実行メタ情報」
+
+    ★重要：trade_date
+    - executed_at はUTC/JSTズレが起きうるため、“評価日キー”には使わない。
+    - trade_date に JSTの対象日（target_date）を必ず入れて検索に使う。
     """
 
     user = models.ForeignKey(
@@ -107,6 +110,9 @@ class AutoTradeBacktestRunDetail(models.Model):
 
     strategy = models.CharField(max_length=20)
     window_days = models.IntegerField()
+
+    # ★追加：この run_detail が「何日分の評価」か（JST日付）
+    trade_date = models.DateField(db_index=True)
 
     start_date = models.DateField()
     end_date = models.DateField()
