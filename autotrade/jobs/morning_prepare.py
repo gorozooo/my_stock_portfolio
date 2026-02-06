@@ -7,12 +7,13 @@
 
 役割：
   1) 今日のピック（5〜10）を作る
-  2) 詳細バックテスト（戦略別 × 20/60/120）を実行して保存する
-  3) （追加）候補SnapshotがFULLなら自動でACTIVEへ昇格する
+  2) 詳細バックテスト（戦略別 × 20/60/120）を実行して保存する（Execution基準で確定）
+  3) （追加）自動チューニングで CANDIDATE を作る（最小構成・1ノブだけ）
+  4) （既存）候補SnapshotがFULLなら自動でACTIVEへ昇格する（auto_promote）
 
 重要な設計ルール：
 - 非常停止（emergency_stop）が有効な日は、一切の状態更新を行わない
-- 止める責務は job に集約し、services は純粋関数として保つ
+- gate判定はここ（runner）で確定。9:30 job は gate を再計算しない
 """
 
 from datetime import date
@@ -24,7 +25,10 @@ from autotrade.services.universe.service import build_daily_universe
 from autotrade.services.common.guards import is_emergency_stopped
 from autotrade.services.backtest.runner import run_detailed_backtests_for_universe
 
-# ★ 追加：自動昇格
+# ★ 追加：自動チューニング（候補生成）
+from autotrade.services.tuning.auto_tune import auto_tune_generate_candidate
+
+# ★ 既存：自動昇格
 from autotrade.services.tuning.auto_promote import auto_promote_if_ready
 
 
@@ -72,9 +76,15 @@ def run():
         force=True,
     )
 
+    # 3.5) ★ 自動チューニング（最小構成）
+    # - ここで “候補(CANDIDATE)” を最大1つだけ作る
+    # - 悪化は棄却（RETIRED）する
+    auto_tune_generate_candidate(
+        target_date=today,
+        windows=list(getattr(settings, "AUTOTRADE_BT_WINDOWS", [20, 60])),
+    )
+
     # 4) ★ 自動昇格（OK不要・FULLのみ）
-    #    - CANDIDATEが今日のExecutionでFULLならACTIVEにする（世代交代）
-    #    - no_full_candidate なら何もしない
     auto_promote_if_ready(
         target_date=today,
         windows=list(getattr(settings, "AUTOTRADE_BT_WINDOWS", [20, 60])),
