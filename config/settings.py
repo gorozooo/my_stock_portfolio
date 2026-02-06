@@ -237,15 +237,18 @@ AUTOTRADE_MORNING_AGG = "wmean"
 # ==========================
 # ★ django-crontab（ジョブ）
 # ==========================
+# ==========================
+# ★ django-crontab（ジョブ）
+# ==========================
 CRONJOBS = [
     # 毎朝：銘柄選定＆バックテスト（6:30）
     ("30 6 * * 1-5", "autotrade.jobs.morning_prepare.run", ">> /tmp/autotrade_morning.log 2>&1"),
-
-    # 9:30：戦略決定＆ルール確定（9:30）
+    
+    # 9:30：戦略決定＆ゲート確定（9:30）
     ("30 9 * * 1-5", "autotrade.jobs.decide_strategy.run", ">> /tmp/autotrade_decide.log 2>&1"),
 
-    # ★ 場中：ガード（毎分）
-    ("*/1 9-14 * * 1-5", "autotrade.jobs.intraday_guard.run", ">> /tmp/autotrade_intraday_guard.log 2>&1"),
+    # ★ 追加：場中ガード（毎分）
+    ("*/1 9-15 * * 1-5", "autotrade.jobs.intraday_guard.run", ">> /tmp/autotrade_intraday_guard.log 2>&1"),
 
     # 15:10：日次クローズ（15:10）
     ("10 15 * * 1-5", "autotrade.jobs.end_of_day.run", ">> /tmp/autotrade_eod.log 2>&1"),
