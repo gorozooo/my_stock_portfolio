@@ -14,6 +14,9 @@
 重要：
 - 集計値は保存しない
 - 事実（Execution）だけが真実
+
+今回の変更ポイント：
+- run_detail の検索キーを executed_at__date から trade_date に変更（UTC/JST混線を根絶）
 """
 
 from __future__ import annotations
@@ -82,12 +85,8 @@ def _merge_gate_results(
             final = "LIGHT"
             disabled.append("BREAKOUT")
 
-    # 理由文：
-    # - gate.py の reasons（円入り）をそのまま表示する
-    # - runner は構造だけ提供
     reasons: List[str] = []
 
-    # 最終サマリ（ここは“数字を入れない”＝gate.pyの主役化）
     if final == "FULL":
         reasons.append("【最終判定】FULL（VWAP + BREAKOUT 稼働）")
     elif final == "LIGHT":
@@ -97,14 +96,12 @@ def _merge_gate_results(
 
     reasons.append(f"【設定】windows={list(windows)} / RR(BREAKOUT)={rr_breakout:.2f} / RR(VWAP)={rr_vwap:.2f}")
 
-    # VWAP（gate.pyの理由をそのまま）
     if gate_vwap:
         rs = gate_vwap.get("reasons") or []
         if rs:
             reasons.append("【VWAP判定】")
             reasons.extend([str(x) for x in rs if str(x).strip()])
 
-    # BREAKOUT（gate.pyの理由をそのまま）
     if gate_breakout:
         rs = gate_breakout.get("reasons") or []
         if rs:
@@ -179,13 +176,12 @@ def run_detailed_backtests_for_universe(
 
     # -----------------------------------------------------
     # 既存データ削除（force）
-    #   - run_detail基準で掃除（created_at/date混在事故を避ける）
+    #   - trade_date基準で掃除（UTC/JST混線を根絶）
     # -----------------------------------------------------
     if force:
-        # 同日の run_detail を拾ってまとめて消す
         details = AutoTradeBacktestRunDetail.objects.filter(
             snapshot=snapshot,
-            executed_at__date=target_date,
+            trade_date=target_date,
         )
         AutoTradeExecution.objects.filter(run_detail__in=details).delete()
         details.delete()
@@ -210,10 +206,6 @@ def run_detailed_backtests_for_universe(
         state.save()
         return {"ok": False, "reason": "no_picks"}
 
-    # =====================================================
-    # window × strategy のメトリクス
-    #   metrics_by_window_strategy[window][strategy] = metrics
-    # =====================================================
     metrics_by_window_strategy: Dict[int, Dict[str, Dict[str, Any]]] = {}
 
     for window in bt_windows:
@@ -227,7 +219,7 @@ def run_detailed_backtests_for_universe(
                 snapshot=snapshot,
                 strategy=str(strategy),
                 window_days=int(window),
-                executed_at__date=target_date,
+                trade_date=target_date,
             ).order_by("-id").first()
 
             if (run_detail is None) or force:
@@ -236,6 +228,7 @@ def run_detailed_backtests_for_universe(
                     snapshot=snapshot,
                     strategy=str(strategy),
                     window_days=int(window),
+                    trade_date=target_date,
                     start_date=target_date,
                     end_date=target_date,
                 )
@@ -245,7 +238,6 @@ def run_detailed_backtests_for_universe(
             # -------------------------------------------------
             exists_exec = AutoTradeExecution.objects.filter(run_detail=run_detail).exists()
             if (not exists_exec) or force:
-                # 念のため、同run_detailのExecutionが残ってたら掃除（force時）
                 if force and exists_exec:
                     AutoTradeExecution.objects.filter(run_detail=run_detail).delete()
 
@@ -271,16 +263,10 @@ def run_detailed_backtests_for_universe(
                             target_date=target_date,
                         )
 
-            # -------------------------------------------------
-            # strategy × window の Execution を run_detail 基準で集計
-            # -------------------------------------------------
             qs = AutoTradeExecution.objects.filter(run_detail=run_detail).order_by("exit_at")
             metrics = summarize_executions(qs=qs, base_equity=base_equity)
             metrics_by_window_strategy[int(window)][str(strategy)] = metrics
 
-    # =====================================================
-    # 戦略別ゲート（gate.pyはそのまま使う）
-    # =====================================================
     metrics_vwap: Dict[int, Dict[str, Any]] = {}
     metrics_breakout: Dict[int, Dict[str, Any]] = {}
 
@@ -300,14 +286,10 @@ def run_detailed_backtests_for_universe(
         windows=bt_windows,
     )
 
-    # =====================================================
-    # DailyState 更新（iPhone 1画面の意思決定をここで確定）
-    # =====================================================
     final_level = str(merged.get("gate_level") or "STOP")
     active = list(merged.get("active_strategies") or [])
     disabled = list(merged.get("disabled_strategies") or [])
 
-    # LIGHT時は VWAPのみを明示
     if final_level == "FULL":
         state.strategy = "MIXED"
     elif final_level == "LIGHT":
@@ -326,7 +308,6 @@ def run_detailed_backtests_for_universe(
         "windows": list(bt_windows),
     }
 
-    # 可視化用（Bで使う）
     state.backtest = {
         "meta": {
             "date": str(target_date),
