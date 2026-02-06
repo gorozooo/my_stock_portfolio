@@ -5,14 +5,17 @@
 このファイルは何？
 - 9:30 に動く「戦略決定＆ルール確定ジョブ」です。
 
-重要（ここが今回の修正点）：
+重要（修正点）：
 - gate判定は朝（morning_prepare/runner）でExecution基準で確定済み。
 - 9:30 job は gate を再計算しない（上書き事故を防ぐ）。
-- 9:30 は「朝統計で戦略を選ぶ」＋「gateのactiveに無い戦略は起動しない」＋「rules確定」だけ。
+- 9:30 は
+  1) 朝統計で戦略を選ぶ（wanted）
+  2) gateのactiveに無い戦略は起動しない
+  3) rules確定
+  だけをやる。
 
-今回の変更：
-- state.backtest の新フォーマット（meta/by_window/gate）に合わせる
-- gate_reason を 9:30 で壊さない（朝の判定理由をそのまま使う）
+注意：
+- gate_reason は朝の判定理由を尊重し、9:30で壊さない（空なら最低限だけ補完）
 """
 
 from datetime import date
@@ -85,7 +88,7 @@ def run():
         if wanted in active:
             chosen = wanted
         else:
-            # 9:30の判定が無効なら、activeの先頭（通常VWAP）へフォールバック
+            # wantedが無効なら、activeの先頭へフォールバック（通常VWAP）
             chosen = active[0] if active else ""
 
     # =========================================================
@@ -118,7 +121,6 @@ def run():
     state.gate_level = str(gate_level)
 
     # gate_reasonは朝のものを尊重（ここで上書きしない）
-    # ただし gate_reason が空なら、最低限の説明だけ入れる
     if not (state.gate_reason or "").strip():
         if gate_level == "STOP":
             state.gate_reason = "【最終判定】STOP（安全のため稼働しない）"
