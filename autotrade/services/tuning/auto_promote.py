@@ -2,7 +2,7 @@
 [FILE] autotrade/services/tuning/auto_promote.py
 [PATH] <project_root>/autotrade/services/tuning/auto_promote.py
 
-何をする？
+このファイルは何？
 - CANDIDATE（本番候補）のSnapshotを「今日のExecution（事実ログ）」で評価し、
   条件を満たすものがあれば自動でACTIVEへ昇格させる。
 
@@ -11,6 +11,10 @@
 - ACTIVEは上書きしない（世代交代）：旧ACTIVEはRETIREDへ
 - 昇格の根拠（evidence）を snapshot JSON に焼き付ける（再現性・説明責任）
 - emergency_stop の日は昇格しない（安全弁）
+
+今回の修正点（未完の解消）：
+- no_full_candidate の日でも「評価結果（evidence）」を CANDIDATE に保存する
+  → 設計X（UIで落第理由を見せる）の前提を満たす
 """
 
 from __future__ import annotations
@@ -115,6 +119,41 @@ def _collect_metrics_for_snapshot(
     }
 
 
+def _write_candidate_evidence(
+    *,
+    cand: AutoTradeSettingSnapshot,
+    target_date: dt_date,
+    windows: List[int],
+    ev: Dict[str, Any],
+    note: str,
+) -> None:
+    """
+    CANDIDATE の snapshot JSON に評価結果を焼き付ける。
+    - FULLでなくても保存する（UIで落第理由を見るため）
+    - gate.py の reasons（日本語＋円）も含まれる
+    """
+    snap_dict = cand.snapshot if isinstance(cand.snapshot, dict) else {}
+
+    snap_dict["auto_eval"] = {
+        "evaluated_at": timezone.localtime(timezone.now()).isoformat(),
+        "date": str(target_date),
+        "windows": list(windows),
+        "note": str(note or ""),
+        "final_gate_level": str(((ev.get("gate") or {}).get("gate_level")) or "STOP"),
+    }
+
+    # ここが主役：UIに出す「証拠」
+    snap_dict["evidence"] = {
+        "date": str(target_date),
+        "base_equity_yen": int(ev.get("base_equity_yen") or 1_000_000),
+        "gate": ev.get("gate") or {},
+        "by_window": ev.get("by_window") or {},
+    }
+
+    cand.snapshot = snap_dict
+    cand.save(update_fields=["snapshot"])
+
+
 @transaction.atomic
 def auto_promote_if_ready(
     *,
@@ -134,6 +173,8 @@ def auto_promote_if_ready(
 
     if windows is None:
         windows = [20, 60]
+
+    windows = [int(x) for x in (windows or [])]
 
     # emergency_stop の日は昇格もしない（安全弁）
     state, _ = AutoTradeDailyState.objects.get_or_create(date=target_date)
@@ -158,10 +199,23 @@ def auto_promote_if_ready(
     promoted: Optional[AutoTradeSettingSnapshot] = None
     promoted_eval: Optional[Dict[str, Any]] = None
 
+    evaluated: List[Dict[str, Any]] = []
+
     for cand in candidates:
         ev = _collect_metrics_for_snapshot(snapshot=cand, target_date=target_date, windows=list(windows))
 
         final = str(((ev.get("gate") or {}).get("gate_level")) or "STOP")
+        evaluated.append({"id": cand.id, "label": cand.label, "final_gate_level": final})
+
+        # ★ ここが今回の修正点：FULLでなくても evidence を保存する
+        _write_candidate_evidence(
+            cand=cand,
+            target_date=target_date,
+            windows=list(windows),
+            ev=ev,
+            note="auto_promote_if_ready",
+        )
+
         # あなたの方針：最初からFULL狙い → FULLのみ昇格
         if final != "FULL":
             continue
@@ -172,7 +226,7 @@ def auto_promote_if_ready(
         break
 
     if not promoted:
-        return {"ok": True, "promoted": False, "reason": "no_full_candidate"}
+        return {"ok": True, "promoted": False, "reason": "no_full_candidate", "evaluated": evaluated}
 
     # ACTIVE世代交代（旧ACTIVEは残す）
     if active and active.id != promoted.id:
@@ -181,20 +235,14 @@ def auto_promote_if_ready(
 
     promoted.status = "ACTIVE"
 
-    # snapshot JSON に「昇格ログ（証拠）」を焼き付け
+    # snapshot JSON に「昇格ログ（証拠）」を焼き付け（evidenceは既に入ってる）
     snap_dict = promoted.snapshot if isinstance(promoted.snapshot, dict) else {}
     snap_dict["promote"] = {
-        "promoted_at": timezone.now().isoformat(),
+        "promoted_at": timezone.localtime(timezone.now()).isoformat(),
         "promoted_by": "AUTO",
         "windows": list(windows),
         "from_status": "CANDIDATE",
         "note": "auto_promote_if_ready",
-    }
-    snap_dict["evidence"] = {
-        "date": str(target_date),
-        "base_equity_yen": int((promoted_eval or {}).get("base_equity_yen") or 1_000_000),
-        "gate": (promoted_eval or {}).get("gate") or {},
-        "by_window": (promoted_eval or {}).get("by_window") or {},
     }
     promoted.snapshot = snap_dict
     promoted.save(update_fields=["status", "snapshot"])
@@ -205,4 +253,5 @@ def auto_promote_if_ready(
         "new_active_id": promoted.id,
         "old_active_id": (active.id if active else None),
         "gate": (promoted_eval or {}).get("gate"),
+        "evaluated": evaluated,
     }
