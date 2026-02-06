@@ -33,6 +33,7 @@ def _get_gate_final_from_state(state: AutoTradeDailyState):
     bt = state.backtest if isinstance(state.backtest, dict) else {}
     gate = bt.get("gate") if isinstance(bt.get("gate"), dict) else {}
     final = gate.get("final") if isinstance(gate.get("final"), dict) else {}
+
     gate_level = str(final.get("gate_level") or state.gate_level or "STOP")
     active = list(final.get("active") or [])
     disabled = list(final.get("disabled") or [])
