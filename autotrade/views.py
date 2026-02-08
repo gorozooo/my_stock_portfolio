@@ -5,17 +5,22 @@
 このファイルは何？
 - AutoTrade のダッシュボード表示（iPhone 1画面）を作る View です。
 - DailyState（今日の状態）を読み、テンプレに渡す表示用データ（バックテスト行や理由文）を整形します。
+- さらに「実験室（TuningProfile）」として、一覧・新規作成・編集・アーカイブ（安全削除）を提供します。
 
 今回のポイント：
 - runner.py が保存する新フォーマット（state.backtest = {meta/by_window/gate}）に追従。
 - VWAP / BREAKOUT の両方の結果を表示できるように整形して返します。
+- 実験室UIは「全パラメータ表示・全変更OK」を前提に、入口（一覧）だけでなく新規作成/編集/アーカイブまで対応。
 """
 
+from __future__ import annotations
+
 from datetime import date
+from typing import Any, Dict
 
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
-from django.shortcuts import render
+from django.http import JsonResponse, HttpRequest
+from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
@@ -120,7 +125,7 @@ def _build_gate_bundle_for_template(state: AutoTradeDailyState):
 
 
 @login_required
-def dashboard(request):
+def dashboard(request: HttpRequest):
     today = date.today()
     state, _ = AutoTradeDailyState.objects.get_or_create(date=today)
 
@@ -142,19 +147,58 @@ def dashboard(request):
 
 
 # =========================================================
+# TuningProfile（実験室）
+# =========================================================
+
+def _default_params() -> Dict[str, Any]:
+    """
+    実験室の初期パラメータ（自由入力の土台）
+    - UIは「%」表記（例: 0.25 = 0.25%）
+    - この段階では危険値の禁止はしない（UI側で警告に留める設計）
+    """
+    return {
+        "VWAP": {
+            "stop_pct": 0.25,        # %（0.25%）
+            "rr": 1.5,
+            "pullback_pct": 0.05,    # %（VWAP乖離許容 0.05%）
+            "max_hold_min": 30,      # 分
+        },
+        "BREAKOUT": {
+            "stop_pct": 0.30,        # %（0.30%）
+            "rr": 2.0,
+            "lookback_bars": 6,      # 5分足 本数
+            "max_hold_min": 30,      # 分
+        },
+    }
+
+
+def _to_float(v: Any, default: float = 0.0) -> float:
+    try:
+        return float(str(v).strip())
+    except Exception:
+        return float(default)
+
+
+def _to_int(v: Any, default: int = 0) -> int:
+    try:
+        return int(float(str(v).strip()))
+    except Exception:
+        return int(default)
+
+
+# =========================================================
 # TuningProfile List（入口）
 # =========================================================
 @login_required
-def tuning_list(request):
+def tuning_list(request: HttpRequest):
     """
-    調整用プロファイルの一覧（入口専用）
-    - 編集・検証・Snapshot化はリンクのみ
-    - 数値編集は一切しない
+    調整用プロファイルの一覧（入口）
+    - ここでは数値編集しない（編集画面へ誘導）
     """
     profiles = (
         AutoTradeTuningProfile.objects
         .filter(user=request.user, is_archived=False)
-        .order_by("-updated_at")
+        .order_by("-updated_at", "-id")
     )
 
     ctx = {
@@ -164,11 +208,137 @@ def tuning_list(request):
 
 
 # =========================================================
+# TuningProfile New（新規作成）
+# =========================================================
+@login_required
+def tuning_new(request: HttpRequest):
+    """
+    新規作成（自由入力）
+    """
+    if request.method == "POST":
+        name = (request.POST.get("name") or "").strip() or "New Tuning"
+
+        # VWAP
+        v_stop = _to_float(request.POST.get("vwap_stop_pct"), 0.25)
+        v_rr = _to_float(request.POST.get("vwap_rr"), 1.5)
+        v_pull = _to_float(request.POST.get("vwap_pullback_pct"), 0.05)
+        v_hold = _to_int(request.POST.get("vwap_max_hold_min"), 30)
+
+        # BREAKOUT
+        b_stop = _to_float(request.POST.get("breakout_stop_pct"), 0.30)
+        b_rr = _to_float(request.POST.get("breakout_rr"), 2.0)
+        b_lb = _to_int(request.POST.get("breakout_lookback_bars"), 6)
+        b_hold = _to_int(request.POST.get("breakout_max_hold_min"), 30)
+
+        params = {
+            "VWAP": {
+                "stop_pct": float(v_stop),
+                "rr": float(v_rr),
+                "pullback_pct": float(v_pull),
+                "max_hold_min": int(v_hold),
+            },
+            "BREAKOUT": {
+                "stop_pct": float(b_stop),
+                "rr": float(b_rr),
+                "lookback_bars": int(b_lb),
+                "max_hold_min": int(b_hold),
+            },
+        }
+
+        AutoTradeTuningProfile.objects.create(
+            user=request.user,
+            name=name,
+            params=params,
+        )
+        return redirect("autotrade:tuning_list")
+
+    ctx = {
+        "mode": "new",
+        "profile": None,
+        "params": _default_params(),
+    }
+    return render(request, "autotrade/tuning_edit.html", ctx)
+
+
+# =========================================================
+# TuningProfile Edit（編集）
+# =========================================================
+@login_required
+def tuning_edit(request: HttpRequest, pk: int):
+    """
+    編集（自由入力）
+    """
+    profile = get_object_or_404(AutoTradeTuningProfile, pk=pk, user=request.user)
+
+    params = profile.params if isinstance(profile.params, dict) else _default_params()
+
+    if request.method == "POST":
+        name = (request.POST.get("name") or "").strip() or profile.name
+
+        # VWAP
+        v_stop = _to_float(request.POST.get("vwap_stop_pct"), (params.get("VWAP") or {}).get("stop_pct", 0.25))
+        v_rr = _to_float(request.POST.get("vwap_rr"), (params.get("VWAP") or {}).get("rr", 1.5))
+        v_pull = _to_float(request.POST.get("vwap_pullback_pct"), (params.get("VWAP") or {}).get("pullback_pct", 0.05))
+        v_hold = _to_int(request.POST.get("vwap_max_hold_min"), (params.get("VWAP") or {}).get("max_hold_min", 30))
+
+        # BREAKOUT
+        b_stop = _to_float(request.POST.get("breakout_stop_pct"), (params.get("BREAKOUT") or {}).get("stop_pct", 0.30))
+        b_rr = _to_float(request.POST.get("breakout_rr"), (params.get("BREAKOUT") or {}).get("rr", 2.0))
+        b_lb = _to_int(request.POST.get("breakout_lookback_bars"), (params.get("BREAKOUT") or {}).get("lookback_bars", 6))
+        b_hold = _to_int(request.POST.get("breakout_max_hold_min"), (params.get("BREAKOUT") or {}).get("max_hold_min", 30))
+
+        new_params = {
+            "VWAP": {
+                "stop_pct": float(v_stop),
+                "rr": float(v_rr),
+                "pullback_pct": float(v_pull),
+                "max_hold_min": int(v_hold),
+            },
+            "BREAKOUT": {
+                "stop_pct": float(b_stop),
+                "rr": float(b_rr),
+                "lookback_bars": int(b_lb),
+                "max_hold_min": int(b_hold),
+            },
+        }
+
+        profile.name = name
+        profile.params = new_params
+        profile.updated_at = timezone.now()
+        profile.save(update_fields=["name", "params", "updated_at"])
+
+        return redirect("autotrade:tuning_list")
+
+    ctx = {
+        "mode": "edit",
+        "profile": profile,
+        "params": params,
+    }
+    return render(request, "autotrade/tuning_edit.html", ctx)
+
+
+# =========================================================
+# TuningProfile Archive（安全削除）
+# =========================================================
+@login_required
+@require_POST
+def tuning_archive(request: HttpRequest, pk: int):
+    """
+    安全のための「削除」＝アーカイブ
+    """
+    profile = get_object_or_404(AutoTradeTuningProfile, pk=pk, user=request.user)
+    profile.is_archived = True
+    profile.updated_at = timezone.now()
+    profile.save(update_fields=["is_archived", "updated_at"])
+    return redirect("autotrade:tuning_list")
+
+
+# =========================================================
 # ★ 非常停止 API（ワンタップ）
 # =========================================================
 @login_required
 @require_POST
-def api_emergency_stop(request):
+def api_emergency_stop(request: HttpRequest):
     """
     今日の AutoTradeDailyState を非常停止にする。
     - emergency_stop=True
