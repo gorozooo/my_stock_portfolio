@@ -4,16 +4,19 @@
 
 このファイルは何？
 - 「実験室（TuningProfile）」の検証（BACKTEST）を実行するサービスです。
-- ACTIVEは触らず、DRAFT Snapshot を作って Execution を生成し、gate.py の日本語理由（数値＋円）付きで evidence を焼き付けます。
+- ACTIVEは触らず、DRAFT Snapshot を作って、VWAP/BREAKOUT の詳細バックテストを回します。
+- detailエンジン（engine_*_detail.py）は「DB保存しない」設計なので、
+  返ってくる trades を集計して metrics を作り、gate判定・UI表示用の evidence を snapshot に焼き付けます。
 
 重要：
 - UIは自由操作。安全は「ACTIVE昇格しない」「ロールバックで戻せる」で担保。
-- 集計値は保存しない原則は維持：保存するのは Execution と RunDetail と “evidence（表示用）” のみ。
+- この段階（UI優先）では Execution/RunDetail のDB保存は“必須ではない”扱いにして、
+  まず「検証→結果カード」までを確実に通す。
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import date as dt_date
 
 from django.conf import settings
@@ -21,20 +24,18 @@ from django.db import transaction
 from django.utils import timezone
 
 from autotrade.models import AutoTradeTuningProfile, AutoTradeSettingSnapshot
-from autotrade.models_backtest import AutoTradeBacktestRunDetail, AutoTradeExecution
+from autotrade.models_backtest import AutoTradeBacktestRunDetail
 
-from autotrade.services.backtest.execution_metrics import summarize_executions
 from autotrade.services.backtest.gate import judge_multi_window
 
-# ★ “詳細”エンジン：stop_pct を snapshot から読む想定のやつ
+# ★ “詳細”エンジン：snapshot_dict を受け取り、trades を返す（DB保存しない）
 from autotrade.services.backtest.engine_vwap_detail import run_vwap_detail
 from autotrade.services.backtest.engine_breakout_detail import run_breakout_detail
 
 
 def _pct_to_ratio(pct: float) -> float:
     """
-    UIは「0.25 (=0.25%)」で入力する設計なので、
-    エンジン用に 0.0025 に変換する。
+    UIは「0.25 (=0.25%)」で入力する設計なので、エンジン用に 0.0025 に変換する。
     """
     try:
         return float(pct) / 100.0
@@ -73,7 +74,7 @@ def _build_snapshot_dict_from_profile(profile: AutoTradeTuningProfile) -> Dict[s
     rr_v = _safe_float(v.get("rr"), 1.5)
     rr_b = _safe_float(b.get("rr"), 2.0)
 
-    # 追加ノブ（今は表示/UI用。エンジン側で参照するなら後で接続）
+    # 追加ノブ（今は表示/UI用。detailエンジン側で参照するなら後で接続）
     pullback_pct = _pct_to_ratio(_safe_float(v.get("pullback_pct"), 0.05))  # ratio
     lookback_bars = _safe_int(b.get("lookback_bars"), 6)
     max_hold_v = _safe_int(v.get("max_hold_min"), 30)
@@ -82,11 +83,15 @@ def _build_snapshot_dict_from_profile(profile: AutoTradeTuningProfile) -> Dict[s
     snap = {
         "base_equity_yen": int(getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)),
 
-        # エンジン側が読むキー（detailエンジンに合わせる）
+        # detailエンジンが読むキー
         "vwap_stop_pct": float(v_stop),
         "breakout_stop_pct": float(b_stop),
 
-        # 実験室の“人間向け”原本も残す（UIで表示に使える）
+        # detailエンジン側の max_hold_bars（5分足換算）に一応入れておく（既存はbars参照）
+        # 30分なら 5分足×6本。少し余裕で +1。
+        "max_hold_bars": int(max_hold_v // 5 + 1),
+
+        # 実験室の“人間向け”原本も残す（UI表示に使える）
         "lab": {
             "VWAP": {
                 "stop_pct_ui": float(_safe_float(v.get("stop_pct"), 0.25)),
@@ -141,6 +146,121 @@ def _merge_gate_results(*, gate_vwap: Dict[str, Any], gate_breakout: Dict[str, A
     }
 
 
+def _sort_key_exit_at(t: Dict[str, Any]):
+    dt = t.get("exit_at")
+    return dt or timezone.now()
+
+
+def _summarize_trades(trades: List[Dict[str, Any]], base_equity_yen: int) -> Dict[str, Any]:
+    """
+    detailエンジンが返す trades（辞書配列）から、UI＆gate用のmetricsを作る。
+    返却キーは dashboard/view が期待する名前に合わせる。
+    """
+    trades = [t for t in (trades or []) if isinstance(t, dict)]
+    trades_sorted = sorted(trades, key=_sort_key_exit_at)
+
+    wins = 0
+    losses = 0
+    sum_win = 0
+    sum_loss = 0
+    total_pnl = 0
+
+    equity = float(base_equity_yen)
+    peak = float(base_equity_yen)
+    max_dd_yen = 0.0  # マイナス方向の最大（負値）
+    # equity curve をここで再現
+    for t in trades_sorted:
+        pnl = t.get("pnl_yen")
+        try:
+            pnl_i = int(pnl)
+        except Exception:
+            pnl_i = 0
+
+        total_pnl += pnl_i
+        equity += float(pnl_i)
+
+        if pnl_i >= 0:
+            wins += 1
+            sum_win += pnl_i
+        else:
+            losses += 1
+            sum_loss += pnl_i  # ここは負値のまま
+
+        if equity > peak:
+            peak = equity
+        dd = equity - peak  # 0以下
+        if dd < max_dd_yen:
+            max_dd_yen = dd
+
+    trades_n = len(trades_sorted)
+    win_rate = None
+    if trades_n > 0:
+        win_rate = round((wins / trades_n) * 100.0, 1)
+
+    # PF = 利益合計 / 損失絶対値
+    pf = None
+    if sum_loss != 0:
+        pf = round(float(sum_win) / max(abs(float(sum_loss)), 1e-9), 3)
+
+    max_dd_pct = None
+    if base_equity_yen > 0:
+        max_dd_pct = round(abs(float(max_dd_yen)) / float(base_equity_yen), 4)
+
+    return {
+        "trades": trades_n,
+        "wins": wins,
+        "losses": losses,
+        "win_rate": win_rate,
+        "sum_win_yen": int(sum_win),
+        "sum_loss_yen": int(sum_loss),  # 負値
+        "profit_factor": pf,
+        "max_drawdown_yen": int(round(max_dd_yen)),  # 負値
+        "max_drawdown_pct": max_dd_pct,
+        "total_pnl": int(total_pnl),
+    }
+
+
+def _collect_trades_for_strategy(
+    *,
+    strat: str,
+    snap_dict: Dict[str, Any],
+    ticker: str,
+    window_days: int,
+    rr: float,
+    base_equity_yen: int,
+) -> List[Dict[str, Any]]:
+    """
+    strategy別にdetailエンジンを叩いて trades を回収する。
+    """
+    try:
+        if strat == "VWAP":
+            out = run_vwap_detail(
+                snapshot_dict=snap_dict,
+                ticker=ticker,
+                window_days=int(window_days),
+                rr=float(rr),
+                base_equity_yen=int(base_equity_yen),
+            )
+        else:
+            out = run_breakout_detail(
+                snapshot_dict=snap_dict,
+                ticker=ticker,
+                window_days=int(window_days),
+                rr=float(rr),
+                base_equity_yen=int(base_equity_yen),
+            )
+    except Exception:
+        # detailエンジン例外は “そのtickerは失敗” として握りつぶす（UI優先）
+        return []
+
+    if not isinstance(out, dict):
+        return []
+    trades = out.get("trades")
+    if not isinstance(trades, list):
+        return []
+    return [t for t in trades if isinstance(t, dict)]
+
+
 @transaction.atomic
 def run_backtest_for_tuning_profile(
     *,
@@ -151,10 +271,10 @@ def run_backtest_for_tuning_profile(
 ) -> Dict[str, Any]:
     """
     実験室の検証を1回実行する。
-    - DRAFT Snapshot を作る
-    - window×strategy の run_detail + Execution を生成する
+    - DRAFT Snapshot を作る（固定）
+    - window×strategy の detailバックテストを回し、trades を集計して metrics を作る
+    - gate 判定（judge_multi_window）を通す
     - evidence を snapshot に焼き付ける
-    - 結果ページ表示用のデータを返す
     """
     if windows is None:
         windows = [20, 60]
@@ -176,13 +296,18 @@ def run_backtest_for_tuning_profile(
 
     base_equity = int(snap_dict.get("base_equity_yen", 1_000_000))
 
-    # 2) 実行：window×strategy
+    # RRは lab から読む（UI入力値）
+    rr_vwap = float((snap_dict.get("lab") or {}).get("VWAP", {}).get("rr", 1.5))
+    rr_breakout = float((snap_dict.get("lab") or {}).get("BREAKOUT", {}).get("rr", 2.0))
+
+    # 2) 実行：window×strategy（RunDetailは作るが、Executionはここでは作らない）
     metrics_by_window: Dict[int, Dict[str, Dict[str, Any]]] = {}
+
     for w in windows:
         metrics_by_window[int(w)] = {}
 
         for strat in ["VWAP", "BREAKOUT"]:
-            # 既存の同日同条件があっても、実験室は「毎回新しいDRAFT」なので衝突しない設計
+            # “実験室の履歴” として RunDetail だけ作っておく（DB構造に依存しにくい）
             rd = AutoTradeBacktestRunDetail.objects.create(
                 user=profile.user,
                 snapshot=snap,
@@ -190,35 +315,41 @@ def run_backtest_for_tuning_profile(
                 window_days=int(w),
                 start_date=target_date,
                 end_date=target_date,
-                trade_date=target_date,  # ★ あなたの現行DBに合わせて trade_date を使う
+                trade_date=target_date,
             )
 
-            # Execution生成
+            all_trades: List[Dict[str, Any]] = []
             for ticker in picks:
                 if strat == "VWAP":
-                    run_vwap_detail(
+                    ts = _collect_trades_for_strategy(
+                        strat="VWAP",
+                        snap_dict=snap_dict,
                         ticker=ticker,
                         window_days=int(w),
-                        rr=float((snap_dict.get("lab") or {}).get("VWAP", {}).get("rr", 1.5)),
-                        snapshot=snap,
-                        mode="BACKTEST",
-                        run_meta=rd,
-                        target_date=target_date,
+                        rr=rr_vwap,
+                        base_equity_yen=base_equity,
                     )
                 else:
-                    run_breakout_detail(
+                    ts = _collect_trades_for_strategy(
+                        strat="BREAKOUT",
+                        snap_dict=snap_dict,
                         ticker=ticker,
                         window_days=int(w),
-                        rr=float((snap_dict.get("lab") or {}).get("BREAKOUT", {}).get("rr", 2.0)),
-                        snapshot=snap,
-                        mode="BACKTEST",
-                        run_meta=rd,
-                        target_date=target_date,
+                        rr=rr_breakout,
+                        base_equity_yen=base_equity,
                     )
+                all_trades.extend(ts)
 
-            # 集計（保存しない原則）
-            qs = AutoTradeExecution.objects.filter(run_detail=rd).order_by("exit_at")
-            m = summarize_executions(qs=qs, base_equity=base_equity)
+            # 集計（UI＆gate用）
+            m = _summarize_trades(all_trades, base_equity_yen=base_equity)
+
+            # 追加：RunDetailに「参照用メタ」を軽く残す（必須ではない）
+            try:
+                rd.note = f"manual_backtest trades={m.get('trades')}"
+                rd.save(update_fields=["note"])
+            except Exception:
+                pass
+
             metrics_by_window[int(w)][str(strat)] = m
 
     # 3) gate 判定（gate.pyを正として使う）
