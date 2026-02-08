@@ -1,46 +1,85 @@
+<!--
+{# [FILE] templates/autotrade/tuning_list.html #}
+{# [PATH] <project_root>/templates/autotrade/tuning_list.html #}
+{# このファイルは何？ #}
+{# - 実験室（TuningProfile）の一覧画面です。 #}
+{# - ここは「入口」なので、作成/編集へ迷わず行けることを最優先にしています。 #}
+-->
+
 {% extends "base.html" %}
 {% load static %}
+{% block title %}AutoTrade / 実験室{% endblock %}
 
-{% block title %}Tuning Profiles{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{% static 'autotrade/tuning.css' %}?v=1">
+{% endblock %}
 
 {% block content %}
-<div class="autotrade-wrap">
+<div class="lab-wrap">
 
-  <div class="autotrade-top">
+  <div class="lab-top">
     <div>
-      <div class="autotrade-muted">AutoTrade / 実験室</div>
-      <div class="autotrade-title">チューニング一覧</div>
+      <div class="lab-muted">AutoTrade / 実験室</div>
+      <div class="lab-title">チューニング一覧</div>
     </div>
+
+    <a class="lab-btn" href="{% url 'autotrade:tuning_new' %}">＋ 新しいチューニング</a>
   </div>
 
-  <section class="autotrade-card">
-    {% if profiles %}
-      <div class="autotrade-list">
-        {% for p in profiles %}
-          <div class="autotrade-list-row">
-            <div>
-              <div class="autotrade-mono" style="font-weight:900;">
-                {{ p.name }}
-              </div>
-              <div class="autotrade-muted">
-                最終更新：{{ p.updated_at|date:"Y-m-d H:i" }}
-              </div>
+  {% if profiles %}
+    <div class="lab-list">
+      {% for p in profiles %}
+        <div class="lab-card">
+          <div class="lab-card-row">
+            <div class="lab-name">{{ p.name }}</div>
+            <div class="lab-muted lab-mono">更新: {{ p.updated_at|date:"Y-m-d H:i" }}</div>
+          </div>
+
+          <div class="lab-grid">
+            <div class="lab-box">
+              <div class="lab-box-h">VWAP</div>
+              <div class="lab-kv lab-mono">損切り(%)：{{ p.params.VWAP.stop_pct|default:"-" }}</div>
+              <div class="lab-kv lab-mono">RR：{{ p.params.VWAP.rr|default:"-" }}</div>
+              <div class="lab-kv lab-mono">乖離(%)：{{ p.params.VWAP.pullback_pct|default:"-" }}</div>
+              <div class="lab-kv lab-mono">最大保有(分)：{{ p.params.VWAP.max_hold_min|default:"-" }}</div>
             </div>
 
-            <div class="autotrade-chips">
-              <a class="autotrade-chip">▶ 編集</a>
-              <a class="autotrade-chip">▶ 検証</a>
-              <a class="autotrade-chip">▶ Snapshot作成</a>
+            <div class="lab-box">
+              <div class="lab-box-h">BREAKOUT</div>
+              <div class="lab-kv lab-mono">損切り(%)：{{ p.params.BREAKOUT.stop_pct|default:"-" }}</div>
+              <div class="lab-kv lab-mono">RR：{{ p.params.BREAKOUT.rr|default:"-" }}</div>
+              <div class="lab-kv lab-mono">本数：{{ p.params.BREAKOUT.lookback_bars|default:"-" }}</div>
+              <div class="lab-kv lab-mono">最大保有(分)：{{ p.params.BREAKOUT.max_hold_min|default:"-" }}</div>
             </div>
           </div>
-        {% endfor %}
+
+          <div class="lab-actions">
+            <a class="lab-btn-ghost" href="{% url 'autotrade:tuning_edit' p.id %}">編集</a>
+
+            <form method="post" action="{% url 'autotrade:tuning_archive' p.id %}">
+              {% csrf_token %}
+              <button class="lab-btn-danger" type="submit" data-confirm="このチューニングをアーカイブします。よろしいですか？">
+                アーカイブ
+              </button>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="lab-empty">
+      <div class="lab-empty-h">まだチューニングプロファイルがありません。</div>
+      <div class="lab-muted lab-mt8">
+        ここは「実験室」です。<br>
+        何をいじっても本番には影響しません（ACTIVE昇格は別操作）。
       </div>
-    {% else %}
-      <div class="autotrade-muted">
-        まだチューニングプロファイルがありません。
+      <div class="lab-mt12">
+        <a class="lab-btn" href="{% url 'autotrade:tuning_new' %}">＋ 最初のチューニングを作る</a>
       </div>
-    {% endif %}
-  </section>
+    </div>
+  {% endif %}
 
 </div>
+
+<script src="{% static 'autotrade/tuning.js' %}?v=1" defer></script>
 {% endblock %}
