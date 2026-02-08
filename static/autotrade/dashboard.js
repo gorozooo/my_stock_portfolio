@@ -1,6 +1,58 @@
-// static/autotrade/dashboard.js?v=1
+// 
+// [FILE] static/autotrade/dashboard.js
+// [PATH] <project_root>/static/autotrade/dashboard.js
+//
+// このファイルは何？
+// - ダッシュボードのフロント操作を担当します。
+// - 非常停止ボタン（API呼び出し）と、VWAP/BREAKOUT タブ切り替えを行います。
 
 (() => {
+  // =========================
+  // Tabs (VWAP / BREAKOUT)
+  // =========================
+  const tabsRoot = document.querySelector(".autotrade-tabs");
+  const panesRoot = document.querySelector(".autotrade-tabpanes");
+  if (tabsRoot && panesRoot) {
+    const tabs = Array.from(tabsRoot.querySelectorAll(".autotrade-tab"));
+    const panes = Array.from(panesRoot.querySelectorAll(".autotrade-pane"));
+    const initial = (tabsRoot.getAttribute("data-initial") || "VWAP").trim();
+
+    const setActive = (name) => {
+      tabs.forEach((t) => {
+        const isOn = (t.getAttribute("data-tab") === name);
+        t.classList.toggle("is-active", isOn);
+      });
+      panes.forEach((p) => {
+        const isOn = (p.getAttribute("data-pane") === name);
+        p.classList.toggle("is-active", isOn);
+      });
+      try {
+        localStorage.setItem("autotrade_dashboard_tab", name);
+      } catch (e) {}
+    };
+
+    let start = initial;
+    try {
+      const saved = localStorage.getItem("autotrade_dashboard_tab");
+      if (saved) start = saved;
+    } catch (e) {}
+
+    // 存在しない値だったらVWAPへ
+    if (!["VWAP", "BREAKOUT"].includes(start)) start = "VWAP";
+    setActive(start);
+
+    tabs.forEach((t) => {
+      t.addEventListener("click", () => {
+        const name = t.getAttribute("data-tab");
+        if (!name) return;
+        setActive(name);
+      });
+    });
+  }
+
+  // =========================
+  // Emergency Stop Button
+  // =========================
   const btn = document.getElementById("btnStop");
   if (!btn) return;
 
