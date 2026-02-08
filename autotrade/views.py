@@ -23,6 +23,9 @@ from django.views.decorators.http import require_POST
 
 from .models import AutoTradeDailyState
 
+# =========================================================
+# Dashboard
+# =========================================================
 
 def _get_nested_dict(d: dict, *keys, default=None):
     cur = d
@@ -135,6 +138,28 @@ def dashboard(request):
         "initial_tab": initial_tab,
     }
     return render(request, "autotrade/dashboard.html", ctx)
+
+
+# =========================================================
+# TuningProfile List（入口）
+# =========================================================
+@login_required
+def tuning_list(request):
+    """
+    調整用プロファイルの一覧（入口専用）
+    - 編集・検証・Snapshot化はリンクのみ
+    - 数値編集は一切しない
+    """
+    profiles = (
+        AutoTradeTuningProfile.objects
+        .filter(user=request.user, is_archived=False)
+        .order_by("-updated_at")
+    )
+
+    ctx = {
+        "profiles": profiles,
+    }
+    return render(request, "autotrade/tuning_list.html", ctx)
 
 
 # =========================================================
