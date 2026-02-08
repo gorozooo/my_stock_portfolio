@@ -1,0 +1,105 @@
+<!--
+[FILE] templates/autotrade/tuning_result.html
+[PATH] <project_root>/templates/autotrade/tuning_result.html
+
+このファイルは何？
+- 実験室の検証結果ページです。
+- 日本語＋数字＋円（gate.pyのreasons）を主役にカード表示します。
+-->
+
+{% extends "base.html" %}
+{% load static %}
+{% load humanize %}
+{% block title %}AutoTrade / 実験室 - 検証結果{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{% static 'autotrade/tuning.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<div class="lab-wrap">
+
+  <div class="lab-top">
+    <div>
+      <div class="lab-title">AutoTrade / 実験室</div>
+      <div class="lab-muted">検証結果</div>
+    </div>
+    <a class="lab-btn" href="{% url 'autotrade:tuning_list' %}">← 一覧へ</a>
+  </div>
+
+  <div class="lab-card">
+    <div class="lab-row">
+      <div class="lab-name">{{ snapshot.label }}</div>
+      <div class="lab-muted lab-mono">id={{ snapshot.id }}</div>
+    </div>
+    <div class="lab-muted lab-mt8">
+      {% if profile %}作業台：{{ profile.name }}{% else %}作業台：なし{% endif %}
+      / 日付：{{ evidence.date|default:"-" }}
+    </div>
+
+    <div class="lab-mt12">
+      <div class="lab-section">最終判定</div>
+      <div class="lab-badge
+        {% if gate.gate_level == "FULL" %}is-ok{% elif gate.gate_level == "LIGHT" %}is-warn{% else %}is-bad{% endif %}
+      ">
+        {{ gate.gate_level|default:"STOP" }}
+      </div>
+      <div class="lab-muted lab-mt8">active: {{ gate.active|default:"-" }} / disabled: {{ gate.disabled|default:"-" }}</div>
+    </div>
+
+    <div class="lab-mt12">
+      <div class="lab-section">理由（日本語＋数字＋円）</div>
+
+      {% with gv=gate.gate_vwap gb=gate.gate_breakout %}
+        <div class="lab-subtitle">VWAP</div>
+        <div class="lab-reasons">
+          {% for r in gv.reasons %}
+            <div class="lab-reason-line">{{ r }}</div>
+          {% empty %}
+            <div class="lab-muted">理由なし</div>
+          {% endfor %}
+        </div>
+
+        <div class="lab-subtitle lab-mt12">BREAKOUT</div>
+        <div class="lab-reasons">
+          {% for r in gb.reasons %}
+            <div class="lab-reason-line">{{ r }}</div>
+          {% empty %}
+            <div class="lab-muted">理由なし</div>
+          {% endfor %}
+        </div>
+      {% endwith %}
+    </div>
+  </div>
+
+  <div class="lab-section lab-mt12">結果カード（戦略 × 期間）</div>
+
+  <div class="lab-grid-cards">
+    {% for c in cards %}
+      <div class="lab-card">
+        <div class="lab-row">
+          <div class="lab-name">{{ c.strategy }}｜{{ c.window }}日</div>
+          <div class="lab-badge
+            {% if c.pnl|default:0 >= 0 %}is-ok{% else %}is-bad{% endif %}
+          ">
+            {% if c.pnl is not None %}{{ c.pnl|intcomma }}円{% else %}-{% endif %}
+          </div>
+        </div>
+
+        <div class="lab-mt8 lab-mono lab-kv">
+          <div>N（取引回数）：{{ c.trades|default:"-" }}</div>
+          <div>勝率：{% if c.win_rate is not None %}{{ c.win_rate }}{% else %}-{% endif %}</div>
+          <div>勝/負：{% if c.wins is not None %}{{ c.wins }}{% else %}-{% endif %} / {% if c.losses is not None %}{{ c.losses }}{% else %}-{% endif %}</div>
+          <div>利益合計：{% if c.sum_win_yen is not None %}+{{ c.sum_win_yen|intcomma }}円{% else %}-{% endif %}</div>
+          <div>損失合計：{% if c.sum_loss_yen is not None %}{{ c.sum_loss_yen|intcomma }}円{% else %}-{% endif %}</div>
+          <div>PF：{% if c.pf is not None %}{{ c.pf }}{% else %}-{% endif %}</div>
+          <div>最大DD：{% if c.dd_yen is not None %}{{ c.dd_yen|intcomma }}円{% else %}-{% endif %}
+            / {% if c.dd_pct is not None %}{{ c.dd_pct }}{% else %}-{% endif %}
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+</div>
+{% endblock %}
