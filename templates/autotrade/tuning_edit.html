@@ -1,0 +1,116 @@
+{# [FILE] templates/autotrade/tuning_edit.html #}
+{# [PATH] <project_root>/templates/autotrade/tuning_edit.html #}
+{# このファイルは何？ #}
+{# - チューニングの新規作成/編集画面です。 #}
+{# - D工程では「自由入力できる作業台」をまず完成させます。 #}
+{# - 危険値は“禁止しない”。次工程で警告表示を足します。 #}
+
+{% extends "base.html" %}
+{% load static %}
+{% block title %}AutoTrade / 実験室{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{% static 'autotrade/tuning.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<div class="lab-wrap">
+
+  <div class="lab-top">
+    <div>
+      <div class="lab-muted">AutoTrade / 実験室</div>
+      <div class="lab-title">
+        {% if mode == "new" %}新規チューニング{% else %}チューニング編集{% endif %}
+      </div>
+    </div>
+
+    <a class="lab-btn-ghost" href="{% url 'autotrade:tuning_list' %}">← 一覧へ</a>
+  </div>
+
+  <form method="post" class="lab-card">
+    {% csrf_token %}
+
+    <div class="lab-form-row">
+      <label class="lab-label">名前</label>
+      <input class="lab-input" type="text" name="name"
+             value="{% if profile %}{{ profile.name }}{% else %}New Tuning{% endif %}"
+             maxlength="100" required>
+    </div>
+
+    <div class="lab-grid">
+
+      <div class="lab-box">
+        <div class="lab-box-h">VWAP（押し目）</div>
+
+        <div class="lab-form-row">
+          <label class="lab-label">損切り幅（%）</label>
+          <input class="lab-input lab-mono" type="number" step="0.01" name="vwap_stop_pct"
+                 value="{{ params.VWAP.stop_pct|default:'0.25' }}">
+          <div class="lab-hint">例：0.25 = エントリー価格から0.25%逆行で損切</div>
+        </div>
+
+        <div class="lab-form-row">
+          <label class="lab-label">RR（利確幅 ÷ 損切幅）</label>
+          <input class="lab-input lab-mono" type="number" step="0.01" name="vwap_rr"
+                 value="{{ params.VWAP.rr|default:'1.5' }}">
+          <div class="lab-hint">例：1.5 = 損切1に対して利確1.5</div>
+        </div>
+
+        <div class="lab-form-row">
+          <label class="lab-label">押し目許容率（VWAP乖離%）</label>
+          <input class="lab-input lab-mono" type="number" step="0.01" name="vwap_pullback_pct"
+                 value="{{ params.VWAP.pullback_pct|default:'0.05' }}">
+          <div class="lab-hint">例：0.05 = VWAPから0.05%以内で反応</div>
+        </div>
+
+        <div class="lab-form-row">
+          <label class="lab-label">最大保有時間（分）</label>
+          <input class="lab-input lab-mono" type="number" step="1" name="vwap_max_hold_min"
+                 value="{{ params.VWAP.max_hold_min|default:'30' }}">
+        </div>
+      </div>
+
+      <div class="lab-box">
+        <div class="lab-box-h">BREAKOUT（レンジブレイク）</div>
+
+        <div class="lab-form-row">
+          <label class="lab-label">損切り幅（%）</label>
+          <input class="lab-input lab-mono" type="number" step="0.01" name="breakout_stop_pct"
+                 value="{{ params.BREAKOUT.stop_pct|default:'0.30' }}">
+        </div>
+
+        <div class="lab-form-row">
+          <label class="lab-label">RR</label>
+          <input class="lab-input lab-mono" type="number" step="0.01" name="breakout_rr"
+                 value="{{ params.BREAKOUT.rr|default:'2.0' }}">
+        </div>
+
+        <div class="lab-form-row">
+          <label class="lab-label">ブレイク判定本数（5分足）</label>
+          <input class="lab-input lab-mono" type="number" step="1" name="breakout_lookback_bars"
+                 value="{{ params.BREAKOUT.lookback_bars|default:'6' }}">
+        </div>
+
+        <div class="lab-form-row">
+          <label class="lab-label">最大保有時間（分）</label>
+          <input class="lab-input lab-mono" type="number" step="1" name="breakout_max_hold_min"
+                 value="{{ params.BREAKOUT.max_hold_min|default:'30' }}">
+        </div>
+      </div>
+
+    </div>
+
+    <div class="lab-actions lab-mt12">
+      <button class="lab-btn" type="submit">保存</button>
+      <a class="lab-btn-ghost" href="{% url 'autotrade:tuning_list' %}">キャンセル</a>
+    </div>
+
+    <div class="lab-muted lab-mt12">
+      ※この画面で何をいじっても本番には影響しません（ACTIVE昇格は別工程）
+    </div>
+  </form>
+
+</div>
+
+<script src="{% static 'autotrade/tuning.js' %}?v=1" defer></script>
+{% endblock %}
