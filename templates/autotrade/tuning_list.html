@@ -1,9 +1,11 @@
 <!--
-{# [FILE] templates/autotrade/tuning_list.html #}
-{# [PATH] <project_root>/templates/autotrade/tuning_list.html #}
-{# このファイルは何？ #}
-{# - 実験室（TuningProfile）の一覧画面です。 #}
-{# - ここは「入口」なので、作成/編集へ迷わず行けることを最優先にしています。 #}
+[FILE] templates/autotrade/tuning_list.html
+[PATH] <project_root>/templates/autotrade/tuning_list.html
+
+このファイルは何？
+- 実験室（TuningProfile）の一覧画面です。
+- ここは「入口」。
+- 編集せずに ▶ 検証（BACKTEST）→ 結果確認 ができることを最優先にしています。
 -->
 
 {% extends "base.html" %}
@@ -56,9 +58,25 @@
           <div class="lab-actions">
             <a class="lab-btn-ghost" href="{% url 'autotrade:tuning_edit' p.id %}">編集</a>
 
+            <!-- ★ 追加：一覧から直接検証 -->
+            <form method="post" action="{% url 'autotrade:tuning_run_backtest' p.id %}" class="lab-inline">
+              {% csrf_token %}
+              <button
+                type="submit"
+                class="lab-btn"
+                data-confirm="この設定で検証（BACKTEST）します。よろしいですか？"
+              >
+                ▶ 検証（BACKTEST）
+              </button>
+            </form>
+
             <form method="post" action="{% url 'autotrade:tuning_archive' p.id %}">
               {% csrf_token %}
-              <button class="lab-btn-danger" type="submit" data-confirm="このチューニングをアーカイブします。よろしいですか？">
+              <button
+                class="lab-btn-danger"
+                type="submit"
+                data-confirm="このチューニングをアーカイブします。よろしいですか？"
+              >
                 アーカイブ
               </button>
             </form>
