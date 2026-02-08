@@ -5,6 +5,7 @@
 このファイルは何？
 - 実験室の検証結果ページです。
 - 日本語＋数字＋円（gate.pyのreasons）を主役にカード表示します。
+- 今回追加：CANDIDATE保存 / ACTIVE昇格 / ロールバック（戻せる本番採用）
 -->
 
 {% extends "base.html" %}
@@ -32,9 +33,52 @@
       <div class="lab-name">{{ snapshot.label }}</div>
       <div class="lab-muted lab-mono">id={{ snapshot.id }}</div>
     </div>
+
     <div class="lab-muted lab-mt8">
       {% if profile %}作業台：{{ profile.name }}{% else %}作業台：なし{% endif %}
       / 日付：{{ evidence.date|default:"-" }}
+    </div>
+
+    <div class="lab-muted lab-mt8">
+      このSnapshotの状態：<b class="lab-mono">{{ snapshot.status }}</b>
+      {% if active_snapshot %}
+        / 現在ACTIVE：<b class="lab-mono">{{ active_snapshot.label }}</b>（id={{ active_snapshot.id }}）
+      {% else %}
+        / 現在ACTIVE：<b class="lab-mono">なし</b>
+      {% endif %}
+    </div>
+
+    {% if last_promo %}
+      <div class="lab-muted lab-mt8">
+        直近操作：<span class="lab-mono">{{ last_promo.action }}</span>
+        （from={{ last_promo.from_snapshot_id|default:"-" }} → to={{ last_promo.to_snapshot_id|default:"-" }}）
+      </div>
+    {% endif %}
+
+    <div class="lab-row lab-mt12">
+      <form method="post" action="{% url 'autotrade:tuning_make_candidate' snapshot.id %}" class="lab-inline">
+        {% csrf_token %}
+        <button type="submit" class="lab-btn"
+          data-confirm="この検証結果のSnapshotを CANDIDATE（本番候補）として保存します。よろしいですか？">
+          CANDIDATE保存
+        </button>
+      </form>
+
+      <form method="post" action="{% url 'autotrade:tuning_promote_active' snapshot.id %}" class="lab-inline">
+        {% csrf_token %}
+        <button type="submit" class="lab-btn lab-btn-primary"
+          data-confirm="このSnapshotを ACTIVE（本番採用）に昇格します。旧ACTIVEはRETIREDになります。よろしいですか？">
+          ACTIVEに昇格
+        </button>
+      </form>
+
+      <form method="post" action="{% url 'autotrade:tuning_rollback_active' snapshot.id %}" class="lab-inline">
+        {% csrf_token %}
+        <button type="submit" class="lab-btn lab-btn-danger"
+          data-confirm="ロールバックします。直前のPROMOTE操作を取り消して前のACTIVEに戻します。よろしいですか？">
+          ロールバック
+        </button>
+      </form>
     </div>
 
     <div class="lab-mt12">
@@ -102,4 +146,6 @@
   </div>
 
 </div>
+
+<script src="{% static 'autotrade/tuning.js' %}?v=3" defer></script>
 {% endblock %}
