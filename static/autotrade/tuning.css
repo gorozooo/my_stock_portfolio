@@ -1,0 +1,195 @@
+/* [FILE] static/autotrade/tuning.css */
+/* [PATH] <project_root>/static/autotrade/tuning.css */
+/* このファイルは何？
+   - 実験室（TuningProfile）画面のスタイルです。
+   - dashboard の“ガラスUI”に寄せたトーンで統一します。
+*/
+
+:root{
+  --lab-bg:#0b0f14;
+  --lab-card:rgba(255,255,255,.06);
+  --lab-bd:rgba(255,255,255,.10);
+  --lab-txt:rgba(255,255,255,.92);
+  --lab-mut:rgba(255,255,255,.62);
+  --lab-ok:#36d399;
+  --lab-warn:#fbbf24;
+  --lab-bad:#f87171;
+}
+
+.lab-wrap{
+  max-width:980px;
+  margin:12px auto 0;
+  padding:14px 12px 140px;
+  color:var(--lab-txt);
+}
+
+.lab-top{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:12px;
+}
+
+.lab-title{
+  font-size:18px;
+  font-weight:900;
+}
+
+.lab-muted{
+  color:var(--lab-mut);
+  font-size:12px;
+}
+
+.lab-mono{
+  font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+}
+
+.lab-card{
+  border:1px solid var(--lab-bd);
+  border-radius:16px;
+  background:var(--lab-card);
+  padding:12px;
+  backdrop-filter:blur(10px);
+}
+
+.lab-list{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+.lab-card-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-bottom:10px;
+}
+
+.lab-name{
+  font-weight:900;
+  font-size:16px;
+}
+
+.lab-grid{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:10px;
+}
+
+@media (min-width: 740px){
+  .lab-grid{
+    grid-template-columns:1fr 1fr;
+  }
+}
+
+.lab-box{
+  border:1px solid var(--lab-bd);
+  border-radius:14px;
+  padding:10px;
+  background:rgba(0,0,0,.18);
+}
+
+.lab-box-h{
+  font-weight:900;
+  margin-bottom:8px;
+}
+
+.lab-kv{
+  font-size:12px;
+  margin-top:4px;
+}
+
+.lab-actions{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap:wrap;
+  margin-top:10px;
+}
+
+.lab-btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  padding:10px 12px;
+  border-radius:14px;
+  border:1px solid var(--lab-bd);
+  background:rgba(255,255,255,.10);
+  color:var(--lab-txt);
+  font-weight:900;
+  text-decoration:none;
+}
+
+.lab-btn-ghost{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:10px 12px;
+  border-radius:14px;
+  border:1px solid var(--lab-bd);
+  background:rgba(0,0,0,.10);
+  color:var(--lab-txt);
+  font-weight:900;
+  text-decoration:none;
+}
+
+.lab-btn-danger{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:10px 12px;
+  border-radius:14px;
+  border:1px solid rgba(248,113,113,.55);
+  background:rgba(248,113,113,.10);
+  color:var(--lab-txt);
+  font-weight:900;
+}
+
+.lab-empty{
+  border:1px dashed rgba(255,255,255,.18);
+  border-radius:16px;
+  padding:18px 12px;
+  background:rgba(0,0,0,.12);
+}
+
+.lab-empty-h{
+  font-weight:900;
+  font-size:14px;
+}
+
+.lab-form-row{
+  margin-top:10px;
+}
+
+.lab-label{
+  display:block;
+  color:var(--lab-mut);
+  font-size:12px;
+  margin-bottom:6px;
+}
+
+.lab-input{
+  width:100%;
+  padding:10px 12px;
+  border-radius:14px;
+  border:1px solid var(--lab-bd);
+  background:rgba(0,0,0,.25);
+  color:var(--lab-txt);
+  font-weight:800;
+  outline:none;
+}
+
+.lab-hint{
+  color:var(--lab-mut);
+  font-size:12px;
+  margin-top:6px;
+  line-height:1.35;
+}
+
+.lab-mt8{ margin-top:8px; }
+.lab-mt12{ margin-top:12px; }
