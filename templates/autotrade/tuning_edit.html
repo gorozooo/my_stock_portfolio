@@ -1,14 +1,15 @@
 <!--
-{# [FILE] templates/autotrade/tuning_edit.html #}
-{# [PATH] <project_root>/templates/autotrade/tuning_edit.html #}
-{# このファイルは何？ #}
-{# - チューニングの新規作成/編集画面です。 #}
-{# - D工程では「自由入力できる作業台」をまず完成させます。 #}
-{# - 危険値は“禁止しない”。次工程で警告表示を足します。 #}
+[FILE] templates/autotrade/tuning_list.html
+[PATH] <project_root>/templates/autotrade/tuning_list.html
+
+このファイルは何？
+- 実験室（TuningProfile）の一覧（入口）です。
+- ここで「編集」「検証（BACKTEST）」「アーカイブ」ができます。
 -->
 
 {% extends "base.html" %}
 {% load static %}
+{% load humanize %}
 {% block title %}AutoTrade / 実験室{% endblock %}
 
 {% block head %}
@@ -20,99 +21,55 @@
 
   <div class="lab-top">
     <div>
-      <div class="lab-muted">AutoTrade / 実験室</div>
-      <div class="lab-title">
-        {% if mode == "new" %}新規チューニング{% else %}チューニング編集{% endif %}
-      </div>
+      <div class="lab-title">AutoTrade / 実験室</div>
+      <div class="lab-muted">チューニング一覧</div>
     </div>
-
-    <a class="lab-btn-ghost" href="{% url 'autotrade:tuning_list' %}">← 一覧へ</a>
+    <a class="lab-btn" href="{% url 'autotrade:tuning_new' %}">＋ 新規作成</a>
   </div>
 
-  <form method="post" class="lab-card">
-    {% csrf_token %}
+  {% if profiles %}
+    <div class="lab-list">
+      {% for p in profiles %}
+        <div class="lab-card">
+          <div class="lab-row">
+            <div class="lab-name">{{ p.name }}</div>
+            <div class="lab-muted lab-mono">{{ p.updated_at|date:"Y-m-d H:i" }}</div>
+          </div>
 
-    <div class="lab-form-row">
-      <label class="lab-label">名前</label>
-      <input class="lab-input" type="text" name="name"
-             value="{% if profile %}{{ profile.name }}{% else %}New Tuning{% endif %}"
-             maxlength="100" required>
+          <div class="lab-row lab-mt8">
+            <a class="lab-btn" href="{% url 'autotrade:tuning_edit' p.id %}">編集</a>
+
+            <form method="post" action="{% url 'autotrade:tuning_run_backtest' p.id %}" class="lab-inline">
+              {% csrf_token %}
+              <button type="submit" class="lab-btn lab-btn-primary" data-confirm="この設定で検証（BACKTEST）します。よろしいですか？">
+                ▶ 検証（BACKTEST）
+              </button>
+            </form>
+
+            <form method="post" action="{% url 'autotrade:tuning_archive' p.id %}" class="lab-inline">
+              {% csrf_token %}
+              <button type="submit" class="lab-btn lab-btn-danger" data-confirm="このプロファイルをアーカイブします（安全削除）。よろしいですか？">
+                アーカイブ
+              </button>
+            </form>
+          </div>
+
+          <div class="lab-muted lab-mt10">
+            ※ 実験室の検証は ACTIVE に影響しません（DRAFT Snapshot を作って検証します）
+          </div>
+        </div>
+      {% endfor %}
     </div>
-
-    <div class="lab-grid">
-
-      <div class="lab-box">
-        <div class="lab-box-h">VWAP（押し目）</div>
-
-        <div class="lab-form-row">
-          <label class="lab-label">損切り幅（%）</label>
-          <input class="lab-input lab-mono" type="number" step="0.01" name="vwap_stop_pct"
-                 value="{{ params.VWAP.stop_pct|default:'0.25' }}">
-          <div class="lab-hint">例：0.25 = エントリー価格から0.25%逆行で損切</div>
-        </div>
-
-        <div class="lab-form-row">
-          <label class="lab-label">RR（利確幅 ÷ 損切幅）</label>
-          <input class="lab-input lab-mono" type="number" step="0.01" name="vwap_rr"
-                 value="{{ params.VWAP.rr|default:'1.5' }}">
-          <div class="lab-hint">例：1.5 = 損切1に対して利確1.5</div>
-        </div>
-
-        <div class="lab-form-row">
-          <label class="lab-label">押し目許容率（VWAP乖離%）</label>
-          <input class="lab-input lab-mono" type="number" step="0.01" name="vwap_pullback_pct"
-                 value="{{ params.VWAP.pullback_pct|default:'0.05' }}">
-          <div class="lab-hint">例：0.05 = VWAPから0.05%以内で反応</div>
-        </div>
-
-        <div class="lab-form-row">
-          <label class="lab-label">最大保有時間（分）</label>
-          <input class="lab-input lab-mono" type="number" step="1" name="vwap_max_hold_min"
-                 value="{{ params.VWAP.max_hold_min|default:'30' }}">
-        </div>
+  {% else %}
+    <div class="lab-empty">
+      <div class="lab-muted">まだチューニングプロファイルがありません。</div>
+      <div class="lab-mt10">
+        <a class="lab-btn lab-btn-primary" href="{% url 'autotrade:tuning_new' %}">＋ 最初の作業台を作る</a>
       </div>
-
-      <div class="lab-box">
-        <div class="lab-box-h">BREAKOUT（レンジブレイク）</div>
-
-        <div class="lab-form-row">
-          <label class="lab-label">損切り幅（%）</label>
-          <input class="lab-input lab-mono" type="number" step="0.01" name="breakout_stop_pct"
-                 value="{{ params.BREAKOUT.stop_pct|default:'0.30' }}">
-        </div>
-
-        <div class="lab-form-row">
-          <label class="lab-label">RR</label>
-          <input class="lab-input lab-mono" type="number" step="0.01" name="breakout_rr"
-                 value="{{ params.BREAKOUT.rr|default:'2.0' }}">
-        </div>
-
-        <div class="lab-form-row">
-          <label class="lab-label">ブレイク判定本数（5分足）</label>
-          <input class="lab-input lab-mono" type="number" step="1" name="breakout_lookback_bars"
-                 value="{{ params.BREAKOUT.lookback_bars|default:'6' }}">
-        </div>
-
-        <div class="lab-form-row">
-          <label class="lab-label">最大保有時間（分）</label>
-          <input class="lab-input lab-mono" type="number" step="1" name="breakout_max_hold_min"
-                 value="{{ params.BREAKOUT.max_hold_min|default:'30' }}">
-        </div>
-      </div>
-
     </div>
-
-    <div class="lab-actions lab-mt12">
-      <button class="lab-btn" type="submit">保存</button>
-      <a class="lab-btn-ghost" href="{% url 'autotrade:tuning_list' %}">キャンセル</a>
-    </div>
-
-    <div class="lab-muted lab-mt12">
-      ※この画面で何をいじっても本番には影響しません（ACTIVE昇格は別工程）
-    </div>
-  </form>
+  {% endif %}
 
 </div>
 
 <script src="{% static 'autotrade/tuning.js' %}?v=1" defer></script>
-{% endblock %}
+{% endblock %}{% endblock %}
