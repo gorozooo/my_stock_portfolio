@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Tuning Profiles{% endblock %}
+
+{% block content %}
+<div class="autotrade-wrap">
+
+  <div class="autotrade-top">
+    <div>
+      <div class="autotrade-muted">AutoTrade / 実験室</div>
+      <div class="autotrade-title">チューニング一覧</div>
+    </div>
+  </div>
+
+  <section class="autotrade-card">
+    {% if profiles %}
+      <div class="autotrade-list">
+        {% for p in profiles %}
+          <div class="autotrade-list-row">
+            <div>
+              <div class="autotrade-mono" style="font-weight:900;">
+                {{ p.name }}
+              </div>
+              <div class="autotrade-muted">
+                最終更新：{{ p.updated_at|date:"Y-m-d H:i" }}
+              </div>
+            </div>
+
+            <div class="autotrade-chips">
+              <a class="autotrade-chip">▶ 編集</a>
+              <a class="autotrade-chip">▶ 検証</a>
+              <a class="autotrade-chip">▶ Snapshot作成</a>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="autotrade-muted">
+        まだチューニングプロファイルがありません。
+      </div>
+    {% endif %}
+  </section>
+
+</div>
+{% endblock %}
