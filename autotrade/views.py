@@ -5,12 +5,12 @@
 このファイルは何？
 - AutoTrade のダッシュボード表示（iPhone 1画面）を作る View です。
 - DailyState（今日の状態）を読み、テンプレに渡す表示用データ（バックテスト行や理由文）を整形します。
-- さらに「実験室（TuningProfile）」として、一覧・新規作成・編集・アーカイブ（安全削除）を提供します。
+- さらに「実験室（TuningProfile）」として、一覧・新規作成・編集・アーカイブ（安全削除）・検証実行・結果表示を提供します。
 
 今回のポイント：
 - runner.py が保存する新フォーマット（state.backtest = {meta/by_window/gate}）に追従。
 - VWAP / BREAKOUT の両方の結果を表示できるように整形して返します。
-- 実験室UIは「全パラメータ表示・全変更OK」を前提に、入口（一覧）だけでなく新規作成/編集/アーカイブまで対応。
+- 実験室の検証は ACTIVE を一切触らず、DRAFT Snapshot を作って Execution を生成し、結果をカード表示します。
 """
 
 from __future__ import annotations
@@ -27,7 +27,12 @@ from django.views.decorators.http import require_POST
 from .models import (
     AutoTradeDailyState,
     AutoTradeTuningProfile,
+    AutoTradeSettingSnapshot,
 )
+
+from autotrade.services.universe.service import build_daily_universe
+from autotrade.services.tuning.manual_backtest import run_backtest_for_tuning_profile
+
 
 # =========================================================
 # Dashboard
@@ -52,7 +57,6 @@ def _get_nested_dict(d: dict, *keys, default=None):
 
 def _build_bt_rows_by_strategy_for_template(state: AutoTradeDailyState):
     """
-    テンプレ側で key 参照に詰まらないように、
     backtest の新フォーマット（meta/by_window/gate）から
     「戦略ごと × windowごと」の表示行を整形して返す。
 
@@ -119,7 +123,6 @@ def _build_gate_bundle_for_template(state: AutoTradeDailyState):
             "gate_level": str(gb.get("gate_level") or "STOP"),
             "reasons": [str(x) for x in (gb.get("reasons") or []) if str(x).strip()],
         },
-        # 既存の state.gate_reason（runner が合成した最終理由）は “最終まとめ” として活かす
         "final_reason_text": (state.gate_reason or "").strip(),
     }
 
@@ -132,7 +135,6 @@ def dashboard(request: HttpRequest):
     gate_bundle = _build_gate_bundle_for_template(state)
     bt_rows_by_strategy = _build_bt_rows_by_strategy_for_template(state)
 
-    # 初期タブ（今日の戦略があればそれ / 無ければVWAP）
     initial_tab = (state.strategy or "VWAP").strip() or "VWAP"
     if initial_tab not in ["VWAP", "BREAKOUT"]:
         initial_tab = "VWAP"
@@ -154,20 +156,19 @@ def _default_params() -> Dict[str, Any]:
     """
     実験室の初期パラメータ（自由入力の土台）
     - UIは「%」表記（例: 0.25 = 0.25%）
-    - この段階では危険値の禁止はしない（UI側で警告に留める設計）
     """
     return {
         "VWAP": {
-            "stop_pct": 0.25,        # %（0.25%）
+            "stop_pct": 0.25,
             "rr": 1.5,
-            "pullback_pct": 0.05,    # %（VWAP乖離許容 0.05%）
-            "max_hold_min": 30,      # 分
+            "pullback_pct": 0.05,
+            "max_hold_min": 30,
         },
         "BREAKOUT": {
-            "stop_pct": 0.30,        # %（0.30%）
+            "stop_pct": 0.30,
             "rr": 2.0,
-            "lookback_bars": 6,      # 5分足 本数
-            "max_hold_min": 30,      # 分
+            "lookback_bars": 6,
+            "max_hold_min": 30,
         },
     }
 
@@ -186,14 +187,10 @@ def _to_int(v: Any, default: int = 0) -> int:
         return int(default)
 
 
-# =========================================================
-# TuningProfile List（入口）
-# =========================================================
 @login_required
 def tuning_list(request: HttpRequest):
     """
     調整用プロファイルの一覧（入口）
-    - ここでは数値編集しない（編集画面へ誘導）
     """
     profiles = (
         AutoTradeTuningProfile.objects
@@ -207,9 +204,6 @@ def tuning_list(request: HttpRequest):
     return render(request, "autotrade/tuning_list.html", ctx)
 
 
-# =========================================================
-# TuningProfile New（新規作成）
-# =========================================================
 @login_required
 def tuning_new(request: HttpRequest):
     """
@@ -218,13 +212,11 @@ def tuning_new(request: HttpRequest):
     if request.method == "POST":
         name = (request.POST.get("name") or "").strip() or "New Tuning"
 
-        # VWAP
         v_stop = _to_float(request.POST.get("vwap_stop_pct"), 0.25)
         v_rr = _to_float(request.POST.get("vwap_rr"), 1.5)
         v_pull = _to_float(request.POST.get("vwap_pullback_pct"), 0.05)
         v_hold = _to_int(request.POST.get("vwap_max_hold_min"), 30)
 
-        # BREAKOUT
         b_stop = _to_float(request.POST.get("breakout_stop_pct"), 0.30)
         b_rr = _to_float(request.POST.get("breakout_rr"), 2.0)
         b_lb = _to_int(request.POST.get("breakout_lookback_bars"), 6)
@@ -260,9 +252,6 @@ def tuning_new(request: HttpRequest):
     return render(request, "autotrade/tuning_edit.html", ctx)
 
 
-# =========================================================
-# TuningProfile Edit（編集）
-# =========================================================
 @login_required
 def tuning_edit(request: HttpRequest, pk: int):
     """
@@ -275,13 +264,11 @@ def tuning_edit(request: HttpRequest, pk: int):
     if request.method == "POST":
         name = (request.POST.get("name") or "").strip() or profile.name
 
-        # VWAP
         v_stop = _to_float(request.POST.get("vwap_stop_pct"), (params.get("VWAP") or {}).get("stop_pct", 0.25))
         v_rr = _to_float(request.POST.get("vwap_rr"), (params.get("VWAP") or {}).get("rr", 1.5))
         v_pull = _to_float(request.POST.get("vwap_pullback_pct"), (params.get("VWAP") or {}).get("pullback_pct", 0.05))
         v_hold = _to_int(request.POST.get("vwap_max_hold_min"), (params.get("VWAP") or {}).get("max_hold_min", 30))
 
-        # BREAKOUT
         b_stop = _to_float(request.POST.get("breakout_stop_pct"), (params.get("BREAKOUT") or {}).get("stop_pct", 0.30))
         b_rr = _to_float(request.POST.get("breakout_rr"), (params.get("BREAKOUT") or {}).get("rr", 2.0))
         b_lb = _to_int(request.POST.get("breakout_lookback_bars"), (params.get("BREAKOUT") or {}).get("lookback_bars", 6))
@@ -317,9 +304,6 @@ def tuning_edit(request: HttpRequest, pk: int):
     return render(request, "autotrade/tuning_edit.html", ctx)
 
 
-# =========================================================
-# TuningProfile Archive（安全削除）
-# =========================================================
 @login_required
 @require_POST
 def tuning_archive(request: HttpRequest, pk: int):
@@ -331,6 +315,95 @@ def tuning_archive(request: HttpRequest, pk: int):
     profile.updated_at = timezone.now()
     profile.save(update_fields=["is_archived", "updated_at"])
     return redirect("autotrade:tuning_list")
+
+
+# =========================================================
+# ★ 検証実行（BACKTEST）
+# =========================================================
+@login_required
+@require_POST
+def tuning_run_backtest(request: HttpRequest, pk: int):
+    """
+    TuningProfile の params を使って「検証用DRAFT Snapshot」を作り、
+    詳細バックテストを回して evidence を焼き付け、結果ページへ遷移する。
+    """
+    profile = get_object_or_404(AutoTradeTuningProfile, pk=pk, user=request.user)
+
+    today = timezone.localdate()
+    state, _ = AutoTradeDailyState.objects.get_or_create(date=today)
+
+    # picks：無ければここで作る（実験室は自由実行OK）
+    uni = state.universe if isinstance(state.universe, dict) else {}
+    picks = [x.get("ticker") for x in (uni.get("picks") or []) if isinstance(x, dict) and x.get("ticker")]
+    picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
+
+    if not picks:
+        # まだ朝ジョブ前でも、ここで生成してOK（実験室）
+        u = build_daily_universe(limit=10)
+        picks = [x.get("ticker") for x in (u.get("picks") or []) if isinstance(x, dict) and x.get("ticker")]
+        picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
+
+    # 実行（ACTIVEは触らない）
+    result = run_backtest_for_tuning_profile(
+        profile=profile,
+        target_date=today,
+        picks=picks,
+        windows=[20, 60],
+    )
+
+    snap_id = int(result.get("snapshot_id") or 0)
+    if snap_id <= 0:
+        # 失敗：一覧へ戻す（最低限）
+        return redirect("autotrade:tuning_list")
+
+    return redirect("autotrade:tuning_result", snapshot_id=snap_id)
+
+
+@login_required
+def tuning_result(request: HttpRequest, snapshot_id: int):
+    """
+    検証結果（日本語＋数字＋円）カード表示
+    - Snapshot.snapshot['evidence'] を表示する
+    """
+    snap = get_object_or_404(AutoTradeSettingSnapshot, pk=snapshot_id, user=request.user)
+
+    sdict = snap.snapshot if isinstance(snap.snapshot, dict) else {}
+    evidence = sdict.get("evidence") if isinstance(sdict.get("evidence"), dict) else {}
+    gate = evidence.get("gate") if isinstance(evidence.get("gate"), dict) else {}
+    by_window = evidence.get("by_window") if isinstance(evidence.get("by_window"), dict) else {}
+
+    windows = ["20", "60"]
+    strategies = ["VWAP", "BREAKOUT"]
+
+    cards = []
+    for strat in strategies:
+        for w in windows:
+            m = _get_nested_dict(by_window, int(w), strat, default={})
+            if not isinstance(m, dict):
+                m = {}
+            cards.append({
+                "strategy": strat,
+                "window": w,
+                "trades": m.get("trades"),
+                "wins": m.get("wins"),
+                "losses": m.get("losses"),
+                "win_rate": m.get("win_rate"),
+                "sum_win_yen": m.get("sum_win_yen"),
+                "sum_loss_yen": m.get("sum_loss_yen"),
+                "pf": m.get("profit_factor"),
+                "dd_yen": m.get("max_drawdown_yen"),
+                "dd_pct": m.get("max_drawdown_pct"),
+                "pnl": m.get("total_pnl"),
+            })
+
+    ctx = {
+        "snapshot": snap,
+        "profile": snap.source_profile,
+        "evidence": evidence,
+        "gate": gate,
+        "cards": cards,
+    }
+    return render(request, "autotrade/tuning_result.html", ctx)
 
 
 # =========================================================
@@ -359,7 +432,6 @@ def api_emergency_stop(request: HttpRequest):
     state.emergency_stopped_at = timezone.now()
     state.emergency_stop_reason = "manual"
 
-    # UIが即「停止」になるように倒す（理由は既存があれば追記）
     state.gate_level = "STOP"
     add_reason = "非常停止（手動）"
     if state.gate_reason:
