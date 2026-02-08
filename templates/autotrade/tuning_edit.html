@@ -4,9 +4,9 @@
 
 このファイルは何？
 - 実験室（TuningProfile）の作成/編集画面です。
-- 全項目自由入力（禁止しない）。危険値はUIで警告（将来拡張）する方針。
+- 全項目自由入力（禁止しない）。危険値は将来UIで警告する方針。
+- ★ 重要：formの入れ子を避けるため、検証ボタンは同じform内で formaction を使ってPOSTします。
 -->
-
 {% extends "base.html" %}
 {% load static %}
 {% load humanize %}
@@ -86,15 +86,18 @@
     </div>
 
     <div class="lab-row lab-mt12">
+      <!-- 保存（通常のPOST） -->
       <button type="submit" class="lab-btn lab-btn-primary">保存</button>
 
       {% if profile %}
-        <form method="post" action="{% url 'autotrade:tuning_run_backtest' profile.id %}" class="lab-inline">
-          {% csrf_token %}
-          <button type="submit" class="lab-btn" data-confirm="この設定で検証（BACKTEST）します。よろしいですか？">
-            ▶ 検証（BACKTEST）
-          </button>
-        </form>
+        <!-- ★ 検証：同じformのまま、POST先だけ切り替える（入れ子form禁止対策） -->
+        <button
+          type="submit"
+          class="lab-btn"
+          formaction="{% url 'autotrade:tuning_run_backtest' profile.id %}"
+          formmethod="post"
+          data-confirm="この設定で検証（BACKTEST）します。よろしいですか？"
+        >▶ 検証（BACKTEST）</button>
       {% endif %}
     </div>
 
