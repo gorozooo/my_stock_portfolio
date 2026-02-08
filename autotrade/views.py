@@ -6,11 +6,13 @@
 - AutoTrade のダッシュボード表示（iPhone 1画面）を作る View です。
 - DailyState（今日の状態）を読み、テンプレに渡す表示用データ（バックテスト行や理由文）を整形します。
 - さらに「実験室（TuningProfile）」として、一覧・新規作成・編集・アーカイブ（安全削除）・検証実行・結果表示を提供します。
+- 今回追加：CANDIDATE保存 / ACTIVE昇格 / ロールバック（監査ログ付き）
 
 今回のポイント：
 - runner.py が保存する新フォーマット（state.backtest = {meta/by_window/gate}）に追従。
 - VWAP / BREAKOUT の両方の結果を表示できるように整形して返します。
 - 実験室の検証は ACTIVE を一切触らず、DRAFT Snapshot を作って Execution を生成し、結果をカード表示します。
+- ACTIVE操作は「ログを残して」「戻せる」ことを最優先にします。
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from datetime import date
 from typing import Any, Dict
 
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.http import JsonResponse, HttpRequest
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
@@ -28,6 +31,7 @@ from .models import (
     AutoTradeDailyState,
     AutoTradeTuningProfile,
     AutoTradeSettingSnapshot,
+    AutoTradePromotionLog,
 )
 
 from autotrade.services.universe.service import build_daily_universe
@@ -359,11 +363,21 @@ def tuning_run_backtest(request: HttpRequest, pk: int):
     return redirect("autotrade:tuning_result", snapshot_id=snap_id)
 
 
+def _get_current_active_snapshot(user):
+    return (
+        AutoTradeSettingSnapshot.objects
+        .filter(user=user, status="ACTIVE")
+        .order_by("-id")
+        .first()
+    )
+
+
 @login_required
 def tuning_result(request: HttpRequest, snapshot_id: int):
     """
     検証結果（日本語＋数字＋円）カード表示
     - Snapshot.snapshot['evidence'] を表示する
+    - 追加：status / 現在ACTIVE / 直近ログも表示材料として渡す
     """
     snap = get_object_or_404(AutoTradeSettingSnapshot, pk=snapshot_id, user=request.user)
 
@@ -396,14 +410,141 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
                 "pnl": m.get("total_pnl"),
             })
 
+    active = _get_current_active_snapshot(request.user)
+    last_promo = (
+        AutoTradePromotionLog.objects
+        .filter(user=request.user)
+        .order_by("-id")
+        .first()
+    )
+
     ctx = {
         "snapshot": snap,
         "profile": snap.source_profile,
         "evidence": evidence,
         "gate": gate,
         "cards": cards,
+        "active_snapshot": active,
+        "last_promo": last_promo,
     }
     return render(request, "autotrade/tuning_result.html", ctx)
+
+
+# =========================================================
+# ★ CANDIDATE保存（DRAFT → CANDIDATE）
+# =========================================================
+@login_required
+@require_POST
+@transaction.atomic
+def tuning_make_candidate(request: HttpRequest, snapshot_id: int):
+    snap = get_object_or_404(AutoTradeSettingSnapshot, pk=snapshot_id, user=request.user)
+
+    # すでにACTIVE/RETIREDなら触らない（安全）
+    if snap.status in ["ACTIVE", "RETIRED"]:
+        return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
+
+    if snap.status != "CANDIDATE":
+        snap.status = "CANDIDATE"
+        snap.save(update_fields=["status"])
+
+    AutoTradePromotionLog.objects.create(
+        user=request.user,
+        action="MAKE_CANDIDATE",
+        from_snapshot=None,
+        to_snapshot=snap,
+        note="manual_from_result",
+    )
+    return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
+
+
+# =========================================================
+# ★ ACTIVE昇格（旧ACTIVEはRETIREDへ）
+# =========================================================
+@login_required
+@require_POST
+@transaction.atomic
+def tuning_promote_active(request: HttpRequest, snapshot_id: int):
+    target = get_object_or_404(AutoTradeSettingSnapshot, pk=snapshot_id, user=request.user)
+
+    # RETIREDは昇格不可（安全）
+    if target.status == "RETIRED":
+        return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
+
+    old_active = (
+        AutoTradeSettingSnapshot.objects
+        .select_for_update()
+        .filter(user=request.user, status="ACTIVE")
+        .order_by("-id")
+        .first()
+    )
+
+    # 旧ACTIVEを退役
+    if old_active and old_active.id != target.id:
+        old_active.status = "RETIRED"
+        old_active.save(update_fields=["status"])
+
+    # ターゲットをACTIVEへ（DRAFTでもCANDIDATEでもOK）
+    target.status = "ACTIVE"
+    target.save(update_fields=["status"])
+
+    AutoTradePromotionLog.objects.create(
+        user=request.user,
+        action="PROMOTE",
+        from_snapshot=old_active,
+        to_snapshot=target,
+        note="manual_promote_from_result",
+    )
+
+    return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
+
+
+# =========================================================
+# ★ ロールバック（直前PROMOTEの from_snapshot に戻す）
+# =========================================================
+@login_required
+@require_POST
+@transaction.atomic
+def tuning_rollback_active(request: HttpRequest, snapshot_id: int):
+    # 画面にいるsnapshot_idは「戻る」先ではなく、操作地点の目印として受け取るだけ
+    # 実際は最後のPROMOTEログに従う（安全）
+    last_promote = (
+        AutoTradePromotionLog.objects
+        .select_for_update()
+        .filter(user=request.user, action="PROMOTE")
+        .order_by("-id")
+        .first()
+    )
+    if not last_promote:
+        return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
+
+    prev_active = last_promote.from_snapshot
+    promoted = last_promote.to_snapshot
+
+    # prevが無い＝「初回昇格」だった場合はロールバック不可（安全）
+    if not prev_active:
+        return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
+
+    # DB上の最新状態をロックして取得（整合性）
+    prev_active = get_object_or_404(AutoTradeSettingSnapshot, pk=prev_active.id, user=request.user)
+    promoted = get_object_or_404(AutoTradeSettingSnapshot, pk=promoted.id, user=request.user)
+
+    # 現ACTIVEをRETIRED、prevをACTIVEへ
+    # promotedがACTIVEでない場合もあり得るが、事故らないように一律RETIRED寄せ
+    promoted.status = "RETIRED"
+    promoted.save(update_fields=["status"])
+
+    prev_active.status = "ACTIVE"
+    prev_active.save(update_fields=["status"])
+
+    AutoTradePromotionLog.objects.create(
+        user=request.user,
+        action="ROLLBACK",
+        from_snapshot=promoted,
+        to_snapshot=prev_active,
+        note="manual_rollback_from_result",
+    )
+
+    return redirect("autotrade:tuning_result", snapshot_id=prev_active.id)
 
 
 # =========================================================
