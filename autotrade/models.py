@@ -10,6 +10,7 @@
 - TuningProfile：調整用の作業台
 - SettingSnapshot：再現性の核となる固定設定
 - BacktestRun：バックテスト結果のサマリー履歴（PF/判定など）
+- PromotionLog：CANDIDATE/ACTIVE切替とロールバックの監査ログ（今回追加）
 """
 
 from django.conf import settings
@@ -108,6 +109,50 @@ class AutoTradeSettingSnapshot(models.Model):
 
 
 # =========================================================
+# 3.5) CANDIDATE/ACTIVE切替ログ（監査）
+# =========================================================
+class AutoTradePromotionLog(models.Model):
+    ACTION_CHOICES = (
+        ("MAKE_CANDIDATE", "CANDIDATE保存"),
+        ("PROMOTE", "ACTIVE昇格"),
+        ("ROLLBACK", "ロールバック"),
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="autotrade_promotion_logs",
+    )
+
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES)
+
+    from_snapshot = models.ForeignKey(
+        AutoTradeSettingSnapshot,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="promotion_logs_from",
+    )
+
+    to_snapshot = models.ForeignKey(
+        AutoTradeSettingSnapshot,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="promotion_logs_to",
+    )
+
+    note = models.CharField(max_length=200, blank=True, default="")
+
+    created_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        fs = f"from={self.from_snapshot_id}" if self.from_snapshot_id else "from=-"
+        ts = f"to={self.to_snapshot_id}" if self.to_snapshot_id else "to=-"
+        return f"[PROMO] {self.action} {fs} {ts}"
+
+
+# =========================================================
 # 4) バックテスト結果サマリー（集計）
 # =========================================================
 class AutoTradeBacktestRun(models.Model):
@@ -139,7 +184,8 @@ class AutoTradeBacktestRun(models.Model):
 
     def __str__(self):
         return f"[BACKTEST-SUM] {self.snapshot.label} {self.gate_result}"
-        
+
+
 # =========================================================
 # 詳細バックテスト / 実行ログ（別ファイル定義）
 # =========================================================
