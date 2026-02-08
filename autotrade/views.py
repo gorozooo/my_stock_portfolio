@@ -21,7 +21,7 @@ from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .models import AutoTradeDailyState
+from .models import AutoTradeDailyState,AutoTradeTuningProfile
 
 # =========================================================
 # Dashboard
