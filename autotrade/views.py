@@ -11,8 +11,6 @@
 - VWAP / BREAKOUT の両方の結果を表示できるように整形して返します。
 """
 
-from __future__ import annotations
-
 from datetime import date
 
 from django.contrib.auth.decorators import login_required
@@ -21,7 +19,10 @@ from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .models import AutoTradeDailyState,AutoTradeTuningProfile
+from .models import (
+    AutoTradeDailyState,
+    AutoTradeTuningProfile,
+)
 
 # =========================================================
 # Dashboard
