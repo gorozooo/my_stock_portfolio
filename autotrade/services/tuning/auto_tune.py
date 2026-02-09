@@ -3,17 +3,10 @@
 [PATH] <project_root>/autotrade/services/tuning/auto_tune.py
 
 このファイルは何？
-- 設計V/W：自動チューニング（最小構成）の本体です。
-- “毎朝ちょっとだけ”候補設定（CANDIDATE Snapshot）を作り、同日バックテスト（Execution）で検証します。
-- 採用（ACTIVE昇格）は別部品 auto_promote.py が担当（= 世代交代＆証拠焼き付け）。
-
-今回の修正ポイント（重要）：
-1) 同じ日に「候補を何度も作ってしまう」穴を塞ぐ
-   - status=CANDIDATE のみ判定だと、RETIREDになった瞬間に“今日の候補なし扱い”になり再作成される。
-   - → snapshot__tune__target_date で「status問わず」存在チェックし、同日は1回だけに固定。
-
-2) 不合格（RETIRED）になった場合も、落第理由を追えるように
-   - base_pack / cand_pack を snapshot["tune_eval"] に保存（再現性・説明責任）。
+- 自動チューニング（最小構成）の本体です。
+- 毎朝1ノブだけ動かし、候補Snapshot（CANDIDATE）を作って同日Executionで検証します。
+- 改善した候補だけ残し、悪化は即RETIREDにします（暴走防止）。
+- 今回の追加：落第した候補にも tune_eval（比較と理由）を焼き付け、UIで見える化します。
 """
 
 from __future__ import annotations
@@ -93,10 +86,13 @@ def _get_stop_pct_vwap_from_snapshot(snapshot_dict: Dict[str, Any]) -> float:
     """
     VWAPの stop_pct を snapshot からなるべく拾う。
     どのキーで持っていても対応できるように“読めるだけ読む”。
+
+    ※ engine_vwap 側の実装差（参照キー差）に耐えるため、
+       ここは保守的に複数候補を見ます。
     """
     candidates: List[Any] = []
 
-    # 1) 直下
+    # 1) 直下に置いてる場合
     candidates.append(snapshot_dict.get("stop_pct_vwap"))
     candidates.append(snapshot_dict.get("vwap_stop_pct"))
     candidates.append(snapshot_dict.get("stop_pct"))
@@ -114,12 +110,14 @@ def _get_stop_pct_vwap_from_snapshot(snapshot_dict: Dict[str, Any]) -> float:
     candidates.append(pv.get("stop_pct_vwap"))
     candidates.append(pv.get("sl_pct"))
 
+    # settings fallback（無ければ0.0025=0.25%）
     fallback = _safe_float(getattr(settings, "AUTOTRADE_VWAP_STOP_PCT", 0.0025), 0.0025)
 
     for x in candidates:
         v = _safe_float(x, None) if x is not None else None
         if v is None:
             continue
+        # 変な値を弾く（0 < stop < 10%）
         if 0.0 < float(v) < 0.10:
             return float(v)
 
@@ -133,14 +131,17 @@ def _apply_stop_pct_vwap(snapshot_dict: Dict[str, Any], *, stop_pct_vwap: float)
     """
     out = dict(snapshot_dict)
 
+    # 直下（いちばん簡単）
     out["stop_pct_vwap"] = float(stop_pct_vwap)
 
+    # vwap dict
     vwap = out.get("vwap") if isinstance(out.get("vwap"), dict) else {}
     vwap = dict(vwap)
     vwap["stop_pct"] = float(stop_pct_vwap)
     vwap["stop_pct_vwap"] = float(stop_pct_vwap)
     out["vwap"] = vwap
 
+    # params.vwap dict
     params = out.get("params") if isinstance(out.get("params"), dict) else {}
     params = dict(params)
     pv = params.get("vwap") if isinstance(params.get("vwap"), dict) else {}
@@ -160,11 +161,14 @@ def _get_baseline_metrics_from_state(state: AutoTradeDailyState, *, windows: Lis
     bt = state.backtest if isinstance(state.backtest, dict) else {}
     by_window = bt.get("by_window") if isinstance(bt.get("by_window"), dict) else {}
 
+    # by_window は {20: {"VWAP": {...}, "BREAKOUT": {...}}} か、
+    # JSONField経由でキーが文字列になるケースもあるので両対応。
     out: Dict[int, Dict[str, Dict[str, Any]]] = {}
 
     for w in windows:
         w_int = int(w)
         w_key_s = str(w_int)
+        w_dict = None
         if isinstance(by_window.get(w_int), dict):
             w_dict = by_window.get(w_int)
         elif isinstance(by_window.get(w_key_s), dict):
@@ -184,12 +188,14 @@ def _aggregate_score(metrics_by_window: Dict[int, Dict[str, Dict[str, Any]]], *,
     """
     Z準拠：PF/DD/損益/回数の“4本柱”をまとめて比較しやすい形にする。
     ここでは「VWAPの20/60を主軸」にして baseline vs candidate の差分を評価する。
+    （VWAPが止まると最終STOPになり得るため）
     """
     pnl = 0
     dd_pct = 0.0
     pf = 0.0
     trades = 0
 
+    # VWAP中心で集計（windows合算）
     for w in windows:
         m = ((metrics_by_window.get(int(w)) or {}).get("VWAP") or {})
         pnl += _safe_int(m.get("total_pnl"), 0)
@@ -197,6 +203,7 @@ def _aggregate_score(metrics_by_window: Dict[int, Dict[str, Dict[str, Any]]], *,
         pf += _safe_float(m.get("profit_factor"), 0.0)
         trades += _safe_int(m.get("trades"), 0)
 
+    # PFは単純合算より平均が分かりやすい
     pf_avg = pf / max(1, len(windows))
 
     return {
@@ -207,9 +214,83 @@ def _aggregate_score(metrics_by_window: Dict[int, Dict[str, Dict[str, Any]]], *,
     }
 
 
+def _build_tune_eval(base: Dict[str, Any], cand: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    UIに出すための「落第理由」を文字列でまとめる。
+    ※ gate.py の理由文とは役割が違う（これは tuning の比較ロジックの説明）
+    """
+    b_gate = str(base.get("gate_level") or "STOP")
+    c_gate = str(cand.get("gate_level") or "STOP")
+
+    b = base.get("score") or {}
+    c = cand.get("score") or {}
+
+    b_pnl = _safe_int(b.get("pnl_sum_yen"), 0)
+    c_pnl = _safe_int(c.get("pnl_sum_yen"), 0)
+
+    b_dd = _safe_float(b.get("max_dd_pct"), 0.0)
+    c_dd = _safe_float(c.get("max_dd_pct"), 0.0)
+
+    b_pf = _safe_float(b.get("pf_avg"), 0.0)
+    c_pf = _safe_float(c.get("pf_avg"), 0.0)
+
+    b_tr = _safe_int(b.get("trades_sum"), 0)
+    c_tr = _safe_int(c.get("trades_sum"), 0)
+
+    reasons: List[str] = []
+
+    # gate差
+    if _GATE_RANK.get(c_gate, 0) > _GATE_RANK.get(b_gate, 0):
+        reasons.append(f"gate改善：{b_gate} → {c_gate}")
+    elif _GATE_RANK.get(c_gate, 0) < _GATE_RANK.get(b_gate, 0):
+        reasons.append(f"gate悪化：{b_gate} → {c_gate}")
+
+    # trades激減
+    if b_tr > 0 and c_tr < int(b_tr * 0.70):
+        reasons.append(f"取引回数が減りすぎ：{b_tr} → {c_tr}（70%未満）")
+
+    # DD悪化（+0.3%超）
+    if (c_dd - b_dd) > 0.003:
+        reasons.append(f"最大DDが悪化：{b_dd:.4f} → {c_dd:.4f}（+0.003超）")
+
+    # PF悪化
+    if c_pf + 1e-9 < b_pf:
+        reasons.append(f"PFが悪化：{b_pf:.3f} → {c_pf:.3f}")
+
+    # PnL
+    if c_pnl > b_pnl:
+        reasons.append(f"損益が改善：{b_pnl}円 → {c_pnl}円")
+    elif c_pnl < b_pnl:
+        reasons.append(f"損益が悪化：{b_pnl}円 → {c_pnl}円")
+    else:
+        reasons.append(f"損益が同じ：{b_pnl}円 → {c_pnl}円")
+
+    return {
+        "evaluated_at": timezone.localtime(timezone.now()).isoformat(),
+        "base": {
+            "gate_level": b_gate,
+            "score": {"pnl_sum_yen": b_pnl, "max_dd_pct": b_dd, "pf_avg": b_pf, "trades_sum": b_tr},
+            "rr": base.get("rr") or {},
+        },
+        "cand": {
+            "gate_level": c_gate,
+            "score": {"pnl_sum_yen": c_pnl, "max_dd_pct": c_dd, "pf_avg": c_pf, "trades_sum": c_tr},
+            "rr": cand.get("rr") or {},
+            "stop_pct_vwap": cand.get("stop_pct_vwap"),
+        },
+        "reasons": reasons,
+    }
+
+
 def _is_improvement(base: Dict[str, Any], cand: Dict[str, Any]) -> bool:
     """
     改善条件（最小・安全寄り）
+    - gateが上がる（STOP→LIGHT、LIGHT→FULL）なら即OK
+    - gateが同じなら：
+      * 損益↑ を基本
+      * DD悪化しない（+0.3%以内）
+      * PF悪化しない
+      * tradesが極端に減らない（ベースの70%未満はNG）
     """
     b_gate = str(base.get("gate_level") or "STOP")
     c_gate = str(cand.get("gate_level") or "STOP")
@@ -220,6 +301,7 @@ def _is_improvement(base: Dict[str, Any], cand: Dict[str, Any]) -> bool:
     if _GATE_RANK.get(c_gate, 0) < _GATE_RANK.get(b_gate, 0):
         return False
 
+    # 同じゲートなら中身で
     b = base.get("score") or {}
     c = cand.get("score") or {}
 
@@ -235,18 +317,23 @@ def _is_improvement(base: Dict[str, Any], cand: Dict[str, Any]) -> bool:
     b_tr = _safe_int(b.get("trades_sum"), 0)
     c_tr = _safe_int(c.get("trades_sum"), 0)
 
+    # tradesが激減してるのはノイズ化の危険
     if b_tr > 0 and c_tr < int(b_tr * 0.70):
         return False
 
+    # DD悪化（+0.3%超）はNG
     if (c_dd - b_dd) > 0.003:
         return False
 
+    # PF悪化はNG
     if c_pf + 1e-9 < b_pf:
         return False
 
+    # 損益が増えたらOK（最重要）
     if c_pnl > b_pnl:
         return True
 
+    # 損益横ばいならPFが上がってDD横ばいならOK（弱い改善）
     if c_pnl == b_pnl and (c_pf > b_pf) and (c_dd <= b_dd + 1e-9):
         return True
 
@@ -255,7 +342,14 @@ def _is_improvement(base: Dict[str, Any], cand: Dict[str, Any]) -> bool:
 
 def _pick_knob_and_candidates(state: AutoTradeDailyState, *, active_snapshot: AutoTradeSettingSnapshot) -> List[Dict[str, Any]]:
     """
-    1日1ノブだけ動かす。
+    1日1ノブだけ動かす。優先順位（固定・おすすめ）：
+    1) VWAPがSTOP → stop_pct_vwap を安全方向に1段階だけ下げる（最優先）
+    2) BREAKOUTがFULLでない（VWAPはSTOPでない）→ rr_breakout を微調整
+    3) それ以外 → 今日は触らない
+
+    “安全方向のみ”のため：
+    - stop_pct_vwap は下げる候補だけ（上げない）
+    - rr_breakout は従来どおり±step（ここは安全方向が一意でないため）
     """
     gate = _get_gate_bundle_from_state(state)
     lv_v = str((gate.get("vwap") or {}).get("gate_level") or "STOP")
@@ -263,6 +357,7 @@ def _pick_knob_and_candidates(state: AutoTradeDailyState, *, active_snapshot: Au
 
     rr_b, rr_v = _get_rr_from_state(state)
 
+    # RR tuning params
     rr_step = float(getattr(settings, "AUTOTRADE_TUNE_RR_STEP", 0.1))
     rr_min = float(getattr(settings, "AUTOTRADE_TUNE_RR_MIN", 1.0))
     rr_max = float(getattr(settings, "AUTOTRADE_TUNE_RR_MAX", 3.0))
@@ -270,6 +365,7 @@ def _pick_knob_and_candidates(state: AutoTradeDailyState, *, active_snapshot: Au
     def clamp_rr(x: float) -> float:
         return max(rr_min, min(rr_max, float(x)))
 
+    # STOP_PCT tuning params（デフォルト：0.25%→0.22%相当の1段）
     stop_step = float(getattr(settings, "AUTOTRADE_TUNE_STOP_PCT_STEP", 0.0003))  # 0.03%
     stop_min = float(getattr(settings, "AUTOTRADE_TUNE_STOP_PCT_MIN", 0.0010))    # 0.10%
     stop_max = float(getattr(settings, "AUTOTRADE_TUNE_STOP_PCT_MAX", 0.0100))    # 1.00%
@@ -279,10 +375,14 @@ def _pick_knob_and_candidates(state: AutoTradeDailyState, *, active_snapshot: Au
 
     cands: List[Dict[str, Any]] = []
 
+    # 1) VWAPがSTOPなら、まず負けの深さを削る（おすすめ）
     if lv_v == "STOP":
         snap_dict = active_snapshot.snapshot if isinstance(active_snapshot.snapshot, dict) else {}
         cur_stop = _get_stop_pct_vwap_from_snapshot(snap_dict)
         new_stop = clamp_stop(cur_stop - stop_step)
+
+        # “安全方向のみ”なので、下げる候補だけ
+        # もし下げ幅が0（minに当たって変化なし）なら今日はいじらない
         if abs(new_stop - cur_stop) < 1e-12:
             return []
 
@@ -291,10 +391,11 @@ def _pick_knob_and_candidates(state: AutoTradeDailyState, *, active_snapshot: Au
             "rr_breakout": rr_b,
             "rr_vwap": rr_v,
             "stop_pct_vwap": float(new_stop),
-            "delta": float(new_stop - cur_stop),
+            "delta": float(new_stop - cur_stop),  # 負のはず
         })
         return cands
 
+    # 2) VWAPが生きてるなら、FULL化のためBREAKOUTを狙う（従来どおり）
     if lv_b != "FULL":
         cands.append({"knob": "rr_breakout", "rr_breakout": clamp_rr(rr_b - rr_step), "rr_vwap": rr_v, "delta": -rr_step})
         cands.append({"knob": "rr_breakout", "rr_breakout": clamp_rr(rr_b + rr_step), "rr_vwap": rr_v, "delta": +rr_step})
@@ -311,6 +412,12 @@ def auto_tune_generate_candidate(
 ) -> AutoTuneResult:
     """
     朝フローで呼ぶ入口。
+    - 今日の state（朝の runner 実行後）を前提に、候補を作って検証する。
+    - 良い候補があれば CANDIDATE Snapshot を1つだけ作る（最初の合格を採用）。
+
+    注意：
+    - 既に今日 “tune.target_date が存在する” 場合は増殖させない（暴走防止）。
+      created_at__date はUTC/JST混線し得るので、tune.target_date を正とする。
     """
     if target_date is None:
         target_date = timezone.localdate()
@@ -325,6 +432,7 @@ def auto_tune_generate_candidate(
             created_candidate_id=None, knob=None, base={}, cand={}
         )
 
+    # ACTIVE Snapshot
     active = (
         AutoTradeSettingSnapshot.objects
         .filter(status="ACTIVE")
@@ -337,19 +445,17 @@ def auto_tune_generate_candidate(
             created_candidate_id=None, knob=None, base={}, cand={}
         )
 
-    # =========================================================
-    # ★ 重要修正：同日の再作成を防ぐ（status問わず）
-    #   - RETIREDになった瞬間に“今日の候補なし扱い”になる穴を塞ぐ
-    # =========================================================
+    # 今日のtuneが既にあるなら作らない（最小）
     exists_today_any = AutoTradeSettingSnapshot.objects.filter(
         snapshot__tune__target_date=str(target_date),
     ).exists()
     if exists_today_any:
         return AutoTuneResult(
-            ok=True, skipped=True, reason="already_tuned_today",
+            ok=True, skipped=True, reason="tune_already_exists_today",
             created_candidate_id=None, knob=None, base={}, cand={}
         )
 
+    # picks（朝universe）
     uni = state.universe if isinstance(state.universe, dict) else {}
     picks = [x.get("ticker") for x in (uni.get("picks") or []) if isinstance(x, dict) and x.get("ticker")]
     picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
@@ -360,6 +466,7 @@ def auto_tune_generate_candidate(
             created_candidate_id=None, knob=None, base={}, cand={}
         )
 
+    # baseline（朝runner結果を読む）
     gate_bundle = _get_gate_bundle_from_state(state)
     base_metrics = _get_baseline_metrics_from_state(state, windows=list(windows))
     base_score = _aggregate_score(base_metrics, windows=list(windows))
@@ -371,6 +478,7 @@ def auto_tune_generate_candidate(
         "rr": {"BREAKOUT": rr_b0, "VWAP": rr_v0},
     }
 
+    # 1ノブ候補を作る
     knobs = _pick_knob_and_candidates(state, active_snapshot=active)
     if not knobs:
         return AutoTuneResult(
@@ -378,15 +486,18 @@ def auto_tune_generate_candidate(
             created_candidate_id=None, knob=None, base=base_pack, cand={}
         )
 
+    # 候補を評価して、最初の合格だけ採用
     for k in knobs:
         knob = str(k.get("knob") or "")
         rr_b = float(k.get("rr_breakout"))
         rr_v = float(k.get("rr_vwap"))
         stop_vwap = k.get("stop_pct_vwap", None)
 
+        # candidate snapshot 作成（中身はACTIVEをコピー + tune情報を焼き込み）
         snap_dict = active.snapshot if isinstance(active.snapshot, dict) else {}
         new_snap = dict(snap_dict)
 
+        # knob反映
         if knob == "stop_pct_vwap":
             new_snap = _apply_stop_pct_vwap(new_snap, stop_pct_vwap=float(stop_vwap))
 
@@ -410,6 +521,7 @@ def auto_tune_generate_candidate(
             snapshot=new_snap,
         )
 
+        # 同日 backtest を candidate で実行（Execution生成）
         res = run_detailed_backtests_for_universe(
             snapshot=cand,
             picks=picks,
@@ -423,6 +535,7 @@ def auto_tune_generate_candidate(
 
         cand_metrics = (res.get("metrics") or {}) if isinstance(res, dict) else {}
 
+        # 正規化
         norm: Dict[int, Dict[str, Dict[str, Any]]] = {}
         for w in windows:
             w_int = int(w)
@@ -445,24 +558,24 @@ def auto_tune_generate_candidate(
             "stop_pct_vwap": (float(stop_vwap) if stop_vwap is not None else None),
         }
 
+        # tune_eval（比較と理由）を必ず焼く（合否どちらでも）
+        snap_now = cand.snapshot if isinstance(cand.snapshot, dict) else {}
+        snap_now["tune_eval"] = _build_tune_eval(base_pack, cand_pack)
+        cand.snapshot = snap_now
+        cand.save(update_fields=["snapshot"])
+
+        # 改善判定
         if _is_improvement(base_pack, cand_pack):
+            # 合格：cand は残す（CANDIDATEのまま）→ auto_promote が評価＆昇格
             return AutoTuneResult(
                 ok=True, skipped=False, reason="candidate_created",
                 created_candidate_id=int(cand.id), knob=knob, base=base_pack, cand=cand_pack
             )
 
-        # =========================================================
-        # ★ 重要改善：落第でも理由を snapshot に焼き付ける
-        # =========================================================
+        # 不合格：作った候補は即RETIRED（ただし tune_eval は残る）
+        cand.status = "RETIRED"
         snap_now = cand.snapshot if isinstance(cand.snapshot, dict) else {}
         snap_now["tune_rejected"] = True
-        snap_now["tune_eval"] = {
-            "evaluated_at": timezone.localtime(timezone.now()).isoformat(),
-            "base": base_pack,
-            "candidate": cand_pack,
-            "note": "rejected_by_is_improvement",
-        }
-        cand.status = "RETIRED"
         cand.snapshot = snap_now
         cand.save(update_fields=["status", "snapshot"])
 
