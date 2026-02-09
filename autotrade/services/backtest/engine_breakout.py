@@ -4,14 +4,13 @@
 
 このファイルは何？
 - 戦略①（レンジブレイク）のバックテストを回すエンジンです。
-
-初心者ポイント：
-- “ブレイクしたら入る→損切りor利確” を機械的に再現します。
+- 詳細モードでは Execution（事実ログ）をDBに作成します。
+- 重要：stop_pct（損切り幅）は Snapshot（固定設定）を参照できるようにして将来のノブ化に備えます。
 """
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Any, Dict
 from django.conf import settings
 from django.utils import timezone
 
@@ -20,6 +19,63 @@ from .metrics import max_drawdown, profit_factor
 
 from autotrade.models import AutoTradeSettingSnapshot
 from autotrade.models_backtest import AutoTradeExecution
+
+
+def _safe_float(x: Any, default: float) -> float:
+    try:
+        return float(x)
+    except Exception:
+        return float(default)
+
+
+def _get_nested(d: Dict[str, Any], *keys, default=None):
+    cur = d
+    for k in keys:
+        if not isinstance(cur, dict):
+            return default
+        if k in cur:
+            cur = cur.get(k)
+            continue
+        ks = str(k)
+        if ks in cur:
+            cur = cur.get(ks)
+            continue
+        return default
+    return cur if cur is not None else default
+
+
+def _get_stop_pct_breakout_from_snapshot(snapshot: Optional[AutoTradeSettingSnapshot]) -> float:
+    """
+    Snapshot（固定設定）から BREAKOUT stop_pct を拾う。
+
+    対応キー：
+    - stop_pct_breakout
+    - breakout.stop_pct
+    - params.breakout.stop_pct
+    - BREAKOUT.stop_pct（factory.py 由来：カテゴリが大文字の可能性）
+    """
+    default = float(getattr(settings, "AUTOTRADE_BREAKOUT_STOP_PCT", 0.003))  # 0.30%
+    if snapshot is None:
+        return default
+
+    sdict = snapshot.snapshot if isinstance(snapshot.snapshot, dict) else {}
+
+    candidates = [
+        sdict.get("stop_pct_breakout"),
+        sdict.get("breakout_stop_pct"),
+        _get_nested(sdict, "breakout", "stop_pct"),
+        _get_nested(sdict, "params", "breakout", "stop_pct"),
+        _get_nested(sdict, "BREAKOUT", "stop_pct"),
+    ]
+
+    for x in candidates:
+        if x is None:
+            continue
+        v = _safe_float(x, default)
+        if 0.0 < v < 0.10:
+            return float(v)
+
+    return default
 
 
 def run_breakout(
@@ -42,34 +98,30 @@ def run_breakout(
        run_breakout(..., snapshot=..., mode="BACKTEST", target_date=...) -> DBに AutoTradeExecution を作る
        ※戻り値は必須ではないが、簡単な件数だけ返す
     """
-    stop_pct = 0.003  # 0.3%（初期値：現実寄り）
     slip = float(getattr(settings, "AUTOTRADE_SLIPPAGE_PCT", 0.0))
 
     df = fetch_5m(ticker, prefer_period="60d" if window_days > 20 else "20d")
     if df is None or getattr(df, "empty", True):
         return None
 
-    # 5分足をざっくり日数分に切る（9:00〜14:30想定で 1日70本程度）
     bars_per_day = 70
     df = df.iloc[-window_days * bars_per_day :].copy()
     if len(df) < 200:
         return None
 
-    # =========================
-    # 詳細バックテストモード？
-    # =========================
     detailed = (snapshot is not None) and (mode is not None)
 
-    # 旧モード用の集計器
+    stop_pct = _get_stop_pct_breakout_from_snapshot(snapshot) if detailed else float(
+        getattr(settings, "AUTOTRADE_BREAKOUT_STOP_PCT", 0.003)
+    )
+
     equity = 1_000_000.0
     equity_curve = [equity]
     pnls = []
     trades = 0
 
-    # 詳細モード用の準備
     if detailed:
         user = snapshot.user
-        # base_equity は「固定値 or snapshot内の値」を優先
         base_equity = float(
             (snapshot.snapshot or {}).get(
                 "base_equity_yen",
@@ -90,13 +142,12 @@ def run_breakout(
 
     i = 10
     while i < len(df) - 2:
-        hh = max(highs[i - 6 : i])  # 直近30分の高値
-        ll = min(lows[i - 6 : i])   # 直近30分の安値
+        hh = max(highs[i - 6 : i])
+        ll = min(lows[i - 6 : i])
 
         price = float(closes[i])
         nxt_open = float(opens[i + 1])
 
-        # ロット計算（100株単位）
         risk_yen = float(equity) * float(getattr(settings, "AUTOTRADE_RISK_TRADE_PCT", 0.0015))
         stop_yen_per_share = price * stop_pct
         shares = int((risk_yen / max(stop_yen_per_share, 1e-9)) // 100) * 100
@@ -117,7 +168,6 @@ def run_breakout(
                 h = float(highs[j])
                 l = float(lows[j])
 
-                # SL
                 if l <= stop:
                     exitp = stop * (1 - slip)
                     pnl = (exitp - entry) * shares
@@ -135,7 +185,7 @@ def run_breakout(
                         AutoTradeExecution.objects.create(
                             user=user,
                             snapshot=snapshot,
-                            run_detail=run_meta,  # ★ 追加：run_metaに紐づける
+                            run_detail=run_meta,
                             mode=str(mode),
                             strategy="BREAKOUT",
                             ticker=ticker,
@@ -155,7 +205,6 @@ def run_breakout(
                     exited = True
                     break
 
-                # TP
                 if h >= take:
                     exitp = take * (1 - slip)
                     pnl = (exitp - entry) * shares
@@ -173,7 +222,7 @@ def run_breakout(
                         AutoTradeExecution.objects.create(
                             user=user,
                             snapshot=snapshot,
-                            run_detail=run_meta,  # ★ 追加
+                            run_detail=run_meta,
                             mode=str(mode),
                             strategy="BREAKOUT",
                             ticker=ticker,
@@ -209,7 +258,6 @@ def run_breakout(
                 h = float(highs[j])
                 l = float(lows[j])
 
-                # SL
                 if h >= stop:
                     exitp = stop * (1 + slip)
                     pnl = (entry - exitp) * shares
@@ -227,7 +275,7 @@ def run_breakout(
                         AutoTradeExecution.objects.create(
                             user=user,
                             snapshot=snapshot,
-                            run_detail=run_meta,  # ★ 追加
+                            run_detail=run_meta,
                             mode=str(mode),
                             strategy="BREAKOUT",
                             ticker=ticker,
@@ -247,7 +295,6 @@ def run_breakout(
                     exited = True
                     break
 
-                # TP
                 if l <= take:
                     exitp = take * (1 + slip)
                     pnl = (entry - exitp) * shares
@@ -265,7 +312,7 @@ def run_breakout(
                         AutoTradeExecution.objects.create(
                             user=user,
                             snapshot=snapshot,
-                            run_detail=run_meta,  # ★ 追加
+                            run_detail=run_meta,
                             mode=str(mode),
                             strategy="BREAKOUT",
                             ticker=ticker,
@@ -290,11 +337,9 @@ def run_breakout(
 
         i += 1
 
-    # 詳細モード：Executionを作ったので件数だけ返す
     if detailed:
         return {"executions": int(trades)}
 
-    # 旧モード：集計辞書を返す
     if trades == 0:
         return {"trades": 0, "pf": 0.0, "max_dd": 1.0, "pnl": 0.0}
 
