@@ -38,9 +38,9 @@
       / 日付：{{ evidence.date|default:"-" }}
     </div>
 
-    {# -------------------------------
+    <!--{# -------------------------------
        ★ 追加：tune情報（ノブ・差分・比較）
-       ------------------------------- #}
+       ------------------------------- #}-->
     {% with tune=snapshot.snapshot.tune eval=snapshot.snapshot.tune_eval %}
       {% if tune %}
         <div class="lab-mt12">
