@@ -5,7 +5,7 @@
 このファイルは何？
 - 実験室の検証結果ページです。
 - 日本語＋数字＋円（gate.pyのreasons）を主役にカード表示します。
-- 今回追加：CANDIDATE保存 / ACTIVE昇格 / ロールバック（戻せる本番採用）
+- 今回の追加：Snapshotに焼き付けた tune / tune_eval（比較と落第理由）も見える化します。
 -->
 
 {% extends "base.html" %}
@@ -33,53 +33,61 @@
       <div class="lab-name">{{ snapshot.label }}</div>
       <div class="lab-muted lab-mono">id={{ snapshot.id }}</div>
     </div>
-
     <div class="lab-muted lab-mt8">
       {% if profile %}作業台：{{ profile.name }}{% else %}作業台：なし{% endif %}
       / 日付：{{ evidence.date|default:"-" }}
     </div>
 
-    <div class="lab-muted lab-mt8">
-      このSnapshotの状態：<b class="lab-mono">{{ snapshot.status }}</b>
-      {% if active_snapshot %}
-        / 現在ACTIVE：<b class="lab-mono">{{ active_snapshot.label }}</b>（id={{ active_snapshot.id }}）
-      {% else %}
-        / 現在ACTIVE：<b class="lab-mono">なし</b>
+    {# -------------------------------
+       ★ 追加：tune情報（ノブ・差分・比較）
+       ------------------------------- #}
+    {% with tune=snapshot.snapshot.tune eval=snapshot.snapshot.tune_eval %}
+      {% if tune %}
+        <div class="lab-mt12">
+          <div class="lab-section">自動チューニング（tune）</div>
+          <div class="lab-mono lab-kv lab-mt8">
+            <div>knob：{{ tune.knob|default:"-" }}</div>
+            <div>delta：{{ tune.delta|default:"-" }}</div>
+            <div>RR(BREAKOUT)：{{ tune.rr_breakout|default:"-" }} / RR(VWAP)：{{ tune.rr_vwap|default:"-" }}</div>
+            <div>stop_pct_vwap：{{ tune.stop_pct_vwap|default:"-" }}</div>
+            <div>based_on_active_id：{{ tune.based_on_active_id|default:"-" }}</div>
+            <div>target_date：{{ tune.target_date|default:"-" }}</div>
+          </div>
+
+          {% if eval %}
+            <div class="lab-mt12">
+              <div class="lab-section">判定理由（tune_eval）</div>
+
+              <div class="lab-mono lab-kv lab-mt8">
+                <div>evaluated_at：{{ eval.evaluated_at|default:"-" }}</div>
+              </div>
+
+              <div class="lab-mt12">
+                <div class="lab-subtitle">比較（BASE → CAND）</div>
+                <div class="lab-mono lab-kv lab-mt8">
+                  <div>gate：{{ eval.base.gate_level|default:"-" }} → {{ eval.cand.gate_level|default:"-" }}</div>
+                  <div>PnL：{{ eval.base.score.pnl_sum_yen|default:0|intcomma }}円 → {{ eval.cand.score.pnl_sum_yen|default:0|intcomma }}円</div>
+                  <div>最大DD：{{ eval.base.score.max_dd_pct|default:"-" }} → {{ eval.cand.score.max_dd_pct|default:"-" }}</div>
+                  <div>PF：{{ eval.base.score.pf_avg|default:"-" }} → {{ eval.cand.score.pf_avg|default:"-" }}</div>
+                  <div>取引回数：{{ eval.base.score.trades_sum|default:"-" }} → {{ eval.cand.score.trades_sum|default:"-" }}</div>
+                </div>
+
+                <div class="lab-subtitle lab-mt12">理由</div>
+                <div class="lab-reasons">
+                  {% for r in eval.reasons %}
+                    <div class="lab-reason-line">{{ r }}</div>
+                  {% empty %}
+                    <div class="lab-muted">理由なし</div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          {% else %}
+            <div class="lab-muted lab-mt12">tune_eval はまだありません（このSnapshotが tune 由来でない or 旧世代の可能性）</div>
+          {% endif %}
+        </div>
       {% endif %}
-    </div>
-
-    {% if last_promo %}
-      <div class="lab-muted lab-mt8">
-        直近操作：<span class="lab-mono">{{ last_promo.action }}</span>
-        （from={{ last_promo.from_snapshot_id|default:"-" }} → to={{ last_promo.to_snapshot_id|default:"-" }}）
-      </div>
-    {% endif %}
-
-    <div class="lab-row lab-mt12">
-      <form method="post" action="{% url 'autotrade:tuning_make_candidate' snapshot.id %}" class="lab-inline">
-        {% csrf_token %}
-        <button type="submit" class="lab-btn"
-          data-confirm="この検証結果のSnapshotを CANDIDATE（本番候補）として保存します。よろしいですか？">
-          CANDIDATE保存
-        </button>
-      </form>
-
-      <form method="post" action="{% url 'autotrade:tuning_promote_active' snapshot.id %}" class="lab-inline">
-        {% csrf_token %}
-        <button type="submit" class="lab-btn lab-btn-primary"
-          data-confirm="このSnapshotを ACTIVE（本番採用）に昇格します。旧ACTIVEはRETIREDになります。よろしいですか？">
-          ACTIVEに昇格
-        </button>
-      </form>
-
-      <form method="post" action="{% url 'autotrade:tuning_rollback_active' snapshot.id %}" class="lab-inline">
-        {% csrf_token %}
-        <button type="submit" class="lab-btn lab-btn-danger"
-          data-confirm="ロールバックします。直前のPROMOTE操作を取り消して前のACTIVEに戻します。よろしいですか？">
-          ロールバック
-        </button>
-      </form>
-    </div>
+    {% endwith %}
 
     <div class="lab-mt12">
       <div class="lab-section">最終判定</div>
@@ -146,6 +154,4 @@
   </div>
 
 </div>
-
-<script src="{% static 'autotrade/tuning.js' %}?v=3" defer></script>
 {% endblock %}
