@@ -3,8 +3,10 @@
 [PATH] <project_root>/static/autotrade/tuning.css
 
 このファイルは何？
-- 実験室（TuningProfile）画面のスタイルです。
-- ダッシュボードと同系統の “ガラスUI” で統一します。
+- 実験室（TuningProfile / 検証結果）画面専用のスタイル。
+- iPhone 1画面前提で「判断 → 比較 → 再検証」が迷わずできるUIを作る。
+- 情報過多になりがちな “理由（日本語＋数字＋円）” は折りたたみ前提。
+- 差分（Δ）や ACTIVE 比較を一目で判断できる配色・余白設計。
 */
 
 :root{
@@ -18,10 +20,14 @@
   --lab-bad:#f87171;
 }
 
+/* =========================
+   レイアウト全体
+   ========================= */
+
 .lab-wrap{
   max-width:980px;
   margin:12px auto 0;
-  padding:14px 12px 140px;
+  padding:14px 12px 160px;
   color:var(--lab-txt);
 }
 
@@ -47,6 +53,10 @@
   font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
 }
 
+/* =========================
+   カード・行
+   ========================= */
+
 .lab-card{
   border:1px solid var(--lab-bd);
   border-radius:16px;
@@ -66,7 +76,12 @@
 
 .lab-name{
   font-weight:900;
+  font-size:14px;
 }
+
+/* =========================
+   ボタン
+   ========================= */
 
 .lab-btn{
   display:inline-flex;
@@ -84,23 +99,42 @@
 
 .lab-btn-primary{
   border-color: rgba(54,211,153,.40);
-  background: rgba(54,211,153,.10);
+  background: rgba(54,211,153,.12);
 }
 
 .lab-btn-danger{
   border-color: rgba(248,113,113,.45);
-  background: rgba(248,113,113,.10);
+  background: rgba(248,113,113,.12);
 }
 
 .lab-inline{ display:inline; }
 
-.lab-empty{
-  border:1px dashed rgba(255,255,255,.20);
-  border-radius:16px;
-  padding:18px;
-  text-align:left;
-  background: rgba(0,0,0,.14);
+.lab-actions{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
 }
+
+/* =========================
+   バッジ・状態表示
+   ========================= */
+
+.lab-badge{
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid var(--lab-bd);
+  background:rgba(0,0,0,.18);
+  font-weight:900;
+  font-size:12px;
+}
+
+.is-ok{ color:var(--lab-ok); }
+.is-warn{ color:var(--lab-warn); }
+.is-bad{ color:var(--lab-bad); }
+
+/* =========================
+   セクション
+   ========================= */
 
 .lab-section{
   font-weight:900;
@@ -115,12 +149,31 @@
   color: rgba(255,255,255,.84);
 }
 
-.lab-badge{
-  padding:6px 10px;
-  border-radius:999px;
-  border:1px solid var(--lab-bd);
-  background:rgba(0,0,0,.18);
+/* =========================
+   キー・バリュー表示
+   ========================= */
+
+.lab-kv{
+  font-size:12px;
+  line-height:1.8;
+}
+
+/* =========================
+   折りたたみ（理由）
+   ========================= */
+
+.lab-details{
+  border:1px dashed rgba(255,255,255,.18);
+  border-radius:14px;
+  padding:10px;
+  background:rgba(0,0,0,.14);
+}
+
+.lab-summary{
+  cursor:pointer;
   font-weight:900;
+  font-size:13px;
+  color:var(--lab-mut);
 }
 
 .lab-reasons{
@@ -140,17 +193,83 @@
   border-bottom:none;
 }
 
-.lab-grid{
+/* =========================
+   pills（検証条件の要約）
+   ========================= */
+
+.lab-pill-row{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.lab-pill{
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:999px;
+  padding:6px 10px;
+  display:flex;
+  gap:6px;
+  align-items:center;
+  background:rgba(0,0,0,.16);
+}
+
+.lab-pill-k{
+  font-size:11px;
+  color:var(--lab-mut);
+}
+
+.lab-pill-v{
+  font-size:11px;
+  font-weight:800;
+}
+
+/* =========================
+   比較（BASE / CAND）
+   ========================= */
+
+.lab-compare-head{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+
+.lab-compare-box{
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:14px;
+  padding:10px;
+  background:rgba(0,0,0,.14);
+}
+
+/* =========================
+   差分（Δ）
+   ========================= */
+
+.lab-diff-grid{
   display:grid;
   grid-template-columns:1fr;
   gap:10px;
 }
+
+.lab-diff-card{
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:14px;
+  padding:10px;
+  background:rgba(0,0,0,.14);
+}
+
+/* =========================
+   グリッド（結果カード）
+   ========================= */
 
 .lab-grid-cards{
   display:grid;
   grid-template-columns:1fr;
   gap:12px;
 }
+
+/* =========================
+   フィールド（編集系で再利用）
+   ========================= */
 
 .lab-field{
   border:1px solid rgba(255,255,255,.10);
@@ -175,15 +294,20 @@
   font-weight:800;
 }
 
-.lab-kv{
-  font-size:12px;
-  line-height:1.8;
-}
+/* =========================
+   余白ユーティリティ
+   ========================= */
 
 .lab-mt8{ margin-top:8px; }
 .lab-mt10{ margin-top:10px; }
 .lab-mt12{ margin-top:12px; }
 
-.is-ok{ color:var(--lab-ok); }
-.is-warn{ color:var(--lab-warn); }
-.is-bad{ color:var(--lab-bad); }
+/* =========================
+   スマホ最適化
+   ========================= */
+
+@media (max-width: 640px){
+  .lab-compare-head{
+    grid-template-columns:1fr;
+  }
+}
