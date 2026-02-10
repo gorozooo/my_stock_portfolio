@@ -3,9 +3,11 @@
 [PATH] <project_root>/templates/autotrade/tuning_result.html
 
 このファイルは何？
-- 実験室の検証結果ページです。
-- 日本語＋数字＋円（gate.pyのreasons）を主役にカード表示します。
-- 今回の追加：Snapshotに焼き付けた tune / tune_eval（比較と落第理由）も見える化します。
+- 実験室の検証結果ページです（iPhoneで“比較→再検証→昇格”が完結する画面）。
+- 「理由（日本語＋数字＋円）」は情報量が多く見づらいので、デフォルトは折りたたみ表示にします。
+- どのチューニングで何を検証したか（tune / windows / picks / ACTIVE）をヘッダで明確化します。
+- 一覧に戻らず“その場で再検証”できるボタンを追加します（同条件 / picks更新）。
+- ACTIVE比 / 直前比（同ノブ）の差分（Δ）を数値で見える化します。
 -->
 
 {% extends "base.html" %}
@@ -14,7 +16,8 @@
 {% block title %}AutoTrade / 実験室 - 検証結果{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'autotrade/tuning.css' %}?v=3">
+<link rel="stylesheet" href="{% static 'autotrade/tuning.css' %}?v=4">
+<script defer src="{% static 'autotrade/tuning.js' %}?v=2"></script>
 {% endblock %}
 
 {% block content %}
@@ -28,102 +31,233 @@
     <a class="lab-btn" href="{% url 'autotrade:tuning_list' %}">← 一覧へ</a>
   </div>
 
+  <!-- ===========================
+       ヘッダ：何を検証したか
+       =========================== -->
   <div class="lab-card">
     <div class="lab-row">
       <div class="lab-name">{{ snapshot.label }}</div>
-      <div class="lab-muted lab-mono">id={{ snapshot.id }}</div>
+      <div class="lab-muted lab-mono">id={{ snapshot.id }} / status={{ snapshot.status }}</div>
     </div>
+
     <div class="lab-muted lab-mt8">
       {% if profile %}作業台：{{ profile.name }}{% else %}作業台：なし{% endif %}
-      / 日付：{{ evidence.date|default:"-" }}
+      / 日付：{{ header.date|default:evidence.date|default:"-" }}
+      / windows：{{ header.windows|default:"-" }}
     </div>
 
-    <!--{# -------------------------------
-       ★ 追加：tune情報（ノブ・差分・比較）
-       ------------------------------- #}-->
-    {% with tune=snapshot.snapshot.tune eval=snapshot.snapshot.tune_eval %}
-      {% if tune %}
-        <div class="lab-mt12">
-          <div class="lab-section">自動チューニング（tune）</div>
-          <div class="lab-mono lab-kv lab-mt8">
-            <div>knob：{{ tune.knob|default:"-" }}</div>
-            <div>delta：{{ tune.delta|default:"-" }}</div>
-            <div>RR(BREAKOUT)：{{ tune.rr_breakout|default:"-" }} / RR(VWAP)：{{ tune.rr_vwap|default:"-" }}</div>
-            <div>stop_pct_vwap：{{ tune.stop_pct_vwap|default:"-" }}</div>
-            <div>based_on_active_id：{{ tune.based_on_active_id|default:"-" }}</div>
-            <div>target_date：{{ tune.target_date|default:"-" }}</div>
-          </div>
-
-          {% if eval %}
-            <div class="lab-mt12">
-              <div class="lab-section">判定理由（tune_eval）</div>
-
-              <div class="lab-mono lab-kv lab-mt8">
-                <div>evaluated_at：{{ eval.evaluated_at|default:"-" }}</div>
-              </div>
-
-              <div class="lab-mt12">
-                <div class="lab-subtitle">比較（BASE → CAND）</div>
-                <div class="lab-mono lab-kv lab-mt8">
-                  <div>gate：{{ eval.base.gate_level|default:"-" }} → {{ eval.cand.gate_level|default:"-" }}</div>
-                  <div>PnL：{{ eval.base.score.pnl_sum_yen|default:0|intcomma }}円 → {{ eval.cand.score.pnl_sum_yen|default:0|intcomma }}円</div>
-                  <div>最大DD：{{ eval.base.score.max_dd_pct|default:"-" }} → {{ eval.cand.score.max_dd_pct|default:"-" }}</div>
-                  <div>PF：{{ eval.base.score.pf_avg|default:"-" }} → {{ eval.cand.score.pf_avg|default:"-" }}</div>
-                  <div>取引回数：{{ eval.base.score.trades_sum|default:"-" }} → {{ eval.cand.score.trades_sum|default:"-" }}</div>
-                </div>
-
-                <div class="lab-subtitle lab-mt12">理由</div>
-                <div class="lab-reasons">
-                  {% for r in eval.reasons %}
-                    <div class="lab-reason-line">{{ r }}</div>
-                  {% empty %}
-                    <div class="lab-muted">理由なし</div>
-                  {% endfor %}
-                </div>
-              </div>
-            </div>
-          {% else %}
-            <div class="lab-muted lab-mt12">tune_eval はまだありません（このSnapshotが tune 由来でない or 旧世代の可能性）</div>
-          {% endif %}
+    <div class="lab-mt10 lab-pill-row">
+      {% if active_snapshot %}
+        <div class="lab-pill">
+          <div class="lab-pill-k">ACTIVE</div>
+          <div class="lab-pill-v lab-mono">id={{ active_snapshot.id }} / {{ active_snapshot.label }}</div>
+        </div>
+      {% else %}
+        <div class="lab-pill">
+          <div class="lab-pill-k">ACTIVE</div>
+          <div class="lab-pill-v lab-mono">なし</div>
         </div>
       {% endif %}
-    {% endwith %}
 
-    <div class="lab-mt12">
+      <div class="lab-pill">
+        <div class="lab-pill-k">picks</div>
+        <div class="lab-pill-v lab-mono">
+          n={{ header.picks_n|default:"-" }}
+          {% if header.picks_head %}/ {{ header.picks_head }}{% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% if header.tune %}
+      <div class="lab-mt12">
+        <div class="lab-section">この検証のチューニング（tune）</div>
+        <div class="lab-mono lab-kv lab-mt8">
+          <div>knob：{{ header.tune.knob|default:"-" }}</div>
+          <div>delta：{{ header.tune.delta|default:"-" }}</div>
+          <div>RR：VWAP={{ header.tune.rr_vwap|default:"-" }} / BREAKOUT={{ header.tune.rr_breakout|default:"-" }}</div>
+          <div>stop_pct_vwap：{{ header.tune.stop_pct_vwap|default:"-" }}</div>
+          <div>based_on_active_id：{{ header.tune.based_on_active_id|default:"-" }}</div>
+          <div>target_date：{{ header.tune.target_date|default:"-" }}</div>
+        </div>
+      </div>
+    {% endif %}
+
+    <!-- その場で再検証 -->
+    <div class="lab-actions lab-mt12">
+      <form class="lab-inline" method="post" action="{% url 'autotrade:tuning_rerun_snapshot_force' snapshot.id %}">
+        {% csrf_token %}
+        <button class="lab-btn lab-btn-primary" type="submit" data-confirm="このSnapshotで“同条件（今日のpicks）”で再検証します。OK？">
+          ↻ 再検証（同条件）
+        </button>
+      </form>
+
+      <form class="lab-inline" method="post" action="{% url 'autotrade:tuning_rerun_snapshot_refresh_picks' snapshot.id %}">
+        {% csrf_token %}
+        <button class="lab-btn" type="submit" data-confirm="picksを作り直してから再検証します。OK？">
+          ↻ picks更新して再検証
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===========================
+       最終判定（コンパクト）
+       =========================== -->
+  <div class="lab-card">
+    <div class="lab-row">
       <div class="lab-section">最終判定</div>
       <div class="lab-badge
         {% if gate.gate_level == "FULL" %}is-ok{% elif gate.gate_level == "LIGHT" %}is-warn{% else %}is-bad{% endif %}
       ">
         {{ gate.gate_level|default:"STOP" }}
       </div>
-      <div class="lab-muted lab-mt8">active: {{ gate.active|default:"-" }} / disabled: {{ gate.disabled|default:"-" }}</div>
     </div>
+    <div class="lab-muted lab-mt8">active: {{ gate.active|default:"-" }} / disabled: {{ gate.disabled|default:"-" }}</div>
 
-    <div class="lab-mt12">
-      <div class="lab-section">理由（日本語＋数字＋円）</div>
+    <!-- 理由は折りたたみ -->
+    <details class="lab-details lab-mt12">
+      <summary class="lab-summary">理由（日本語＋数字＋円）を表示</summary>
 
       {% with gv=gate.gate_vwap gb=gate.gate_breakout %}
-        <div class="lab-subtitle">VWAP</div>
-        <div class="lab-reasons">
-          {% for r in gv.reasons %}
-            <div class="lab-reason-line">{{ r }}</div>
-          {% empty %}
-            <div class="lab-muted">理由なし</div>
-          {% endfor %}
+        <div class="lab-mt12">
+          <div class="lab-subtitle">VWAP</div>
+          <div class="lab-reasons">
+            {% for r in gv.reasons %}
+              <div class="lab-reason-line">{{ r }}</div>
+            {% empty %}
+              <div class="lab-muted">理由なし</div>
+            {% endfor %}
+          </div>
         </div>
 
-        <div class="lab-subtitle lab-mt12">BREAKOUT</div>
-        <div class="lab-reasons">
-          {% for r in gb.reasons %}
-            <div class="lab-reason-line">{{ r }}</div>
-          {% empty %}
-            <div class="lab-muted">理由なし</div>
-          {% endfor %}
+        <div class="lab-mt12">
+          <div class="lab-subtitle">BREAKOUT</div>
+          <div class="lab-reasons">
+            {% for r in gb.reasons %}
+              <div class="lab-reason-line">{{ r }}</div>
+            {% empty %}
+              <div class="lab-muted">理由なし</div>
+            {% endfor %}
+          </div>
         </div>
       {% endwith %}
-    </div>
+    </details>
   </div>
 
+  <!-- ===========================
+       比較：ACTIVE比（Δ）
+       =========================== -->
+  {% if diff_vs_active %}
+    <div class="lab-card">
+      <div class="lab-row">
+        <div class="lab-section">{{ diff_vs_active.title }}</div>
+      </div>
+
+      <div class="lab-mt10 lab-compare-head">
+        <div class="lab-compare-box">
+          <div class="lab-muted">BASE（ACTIVE）</div>
+          <div class="lab-mono lab-kv">
+            <div>PnL合計：{{ diff_vs_active.base_score.pnl_sum_yen|default:0|intcomma }}円</div>
+            <div>最大DD：{{ diff_vs_active.base_score.max_dd_pct|default:"-" }}</div>
+            <div>PF平均：{{ diff_vs_active.base_score.pf_avg|default:"-" }}</div>
+            <div>取引回数：{{ diff_vs_active.base_score.trades_sum|default:"-" }}</div>
+          </div>
+        </div>
+
+        <div class="lab-compare-box">
+          <div class="lab-muted">CAND（この検証）</div>
+          <div class="lab-mono lab-kv">
+            <div>PnL合計：{{ diff_vs_active.cand_score.pnl_sum_yen|default:0|intcomma }}円</div>
+            <div>最大DD：{{ diff_vs_active.cand_score.max_dd_pct|default:"-" }}</div>
+            <div>PF平均：{{ diff_vs_active.cand_score.pf_avg|default:"-" }}</div>
+            <div>取引回数：{{ diff_vs_active.cand_score.trades_sum|default:"-" }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="lab-section lab-mt12">差分（Δ = CAND - BASE）</div>
+      <div class="lab-diff-grid">
+        {% for r in diff_vs_active.rows %}
+          <div class="lab-diff-card">
+            <div class="lab-row">
+              <div class="lab-name">{{ r.strategy }}｜{{ r.window }}日</div>
+              <div class="lab-badge {% if r.delta.pnl|default:0 >= 0 %}is-ok{% else %}is-bad{% endif %}">
+                ΔPnL {% if r.delta.pnl is not None %}{{ r.delta.pnl|intcomma }}円{% else %}-{% endif %}
+              </div>
+            </div>
+
+            <div class="lab-mt8 lab-mono lab-kv">
+              <div>ΔPF：{% if r.delta.pf is not None %}{{ r.delta.pf }}{% else %}-{% endif %}</div>
+              <div>Δ最大DD：{% if r.delta.dd_yen is not None %}{{ r.delta.dd_yen|intcomma }}円{% else %}-{% endif %}
+                / {% if r.delta.dd_pct is not None %}{{ r.delta.dd_pct }}{% else %}-{% endif %}
+              </div>
+              <div>Δ取引回数：{% if r.delta.trades is not None %}{{ r.delta.trades }}{% else %}-{% endif %}</div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  <!-- ===========================
+       比較：直前の同ノブ（Δ）
+       =========================== -->
+  {% if diff_vs_prev %}
+    <div class="lab-card">
+      <div class="lab-row">
+        <div class="lab-section">{{ diff_vs_prev.title }}</div>
+        <a class="lab-btn" href="{% url 'autotrade:tuning_result' diff_vs_prev.prev_id %}">← 前回を見る</a>
+      </div>
+
+      <div class="lab-mt10 lab-compare-head">
+        <div class="lab-compare-box">
+          <div class="lab-muted">前回（BASE）</div>
+          <div class="lab-mono lab-kv">
+            <div>PnL合計：{{ diff_vs_prev.base_score.pnl_sum_yen|default:0|intcomma }}円</div>
+            <div>最大DD：{{ diff_vs_prev.base_score.max_dd_pct|default:"-" }}</div>
+            <div>PF平均：{{ diff_vs_prev.base_score.pf_avg|default:"-" }}</div>
+            <div>取引回数：{{ diff_vs_prev.base_score.trades_sum|default:"-" }}</div>
+          </div>
+        </div>
+
+        <div class="lab-compare-box">
+          <div class="lab-muted">今回（CAND）</div>
+          <div class="lab-mono lab-kv">
+            <div>PnL合計：{{ diff_vs_prev.cand_score.pnl_sum_yen|default:0|intcomma }}円</div>
+            <div>最大DD：{{ diff_vs_prev.cand_score.max_dd_pct|default:"-" }}</div>
+            <div>PF平均：{{ diff_vs_prev.cand_score.pf_avg|default:"-" }}</div>
+            <div>取引回数：{{ diff_vs_prev.cand_score.trades_sum|default:"-" }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="lab-section lab-mt12">差分（Δ = 今回 - 前回）</div>
+      <div class="lab-diff-grid">
+        {% for r in diff_vs_prev.rows %}
+          <div class="lab-diff-card">
+            <div class="lab-row">
+              <div class="lab-name">{{ r.strategy }}｜{{ r.window }}日</div>
+              <div class="lab-badge {% if r.delta.pnl|default:0 >= 0 %}is-ok{% else %}is-bad{% endif %}">
+                ΔPnL {% if r.delta.pnl is not None %}{{ r.delta.pnl|intcomma }}円{% else %}-{% endif %}
+              </div>
+            </div>
+
+            <div class="lab-mt8 lab-mono lab-kv">
+              <div>ΔPF：{% if r.delta.pf is not None %}{{ r.delta.pf }}{% else %}-{% endif %}</div>
+              <div>Δ最大DD：{% if r.delta.dd_yen is not None %}{{ r.delta.dd_yen|intcomma }}円{% else %}-{% endif %}
+                / {% if r.delta.dd_pct is not None %}{{ r.delta.dd_pct }}{% else %}-{% endif %}
+              </div>
+              <div>Δ取引回数：{% if r.delta.trades is not None %}{{ r.delta.trades }}{% else %}-{% endif %}</div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  <!-- ===========================
+       結果カード（戦略 × 期間）
+       =========================== -->
   <div class="lab-section lab-mt12">結果カード（戦略 × 期間）</div>
 
   <div class="lab-grid-cards">
