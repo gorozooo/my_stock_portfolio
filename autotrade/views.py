@@ -8,17 +8,18 @@
 - さらに「実験室（TuningProfile）」として、一覧・新規作成・編集・アーカイブ（安全削除）・検証実行・結果表示を提供します。
 - 今回追加：CANDIDATE保存 / ACTIVE昇格 / ロールバック（監査ログ付き）
 
-今回のポイント：
-- runner.py が保存する新フォーマット（state.backtest = {meta/by_window/gate}）に追従。
-- VWAP / BREAKOUT の両方の結果を表示できるように整形して返します。
-- 実験室の検証は ACTIVE を一切触らず、DRAFT Snapshot を作って Execution を生成し、結果をカード表示します。
-- ACTIVE操作は「ログを残して」「戻せる」ことを最優先にします。
+今回のポイント（UI改善）：
+- tuning_result（結果ページ）を「読みやすさ重視」に変更：
+  1) 理由（日本語＋数字＋円）はデフォルト折りたたみ（テンプレ側）
+  2) どのチューニングで検証したかをヘッダで明示（tune / windows / picks）
+  3) 一覧に戻らず “その場で再検証” できる導線（同条件 / picks更新）
+  4) ACTIVE比 / 直前比 の差分（Δ）を表示（文章ではなく数値）
 """
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional, Tuple
 
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
@@ -36,6 +37,14 @@ from .models import (
 
 from autotrade.services.universe.service import build_daily_universe
 from autotrade.services.tuning.manual_backtest import run_backtest_for_tuning_profile
+
+# ★ 追加：結果ページで “ACTIVE比 / 直前比” を作るための読み取り
+from autotrade.models_backtest import AutoTradeBacktestRunDetail, AutoTradeExecution
+from autotrade.services.backtest.execution_metrics import summarize_executions
+from autotrade.services.backtest.gate import judge_multi_window
+
+# ★ 追加：結果ページの再検証（同条件でやり直し）
+from autotrade.services.backtest.runner import run_detailed_backtests_for_universe
 
 
 # =========================================================
@@ -372,12 +381,309 @@ def _get_current_active_snapshot(user):
     )
 
 
+# =========================================================
+# ★ 追加：結果ページから再検証（同条件 / picks更新）
+# =========================================================
+
+def _get_today_picks(user) -> List[str]:
+    """
+    今日の DailyState.universe から picks を取る。
+    無ければ build_daily_universe で作る（実験室は自由実行OK）。
+    """
+    today = timezone.localdate()
+    state, _ = AutoTradeDailyState.objects.get_or_create(date=today)
+
+    uni = state.universe if isinstance(state.universe, dict) else {}
+    picks = [x.get("ticker") for x in (uni.get("picks") or []) if isinstance(x, dict) and x.get("ticker")]
+    picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
+
+    if picks:
+        return picks
+
+    u = build_daily_universe(limit=10)
+    picks = [x.get("ticker") for x in (u.get("picks") or []) if isinstance(x, dict) and x.get("ticker")]
+    picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
+
+    # stateへも保存（次回から速く＆再現性）
+    state.universe = u
+    state.updated_at = timezone.now()
+    state.save(update_fields=["universe", "updated_at"])
+
+    return picks
+
+
+def _collect_evidence_for_snapshot(
+    *,
+    snapshot: AutoTradeSettingSnapshot,
+    target_date: date,
+    windows: List[int],
+) -> Dict[str, Any]:
+    """
+    既に作られている Execution を読み取り、window×strategyの metrics と gate を作る。
+    （再計算ではなく “事実(Execution)” を読む）
+    """
+    by_window: Dict[int, Dict[str, Dict[str, Any]]] = {}
+
+    snap_dict = snapshot.snapshot if isinstance(snapshot.snapshot, dict) else {}
+    base_equity = int(snap_dict.get("base_equity_yen", 1_000_000))
+
+    strategies: Tuple[str, str] = ("VWAP", "BREAKOUT")
+
+    for w in windows:
+        w = int(w)
+        by_window[w] = {}
+        for strat in strategies:
+            rd = (
+                AutoTradeBacktestRunDetail.objects
+                .filter(snapshot=snapshot, strategy=str(strat), window_days=w, trade_date=target_date)
+                .order_by("-id")
+                .first()
+            )
+            if not rd:
+                by_window[w][strat] = {"trades": 0}
+                continue
+
+            qs = AutoTradeExecution.objects.filter(run_detail=rd).order_by("exit_at")
+            m = summarize_executions(qs=qs, base_equity=base_equity)
+            by_window[w][strat] = m
+
+    metrics_vwap = {int(w): (by_window[int(w)].get("VWAP") or {}) for w in windows}
+    metrics_breakout = {int(w): (by_window[int(w)].get("BREAKOUT") or {}) for w in windows}
+
+    gate_vwap = judge_multi_window(metrics_vwap)
+    gate_breakout = judge_multi_window(metrics_breakout)
+
+    lv_v = str((gate_vwap or {}).get("gate_level") or "STOP")
+    lv_b = str((gate_breakout or {}).get("gate_level") or "STOP")
+
+    if lv_v == "STOP":
+        final = "STOP"
+        active = []
+        disabled = ["VWAP", "BREAKOUT"]
+    else:
+        active = ["VWAP"]
+        if lv_b == "FULL":
+            final = "FULL"
+            active.append("BREAKOUT")
+            disabled = []
+        else:
+            final = "LIGHT"
+            disabled = ["BREAKOUT"]
+
+    return {
+        "date": str(target_date),
+        "windows": list(windows),
+        "base_equity_yen": base_equity,
+        "by_window": by_window,
+        "gate": {
+            "gate_level": final,
+            "active": active,
+            "disabled": disabled,
+            "gate_vwap": gate_vwap,
+            "gate_breakout": gate_breakout,
+        },
+    }
+
+
+def _aggregate_score(metrics_by_window: Dict[int, Dict[str, Dict[str, Any]]], *, windows: List[int]) -> Dict[str, Any]:
+    """
+    UI比較用の “ざっくりスコア”。
+    - VWAP中心（あなたの思想：VWAP STOPなら最終STOP）
+    """
+    def _safe_int(x: Any, default: int = 0) -> int:
+        try:
+            return int(x)
+        except Exception:
+            return int(default)
+
+    def _safe_float(x: Any, default: float = 0.0) -> float:
+        try:
+            return float(x)
+        except Exception:
+            return float(default)
+
+    pnl = 0
+    dd_pct = 0.0
+    pf_sum = 0.0
+    trades = 0
+
+    for w in windows:
+        m = ((metrics_by_window.get(int(w)) or {}).get("VWAP") or {})
+        pnl += _safe_int(m.get("total_pnl"), 0)
+        dd_pct = max(dd_pct, _safe_float(m.get("max_drawdown_pct"), 0.0))
+        pf_sum += _safe_float(m.get("profit_factor"), 0.0)
+        trades += _safe_int(m.get("trades"), 0)
+
+    pf_avg = pf_sum / max(1, len(windows))
+
+    return {
+        "pnl_sum_yen": int(pnl),
+        "max_dd_pct": float(dd_pct),
+        "pf_avg": float(pf_avg),
+        "trades_sum": int(trades),
+    }
+
+
+def _delta(a: Optional[float], b: Optional[float]) -> Optional[float]:
+    """
+    a - b を返す。片方NoneならNone。
+    """
+    if a is None or b is None:
+        return None
+    try:
+        return float(a) - float(b)
+    except Exception:
+        return None
+
+
+def _int_delta(a: Any, b: Any) -> Optional[int]:
+    if a is None or b is None:
+        return None
+    try:
+        return int(a) - int(b)
+    except Exception:
+        return None
+
+
+def _build_diff_rows(
+    *,
+    base_by_window: Dict[int, Dict[str, Dict[str, Any]]],
+    cand_by_window: Dict[int, Dict[str, Dict[str, Any]]],
+    windows: List[int],
+) -> List[Dict[str, Any]]:
+    """
+    戦略×期間の差分（Δ）を作る。UIでそのまま出せる形。
+    """
+    rows: List[Dict[str, Any]] = []
+    strategies = ["VWAP", "BREAKOUT"]
+
+    for strat in strategies:
+        for w in windows:
+            b = ((base_by_window.get(int(w)) or {}).get(strat) or {})
+            c = ((cand_by_window.get(int(w)) or {}).get(strat) or {})
+
+            rows.append({
+                "strategy": strat,
+                "window": str(w),
+                "base": {
+                    "pnl": b.get("total_pnl"),
+                    "pf": b.get("profit_factor"),
+                    "dd_yen": b.get("max_drawdown_yen"),
+                    "dd_pct": b.get("max_drawdown_pct"),
+                    "trades": b.get("trades"),
+                },
+                "cand": {
+                    "pnl": c.get("total_pnl"),
+                    "pf": c.get("profit_factor"),
+                    "dd_yen": c.get("max_drawdown_yen"),
+                    "dd_pct": c.get("max_drawdown_pct"),
+                    "trades": c.get("trades"),
+                },
+                "delta": {
+                    "pnl": _int_delta(c.get("total_pnl"), b.get("total_pnl")),
+                    "pf": _delta(c.get("profit_factor"), b.get("profit_factor")),
+                    "dd_yen": _int_delta(c.get("max_drawdown_yen"), b.get("max_drawdown_yen")),
+                    "dd_pct": _delta(c.get("max_drawdown_pct"), b.get("max_drawdown_pct")),
+                    "trades": _int_delta(c.get("trades"), b.get("trades")),
+                }
+            })
+
+    return rows
+
+
+@login_required
+@require_POST
+def tuning_rerun_snapshot_force(request: HttpRequest, snapshot_id: int):
+    """
+    結果ページから：
+    - “同条件（picksは今日のpicks）” で snapshot の検証をやり直す
+    - Executionは force=True で作り直す（増殖防止）
+    """
+    snap = get_object_or_404(AutoTradeSettingSnapshot, pk=snapshot_id, user=request.user)
+
+    today = timezone.localdate()
+    picks = _get_today_picks(request.user)
+
+    if not picks:
+        return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
+
+    windows = [20, 60]
+
+    sdict = snap.snapshot if isinstance(snap.snapshot, dict) else {}
+    tune = sdict.get("tune") if isinstance(sdict.get("tune"), dict) else {}
+
+    rr_b = tune.get("rr_breakout", None)
+    rr_v = tune.get("rr_vwap", None)
+
+    run_detailed_backtests_for_universe(
+        snapshot=snap,
+        picks=picks,
+        target_date=today,
+        windows=tuple(int(x) for x in windows),
+        rr_breakout=float(rr_b) if rr_b is not None else None,
+        rr_vwap=float(rr_v) if rr_v is not None else None,
+        base_equity_yen=None,
+        force=True,
+    )
+
+    return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
+
+
+@login_required
+@require_POST
+def tuning_rerun_snapshot_refresh_picks(request: HttpRequest, snapshot_id: int):
+    """
+    結果ページから：
+    - picksを作り直して（universe再生成）
+    - その上で snapshot の検証をやり直す
+    """
+    snap = get_object_or_404(AutoTradeSettingSnapshot, pk=snapshot_id, user=request.user)
+
+    today = timezone.localdate()
+    state, _ = AutoTradeDailyState.objects.get_or_create(date=today)
+
+    u = build_daily_universe(limit=10)
+    state.universe = u
+    state.updated_at = timezone.now()
+    state.save(update_fields=["universe", "updated_at"])
+
+    picks = [x.get("ticker") for x in (u.get("picks") or []) if isinstance(x, dict) and x.get("ticker")]
+    picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
+
+    if not picks:
+        return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
+
+    windows = [20, 60]
+
+    sdict = snap.snapshot if isinstance(snap.snapshot, dict) else {}
+    tune = sdict.get("tune") if isinstance(sdict.get("tune"), dict) else {}
+
+    rr_b = tune.get("rr_breakout", None)
+    rr_v = tune.get("rr_vwap", None)
+
+    run_detailed_backtests_for_universe(
+        snapshot=snap,
+        picks=picks,
+        target_date=today,
+        windows=tuple(int(x) for x in windows),
+        rr_breakout=float(rr_b) if rr_b is not None else None,
+        rr_vwap=float(rr_v) if rr_v is not None else None,
+        base_equity_yen=None,
+        force=True,
+    )
+
+    return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
+
+
 @login_required
 def tuning_result(request: HttpRequest, snapshot_id: int):
     """
-    検証結果（日本語＋数字＋円）カード表示
+    検証結果（読みやすさ重視）
     - Snapshot.snapshot['evidence'] を表示する
-    - 追加：status / 現在ACTIVE / 直近ログも表示材料として渡す
+    - 理由（日本語＋数字＋円）は折りたたみ（テンプレ側）
+    - 追加：どのtuningかが分かるヘッダ用の summary 情報
+    - 追加：ACTIVE比 / 直前比 の差分（Δ）
+    - 追加：その場で再検証ボタン用の情報
     """
     snap = get_object_or_404(AutoTradeSettingSnapshot, pk=snapshot_id, user=request.user)
 
@@ -386,7 +692,7 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
     gate = evidence.get("gate") if isinstance(evidence.get("gate"), dict) else {}
     by_window = evidence.get("by_window") if isinstance(evidence.get("by_window"), dict) else {}
 
-    windows = ["20", "60"]
+    windows = [20, 60]
     strategies = ["VWAP", "BREAKOUT"]
 
     cards = []
@@ -397,7 +703,7 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
                 m = {}
             cards.append({
                 "strategy": strat,
-                "window": w,
+                "window": str(w),
                 "trades": m.get("trades"),
                 "wins": m.get("wins"),
                 "losses": m.get("losses"),
@@ -418,6 +724,107 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
         .first()
     )
 
+    # ---------------------------
+    # ヘッダ：何を検証したか
+    # ---------------------------
+    tune = sdict.get("tune") if isinstance(sdict.get("tune"), dict) else {}
+    today = timezone.localdate()
+    picks_today = _get_today_picks(request.user)
+    picks_head = picks_today[:3]
+
+    header = {
+        "status": snap.status,
+        "snapshot_id": snap.id,
+        "label": snap.label,
+        "profile_name": (snap.source_profile.name if snap.source_profile else None),
+        "date": evidence.get("date") or str(today),
+        "windows": evidence.get("windows") or windows,
+        "picks_n": len(picks_today),
+        "picks_head": picks_head,
+        "tune": {
+            "knob": tune.get("knob"),
+            "delta": tune.get("delta"),
+            "rr_breakout": tune.get("rr_breakout"),
+            "rr_vwap": tune.get("rr_vwap"),
+            "stop_pct_vwap": tune.get("stop_pct_vwap"),
+            "based_on_active_id": tune.get("based_on_active_id"),
+            "target_date": tune.get("target_date"),
+        } if tune else None,
+    }
+
+    # ---------------------------
+    # 比較：ACTIVE比
+    # ---------------------------
+    diff_vs_active = None
+    if active and active.id != snap.id:
+        ev_active = _collect_evidence_for_snapshot(snapshot=active, target_date=today, windows=list(windows))
+        base_by_window = ev_active.get("by_window") if isinstance(ev_active.get("by_window"), dict) else {}
+        cand_by_window = {}
+
+        for w in windows:
+            d = by_window.get(int(w)) if isinstance(by_window.get(int(w)), dict) else by_window.get(str(int(w)))
+            d = d if isinstance(d, dict) else {}
+            cand_by_window[int(w)] = {
+                "VWAP": d.get("VWAP") if isinstance(d.get("VWAP"), dict) else {},
+                "BREAKOUT": d.get("BREAKOUT") if isinstance(d.get("BREAKOUT"), dict) else {},
+            }
+
+        diff_vs_active = {
+            "title": f"比較：ACTIVE（id={active.id}）→ この検証（id={snap.id}）",
+            "rows": _build_diff_rows(base_by_window=base_by_window, cand_by_window=cand_by_window, windows=list(windows)),
+            "base_score": _aggregate_score(base_by_window, windows=list(windows)),
+            "cand_score": _aggregate_score(cand_by_window, windows=list(windows)),
+        }
+
+    # ---------------------------
+    # 比較：直前の同ノブ試行
+    # ---------------------------
+    diff_vs_prev = None
+    if isinstance(tune, dict) and tune.get("knob"):
+        knob = str(tune.get("knob"))
+        based_on = tune.get("based_on_active_id", None)
+
+        qs = AutoTradeSettingSnapshot.objects.filter(
+            user=request.user,
+            snapshot__tune__knob=knob,
+        ).exclude(id=snap.id).order_by("-id")
+
+        if based_on is not None:
+            qs = qs.filter(snapshot__tune__based_on_active_id=int(based_on))
+
+        prev = qs.first()
+
+        if prev:
+            prev_dict = prev.snapshot if isinstance(prev.snapshot, dict) else {}
+            prev_ev = prev_dict.get("evidence") if isinstance(prev_dict.get("evidence"), dict) else {}
+            prev_bw = prev_ev.get("by_window") if isinstance(prev_ev.get("by_window"), dict) else {}
+
+            prev_by_window: Dict[int, Dict[str, Dict[str, Any]]] = {}
+            cand_by_window: Dict[int, Dict[str, Dict[str, Any]]] = {}
+
+            for w in windows:
+                pd = prev_bw.get(int(w)) if isinstance(prev_bw.get(int(w)), dict) else prev_bw.get(str(int(w)))
+                pd = pd if isinstance(pd, dict) else {}
+                prev_by_window[int(w)] = {
+                    "VWAP": pd.get("VWAP") if isinstance(pd.get("VWAP"), dict) else {},
+                    "BREAKOUT": pd.get("BREAKOUT") if isinstance(pd.get("BREAKOUT"), dict) else {},
+                }
+
+                cd = by_window.get(int(w)) if isinstance(by_window.get(int(w)), dict) else by_window.get(str(int(w)))
+                cd = cd if isinstance(cd, dict) else {}
+                cand_by_window[int(w)] = {
+                    "VWAP": cd.get("VWAP") if isinstance(cd.get("VWAP"), dict) else {},
+                    "BREAKOUT": cd.get("BREAKOUT") if isinstance(cd.get("BREAKOUT"), dict) else {},
+                }
+
+            diff_vs_prev = {
+                "title": f"比較：直前の同ノブ（id={prev.id}）→ 今回（id={snap.id}）",
+                "prev_id": prev.id,
+                "rows": _build_diff_rows(base_by_window=prev_by_window, cand_by_window=cand_by_window, windows=list(windows)),
+                "base_score": _aggregate_score(prev_by_window, windows=list(windows)),
+                "cand_score": _aggregate_score(cand_by_window, windows=list(windows)),
+            }
+
     ctx = {
         "snapshot": snap,
         "profile": snap.source_profile,
@@ -426,6 +833,9 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
         "cards": cards,
         "active_snapshot": active,
         "last_promo": last_promo,
+        "header": header,
+        "diff_vs_active": diff_vs_active,
+        "diff_vs_prev": diff_vs_prev,
     }
     return render(request, "autotrade/tuning_result.html", ctx)
 
