@@ -3,10 +3,12 @@
 [PATH] <project_root>/static/autotrade/tuning.css
 
 このファイルは何？
-- 実験室（TuningProfile / 検証結果）画面専用のスタイル。
-- iPhone 1画面前提で「判断 → 比較 → 再検証」が迷わずできるUIを作る。
-- 情報過多になりがちな “理由（日本語＋数字＋円）” は折りたたみ前提。
-- 差分（Δ）や ACTIVE 比較を一目で判断できる配色・余白設計。
+- 実験室（TuningProfile）画面のスタイルです。
+- ダッシュボードと同系統の “ガラスUI” で統一します。
+- 今回の追加：
+  - tuning_result.html の「折りたたみ（details/summary）」UI
+  - tune_eval の “差分（delta）” を見やすく
+  - 再検証ボタン、コンパクトカードの見栄え調整
 */
 
 :root{
@@ -18,16 +20,16 @@
   --lab-ok:#36d399;
   --lab-warn:#fbbf24;
   --lab-bad:#f87171;
-}
 
-/* =========================
-   レイアウト全体
-   ========================= */
+  --lab-chip:rgba(0,0,0,.18);
+  --lab-chip2:rgba(0,0,0,.14);
+  --lab-focus:rgba(255,255,255,.18);
+}
 
 .lab-wrap{
   max-width:980px;
   margin:12px auto 0;
-  padding:14px 12px 160px;
+  padding:14px 12px 140px;
   color:var(--lab-txt);
 }
 
@@ -53,9 +55,10 @@
   font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
 }
 
-/* =========================
-   カード・行
-   ========================= */
+.lab-strong{
+  color: rgba(255,255,255,.92);
+  font-weight: 900;
+}
 
 .lab-card{
   border:1px solid var(--lab-bd);
@@ -64,6 +67,12 @@
   padding:12px;
   backdrop-filter:blur(10px);
   margin-bottom:12px;
+}
+
+.lab-card.lab-compact{
+  padding:10px 12px;
+  border-radius:16px;
+  background: rgba(255,255,255,.055);
 }
 
 .lab-row{
@@ -76,12 +85,7 @@
 
 .lab-name{
   font-weight:900;
-  font-size:14px;
 }
-
-/* =========================
-   ボタン
-   ========================= */
 
 .lab-btn{
   display:inline-flex;
@@ -91,50 +95,37 @@
   padding:10px 12px;
   border-radius:14px;
   border:1px solid var(--lab-bd);
-  background:rgba(0,0,0,.18);
+  background:var(--lab-chip);
   color:var(--lab-txt);
   font-weight:900;
   text-decoration:none;
+  cursor:pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lab-btn:active{
+  transform: translateY(1px);
 }
 
 .lab-btn-primary{
   border-color: rgba(54,211,153,.40);
-  background: rgba(54,211,153,.12);
+  background: rgba(54,211,153,.10);
 }
 
 .lab-btn-danger{
   border-color: rgba(248,113,113,.45);
-  background: rgba(248,113,113,.12);
+  background: rgba(248,113,113,.10);
 }
 
 .lab-inline{ display:inline; }
 
-.lab-actions{
-  display:flex;
-  gap:10px;
-  flex-wrap:wrap;
+.lab-empty{
+  border:1px dashed rgba(255,255,255,.20);
+  border-radius:16px;
+  padding:18px;
+  text-align:left;
+  background: rgba(0,0,0,.14);
 }
-
-/* =========================
-   バッジ・状態表示
-   ========================= */
-
-.lab-badge{
-  padding:6px 10px;
-  border-radius:999px;
-  border:1px solid var(--lab-bd);
-  background:rgba(0,0,0,.18);
-  font-weight:900;
-  font-size:12px;
-}
-
-.is-ok{ color:var(--lab-ok); }
-.is-warn{ color:var(--lab-warn); }
-.is-bad{ color:var(--lab-bad); }
-
-/* =========================
-   セクション
-   ========================= */
 
 .lab-section{
   font-weight:900;
@@ -149,38 +140,20 @@
   color: rgba(255,255,255,.84);
 }
 
-/* =========================
-   キー・バリュー表示
-   ========================= */
-
-.lab-kv{
-  font-size:12px;
-  line-height:1.8;
-}
-
-/* =========================
-   折りたたみ（理由）
-   ========================= */
-
-.lab-details{
-  border:1px dashed rgba(255,255,255,.18);
-  border-radius:14px;
-  padding:10px;
-  background:rgba(0,0,0,.14);
-}
-
-.lab-summary{
-  cursor:pointer;
+.lab-badge{
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid var(--lab-bd);
+  background:var(--lab-chip);
   font-weight:900;
-  font-size:13px;
-  color:var(--lab-mut);
+  font-size:12px;
 }
 
 .lab-reasons{
   border:1px solid rgba(255,255,255,.10);
   border-radius:14px;
   padding:10px;
-  background:rgba(0,0,0,.14);
+  background: rgba(0,0,0,.14);
 }
 
 .lab-reason-line{
@@ -193,73 +166,11 @@
   border-bottom:none;
 }
 
-/* =========================
-   pills（検証条件の要約）
-   ========================= */
-
-.lab-pill-row{
-  display:flex;
-  gap:8px;
-  flex-wrap:wrap;
-}
-
-.lab-pill{
-  border:1px solid rgba(255,255,255,.12);
-  border-radius:999px;
-  padding:6px 10px;
-  display:flex;
-  gap:6px;
-  align-items:center;
-  background:rgba(0,0,0,.16);
-}
-
-.lab-pill-k{
-  font-size:11px;
-  color:var(--lab-mut);
-}
-
-.lab-pill-v{
-  font-size:11px;
-  font-weight:800;
-}
-
-/* =========================
-   比較（BASE / CAND）
-   ========================= */
-
-.lab-compare-head{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:10px;
-}
-
-.lab-compare-box{
-  border:1px solid rgba(255,255,255,.12);
-  border-radius:14px;
-  padding:10px;
-  background:rgba(0,0,0,.14);
-}
-
-/* =========================
-   差分（Δ）
-   ========================= */
-
-.lab-diff-grid{
+.lab-grid{
   display:grid;
   grid-template-columns:1fr;
   gap:10px;
 }
-
-.lab-diff-card{
-  border:1px solid rgba(255,255,255,.12);
-  border-radius:14px;
-  padding:10px;
-  background:rgba(0,0,0,.14);
-}
-
-/* =========================
-   グリッド（結果カード）
-   ========================= */
 
 .lab-grid-cards{
   display:grid;
@@ -267,15 +178,11 @@
   gap:12px;
 }
 
-/* =========================
-   フィールド（編集系で再利用）
-   ========================= */
-
 .lab-field{
   border:1px solid rgba(255,255,255,.10);
   border-radius:14px;
   padding:10px;
-  background:rgba(0,0,0,.14);
+  background: rgba(0,0,0,.14);
 }
 
 .lab-label{
@@ -289,25 +196,88 @@
   padding:10px 10px;
   border-radius:12px;
   border:1px solid rgba(255,255,255,.12);
-  background:rgba(0,0,0,.22);
+  background: rgba(0,0,0,.22);
   color:var(--lab-txt);
   font-weight:800;
 }
 
-/* =========================
-   余白ユーティリティ
-   ========================= */
+.lab-input:focus{
+  outline: none;
+  border-color: rgba(255,255,255,.22);
+  box-shadow: 0 0 0 2px rgba(255,255,255,.06);
+}
 
+.lab-kv{
+  font-size:12px;
+  line-height:1.8;
+}
+
+/* =========================
+   New: details / summary
+   ========================= */
+.lab-details{
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:14px;
+  background: rgba(0,0,0,.10);
+  padding:10px;
+}
+
+.lab-details[open]{
+  border-color: rgba(255,255,255,.14);
+  background: rgba(0,0,0,.14);
+}
+
+.lab-summary{
+  list-style:none;
+  cursor:pointer;
+  font-weight:900;
+  font-size:13px;
+  color: rgba(255,255,255,.88);
+  display:flex;
+  align-items:center;
+  gap:8px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lab-summary::-webkit-details-marker{
+  display:none;
+}
+
+.lab-summary::before{
+  content:"▸";
+  display:inline-block;
+  transform: translateY(-1px);
+  color: rgba(255,255,255,.70);
+}
+
+.lab-details[open] .lab-summary::before{
+  content:"▾";
+}
+
+.lab-details .lab-reasons{
+  margin-top:8px;
+}
+
+/* =========================
+   New: delta styling
+   ========================= */
+.lab-delta{
+  display:inline-block;
+  margin-left:6px;
+  padding:2px 8px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.12);
+  background: rgba(0,0,0,.12);
+  font-weight:900;
+  font-size:12px;
+}
+
+/* spacing helpers */
 .lab-mt8{ margin-top:8px; }
 .lab-mt10{ margin-top:10px; }
 .lab-mt12{ margin-top:12px; }
 
-/* =========================
-   スマホ最適化
-   ========================= */
-
-@media (max-width: 640px){
-  .lab-compare-head{
-    grid-template-columns:1fr;
-  }
-}
+/* gate colors */
+.is-ok{ color:var(--lab-ok); }
+.is-warn{ color:var(--lab-warn); }
+.is-bad{ color:var(--lab-bad); }
