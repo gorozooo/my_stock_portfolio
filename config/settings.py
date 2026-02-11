@@ -61,7 +61,7 @@ INSTALLED_APPS = [
     "autotrade.apps.AutotradeConfig",
 
     # ★ 家計簿（新規）
-    #"kakeibo.apps.KakeiboConfig",
+    "kakeibo.apps.KakeiboConfig",
 ]
 
 MIDDLEWARE = [
