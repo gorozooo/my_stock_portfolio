@@ -59,6 +59,9 @@ INSTALLED_APPS = [
 
     # ★ 自動売買（新規）
     "autotrade.apps.AutotradeConfig",
+
+    # ★ 家計簿（新規）
+    "kakeibo.apps.KakeiboConfig",
 ]
 
 MIDDLEWARE = [
@@ -182,6 +185,15 @@ AIAPP_LOT = 100
 AIAPP_PRO_EQUITY_YEN = 5_000_000
 
 # ==========================
+# ★ ACCESS CONTROL（追加）
+# ==========================
+# 株アプリは「あなた1人だけ」通すための固定ユーザー名
+STOCKS_OWNER_USERNAME = os.getenv("STOCKS_OWNER_USERNAME", "gorozooo")
+
+# 家計簿アプリは「夫婦だけ」通すためのグループ名
+KAKEIBO_GROUP_NAME = os.getenv("KAKEIBO_GROUP_NAME", "kakeibo_users")
+
+# ==========================
 # ★ AUTOTRADE（確定仕様）
 # ==========================
 AUTOTRADE_BASE_EQUITY_YEN = 1_000_000
@@ -234,9 +246,6 @@ AUTOTRADE_DEFAULT_CANDIDATES = [
 #"wmean"（売買代金重み）
 AUTOTRADE_MORNING_AGG = "wmean"
 
-# ==========================
-# ★ django-crontab（ジョブ）
-# ==========================
 # ==========================
 # ★ django-crontab（ジョブ）
 # ==========================
