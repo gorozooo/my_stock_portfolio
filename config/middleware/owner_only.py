@@ -38,6 +38,7 @@ class OwnerOnlyMiddleware:
             "/manifest.webmanifest",
             "/service-worker.js",
             "/favicon.ico",
+            "/healthz/",
         )
 
         # ✅ あなた専用にするURL
