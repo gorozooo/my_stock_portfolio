@@ -5,10 +5,10 @@
 このファイルは何？
 - 実験室の検証結果ページです（iPhone最適）。
 - “見たいものだけ一瞬で見る” がテーマ。
-  1) どの作業台（TuningProfile）で回したか
+  1) どの作業台（TuningProfile）で回したか（=中身の数値も見える）
   2) 今回のスナップショットは何者か（ACTIVE/CANDIDATE/DRAFT/RETIRED）
-  3) 前回（BASE=ACTIVE）からどれだけ改善/悪化したか（tune_eval差分）
-  4) 再検証（戻らずにワンタップ）
+  3) ACTIVE比 / 直前比 の差分（Δ）を数値で見える化（viewで生成した diff_vs_* を表示）
+  4) 再検証（戻らずにワンタップ）：同条件でやり直し / picks更新してやり直し
 - 「理由（日本語＋数字＋円）」は初期非表示（detailsで折りたたみ）
 -->
 
@@ -18,7 +18,7 @@
 {% block title %}AutoTrade / 実験室 - 検証結果{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'autotrade/tuning.css' %}?v=5">
+<link rel="stylesheet" href="{% static 'autotrade/tuning.css' %}?v=6">
 <script defer src="{% static 'autotrade/tuning.js' %}?v=3"></script>
 {% endblock %}
 
@@ -41,11 +41,13 @@
        ========================= -->
   <div class="lab-card">
     <div class="lab-row">
-      <div class="lab-name">{{ snapshot.label }}</div>
+      <div class="lab-name">
+        {% if header and header.label %}{{ header.label }}{% else %}{{ snapshot.label }}{% endif %}
+      </div>
 
       <div class="lab-row" style="gap:8px;">
         <span class="lab-badge">
-          {{ snapshot.status|default:"-" }}
+          {% if header and header.status %}{{ header.status|default:"-" }}{% else %}{{ snapshot.status|default:"-" }}{% endif %}
         </span>
 
         {% if active_snapshot %}
@@ -64,30 +66,89 @@
       {% else %}
         作業台：<span class="lab-strong">なし</span>
       {% endif %}
-      / 日付：<span class="lab-mono">{{ evidence.date|default:"-" }}</span>
+      / 日付：
+      <span class="lab-mono">
+        {% if header and header.date %}{{ header.date }}{% else %}{{ evidence.date|default:"-" }}{% endif %}
+      </span>
     </div>
 
-    <!-- 再検証（戻らず実行） -->
-    {% if profile %}
-      <div class="lab-mt12">
-        <form class="lab-inline" method="post" action="{% url 'autotrade:tuning_run_backtest' profile.id %}">
-          {% csrf_token %}
-          <button class="lab-btn lab-btn-primary" type="submit"
-                  data-rerun="1"
-                  data-confirm="同じ作業台（{{ profile.name }}）で、もう一度検証を回します。よろしいですか？">
-            ↻ 再検証（同じ作業台）
-          </button>
-        </form>
+    <!-- ★ 追加：何で回したか（windows / picks） -->
+    <div class="lab-mt10 lab-mono lab-kv">
+      <div>
+        windows：
+        {% if header and header.windows %}
+          {{ header.windows }}
+        {% else %}
+          {{ evidence.windows|default:"-" }}
+        {% endif %}
       </div>
-      <div class="lab-muted lab-mt8">
-        ※ 失敗しても一覧に戻らず、このページから何度でも回せます。
+
+      <div>
+        picks：
+        {% if header and header.picks_n is not None %}
+          {{ header.picks_n }}銘柄
+          {% if header.picks_head %}
+            （例: {{ header.picks_head|join:", " }}）
+          {% endif %}
+        {% else %}
+          -
+        {% endif %}
       </div>
+    </div>
+
+    <!-- ★ 追加：作業台の中身（数値）を見せる -->
+    {% if profile and profile.params %}
+      <details class="lab-details lab-mt12">
+        <summary class="lab-summary">作業台のパラメータ（タップで開く）</summary>
+
+        <div class="lab-mt10 lab-mono lab-kv">
+          <div class="lab-subtitle">VWAP</div>
+          <div>stop_pct：<span class="lab-strong">{{ profile.params.VWAP.stop_pct|default:"-" }}</span>%</div>
+          <div>rr：<span class="lab-strong">{{ profile.params.VWAP.rr|default:"-" }}</span></div>
+          <div>pullback_pct：<span class="lab-strong">{{ profile.params.VWAP.pullback_pct|default:"-" }}</span>%</div>
+          <div>max_hold_min：<span class="lab-strong">{{ profile.params.VWAP.max_hold_min|default:"-" }}</span>分</div>
+
+          <div class="lab-subtitle lab-mt12">BREAKOUT</div>
+          <div>stop_pct：<span class="lab-strong">{{ profile.params.BREAKOUT.stop_pct|default:"-" }}</span>%</div>
+          <div>rr：<span class="lab-strong">{{ profile.params.BREAKOUT.rr|default:"-" }}</span></div>
+          <div>lookback_bars：<span class="lab-strong">{{ profile.params.BREAKOUT.lookback_bars|default:"-" }}</span></div>
+          <div>max_hold_min：<span class="lab-strong">{{ profile.params.BREAKOUT.max_hold_min|default:"-" }}</span>分</div>
+        </div>
+      </details>
     {% endif %}
+
+    <!-- ★ 再検証：snapshotを「同条件でやり直し」 or 「picks更新してやり直し」 -->
+    <div class="lab-mt12 lab-row" style="gap:10px;">
+
+      <form class="lab-inline" method="post" action="{% url 'autotrade:tuning_rerun_snapshot_force' snapshot.id %}">
+        {% csrf_token %}
+        <button class="lab-btn lab-btn-primary" type="submit"
+                data-rerun="1"
+                data-confirm="このスナップショット（id={{ snapshot.id }}）を、同条件で再検証します（picksは今日のもの）。よろしいですか？">
+          ↻ 再検証（同条件）
+        </button>
+      </form>
+
+      <form class="lab-inline" method="post" action="{% url 'autotrade:tuning_rerun_snapshot_refresh_picks' snapshot.id %}">
+        {% csrf_token %}
+        <button class="lab-btn" type="submit"
+                data-rerun="1"
+                data-confirm="picksを作り直してから再検証します（universe再生成）。よろしいですか？">
+          ↻ 再検証（picks更新）
+        </button>
+      </form>
+
+    </div>
+
+    <div class="lab-muted lab-mt8">
+      ※ 「同じ作業台で同じ条件を回すだけ」だと基本は変わりません（データが同じなら結果も同じ）。
+      変化させたい時は picks更新 or パラメータ変更（作業台編集）を使います。
+    </div>
   </div>
 
   <!-- =========================
        Auto Tuning (What knob changed?)
-       + Diff (How improved?)
+       + Diff (How improved?) : tune_eval
        ========================= -->
   {% with tune=snapshot.snapshot.tune eval=snapshot.snapshot.tune_eval %}
     {% if tune %}
@@ -96,14 +157,22 @@
 
         <div class="lab-mono lab-kv lab-mt8">
           <div>knob：<span class="lab-strong">{{ tune.knob|default:"-" }}</span></div>
-          <div>delta：<span class="lab-strong">{{ tune.delta|default:"-" }}</span></div>
+
+          <!-- ★ ここが「どこにも出てない」問題の本丸：delta を太字で確定表示 -->
+          <div>
+            delta：
+            <span class="lab-strong">
+              {{ tune.delta|default:"-" }}
+            </span>
+          </div>
+
           <div>based_on_active_id：<span class="lab-strong">{{ tune.based_on_active_id|default:"-" }}</span></div>
           <div>target_date：<span class="lab-strong">{{ tune.target_date|default:"-" }}</span></div>
         </div>
 
         {% if eval %}
           <div class="lab-mt12">
-            <div class="lab-section">比較（前回ACTIVE → 今回）</div>
+            <div class="lab-section">比較（前回ACTIVE → 今回 / tune_eval）</div>
 
             <div class="lab-grid">
               <div class="lab-card lab-compact">
@@ -172,7 +241,6 @@
               </div>
             </div>
 
-            <!-- 理由（折りたたみ） -->
             <details class="lab-details lab-mt12">
               <summary class="lab-summary">判定理由（タップで開く）</summary>
               <div class="lab-reasons lab-mt8">
@@ -198,6 +266,120 @@
   {% endwith %}
 
   <!-- =========================
+       ★ 追加：ACTIVE比（viewのdiff_vs_activeを表示）
+       ========================= -->
+  {% if diff_vs_active %}
+    <div class="lab-card">
+      <div class="lab-section">{{ diff_vs_active.title }}</div>
+
+      <div class="lab-mono lab-kv lab-mt8">
+        <div>
+          score(PnL合計)：{{ diff_vs_active.base_score.pnl_sum_yen|default:0|intcomma }}円 →
+          <span class="lab-strong">{{ diff_vs_active.cand_score.pnl_sum_yen|default:0|intcomma }}円</span>
+        </div>
+        <div>
+          score(最大DD)：{{ diff_vs_active.base_score.max_dd_pct|default:"-" }} →
+          <span class="lab-strong">{{ diff_vs_active.cand_score.max_dd_pct|default:"-" }}</span>
+        </div>
+        <div>
+          score(PF平均)：{{ diff_vs_active.base_score.pf_avg|default:"-" }} →
+          <span class="lab-strong">{{ diff_vs_active.cand_score.pf_avg|default:"-" }}</span>
+        </div>
+        <div>
+          score(取引回数)：{{ diff_vs_active.base_score.trades_sum|default:"-" }} →
+          <span class="lab-strong">{{ diff_vs_active.cand_score.trades_sum|default:"-" }}</span>
+        </div>
+      </div>
+
+      <details class="lab-details lab-mt12">
+        <summary class="lab-summary">差分（Δ）を表示（戦略 × 期間）</summary>
+
+        <div class="lab-grid-cards lab-mt10">
+          {% for r in diff_vs_active.rows %}
+            <div class="lab-card">
+              <div class="lab-row">
+                <div class="lab-name">{{ r.strategy }}｜{{ r.window }}日</div>
+                <div class="lab-badge {% if r.delta.pnl|default:0 >= 0 %}is-ok{% else %}is-bad{% endif %}">
+                  ΔPnL：
+                  {% if r.delta.pnl is not None %}
+                    {% if r.delta.pnl|default:0 >= 0 %}+{% endif %}{{ r.delta.pnl|intcomma }}円
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="lab-mt8 lab-mono lab-kv">
+                <div>ΔPF：{% if r.delta.pf is not None %}{% if r.delta.pf|default:0 >= 0 %}+{% endif %}{{ r.delta.pf }}{% else %}-{% endif %}</div>
+                <div>Δ最大DD(円)：{% if r.delta.dd_yen is not None %}{% if r.delta.dd_yen|default:0 >= 0 %}+{% endif %}{{ r.delta.dd_yen|intcomma }}円{% else %}-{% endif %}</div>
+                <div>Δ最大DD(% )：{% if r.delta.dd_pct is not None %}{% if r.delta.dd_pct|default:0 >= 0 %}+{% endif %}{{ r.delta.dd_pct }}{% else %}-{% endif %}</div>
+                <div>Δ取引回数：{% if r.delta.trades is not None %}{% if r.delta.trades|default:0 >= 0 %}+{% endif %}{{ r.delta.trades }}{% else %}-{% endif %}</div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </details>
+    </div>
+  {% endif %}
+
+  <!-- =========================
+       ★ 追加：直前比（viewのdiff_vs_prevを表示）
+       ========================= -->
+  {% if diff_vs_prev %}
+    <div class="lab-card">
+      <div class="lab-section">{{ diff_vs_prev.title }}</div>
+
+      <div class="lab-mono lab-kv lab-mt8">
+        <div>
+          score(PnL合計)：{{ diff_vs_prev.base_score.pnl_sum_yen|default:0|intcomma }}円 →
+          <span class="lab-strong">{{ diff_vs_prev.cand_score.pnl_sum_yen|default:0|intcomma }}円</span>
+        </div>
+        <div>
+          score(最大DD)：{{ diff_vs_prev.base_score.max_dd_pct|default:"-" }} →
+          <span class="lab-strong">{{ diff_vs_prev.cand_score.max_dd_pct|default:"-" }}</span>
+        </div>
+        <div>
+          score(PF平均)：{{ diff_vs_prev.base_score.pf_avg|default:"-" }} →
+          <span class="lab-strong">{{ diff_vs_prev.cand_score.pf_avg|default:"-" }}</span>
+        </div>
+        <div>
+          score(取引回数)：{{ diff_vs_prev.base_score.trades_sum|default:"-" }} →
+          <span class="lab-strong">{{ diff_vs_prev.cand_score.trades_sum|default:"-" }}</span>
+        </div>
+      </div>
+
+      <details class="lab-details lab-mt12">
+        <summary class="lab-summary">差分（Δ）を表示（戦略 × 期間）</summary>
+
+        <div class="lab-grid-cards lab-mt10">
+          {% for r in diff_vs_prev.rows %}
+            <div class="lab-card">
+              <div class="lab-row">
+                <div class="lab-name">{{ r.strategy }}｜{{ r.window }}日</div>
+                <div class="lab-badge {% if r.delta.pnl|default:0 >= 0 %}is-ok{% else %}is-bad{% endif %}">
+                  ΔPnL：
+                  {% if r.delta.pnl is not None %}
+                    {% if r.delta.pnl|default:0 >= 0 %}+{% endif %}{{ r.delta.pnl|intcomma }}円
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="lab-mt8 lab-mono lab-kv">
+                <div>ΔPF：{% if r.delta.pf is not None %}{% if r.delta.pf|default:0 >= 0 %}+{% endif %}{{ r.delta.pf }}{% else %}-{% endif %}</div>
+                <div>Δ最大DD(円)：{% if r.delta.dd_yen is not None %}{% if r.delta.dd_yen|default:0 >= 0 %}+{% endif %}{{ r.delta.dd_yen|intcomma }}円{% else %}-{% endif %}</div>
+                <div>Δ最大DD(% )：{% if r.delta.dd_pct is not None %}{% if r.delta.dd_pct|default:0 >= 0 %}+{% endif %}{{ r.delta.dd_pct }}{% else %}-{% endif %}</div>
+                <div>Δ取引回数：{% if r.delta.trades is not None %}{% if r.delta.trades|default:0 >= 0 %}+{% endif %}{{ r.delta.trades }}{% else %}-{% endif %}</div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </details>
+    </div>
+  {% endif %}
+
+  <!-- =========================
        Final Gate
        ========================= -->
   <div class="lab-card">
@@ -215,7 +397,6 @@
       </div>
     </div>
 
-    <!-- 理由は折りたたみ（初期非表示） -->
     <details class="lab-details lab-mt12">
       <summary class="lab-summary">理由（日本語＋数字＋円）を表示</summary>
 
