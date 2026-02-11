@@ -75,6 +75,9 @@ MIDDLEWARE = [
 
     # ★ 追加: request.htmx など
     "django_htmx.middleware.HtmxMiddleware",
+    
+    # ★ 追加：あなた専用エリア制御（aiapp/autotrade/portfolio/admin をブロック）
+    "config.middleware.owner_only.OwnerOnlyMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
