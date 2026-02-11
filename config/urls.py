@@ -17,6 +17,9 @@ urlpatterns = [
     # ★ 家計簿（新規）
     path("kakeibo/", include("kakeibo.urls")),
 
+    # ★ health check 専用
+    path("healthz/", healthz),
+    
     # PWA: manifest / service worker
     path(
         "manifest.webmanifest",
