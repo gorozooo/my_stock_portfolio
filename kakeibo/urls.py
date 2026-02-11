@@ -1,8 +1,16 @@
+# =========================================
+# [FILE] urls.py
+# [PATH] kakeibo/urls.py
+#
+# このファイルは何？
+# /kakeibo/ へのアクセスをdashboardに接続する。
+# =========================================
+
 from django.urls import path
-from . import views
+from .views import dashboard
 
 app_name = "kakeibo"
 
 urlpatterns = [
-    path("", views.dashboard, name="dashboard"),
+    path("", dashboard, name="dashboard"),
 ]
