@@ -1,6 +1,11 @@
 from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import TemplateView
+from django.http import HttpResponse
+
+
+def healthz(request):
+    return HttpResponse("ok", content_type="text/plain")
 
 urlpatterns = [
     path("admin/", admin.site.urls),
