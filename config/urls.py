@@ -4,9 +4,18 @@ from django.views.generic import TemplateView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+
+    # 株（あなた専用）
     path("", include("portfolio.urls")),
+
+    # AI
     path("aiapp/", include("aiapp.urls")),
+
+    # 自動売買
     path("autotrade/", include("autotrade.urls")),
+
+    # ★ 家計簿（新規）
+    path("kakeibo/", include("kakeibo.urls")),
 
     # PWA: manifest / service worker
     path(
