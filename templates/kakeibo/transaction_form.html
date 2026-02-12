@@ -1,0 +1,28 @@
+<!--
+[FILE] transaction_form.html
+[PATH] <project_root>/templates/kakeibo/transaction_form.html
+
+このファイルは何？
+- 支出/収入の共通入力フォーム画面。
+- 入力は「まとめ」でOK。メモで内容が分かれば十分、という方針。
+-->
+
+{% extends "kakeibo/base_kakeibo.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+  <section class="kb-card">
+    <div class="kb-title">{{ title }}</div>
+
+    <form method="post" class="kb-form">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button class="kb-btn kb-btn-primary" type="submit">{{ submit_label }}</button>
+    </form>
+
+    <div class="kb-muted" style="margin-top:10px;">
+      例：楽天カード（2月分） / 立替（子供用品）など、メモで分かればOK
+    </div>
+  </section>
+{% endblock %}
