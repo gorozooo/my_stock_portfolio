@@ -5,7 +5,8 @@
 このファイルは何？
 - 家計簿アプリ専用の共通レイアウト（ベーステンプレ）。
 - 家計簿専用の「下タブ」を使う。
-- 下タブからログアウト（退出）は完全に撤去（要求仕様）。
+- ログアウト（退出）は下タブから撤去（要求仕様）。
+- 下タブのアイコンは SF Symbols 風（SVGをstaticに置き、CSS maskで描画）。
 -->
 
 {% load static %}
@@ -27,34 +28,26 @@
 </main>
 
 <!-- =========================
-     家計簿専用：下タブメニュー（ログアウトなし）
+     家計簿専用：下タブメニュー（4タブ / ログアウトなし）
      ========================= -->
 <nav class="kbtab" aria-label="家計簿メニュー">
   <a class="kbtab-btn" href="{% url 'kakeibo:dashboard' %}" data-kbtab="home" aria-label="ホーム">
-    <div class="kbtab-ico">
-      <img src="{% static 'kakeibo/icons/home.svg' %}" alt="" width="22" height="22">
-    </div>
+    <div class="kbtab-ico"><span class="kbico kbico-home" aria-hidden="true"></span></div>
     <div class="kbtab-txt">ホーム</div>
   </a>
 
   <a class="kbtab-btn" href="{% url 'kakeibo:expense_create' %}" data-kbtab="expense" aria-label="支出">
-    <div class="kbtab-ico">
-      <img src="{% static 'kakeibo/icons/minus.svg' %}" alt="" width="22" height="22">
-    </div>
+    <div class="kbtab-ico"><span class="kbico kbico-minus" aria-hidden="true"></span></div>
     <div class="kbtab-txt">支出</div>
   </a>
 
   <a class="kbtab-btn" href="{% url 'kakeibo:income_create' %}" data-kbtab="income" aria-label="収入">
-    <div class="kbtab-ico">
-      <img src="{% static 'kakeibo/icons/plus.svg' %}" alt="" width="22" height="22">
-    </div>
+    <div class="kbtab-ico"><span class="kbico kbico-plus" aria-hidden="true"></span></div>
     <div class="kbtab-txt">収入</div>
   </a>
 
   <a class="kbtab-btn" href="{% url 'kakeibo:settings' %}" data-kbtab="settings" aria-label="設定">
-    <div class="kbtab-ico">
-      <img src="{% static 'kakeibo/icons/gear.svg' %}" alt="" width="22" height="22">
-    </div>
+    <div class="kbtab-ico"><span class="kbico kbico-gear" aria-hidden="true"></span></div>
     <div class="kbtab-txt">設定</div>
   </a>
 </nav>
