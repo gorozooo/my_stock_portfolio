@@ -3,26 +3,64 @@
 [PATH] <project_root>/templates/kakeibo/dashboard.html
 
 このファイルは何？
-- 家計簿トップ画面（/kakeibo/）のテンプレートです。
-- まずは「別baseで表示できる」状態を固めます。
+- 家計簿トップ画面（/kakeibo/）。
+- 「今月の家計」をシンプルに見える化する。
 -->
 
 {% extends "kakeibo/base_kakeibo.html" %}
 
-{% block title %}家計簿ダッシュボード{% endblock %}
+{% block title %}家計簿{% endblock %}
 
 {% block content %}
-  <div class="card">
-    <h2 style="margin:0 0 6px 0;">{{ title }}</h2>
-    <div class="muted">ログインOK / 権限制御OK / 別UI OK ✅</div>
-  </div>
-
-  <div class="card">
-    <div style="font-weight:800; margin-bottom:8px;">次に作る画面</div>
-    <div class="muted" style="line-height:1.7;">
-      ・収入入力（/kakeibo/income/）<br>
-      ・支出入力（/kakeibo/expense/）<br>
-      ・設定（オーナー専用 /kakeibo/settings/）
+  <section class="kb-card">
+    <div class="kb-title">今月（{{ month_label }}）</div>
+    <div class="kb-kpi-row">
+      <div class="kb-kpi">
+        <div class="kb-kpi-label">支出合計</div>
+        <div class="kb-kpi-value">¥{{ total_expense|intcomma }}</div>
+      </div>
+      <div class="kb-kpi">
+        <div class="kb-kpi-label">収入合計</div>
+        <div class="kb-kpi-value">¥{{ total_income|intcomma }}</div>
+      </div>
     </div>
-  </div>
+    <div class="kb-muted">※ 明細入力はしない。カードごとのまとめ入力が基本。</div>
+  </section>
+
+  <section class="kb-card">
+    <div class="kb-title">カードまとめ（口座別）</div>
+    {% if card_rows %}
+      <ul class="kb-list">
+        {% for r in card_rows %}
+          <li class="kb-list-item">
+            <span class="kb-strong">{{ r.account__name }}</span>
+            <span class="kb-amt">¥{{ r.total|intcomma }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="kb-muted">まだ登録がありません。まず「➖支出」でカードまとめを入れてOK。</div>
+    {% endif %}
+  </section>
+
+  <section class="kb-card">
+    <div class="kb-title">立替（今月の最新）</div>
+    {% if advances %}
+      <ul class="kb-list">
+        {% for t in advances %}
+          <li class="kb-list-item">
+            <span>
+              <span class="kb-tag">立替</span>
+              <span class="kb-muted">{{ t.date }}</span>
+              <span class="kb-strong">{{ t.memo }}</span>
+              <span class="kb-muted">（{{ t.get_paid_by_display }}）</span>
+            </span>
+            <span class="kb-amt">¥{{ t.amount|intcomma }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="kb-muted">立替はまだありません。</div>
+    {% endif %}
+  </section>
 {% endblock %}
