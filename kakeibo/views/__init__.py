@@ -4,7 +4,10 @@
 #
 # このファイルは何？
 # viewsフォルダをDjangoに認識させ、
-# dashboard関数を外部からimport可能にする。
+# 各View関数を外部からimport可能にする。
 # =========================================
 
 from .dashboard import dashboard
+from .expense import expense_create
+from .income import income_create
+from .settings import settings_view
