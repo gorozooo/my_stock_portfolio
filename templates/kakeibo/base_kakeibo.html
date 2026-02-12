@@ -4,8 +4,8 @@
 
 このファイルは何？
 - 家計簿アプリ専用の共通レイアウト（ベーステンプレ）。
-- 株アプリの base.html は使わない（完全分離）。
-- CSS/JS も家計簿専用を読み込む。
+- 上メニューは廃止し、家計簿専用の「下タブ」を使う。
+- 株アプリの下タブとは混ぜない（事故防止）。
 -->
 
 {% load static %}
@@ -17,31 +17,42 @@
   <title>{% block title %}家計簿{% endblock %}</title>
 
   <link rel="stylesheet" href="{% static 'kakeibo/css/kakeibo.css' %}">
+  <link rel="stylesheet" href="{% static 'kakeibo/css/kakeibo_tab.css' %}">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
 
-<header class="kb-header">
-  <div class="kb-header-inner">
-    <div>
-      <div class="kb-brand">Kakeibo</div>
-      <div class="kb-sub">夫婦共有</div>
-    </div>
-    <div class="kb-actions">
-      <a class="kb-btn" href="{% url 'kakeibo:dashboard' %}">🏠</a>
-      <a class="kb-btn" href="{% url 'kakeibo:expense_create' %}">➖支出</a>
-      <a class="kb-btn" href="{% url 'kakeibo:income_create' %}">➕収入</a>
-      <a class="kb-btn" href="{% url 'kakeibo:settings' %}">⚙️設定</a>
-      <a class="kb-btn" href="/accounts/logout/">ログアウト</a>
-    </div>
-  </div>
-</header>
-
-<main class="kb-wrap">
+<main class="kb-wrap kb-wrap-with-tab">
   {% block content %}{% endblock %}
 </main>
 
+<!-- =========================
+     家計簿専用：下タブメニュー
+     ========================= -->
+<nav class="kbtab" aria-label="家計簿メニュー">
+  <a class="kbtab-btn" href="{% url 'kakeibo:dashboard' %}" data-kbtab="home" aria-label="ホーム">
+    <div class="kbtab-ico">🏠</div><div class="kbtab-txt">ホーム</div>
+  </a>
+
+  <a class="kbtab-btn" href="{% url 'kakeibo:expense_create' %}" data-kbtab="expense" aria-label="支出">
+    <div class="kbtab-ico">➖</div><div class="kbtab-txt">支出</div>
+  </a>
+
+  <a class="kbtab-btn" href="{% url 'kakeibo:income_create' %}" data-kbtab="income" aria-label="収入">
+    <div class="kbtab-ico">➕</div><div class="kbtab-txt">収入</div>
+  </a>
+
+  <a class="kbtab-btn" href="{% url 'kakeibo:settings' %}" data-kbtab="settings" aria-label="設定">
+    <div class="kbtab-ico">⚙️</div><div class="kbtab-txt">設定</div>
+  </a>
+
+  <a class="kbtab-btn" href="/accounts/logout/" data-kbtab="logout" aria-label="ログアウト">
+    <div class="kbtab-ico">🚪</div><div class="kbtab-txt">退出</div>
+  </a>
+</nav>
+
 <script src="{% static 'kakeibo/js/kakeibo.js' %}" defer></script>
+<script src="{% static 'kakeibo/js/kakeibo_tab.js' %}" defer></script>
 {% block extra_js %}{% endblock %}
 </body>
 </html>
