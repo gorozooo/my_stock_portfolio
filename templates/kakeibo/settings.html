@@ -1,0 +1,38 @@
+<!--
+[FILE] settings.html
+[PATH] <project_root>/templates/kakeibo/settings.html
+
+このファイルは何？
+- 家計簿の設定画面。
+- まずは口座/カード（Account）を追加できるようにする。
+-->
+
+{% extends "kakeibo/base_kakeibo.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+  <section class="kb-card">
+    <div class="kb-title">口座/カードを追加</div>
+    <form method="post" class="kb-form">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button class="kb-btn kb-btn-primary" type="submit">追加</button>
+    </form>
+  </section>
+
+  <section class="kb-card">
+    <div class="kb-title">登録済み</div>
+    {% if accounts %}
+      <ul class="kb-list">
+        {% for a in accounts %}
+          <li class="kb-list-item">
+            <span class="kb-strong">{{ a.name }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="kb-muted">まだありません。</div>
+    {% endif %}
+  </section>
+{% endblock %}
