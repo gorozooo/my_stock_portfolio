@@ -10,7 +10,7 @@ def healthz(request):
 urlpatterns = [
     path("admin/", admin.site.urls),
 
-    # 株（あなた専用）
+    # 株
     path("", include("portfolio.urls")),
 
     # AI
