@@ -1,0 +1,75 @@
+/*
+[FILE] kakeibo.css
+[PATH] <project_root>/static/kakeibo/css/kakeibo.css
+
+このファイルは何？
+- 家計簿アプリ専用のCSSです。
+- 株アプリのCSSとは分離して、家計簿の見た目はここで管理します。
+*/
+
+:root{
+  --bg:#0b0f14;
+  --card:rgba(255,255,255,0.08);
+  --text:rgba(255,255,255,0.92);
+  --muted:rgba(255,255,255,0.65);
+  --border:rgba(255,255,255,0.12);
+  --accent:#56ccf2;
+}
+
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Hiragino Sans","Noto Sans JP",sans-serif;
+}
+
+.wrap{
+  max-width:720px;
+  margin:0 auto;
+  padding:16px;
+  padding-bottom:32px;
+}
+
+header{
+  position:sticky;
+  top:0;
+  backdrop-filter:blur(14px);
+  background:rgba(11,15,20,0.75);
+  border-bottom:1px solid var(--border);
+  z-index:10;
+}
+
+.header-inner{
+  max-width:720px;
+  margin:0 auto;
+  padding:14px 16px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+
+.brand{ font-weight:800; letter-spacing:0.02em; }
+.sub{ font-size:12px; color:var(--muted); margin-top:2px; }
+
+.card{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:16px;
+  padding:14px;
+  margin:12px 0;
+}
+
+.muted{ color:var(--muted); }
+
+a{ color:var(--accent); text-decoration:none; }
+
+.btn{
+  display:inline-block;
+  padding:10px 12px;
+  border-radius:12px;
+  border:1px solid var(--border);
+  background:rgba(255,255,255,0.06);
+  color:var(--text);
+  font-weight:700;
+}
