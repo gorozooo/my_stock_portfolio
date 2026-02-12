@@ -3,9 +3,9 @@
 [PATH] <project_root>/templates/kakeibo/base_kakeibo.html
 
 このファイルは何？
-- 家計簿アプリ専用の共通レイアウト（ベーステンプレ）です。
-- 株アプリの base.html は使いません（完全分離）。
-- CSS/JS も家計簿専用を読み込みます。
+- 家計簿アプリ専用の共通レイアウト（ベーステンプレ）。
+- 株アプリの base.html は使わない（完全分離）。
+- CSS/JS も家計簿専用を読み込む。
 -->
 
 {% load static %}
@@ -19,25 +19,29 @@
   <link rel="stylesheet" href="{% static 'kakeibo/css/kakeibo.css' %}">
   {% block extra_head %}{% endblock %}
 </head>
-
 <body>
-  <header>
-    <div class="header-inner">
-      <div>
-        <div class="brand">Kakeibo</div>
-        <div class="sub">家計簿（別UI）</div>
-      </div>
-      <div>
-        <a class="btn" href="/accounts/logout/">ログアウト</a>
-      </div>
+
+<header class="kb-header">
+  <div class="kb-header-inner">
+    <div>
+      <div class="kb-brand">Kakeibo</div>
+      <div class="kb-sub">夫婦共有</div>
     </div>
-  </header>
+    <div class="kb-actions">
+      <a class="kb-btn" href="{% url 'kakeibo:dashboard' %}">🏠</a>
+      <a class="kb-btn" href="{% url 'kakeibo:expense_create' %}">➖支出</a>
+      <a class="kb-btn" href="{% url 'kakeibo:income_create' %}">➕収入</a>
+      <a class="kb-btn" href="{% url 'kakeibo:settings' %}">⚙️設定</a>
+      <a class="kb-btn" href="/accounts/logout/">ログアウト</a>
+    </div>
+  </div>
+</header>
 
-  <main class="wrap">
-    {% block content %}{% endblock %}
-  </main>
+<main class="kb-wrap">
+  {% block content %}{% endblock %}
+</main>
 
-  <script src="{% static 'kakeibo/js/kakeibo.js' %}"></script>
-  {% block extra_js %}{% endblock %}
+<script src="{% static 'kakeibo/js/kakeibo.js' %}" defer></script>
+{% block extra_js %}{% endblock %}
 </body>
 </html>
