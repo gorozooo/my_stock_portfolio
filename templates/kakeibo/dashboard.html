@@ -1,17 +1,28 @@
-<!-- =========================================
+<!--
 [FILE] dashboard.html
-[PATH] templates/kakeibo/dashboard.html
+[PATH] <project_root>/templates/kakeibo/dashboard.html
 
 このファイルは何？
-家計簿トップ画面。
-今は空表示のみ。
-========================================= -->
+- 家計簿トップ画面（/kakeibo/）のテンプレートです。
+- まずは「表示できる」状態を作り、ここから本格ダッシュへ育てます。
+-->
 
-{% extends "kakeibo/base.html" %}
+{% extends "kakeibo/base_kakeibo.html" %}
 
-{% block title %}家計簿ダッシュ{% endblock %}
+{% block title %}家計簿ダッシュボード{% endblock %}
 
 {% block content %}
-<h2>家計簿トップ</h2>
-<p>ここに今月収支や口座残高を表示予定。</p>
+  <div class="card">
+    <h2 style="margin:0 0 6px 0;">{{ title }}</h2>
+    <div class="muted">ログインOK / 権限制御OK / テンプレ分離OK 🎯</div>
+  </div>
+
+  <div class="card">
+    <div style="font-weight:800; margin-bottom:8px;">次に作る画面</div>
+    <div class="muted" style="line-height:1.7;">
+      ・収入入力（/kakeibo/income/）<br>
+      ・支出入力（/kakeibo/expense/）<br>
+      ・設定（オーナー専用 /kakeibo/settings/）
+    </div>
+  </div>
 {% endblock %}
