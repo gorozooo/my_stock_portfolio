@@ -1,0 +1,179 @@
+/*
+[FILE] kakeibo_home.css
+[PATH] <project_root>/static/kakeibo/css/kakeibo_home.css
+
+このファイルは何？
+- 家計簿ホーム（/kakeibo/）を“アプリっぽく”見せるための専用CSS。
+- 既存の kakeibo.css を壊さないために、ホーム専用として追加している。
+*/
+
+:root{
+  --kb-bg0:#070A12;
+  --kb-bg1:#0B1020;
+  --kb-card:rgba(255,255,255,.06);
+  --kb-card2:rgba(255,255,255,.08);
+  --kb-line:rgba(255,255,255,.10);
+  --kb-text:rgba(255,255,255,.92);
+  --kb-sub:rgba(255,255,255,.62);
+  --kb-sub2:rgba(255,255,255,.45);
+  --kb-green: rgba(16,185,129,.95);
+  --kb-red: rgba(239,68,68,.95);
+  --kb-yellow: rgba(234,179,8,.95);
+}
+
+.kb-home{
+  color: var(--kb-text);
+}
+
+.kb-topbar{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:12px;
+  margin: 8px 0 14px;
+}
+
+.kb-title{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+.kb-title h1{
+  margin:0;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: .2px;
+}
+
+.kb-title .sub{
+  color: var(--kb-sub);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.kb-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.10);
+  color: var(--kb-sub);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.kb-grid{
+  display:grid;
+  gap: 12px;
+}
+
+.kb-card{
+  background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 18px;
+  padding: 14px 14px;
+  box-shadow: 0 18px 40px rgba(0,0,0,.35);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.kb-card h2{
+  margin:0 0 10px;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: .2px;
+}
+
+.kb-kpi-row{
+  display:grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.kb-kpi{
+  background: rgba(0,0,0,.18);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px;
+  padding: 12px 12px;
+}
+
+.kb-kpi .label{
+  color: var(--kb-sub);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.kb-kpi .val{
+  margin-top: 6px;
+  font-size: 20px;
+  font-weight: 950;
+  letter-spacing: .2px;
+}
+
+.kb-kpi .hint{
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--kb-sub2);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.kb-val-green{ color: var(--kb-green); }
+.kb-val-red{ color: var(--kb-red); }
+.kb-val-yellow{ color: var(--kb-yellow); }
+
+.kb-list{
+  display:flex;
+  flex-direction:column;
+  gap: 10px;
+}
+
+.kb-item{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 10px;
+  padding: 10px 10px;
+  border-radius: 14px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.08);
+}
+
+.kb-item .left{
+  display:flex;
+  flex-direction:column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.kb-item .name{
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kb-item .meta{
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--kb-sub);
+}
+
+.kb-item .right{
+  text-align:right;
+  font-weight: 950;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.kb-empty{
+  color: var(--kb-sub);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.4;
+  padding: 10px 2px 2px;
+}
