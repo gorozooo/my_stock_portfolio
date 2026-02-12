@@ -3,13 +3,10 @@
 [PATH] <project_root>/static/kakeibo/css/kakeibo_tab.css
 
 このファイルは何？
-- 家計簿専用の下タブUI（ポップだけどスタイリッシュ版）。
-- “アクティブだけ色”＋“ピル背景”で可愛さを出しつつ、全体は落ち着かせる。
+- 家計簿専用の下タブUI。
+- 株アプリの bottom_tab.css とは別物（混ぜない）。
+- SF Symbols風（SVGをstaticに置き、CSS maskで描画）で統一する。
 */
-
-:root{
-  --kb-accent: #4FD1C5; /* ミント寄り（上品ポップ） */
-}
 
 .kb-wrap-with-tab{
   padding-bottom: calc(92px + env(safe-area-inset-bottom));
@@ -21,68 +18,96 @@
   z-index: 10000;
 
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0;
+  grid-template-columns: repeat(4, 1fr); /* ✅ 4タブ固定（ログアウトなし） */
+  gap: 2px;
 
-  background: rgba(13,16,24,.86);
+  background: rgba(13,16,24,.78);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-top: 1px solid rgba(255,255,255,.10);
-  padding: 8px 10px max(10px, env(safe-area-inset-bottom));
+  padding-bottom: max(0px, env(safe-area-inset-bottom));
+  transform: translateZ(0);
 }
 
 .kbtab-btn{
+  padding: 10px 2px calc(12px + env(safe-area-inset-bottom));
   text-decoration: none;
-  color: rgba(255,255,255,.62);
 
+  color: rgba(255,255,255,.70);
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-
-  padding: 8px 6px 10px;
-  border-radius: 16px;              /* ✅ ピル感 */
-  margin: 0 6px;                    /* ✅ ピル間の余白 */
+  gap: 4px;
 
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
-
-  transition: transform .14s ease, background .14s ease, color .14s ease;
 }
 
-/* アイコン（今の構造を活かす：絵文字でも線画でもOK） */
 .kbtab-ico{
-  font-size: 20px;
-  line-height: 1;
-  transform: translateY(0);
-  transition: transform .14s ease;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
 }
 
 .kbtab-txt{
   font-size: 11px;
   font-weight: 800;
-  letter-spacing: .02em;
   white-space: nowrap;
+  letter-spacing: .01em;
+}
+
+/* =========================
+   SF Symbols風：SVGを mask で塗る
+   - 色は currentColor（= kbtab-btnのcolor）で統一
+   ========================= */
+.kbico{
+  width: 22px;
+  height: 22px;
+  display: block;
+  background: currentColor;
+
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: 22px 22px;
+
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: 22px 22px;
+
   opacity: .95;
 }
 
-/* ✅ Active：色＋薄い背景＋少し浮く */
+.kbico-home{
+  -webkit-mask-image: url("/static/kakeibo/icons/home.svg");
+  mask-image: url("/static/kakeibo/icons/home.svg");
+}
+.kbico-minus{
+  -webkit-mask-image: url("/static/kakeibo/icons/minus.svg");
+  mask-image: url("/static/kakeibo/icons/minus.svg");
+}
+.kbico-plus{
+  -webkit-mask-image: url("/static/kakeibo/icons/plus.svg");
+  mask-image: url("/static/kakeibo/icons/plus.svg");
+}
+.kbico-gear{
+  -webkit-mask-image: url("/static/kakeibo/icons/gear.svg");
+  mask-image: url("/static/kakeibo/icons/gear.svg");
+}
+
+/* =========================
+   Active / Pressed 表現（iOS寄せ）
+   ========================= */
 .kbtab-btn.is-active{
-  color: var(--kb-accent);
-  background: rgba(79,209,197,.12);
-  box-shadow:
-    0 10px 24px rgba(0,0,0,.25),
-    inset 0 0 0 1px rgba(79,209,197,.22);
+  color: rgba(255,255,255,.98);
 }
 
-.kbtab-btn.is-active .kbtab-ico{
-  transform: translateY(-1px) scale(1.02);
+.kbtab-btn.is-active .kbico{
+  filter: drop-shadow(0 0 10px rgba(255,255,255,.18));
 }
 
-/* 押したとき “ぷにっ” */
 .kbtab-btn:active{
-  transform: translateY(1px) scale(.98);
-  background: rgba(255,255,255,.06);
+  transform: translateY(1px);
+  opacity: .92;
 }
