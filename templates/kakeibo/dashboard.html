@@ -4,7 +4,7 @@
 
 このファイルは何？
 - 家計簿トップ画面（/kakeibo/）のテンプレートです。
-- まずは「表示できる」状態を作り、ここから本格ダッシュへ育てます。
+- まずは「別baseで表示できる」状態を固めます。
 -->
 
 {% extends "kakeibo/base_kakeibo.html" %}
@@ -14,7 +14,7 @@
 {% block content %}
   <div class="card">
     <h2 style="margin:0 0 6px 0;">{{ title }}</h2>
-    <div class="muted">ログインOK / 権限制御OK / テンプレ分離OK 🎯</div>
+    <div class="muted">ログインOK / 権限制御OK / 別UI OK ✅</div>
   </div>
 
   <div class="card">
