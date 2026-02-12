@@ -3,8 +3,8 @@
 [PATH] <project_root>/static/kakeibo/css/kakeibo.css
 
 このファイルは何？
-- 家計簿アプリ専用のCSSです。
-- 株アプリのCSSとは分離して、家計簿の見た目はここで管理します。
+- 家計簿アプリ専用CSS。
+- 株アプリのUIとは完全分離。
 */
 
 :root{
@@ -23,36 +23,26 @@ body{
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Hiragino Sans","Noto Sans JP",sans-serif;
 }
 
-.wrap{
-  max-width:720px;
-  margin:0 auto;
-  padding:16px;
-  padding-bottom:32px;
-}
+.kb-wrap{max-width:720px;margin:0 auto;padding:16px;padding-bottom:32px;}
 
-header{
-  position:sticky;
-  top:0;
+.kb-header{
+  position:sticky;top:0;
   backdrop-filter:blur(14px);
   background:rgba(11,15,20,0.75);
   border-bottom:1px solid var(--border);
   z-index:10;
 }
 
-.header-inner{
-  max-width:720px;
-  margin:0 auto;
-  padding:14px 16px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
+.kb-header-inner{
+  max-width:720px;margin:0 auto;padding:14px 16px;
+  display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
 }
 
-.brand{ font-weight:800; letter-spacing:0.02em; }
-.sub{ font-size:12px; color:var(--muted); margin-top:2px; }
+.kb-brand{font-weight:900;letter-spacing:0.02em}
+.kb-sub{font-size:12px;color:var(--muted);margin-top:2px}
+.kb-actions{display:flex;gap:8px;flex-wrap:wrap}
 
-.card{
+.kb-card{
   background:var(--card);
   border:1px solid var(--border);
   border-radius:16px;
@@ -60,16 +50,51 @@ header{
   margin:12px 0;
 }
 
-.muted{ color:var(--muted); }
+.kb-title{font-weight:900;margin-bottom:10px}
+.kb-muted{color:var(--muted);font-size:13px}
+.kb-strong{font-weight:900}
 
-a{ color:var(--accent); text-decoration:none; }
-
-.btn{
+.kb-btn{
   display:inline-block;
   padding:10px 12px;
   border-radius:12px;
   border:1px solid var(--border);
   background:rgba(255,255,255,0.06);
   color:var(--text);
-  font-weight:700;
+  font-weight:800;
+  text-decoration:none;
 }
+
+.kb-btn-primary{
+  border-color:rgba(86,204,242,0.45);
+}
+
+.kb-kpi-row{display:flex;gap:12px;flex-wrap:wrap}
+.kb-kpi{flex:1;min-width:220px}
+.kb-kpi-label{color:var(--muted);font-size:12px}
+.kb-kpi-value{font-size:22px;font-weight:950;margin-top:4px}
+
+.kb-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px}
+.kb-list-item{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.kb-amt{font-weight:950}
+
+.kb-tag{
+  display:inline-block;
+  font-size:12px;
+  padding:3px 8px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  margin-right:6px;
+  color:var(--muted);
+}
+
+.kb-form p{margin:10px 0}
+.kb-form input,.kb-form select{
+  width:100%;
+  padding:10px 10px;
+  border-radius:12px;
+  border:1px solid var(--border);
+  background:rgba(255,255,255,0.06);
+  color:var(--text);
+}
+.kb-form label{display:block;margin-bottom:6px;color:var(--muted);font-size:13px}
