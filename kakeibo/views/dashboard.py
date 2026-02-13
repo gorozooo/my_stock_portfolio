@@ -32,8 +32,9 @@ def dashboard(request):
     total_income = qs.filter(type="INCOME").aggregate(s=Sum("amount"))["s"] or 0
 
     # カードまとめ（Account別）
+    # ✅ category は FK なので、Category.name で絞る
     card_rows = (
-        qs.filter(type="EXPENSE", category="CARD_SUMMARY")
+        qs.filter(type="EXPENSE", category__name="カードまとめ")
           .values("account__name")
           .annotate(total=Sum("amount"))
           .order_by("-total")
@@ -41,7 +42,7 @@ def dashboard(request):
 
     # 立替（一覧）
     advances = (
-        qs.filter(type="EXPENSE", category="ADVANCE")
+        qs.filter(type="EXPENSE", category__name="立替")
           .order_by("-date", "-id")[:50]
     )
 
