@@ -4,65 +4,147 @@
 
 このファイルは何？
 - 家計簿の設定画面。
-- 口座/カード（Account）の追加と、登録済み一覧の管理（削除）を行う。
-- 運用ルール（カードまとめ/立替など）もここに説明として固定表示する。
+- タブで「収入 / 支出 / 口座 / カード」を切り替え、
+  各項目を追加・編集・削除できる。
 -->
-
 {% extends "kakeibo/base_kakeibo.html" %}
 
 {% block title %}{{ title }}{% endblock %}
 
 {% block content %}
   <section class="kb-card">
-    <div class="kb-title">口座/カードを追加</div>
-    <form method="post" class="kb-form">
-      {% csrf_token %}
-      {{ form.as_p }}
-      <button class="kb-btn kb-btn-primary" type="submit">追加</button>
-    </form>
-  </section>
+    <div class="kb-title">設定</div>
 
-  <section class="kb-card">
-    <div class="kb-title">使い方（分類の意味）</div>
-    <div class="kb-muted" style="margin-bottom:10px;">
-      ※ 明細は入れない運用。<span class="kb-strong">月の合計</span>をサクッと登録するための家計簿。
+    <!-- タブ -->
+    <div class="kb-tabs" role="tablist" aria-label="設定タブ">
+      <a class="kb-tab {% if tab == 'income' %}is-active{% endif %}" href="?tab=income">収入</a>
+      <a class="kb-tab {% if tab == 'expense' %}is-active{% endif %}" href="?tab=expense">支出</a>
+      <a class="kb-tab {% if tab == 'account' %}is-active{% endif %}" href="?tab=account">口座</a>
+      <a class="kb-tab {% if tab == 'card' %}is-active{% endif %}" href="?tab=card">カード</a>
     </div>
 
-    <ul class="kb-hint-list">
-      {% for label, desc in category_hints %}
-        <li class="kb-hint-item">
-          <span class="kb-pill">{{ label }}</span>
-          <span class="kb-muted">{{ desc }}</span>
-        </li>
-      {% endfor %}
-    </ul>
+    <div class="kb-muted" style="margin-top:10px;">
+      ここで「分類（カテゴリ）」や「口座/カード」を自由に追加できます。
+    </div>
   </section>
 
-  <section class="kb-card">
-    <div class="kb-title">登録済み</div>
-
-    {% if accounts %}
-      <ul class="kb-list kb-list-tight">
-        {% for a in accounts %}
-          <li class="kb-list-item kb-list-row">
-            <span class="kb-strong">{{ a.name }}</span>
-
-            <form method="post"
-                  action="{% url 'kakeibo:account_delete' a.id %}"
-                  class="kb-inline-form"
-                  data-confirm="「{{ a.name }}」を削除しますか？（取引に使っている口座は削除できません）">
-              {% csrf_token %}
-              <button class="kb-btn kb-btn-danger" type="submit">削除</button>
-            </form>
-          </li>
-        {% endfor %}
-      </ul>
-
-      <div class="kb-muted" style="margin-top:10px;">
-        ※ 取引に使われている口座/カードは安全のため削除できません。
+  <!-- ============ INCOME / EXPENSE：カテゴリ管理 ============ -->
+  {% if tab == "income" or tab == "expense" %}
+    <section class="kb-card">
+      <div class="kb-title">
+        {% if tab == "income" %}収入の分類{% else %}支出の分類{% endif %}
       </div>
-    {% else %}
-      <div class="kb-muted">まだありません。</div>
-    {% endif %}
-  </section>
+
+      {% if edit_mode %}
+        <div class="kb-muted" style="margin-bottom:10px;">編集中：保存すると上書きされます。</div>
+      {% endif %}
+
+      <form method="post" class="kb-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="{% if edit_mode %}update{% else %}create{% endif %}">
+        <input type="hidden" name="tab" value="{{ tab }}">
+        {% if edit_mode %}
+          <input type="hidden" name="id" value="{{ edit_obj.id }}">
+        {% endif %}
+
+        {{ form.as_p }}
+
+        <button class="kb-btn kb-btn-primary" type="submit">
+          {% if edit_mode %}更新{% else %}追加{% endif %}
+        </button>
+
+        {% if edit_mode %}
+          <a class="kb-btn" href="?tab={{ tab }}" style="margin-left:8px;">キャンセル</a>
+        {% endif %}
+      </form>
+    </section>
+
+    <section class="kb-card">
+      <div class="kb-title">登録済み</div>
+
+      {% if rows %}
+        <ul class="kb-list">
+          {% for r in rows %}
+            <li class="kb-list-item">
+              <span class="kb-strong">{{ r.name }}</span>
+
+              <span style="display:flex; gap:8px; align-items:center;">
+                <a class="kb-btn" href="?tab={{ tab }}&edit={{ r.id }}">編集</a>
+
+                <form method="post" style="display:inline;">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="tab" value="{{ tab }}">
+                  <input type="hidden" name="id" value="{{ r.id }}">
+                  <button class="kb-btn" type="submit" onclick="return confirm('削除します。OK？')">削除</button>
+                </form>
+              </span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="kb-muted">まだありません。</div>
+      {% endif %}
+    </section>
+  {% endif %}
+
+  <!-- ============ ACCOUNT / CARD：口座・カード管理 ============ -->
+  {% if tab == "account" or tab == "card" %}
+    <section class="kb-card">
+      <div class="kb-title">
+        {% if tab == "account" %}口座{% else %}カード{% endif %}を追加
+      </div>
+
+      {% if edit_mode %}
+        <div class="kb-muted" style="margin-bottom:10px;">編集中：保存すると上書きされます。</div>
+      {% endif %}
+
+      <form method="post" class="kb-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="{% if edit_mode %}update{% else %}create{% endif %}">
+        <input type="hidden" name="tab" value="{{ tab }}">
+        {% if edit_mode %}
+          <input type="hidden" name="id" value="{{ edit_obj.id }}">
+        {% endif %}
+
+        {{ form.as_p }}
+
+        <button class="kb-btn kb-btn-primary" type="submit">
+          {% if edit_mode %}更新{% else %}追加{% endif %}
+        </button>
+
+        {% if edit_mode %}
+          <a class="kb-btn" href="?tab={{ tab }}" style="margin-left:8px;">キャンセル</a>
+        {% endif %}
+      </form>
+    </section>
+
+    <section class="kb-card">
+      <div class="kb-title">登録済み</div>
+
+      {% if rows %}
+        <ul class="kb-list">
+          {% for r in rows %}
+            <li class="kb-list-item">
+              <span class="kb-strong">{{ r.name }}</span>
+
+              <span style="display:flex; gap:8px; align-items:center;">
+                <a class="kb-btn" href="?tab={{ tab }}&edit={{ r.id }}">編集</a>
+
+                <form method="post" style="display:inline;">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="tab" value="{{ tab }}">
+                  <input type="hidden" name="id" value="{{ r.id }}">
+                  <button class="kb-btn" type="submit" onclick="return confirm('削除します。OK？')">削除</button>
+                </form>
+              </span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="kb-muted">まだありません。</div>
+      {% endif %}
+    </section>
+  {% endif %}
 {% endblock %}
