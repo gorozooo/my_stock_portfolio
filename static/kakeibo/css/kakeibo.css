@@ -14,6 +14,7 @@
   --muted:rgba(255,255,255,0.65);
   --border:rgba(255,255,255,0.12);
   --accent:#56ccf2;
+  --danger:#ff5b5b;
 }
 
 body{
@@ -69,6 +70,11 @@ body{
   border-color:rgba(86,204,242,0.45);
 }
 
+.kb-btn-danger{
+  border-color:rgba(255,91,91,0.45);
+  color:rgba(255,255,255,0.92);
+}
+
 .kb-kpi-row{display:flex;gap:12px;flex-wrap:wrap}
 .kb-kpi{flex:1;min-width:220px}
 .kb-kpi-label{color:var(--muted);font-size:12px}
@@ -78,6 +84,16 @@ body{
 .kb-list-item{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .kb-amt{font-weight:950}
 
+.kb-list-tight{gap:8px}
+.kb-list-row{
+  padding:8px 10px;
+  border:1px solid rgba(255,255,255,0.08);
+  border-radius:14px;
+  background:rgba(255,255,255,0.04);
+}
+
+.kb-inline-form{margin:0}
+
 .kb-tag{
   display:inline-block;
   font-size:12px;
@@ -86,6 +102,32 @@ body{
   border-radius:999px;
   margin-right:6px;
   color:var(--muted);
+}
+
+/* 設定の「使い方」エリア */
+.kb-hint-list{
+  list-style:none;
+  padding:0;
+  margin:0;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.kb-hint-item{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+.kb-pill{
+  display:inline-flex;
+  align-items:center;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,0.10);
+  background:rgba(255,255,255,0.05);
+  font-weight:900;
+  font-size:12px;
 }
 
 .kb-form p{margin:10px 0}
