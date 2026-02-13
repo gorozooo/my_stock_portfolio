@@ -4,8 +4,9 @@
 #
 # このファイルは何？
 # modelsフォルダをDjangoに認識させ、
-# AccountとTransactionを一括で読み込ませる。
+# Account / Category / Transaction を一括で読み込ませる。
 # =========================================
 
 from .account import Account
+from .category import Category
 from .transaction import Transaction
