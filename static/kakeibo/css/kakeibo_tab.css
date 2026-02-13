@@ -4,18 +4,9 @@
 
 このファイルは何？
 - 家計簿専用の下タブUI。
-- 株アプリの bottom_tab.css とは別物（混ぜない）。
 - SF Symbols風（SVGをstaticに置き、CSS maskで描画）で統一する。
-- 選択中が一瞬で分かるように「ピル背景 + 下インジケータ + 立体感」で強調する。
+- 4タブ固定（ログアウトなし）
 */
-
-:root{
-  /* アクティブ時のアクセント（白ベース＋ほんのり青） */
-  --kbtab-accent: rgba(120, 160, 255, .95);
-  --kbtab-pill: rgba(255,255,255,.10);
-  --kbtab-pill-border: rgba(255,255,255,.14);
-  --kbtab-indicator: rgba(120,160,255,.95);
-}
 
 .kb-wrap-with-tab{
   padding-bottom: calc(92px + env(safe-area-inset-bottom));
@@ -27,7 +18,7 @@
   z-index: 10000;
 
   display: grid;
-  grid-template-columns: repeat(4, 1fr); /* ✅ 4タブ固定（ログアウトなし） */
+  grid-template-columns: repeat(4, 1fr);
   gap: 2px;
 
   background: rgba(13,16,24,.78);
@@ -38,34 +29,19 @@
   transform: translateZ(0);
 }
 
-/* =========================
-   ボタン（選択中はピル背景で強調）
-   ========================= */
 .kbtab-btn{
-  position: relative; /* インジケータ用 */
-  padding: 10px 6px calc(12px + env(safe-area-inset-bottom));
+  padding: 10px 2px calc(12px + env(safe-area-inset-bottom));
   text-decoration: none;
 
-  color: rgba(255,255,255,.62);
+  color: rgba(255,255,255,.70);
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 4px;
-
-  border-radius: 16px;          /* ✅ ピル形状 */
-  margin: 6px 8px 8px;          /* ✅ ピルの余白 */
 
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
-
-  transition:
-    transform .14s ease,
-    background .16s ease,
-    color .16s ease,
-    box-shadow .16s ease,
-    border-color .16s ease;
 }
 
 .kbtab-ico{
@@ -73,7 +49,6 @@
   height: 22px;
   display: grid;
   place-items: center;
-  transition: transform .16s ease, filter .16s ease;
 }
 
 .kbtab-txt{
@@ -81,13 +56,9 @@
   font-weight: 800;
   white-space: nowrap;
   letter-spacing: .01em;
-  transition: opacity .16s ease, transform .16s ease;
 }
 
-/* =========================
-   SF Symbols風：SVGを mask で塗る
-   - 色は currentColor（= kbtab-btnのcolor）で統一
-   ========================= */
+/* SF Symbols風：SVGを mask で塗る */
 .kbico{
   width: 22px;
   height: 22px;
@@ -122,58 +93,16 @@
   mask-image: url("/static/kakeibo/icons/gear.svg");
 }
 
-/* =========================
-   ✅ Active（強調版）
-   - ピル背景 + 輪郭 + 影
-   - 下インジケータ（小さいバー）
-   - アイコンを少し上に＆少し大きく
-   ========================= */
+/* Active 表現（今のまま） */
 .kbtab-btn.is-active{
   color: rgba(255,255,255,.98);
-  background: var(--kbtab-pill);
-  box-shadow:
-    0 10px 24px rgba(0,0,0,.35),
-    inset 0 0 0 1px var(--kbtab-pill-border);
 }
 
-/* 下インジケータ（iOSっぽい小バー） */
-.kbtab-btn.is-active::after{
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: 6px;
-  transform: translateX(-50%);
-  width: 22px;
-  height: 3px;
-  border-radius: 99px;
-  background: var(--kbtab-indicator);
-  box-shadow: 0 0 12px rgba(120,160,255,.35);
-  opacity: .95;
-}
-
-/* アイコンの視線誘導（ちょい上・ちょい拡大） */
-.kbtab-btn.is-active .kbtab-ico{
-  transform: translateY(-1px) scale(1.06);
-  filter: drop-shadow(0 0 12px rgba(255,255,255,.16));
-}
-
-/* ラベルも少しだけ強調 */
-.kbtab-btn.is-active .kbtab-txt{
-  transform: translateY(-1px);
-  opacity: 1;
-}
-
-/* さらにSFっぽい発光（控えめ） */
 .kbtab-btn.is-active .kbico{
-  filter:
-    drop-shadow(0 0 10px rgba(255,255,255,.14))
-    drop-shadow(0 0 16px rgba(120,160,255,.10));
+  filter: drop-shadow(0 0 10px rgba(255,255,255,.18));
 }
 
-/* =========================
-   Pressed（押した感）
-   ========================= */
 .kbtab-btn:active{
-  transform: translateY(1px) scale(.98);
-  opacity: .95;
+  transform: translateY(1px);
+  opacity: .92;
 }
