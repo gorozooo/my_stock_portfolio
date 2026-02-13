@@ -4,7 +4,8 @@
 
 このファイルは何？
 - 家計簿の設定画面。
-- まずは口座/カード（Account）を追加できるようにする。
+- 口座/カード（Account）の追加と、登録済み一覧の管理（削除）を行う。
+- 運用ルール（カードまとめ/立替など）もここに説明として固定表示する。
 -->
 
 {% extends "kakeibo/base_kakeibo.html" %}
@@ -22,15 +23,44 @@
   </section>
 
   <section class="kb-card">
+    <div class="kb-title">使い方（分類の意味）</div>
+    <div class="kb-muted" style="margin-bottom:10px;">
+      ※ 明細は入れない運用。<span class="kb-strong">月の合計</span>をサクッと登録するための家計簿。
+    </div>
+
+    <ul class="kb-hint-list">
+      {% for label, desc in category_hints %}
+        <li class="kb-hint-item">
+          <span class="kb-pill">{{ label }}</span>
+          <span class="kb-muted">{{ desc }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section class="kb-card">
     <div class="kb-title">登録済み</div>
+
     {% if accounts %}
-      <ul class="kb-list">
+      <ul class="kb-list kb-list-tight">
         {% for a in accounts %}
-          <li class="kb-list-item">
+          <li class="kb-list-item kb-list-row">
             <span class="kb-strong">{{ a.name }}</span>
+
+            <form method="post"
+                  action="{% url 'kakeibo:account_delete' a.id %}"
+                  class="kb-inline-form"
+                  data-confirm="「{{ a.name }}」を削除しますか？（取引に使っている口座は削除できません）">
+              {% csrf_token %}
+              <button class="kb-btn kb-btn-danger" type="submit">削除</button>
+            </form>
           </li>
         {% endfor %}
       </ul>
+
+      <div class="kb-muted" style="margin-top:10px;">
+        ※ 取引に使われている口座/カードは安全のため削除できません。
+      </div>
     {% else %}
       <div class="kb-muted">まだありません。</div>
     {% endif %}
