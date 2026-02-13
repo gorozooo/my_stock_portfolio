@@ -4,19 +4,17 @@
 #
 # このファイルは何？
 # 家計簿の設定画面（/kakeibo/settings/）。
-# - 口座/カード（Account）の追加
-# - 登録済み口座/カードの削除（誤操作防止でPOST + confirm）
+# - タブ：収入 / 支出 / 口座 / カード
+# - それぞれで追加・編集・削除
 # =========================================
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect, render, get_object_or_404
-from django.views.decorators.http import require_POST
-from django.contrib import messages
 
 from .permissions import kakeibo_access_required
-from ..forms import AccountForm
-from ..models import Account, Transaction
+from ..forms import CategoryForm, AccountForm
+from ..models import Category, Account
 
 
 @login_required
@@ -24,47 +22,115 @@ def settings_view(request):
     if not kakeibo_access_required(request.user):
         raise PermissionDenied("You do not have access to kakeibo.")
 
+    tab = request.GET.get("tab") or request.POST.get("tab") or "expense"
+    edit_id = request.GET.get("edit")
+
+    def is_category_tab(t):
+        return t in ("income", "expense")
+
+    def is_account_tab(t):
+        return t in ("account", "card")
+
+    edit_mode = False
+    edit_obj = None
+
+    # -----------------------------
+    # GET: 編集対象の読み込み
+    # -----------------------------
+    if edit_id:
+        if is_category_tab(tab):
+            edit_obj = get_object_or_404(Category, id=edit_id, type=("INCOME" if tab == "income" else "EXPENSE"))
+            edit_mode = True
+        elif is_account_tab(tab):
+            kind = "ACCOUNT" if tab == "account" else "CARD"
+            edit_obj = get_object_or_404(Account, id=edit_id, kind=kind)
+            edit_mode = True
+
+    # -----------------------------
+    # POST: create/update/delete
+    # -----------------------------
     if request.method == "POST":
-        form = AccountForm(request.POST)
-        if form.is_valid():
-            form.save()
-            messages.success(request, "口座/カードを追加しました。")
-            return redirect("kakeibo:settings")
+        action = request.POST.get("action") or ""
+
+        if is_category_tab(tab):
+            ctype = "INCOME" if tab == "income" else "EXPENSE"
+
+            if action == "create":
+                form = CategoryForm(request.POST)
+                if form.is_valid():
+                    obj = form.save(commit=False)
+                    obj.type = ctype
+                    obj.save()
+                    return redirect(f"/kakeibo/settings/?tab={tab}")
+
+            elif action == "update":
+                obj = get_object_or_404(Category, id=request.POST.get("id"), type=ctype)
+                form = CategoryForm(request.POST, instance=obj)
+                if form.is_valid():
+                    x = form.save(commit=False)
+                    x.type = ctype
+                    x.save()
+                    return redirect(f"/kakeibo/settings/?tab={tab}")
+
+            elif action == "delete":
+                obj = get_object_or_404(Category, id=request.POST.get("id"), type=ctype)
+                obj.delete()
+                return redirect(f"/kakeibo/settings/?tab={tab}")
+
+        elif is_account_tab(tab):
+            kind = "ACCOUNT" if tab == "account" else "CARD"
+
+            if action == "create":
+                form = AccountForm(request.POST)
+                if form.is_valid():
+                    obj = form.save(commit=False)
+                    obj.kind = kind
+                    obj.save()
+                    return redirect(f"/kakeibo/settings/?tab={tab}")
+
+            elif action == "update":
+                obj = get_object_or_404(Account, id=request.POST.get("id"), kind=kind)
+                form = AccountForm(request.POST, instance=obj)
+                if form.is_valid():
+                    x = form.save(commit=False)
+                    x.kind = kind
+                    x.save()
+                    return redirect(f"/kakeibo/settings/?tab={tab}")
+
+            elif action == "delete":
+                obj = get_object_or_404(Account, id=request.POST.get("id"), kind=kind)
+                obj.delete()
+                return redirect(f"/kakeibo/settings/?tab={tab}")
+
+        # バリデーション失敗時は落とさず表示継続
+        # form は下で再生成される
+
+    # -----------------------------
+    # GET/POST共通：一覧とフォームを用意
+    # -----------------------------
+    if is_category_tab(tab):
+        ctype = "INCOME" if tab == "income" else "EXPENSE"
+        rows = Category.objects.filter(type=ctype).order_by("order", "id")
+
+        if edit_mode and edit_obj:
+            form = CategoryForm(instance=edit_obj)
+        else:
+            form = CategoryForm()
+
     else:
-        form = AccountForm()
+        kind = "ACCOUNT" if tab == "account" else "CARD"
+        rows = Account.objects.filter(kind=kind).order_by("id")
 
-    accounts = Account.objects.order_by("id")
-
-    # 画面で“分類”の意味が分かるように説明を固定表示
-    category_hints = [
-        ("カードまとめ", "カード請求の月合計（明細は入れない運用）"),
-        ("固定費", "家賃/サブスク/通信費など毎月の固定"),
-        ("立替", "誰かの分を立て替えた支出（メモで対象を書く）"),
-        ("その他", "上に当てはまらないもの"),
-    ]
+        if edit_mode and edit_obj:
+            form = AccountForm(instance=edit_obj)
+        else:
+            form = AccountForm()
 
     return render(request, "kakeibo/settings.html", {
         "title": "家計簿 設定",
+        "tab": tab,
+        "rows": rows,
         "form": form,
-        "accounts": accounts,
-        "category_hints": category_hints,
+        "edit_mode": edit_mode,
+        "edit_obj": edit_obj,
     })
-
-
-@login_required
-@require_POST
-def account_delete(request, pk: int):
-    if not kakeibo_access_required(request.user):
-        raise PermissionDenied("You do not have access to kakeibo.")
-
-    a = get_object_or_404(Account, pk=pk)
-
-    # 口座に取引が紐づいてたら削除禁止（事故防止）
-    used = Transaction.objects.filter(account=a).exists()
-    if used:
-        messages.error(request, "この口座/カードは取引に使われているため削除できません。")
-        return redirect("kakeibo:settings")
-
-    a.delete()
-    messages.success(request, "口座/カードを削除しました。")
-    return redirect("kakeibo:settings")
