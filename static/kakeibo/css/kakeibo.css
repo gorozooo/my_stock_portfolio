@@ -14,6 +14,15 @@
   --muted:rgba(255,255,255,0.65);
   --border:rgba(255,255,255,0.12);
   --accent:#56ccf2;
+
+  /* iOSセグメント寄せ */
+  --seg-bg: rgba(255,255,255,0.06);
+  --seg-border: rgba(255,255,255,0.12);
+  --seg-pill: rgba(255,255,255,0.10);
+  --seg-pill-border: rgba(255,255,255,0.14);
+  --seg-active-bg: rgba(86,204,242,0.18);
+  --seg-active-border: rgba(86,204,242,0.45);
+  --seg-active-glow: rgba(86,204,242,0.22);
 }
 
 body{
@@ -99,76 +108,73 @@ body{
 }
 .kb-form label{display:block;margin-bottom:6px;color:var(--muted);font-size:13px}
 
-
 /* =========================================================
-   設定：タブUI（収入 / 支出 / 口座 / カード）
-   - “ただのリンク”に見える問題をここで解決
-   - iOSっぽいピル＆ガラスで、選択状態を強く見せる
+   設定画面：iOSセグメント（収入 / 支出 / 口座 / カード）
+   - 等幅4分割
+   - Activeは塗り＋光＋ボーダーで強調
+   - 下線バー演出（after）は完全に使わない
    ========================================================= */
 
 .kb-tabs{
-  display:flex;
-  gap:8px;
-  flex-wrap:wrap;
-  align-items:center;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
 
-  padding:8px;
-  border-radius:14px;
-  border:1px solid rgba(255,255,255,0.10);
-  background:rgba(255,255,255,0.05);
+  padding: 10px;
+  border-radius: 16px;
+  border: 1px solid var(--seg-border);
+  background: var(--seg-bg);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.06),
+    0 10px 24px rgba(0,0,0,0.22);
 }
 
 .kb-tab{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 
-  padding:9px 12px;
-  border-radius:999px;
+  height: 44px;
+  border-radius: 14px;
 
-  text-decoration:none;          /* ← 下線を消す */
-  color:rgba(255,255,255,0.78);  /* ← 紫リンクを潰す */
+  text-decoration: none;
+  font-weight: 900;
+  letter-spacing: .02em;
 
-  border:1px solid rgba(255,255,255,0.10);
-  background:rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
 
-  font-weight:900;
-  letter-spacing:.02em;
-  line-height:1;
+  user-select: none;
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 
-  transition: transform .08s ease, background .12s ease, border-color .12s ease, color .12s ease;
+  transition: transform .12s ease, background .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease;
 }
 
-.kb-tab:visited{
-  color:rgba(255,255,255,0.78); /* ← iOSのvisited紫を殺す */
+/* ✅ “お願いしたのと違う”原因になりがちな下線バー演出は完全排除 */
+.kb-tab::after{ content:none !important; }
+
+.kb-tab.is-active{
+  color: rgba(255,255,255,0.98);
+  background: var(--seg-active-bg);
+  border-color: var(--seg-active-border);
+
+  box-shadow:
+    0 0 0 1px rgba(86,204,242,0.12),
+    0 10px 22px rgba(0,0,0,0.28),
+    0 0 22px var(--seg-active-glow),
+    inset 0 1px 0 rgba(255,255,255,0.10);
 }
 
 .kb-tab:active{
   transform: translateY(1px);
-  opacity:.92;
+  opacity: .95;
 }
 
-/* 選択中を“タブだと一瞬で分かる”くらい強調 */
-.kb-tab.is-active{
-  color:rgba(255,255,255,0.98);
-
-  background:rgba(86,204,242,0.14);
-  border-color:rgba(86,204,242,0.45);
-
-  box-shadow:
-    0 0 0 1px rgba(86,204,242,0.12) inset,
-    0 8px 18px rgba(0,0,0,0.35);
-}
-
-/* 下に細いアクセントライン（タブ感UP） */
-.kb-tab.is-active::after{
-  content:"";
-  display:block;
-  width:22px;
-  height:3px;
-  border-radius:999px;
-  background:rgba(86,204,242,0.95);
-  margin-top:7px;
-  box-shadow: 0 0 10px rgba(86,204,242,0.25);
+/* 画面が狭い時に詰まりすぎないよう微調整 */
+@media (max-width: 390px){
+  .kb-tabs{ gap: 6px; padding: 8px; border-radius: 14px; }
+  .kb-tab{ height: 42px; border-radius: 13px; font-size: 14px; }
 }
