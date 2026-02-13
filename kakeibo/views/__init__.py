@@ -10,4 +10,4 @@
 from .dashboard import dashboard
 from .expense import expense_create
 from .income import income_create
-from .settings import settings_view, account_delete
+from .settings import settings_view
