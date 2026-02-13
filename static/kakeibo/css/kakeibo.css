@@ -4,7 +4,7 @@
 
 このファイルは何？
 - 家計簿アプリ専用CSS。
-- 設定タブUI（タブ切替）を追加。
+- 株アプリのUIとは完全分離。
 */
 
 :root{
@@ -24,6 +24,23 @@ body{
 }
 
 .kb-wrap{max-width:720px;margin:0 auto;padding:16px;padding-bottom:32px;}
+
+.kb-header{
+  position:sticky;top:0;
+  backdrop-filter:blur(14px);
+  background:rgba(11,15,20,0.75);
+  border-bottom:1px solid var(--border);
+  z-index:10;
+}
+
+.kb-header-inner{
+  max-width:720px;margin:0 auto;padding:14px 16px;
+  display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+}
+
+.kb-brand{font-weight:900;letter-spacing:0.02em}
+.kb-sub{font-size:12px;color:var(--muted);margin-top:2px}
+.kb-actions{display:flex;gap:8px;flex-wrap:wrap}
 
 .kb-card{
   background:var(--card);
@@ -61,6 +78,16 @@ body{
 .kb-list-item{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .kb-amt{font-weight:950}
 
+.kb-tag{
+  display:inline-block;
+  font-size:12px;
+  padding:3px 8px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  margin-right:6px;
+  color:var(--muted);
+}
+
 .kb-form p{margin:10px 0}
 .kb-form input,.kb-form select{
   width:100%;
@@ -72,33 +99,76 @@ body{
 }
 .kb-form label{display:block;margin-bottom:6px;color:var(--muted);font-size:13px}
 
-/* -------------------------
-   設定タブUI
-   ------------------------- */
+
+/* =========================================================
+   設定：タブUI（収入 / 支出 / 口座 / カード）
+   - “ただのリンク”に見える問題をここで解決
+   - iOSっぽいピル＆ガラスで、選択状態を強く見せる
+   ========================================================= */
+
 .kb-tabs{
   display:flex;
   gap:8px;
   flex-wrap:wrap;
-  margin-top:10px;
+  align-items:center;
+
+  padding:8px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,0.10);
+  background:rgba(255,255,255,0.05);
 }
 
 .kb-tab{
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  padding:10px 12px;
-  border-radius:14px;
+
+  padding:9px 12px;
+  border-radius:999px;
+
+  text-decoration:none;          /* ← 下線を消す */
+  color:rgba(255,255,255,0.78);  /* ← 紫リンクを潰す */
+
   border:1px solid rgba(255,255,255,0.10);
-  background:rgba(255,255,255,0.05);
-  color:rgba(255,255,255,0.72);
-  text-decoration:none;
+  background:rgba(255,255,255,0.04);
+
   font-weight:900;
-  letter-spacing:.01em;
-  min-width:72px;
+  letter-spacing:.02em;
+  line-height:1;
+  -webkit-tap-highlight-color: transparent;
+
+  transition: transform .08s ease, background .12s ease, border-color .12s ease, color .12s ease;
 }
 
+.kb-tab:visited{
+  color:rgba(255,255,255,0.78); /* ← iOSのvisited紫を殺す */
+}
+
+.kb-tab:active{
+  transform: translateY(1px);
+  opacity:.92;
+}
+
+/* 選択中を“タブだと一瞬で分かる”くらい強調 */
 .kb-tab.is-active{
   color:rgba(255,255,255,0.98);
-  border-color:rgba(86,204,242,0.35);
-  box-shadow: 0 0 0 1px rgba(86,204,242,0.18) inset;
+
+  background:rgba(86,204,242,0.14);
+  border-color:rgba(86,204,242,0.45);
+
+  box-shadow:
+    0 0 0 1px rgba(86,204,242,0.12) inset,
+    0 8px 18px rgba(0,0,0,0.35);
+}
+
+/* 下に細いアクセントライン（タブ感UP） */
+.kb-tab.is-active::after{
+  content:"";
+  display:block;
+  width:22px;
+  height:3px;
+  border-radius:999px;
+  background:rgba(86,204,242,0.95);
+  margin-top:7px;
+  box-shadow: 0 0 10px rgba(86,204,242,0.25);
 }
