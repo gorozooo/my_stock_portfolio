@@ -4,7 +4,7 @@
 
 このファイルは何？
 - 家計簿アプリ専用CSS。
-- 株アプリのUIとは完全分離。
+- 設定タブUI（タブ切替）を追加。
 */
 
 :root{
@@ -14,7 +14,6 @@
   --muted:rgba(255,255,255,0.65);
   --border:rgba(255,255,255,0.12);
   --accent:#56ccf2;
-  --danger:#ff5b5b;
 }
 
 body{
@@ -25,23 +24,6 @@ body{
 }
 
 .kb-wrap{max-width:720px;margin:0 auto;padding:16px;padding-bottom:32px;}
-
-.kb-header{
-  position:sticky;top:0;
-  backdrop-filter:blur(14px);
-  background:rgba(11,15,20,0.75);
-  border-bottom:1px solid var(--border);
-  z-index:10;
-}
-
-.kb-header-inner{
-  max-width:720px;margin:0 auto;padding:14px 16px;
-  display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
-}
-
-.kb-brand{font-weight:900;letter-spacing:0.02em}
-.kb-sub{font-size:12px;color:var(--muted);margin-top:2px}
-.kb-actions{display:flex;gap:8px;flex-wrap:wrap}
 
 .kb-card{
   background:var(--card);
@@ -70,11 +52,6 @@ body{
   border-color:rgba(86,204,242,0.45);
 }
 
-.kb-btn-danger{
-  border-color:rgba(255,91,91,0.45);
-  color:rgba(255,255,255,0.92);
-}
-
 .kb-kpi-row{display:flex;gap:12px;flex-wrap:wrap}
 .kb-kpi{flex:1;min-width:220px}
 .kb-kpi-label{color:var(--muted);font-size:12px}
@@ -83,52 +60,6 @@ body{
 .kb-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px}
 .kb-list-item{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .kb-amt{font-weight:950}
-
-.kb-list-tight{gap:8px}
-.kb-list-row{
-  padding:8px 10px;
-  border:1px solid rgba(255,255,255,0.08);
-  border-radius:14px;
-  background:rgba(255,255,255,0.04);
-}
-
-.kb-inline-form{margin:0}
-
-.kb-tag{
-  display:inline-block;
-  font-size:12px;
-  padding:3px 8px;
-  border:1px solid var(--border);
-  border-radius:999px;
-  margin-right:6px;
-  color:var(--muted);
-}
-
-/* 設定の「使い方」エリア */
-.kb-hint-list{
-  list-style:none;
-  padding:0;
-  margin:0;
-  display:flex;
-  flex-direction:column;
-  gap:10px;
-}
-.kb-hint-item{
-  display:flex;
-  gap:10px;
-  align-items:center;
-  flex-wrap:wrap;
-}
-.kb-pill{
-  display:inline-flex;
-  align-items:center;
-  padding:6px 10px;
-  border-radius:999px;
-  border:1px solid rgba(255,255,255,0.10);
-  background:rgba(255,255,255,0.05);
-  font-weight:900;
-  font-size:12px;
-}
 
 .kb-form p{margin:10px 0}
 .kb-form input,.kb-form select{
@@ -140,3 +71,34 @@ body{
   color:var(--text);
 }
 .kb-form label{display:block;margin-bottom:6px;color:var(--muted);font-size:13px}
+
+/* -------------------------
+   設定タブUI
+   ------------------------- */
+.kb-tabs{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-top:10px;
+}
+
+.kb-tab{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:10px 12px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,0.10);
+  background:rgba(255,255,255,0.05);
+  color:rgba(255,255,255,0.72);
+  text-decoration:none;
+  font-weight:900;
+  letter-spacing:.01em;
+  min-width:72px;
+}
+
+.kb-tab.is-active{
+  color:rgba(255,255,255,0.98);
+  border-color:rgba(86,204,242,0.35);
+  box-shadow: 0 0 0 1px rgba(86,204,242,0.18) inset;
+}
