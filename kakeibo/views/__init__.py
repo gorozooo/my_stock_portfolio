@@ -11,4 +11,15 @@ from .dashboard import dashboard
 from .income import income
 from .expense import expense, expense_fixed, expense_variable
 from .bank import bank
-from .settings import settings_view
+
+# settings
+from .settings import settings_view, settings_menu
+
+# manage
+from .manage import (
+    manage_menu,
+    manage_income,
+    manage_variable,
+    manage_fixed,
+    manage_bank,
+)
