@@ -1,0 +1,24 @@
+<!--
+[FILE] expense_menu.html
+[PATH] <project_root>/templates/kakeibo/expense_menu.html
+
+このファイルは何？
+- 支出の入口画面。
+- 「固定費 / 変動費」を選ぶ（あなたの仕様どおり）。
+-->
+
+{% extends "kakeibo/base_kakeibo.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+  <section class="kb-card">
+    <div class="kb-title">支出</div>
+    <div class="kb-muted">まず「固定費」か「変動費」かを選んでね。</div>
+
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
+      <a class="kb-btn kb-btn-primary" href="{% url 'kakeibo:expense_fixed' %}">固定費（毎月）</a>
+      <a class="kb-btn kb-btn-primary" href="{% url 'kakeibo:expense_variable' %}">変動費（月次）</a>
+    </div>
+  </section>
+{% endblock %}
