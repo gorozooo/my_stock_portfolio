@@ -3,13 +3,11 @@
 [PATH] <project_root>/templates/kakeibo/bank.html
 
 このファイルは何？
-- 銀行残高（月次）専用の画面（/kakeibo/bank/）
-- 口座残高はあなたの仕様どおり「毎月手入力」
-- 上：説明
+- 銀行残高（月次）の専用ページ。
+- 上のローカルタブは置かない（ナビは下タブに統一）。
 - 中：追加/編集フォーム
 - 下：登録済み一覧（編集/削除）
 -->
-
 {% extends "kakeibo/base_kakeibo.html" %}
 {% load humanize %}
 
@@ -18,16 +16,9 @@
 {% block content %}
   <section class="kb-card">
     <div class="kb-title">{{ title }}</div>
-
     <div class="kb-muted" style="margin-top:10px;">
-      銀行残高は「月ごと（YYYY-MM）」に手入力。<br>
+      銀行残高は「月ごと（YYYY-MM）」に手入力。
       口座は「設定 → 口座」で、owner（家計/B/G）を選んで追加してから使う。
-    </div>
-
-    <div class="kb-tabs" role="tablist" aria-label="銀行ショートカット" style="margin-top:10px;">
-      <a class="kb-tab" href="{% url 'kakeibo:dashboard' %}">ホーム</a>
-      <a class="kb-tab" href="{% url 'kakeibo:settings' %}?tab=account">口座を追加</a>
-      <a class="kb-tab" href="{% url 'kakeibo:settings' %}">設定</a>
     </div>
   </section>
 
@@ -70,13 +61,13 @@
             <div style="display:flex; flex-direction:column; gap:6px;">
               <div>
                 <span class="kb-tag">{{ r.month|date:"Y-m" }}</span>
-                <span class="kb-tag">{{ r.account.get_owner_display }}</span>
-                <span class="kb-strong">{{ r.account.name }}</span>
+                <span class="kb-muted">{{ r.account.get_owner_display }}</span>
               </div>
-              <div class="kb-muted">最終更新：{{ r.updated_at|date:"Y-m-d H:i" }}</div>
+              <div class="kb-strong">{{ r.account.name }}</div>
+              <div class="kb-muted">更新：{{ r.updated_at|date:"Y-m-d H:i" }}</div>
             </div>
 
-            <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end; min-width:120px;">
+            <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end; min-width:130px;">
               <div class="kb-amt">¥{{ r.balance|intcomma }}</div>
 
               <div style="display:flex; gap:8px;">
