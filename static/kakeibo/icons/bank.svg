@@ -1,0 +1,11 @@
+<!--
+[FILE] bank.svg
+[PATH] <project_root>/static/kakeibo/icons/bank.svg
+
+このファイルは何？
+- 家計簿の下タブ「銀行」用のSVGアイコン。
+- CSS maskで塗る前提（塗りは currentColor）。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <path d="M12 3 3 7v2h18V7L12 3Zm-7 8h2v8H5v-8Zm4 0h2v8H9v-8Zm4 0h2v8h-2v-8Zm4 0h2v8h-2v-8ZM3 21v-2h18v2H3Z"/>
+</svg>
