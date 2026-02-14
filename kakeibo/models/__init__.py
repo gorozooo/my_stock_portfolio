@@ -4,9 +4,13 @@
 #
 # このファイルは何？
 # modelsフォルダをDjangoに認識させ、
-# Account / Category / Transaction を一括で読み込ませる。
+# 家計簿で使うモデルを一括importできるようにする。
 # =========================================
 
 from .account import Account
 from .category import Category
-from .transaction import Transaction
+
+from .monthly_income import MonthlyIncome
+from .fixed_expense_template import FixedExpenseTemplate
+from .monthly_variable_expense import MonthlyVariableExpense
+from .bank_balance import BankBalance
