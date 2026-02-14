@@ -8,6 +8,10 @@
 # - 収入（月次）
 # - 支出：固定費テンプレ / 変動費（月次：カード/立替）
 # - 銀行残高（月次）
+#
+# 重要：
+# - Category.code は “画面入力させない”
+#   → 支出カテゴリの「カード」「立替」だけ settings.py で自動セットする
 # =========================================
 
 from django import forms
@@ -32,49 +36,18 @@ class MonthInput(forms.DateInput):
     input_type = "month"
 
 
-# ============================
-# Category code：選択式（支出だけ）
-# ============================
-CATEGORY_CODE_CHOICES_EXPENSE = [
-    ("", "（なし）"),
-    ("CARD", "カード（自動集計用）"),
-    ("ADVANCE", "立替（自動集計用）"),
-]
-CATEGORY_CODE_CHOICES_INCOME = [
-    ("", "（なし）"),
-]
-
-
 # ----------------------------
 # 設定
 # ----------------------------
 class CategoryForm(forms.ModelForm):
-    # ✅ code を選択式にする（入力ミスを防ぐ）
-    code = forms.ChoiceField(
-        label="コード",
-        choices=CATEGORY_CODE_CHOICES_EXPENSE,  # 初期は支出想定（後で __init__ で上書き）
-        required=False,
-    )
-
     class Meta:
         model = Category
-        fields = ["name", "code", "order"]
+        # ✅ code は入力させない（自動セットする）
+        fields = ["name", "order"]
         widgets = {
-            "name": forms.TextInput(attrs={"placeholder": "例：食費 / 給与 / お小遣い など"}),
+            "name": forms.TextInput(attrs={"placeholder": "例：食費 / お小遣い / カード / 立替 など"}),
             "order": forms.NumberInput(attrs={"inputmode": "numeric"}),
         }
-
-    def __init__(self, *args, **kwargs):
-        # settings_view から tab が渡せるようにする（収入/支出で choices を切替）
-        tab = kwargs.pop("tab", None)
-        super().__init__(*args, **kwargs)
-
-        # ✅ 収入タブでは code を空のみ（基本不要）
-        if tab == "income":
-            self.fields["code"].choices = CATEGORY_CODE_CHOICES_INCOME
-        else:
-            # ✅ 支出タブでは空/CARD/ADVANCE
-            self.fields["code"].choices = CATEGORY_CODE_CHOICES_EXPENSE
 
 
 class AccountForm(forms.ModelForm):
@@ -148,7 +121,7 @@ class MonthlyVariableExpenseForm(forms.ModelForm):
         today = timezone.localdate()
         self.fields["month"].initial = normalize_month(today)
 
-        # 見た目上は category を表示してもいいが、最終的には clean() で code で固定化する
+        # 変動費カテゴリはUI上見せてもいいが、実際は code で固定化する
         self.fields["category"].queryset = Category.objects.filter(type="EXPENSE").order_by("order", "id")
 
         # カードは kind=CARD のみ
@@ -165,21 +138,24 @@ class MonthlyVariableExpenseForm(forms.ModelForm):
         var_type = cleaned.get("var_type")
         card = cleaned.get("card")
 
-        # ✅ var_type に応じて card 必須/不要
+        # ✅ var_type に応じて card 必須/不要を強制
         if var_type == "CARD":
             if not card:
                 self.add_error("card", "カードを選択してね。")
         else:
+            # ADVANCE はカード不要
             cleaned["card"] = None
 
-        # ✅ category は code で強制（設定で作ってある前提）
+        # ✅ category は code で強制（表示名を変えても壊れない）
+        #   - CARD のとき → code=CARD を使う
+        #   - ADVANCE のとき → code=ADVANCE を使う
         if var_type in ("CARD", "ADVANCE"):
             need_code = var_type
             q = Category.objects.filter(type="EXPENSE", code=need_code)
             if q.exists():
                 cleaned["category"] = q.first()
             else:
-                self.add_error("category", f"設定で「支出カテゴリ」に code={need_code} を選んで1件作ってください。")
+                self.add_error("category", f"設定で『{('カード' if need_code=='CARD' else '立替')}』カテゴリを作ってください。")
 
         return cleaned
 
