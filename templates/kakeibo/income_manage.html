@@ -1,0 +1,97 @@
+<!--
+[FILE] income_manage.html
+[PATH] <project_root>/templates/kakeibo/income_manage.html
+
+このファイルは何？
+- 収入（月次）の管理画面。
+- 上：追加/編集フォーム
+- 下：登録済み一覧（編集/削除）
+- 収入は「口座不要」なのでシンプルに保つ。
+-->
+
+{% extends "kakeibo/base_kakeibo.html" %}
+{% load humanize %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+
+  <section class="kb-card">
+    <div class="kb-title">{{ title }}</div>
+
+    {% if help_text %}
+      <div class="kb-muted" style="margin-top:10px;">{{ help_text }}</div>
+    {% endif %}
+  </section>
+
+  <!-- フォーム -->
+  <section class="kb-card">
+    <div class="kb-title">{% if edit_mode %}編集{% else %}追加{% endif %}</div>
+
+    {% if edit_mode %}
+      <div class="kb-muted" style="margin-bottom:10px;">編集中：保存すると上書きされます。</div>
+    {% endif %}
+
+    <form method="post" class="kb-form">
+      {% csrf_token %}
+
+      <input type="hidden" name="action" value="{% if edit_mode %}update{% else %}create{% endif %}">
+      {% if edit_mode %}
+        <input type="hidden" name="id" value="{{ edit_obj.id }}">
+      {% endif %}
+
+      {{ form.as_p }}
+
+      <button class="kb-btn kb-btn-primary" type="submit">
+        {% if edit_mode %}更新{% else %}追加{% endif %}
+      </button>
+
+      {% if edit_mode %}
+        <a class="kb-btn" href="{% url 'kakeibo:income' %}" style="margin-left:8px;">キャンセル</a>
+      {% endif %}
+    </form>
+  </section>
+
+  <!-- 一覧 -->
+  <section class="kb-card">
+    <div class="kb-title">登録済み</div>
+
+    {% if rows %}
+      <ul class="kb-list">
+        {% for r in rows %}
+          <li class="kb-list-item" style="align-items:flex-start;">
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              <div>
+                <span class="kb-tag">{{ r.month|date:"Y-m" }}</span>
+                <span class="kb-tag">{{ r.get_owner_display }}</span>
+                <span class="kb-tag">{{ r.category.name }}</span>
+              </div>
+
+              {% if r.memo %}
+                <div class="kb-muted">{{ r.memo }}</div>
+              {% endif %}
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end; min-width:110px;">
+              <div class="kb-amt">¥{{ r.amount|intcomma }}</div>
+
+              <div style="display:flex; gap:8px;">
+                <a class="kb-btn" href="{% url 'kakeibo:income' %}?edit={{ r.id }}">編集</a>
+
+                <form method="post" style="display:inline;">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="id" value="{{ r.id }}">
+                  <button class="kb-btn" type="submit" onclick="return confirm('削除します。OK？')">削除</button>
+                </form>
+              </div>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="kb-muted">まだありません。</div>
+    {% endif %}
+  </section>
+
+{% endblock %}
