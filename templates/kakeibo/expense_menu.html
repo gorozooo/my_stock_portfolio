@@ -3,10 +3,9 @@
 [PATH] <project_root>/templates/kakeibo/expense_menu.html
 
 このファイルは何？
-- 支出の入口画面。
-- 「固定費 / 変動費」を選ぶ（あなたの仕様どおり）。
+- 支出タブ（/kakeibo/expense/）の入口画面。
+- 「固定費」「変動費」をまず選ぶ。
 -->
-
 {% extends "kakeibo/base_kakeibo.html" %}
 
 {% block title %}{{ title }}{% endblock %}
@@ -14,11 +13,26 @@
 {% block content %}
   <section class="kb-card">
     <div class="kb-title">支出</div>
-    <div class="kb-muted">まず「固定費」か「変動費」かを選んでね。</div>
+    <div class="kb-muted" style="margin-top:6px;">
+      まず種類を選ぶ（固定費は毎月同じ / 変動費はカード・立替を月次で記録）
+    </div>
+  </section>
 
-    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
-      <a class="kb-btn kb-btn-primary" href="{% url 'kakeibo:expense_fixed' %}">固定費（毎月）</a>
-      <a class="kb-btn kb-btn-primary" href="{% url 'kakeibo:expense_variable' %}">変動費（月次）</a>
+  <section class="kb-card">
+    <div class="kb-title">どっち？</div>
+
+    <div style="display:grid; gap:10px;">
+      <a class="kb-btn kb-btn-primary" href="{% url 'kakeibo:expense_fixed' %}" style="text-align:center; padding:14px 12px;">
+        固定費（毎月同じ）
+      </a>
+
+      <a class="kb-btn kb-btn-primary" href="{% url 'kakeibo:expense_variable' %}" style="text-align:center; padding:14px 12px;">
+        変動費（月次：カード / 立替）
+      </a>
+    </div>
+
+    <div class="kb-muted" style="margin-top:12px;">
+      ※ 変動費の「カード/立替」は、入力画面で選ぶだけ。カテゴリ(code)は自動で決まる。
     </div>
   </section>
 {% endblock %}
