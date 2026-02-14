@@ -3,9 +3,9 @@
 # [PATH] kakeibo/forms.py
 #
 # このファイルは何？
-# 家計簿の入力フォーム（支出/収入/設定管理）をまとめたファイル。
-# - Expense/Incomeでカテゴリ候補を自動で絞る（支出カテゴリ/収入カテゴリ）
-# - 設定画面用：CategoryForm / AccountForm（口座・カード）
+# 家計簿の入力フォーム（支出/収入/設定）をまとめたファイル。
+# - 収入は収入カテゴリだけ、支出は支出カテゴリだけ表示する
+# - 設定画面は CategoryForm / AccountForm を使う
 # =========================================
 
 from django import forms
@@ -28,13 +28,14 @@ class ExpenseForm(TransactionForm):
 
         self.fields["type"].initial = "EXPENSE"
         self.fields["type"].disabled = True
-        self.fields["amount"].widget.attrs.update({"inputmode": "numeric"})
 
-        # 支出カテゴリのみ
+        # ✅ 支出カテゴリだけ出す
         self.fields["category"].queryset = Category.objects.filter(type="EXPENSE").order_by("order", "id")
 
-        # 支出では口座/カードどちらも選べる（必要なら後で制限可能）
+        # ✅ 支出は「口座/カード」両方出してOK（必要なら将来フィルタ）
         self.fields["account"].queryset = Account.objects.all().order_by("kind", "id")
+
+        self.fields["amount"].widget.attrs.update({"inputmode": "numeric"})
 
 
 class IncomeForm(TransactionForm):
@@ -43,13 +44,13 @@ class IncomeForm(TransactionForm):
 
         self.fields["type"].initial = "INCOME"
         self.fields["type"].disabled = True
-        self.fields["amount"].widget.attrs.update({"inputmode": "numeric"})
 
-        # 収入カテゴリのみ
+        # ✅ 収入カテゴリだけ出す
         self.fields["category"].queryset = Category.objects.filter(type="INCOME").order_by("order", "id")
 
-        # 収入は基本「口座」寄り（カードに入金するケースもあるので全許可）
         self.fields["account"].queryset = Account.objects.all().order_by("kind", "id")
+
+        self.fields["amount"].widget.attrs.update({"inputmode": "numeric"})
 
 
 class CategoryForm(forms.ModelForm):
