@@ -3,8 +3,8 @@
 [PATH] <project_root>/templates/kakeibo/manage_list.html
 
 このファイルは何？
-- 固定費・変動費の「管理画面」共通テンプレ。
-- 上：固定費/変動費の切替
+- 固定費・変動費の「管理画面」共通テンプレ（上タブ無し版）。
+- 上：タイトル＋説明（ナビは下タブに統一）
 - 中：追加/編集フォーム
 - 下：登録済み一覧（編集/削除）
 -->
@@ -18,21 +18,17 @@
   <section class="kb-card">
     <div class="kb-title">{{ title }}</div>
 
-    <!-- 固定費/変動費 切替 -->
-    <div class="kb-tabs" role="tablist" aria-label="支出切替" style="margin-top:10px;">
-      <a class="kb-tab {% if tab_key == 'fixed' %}is-active{% endif %}" href="{% url 'kakeibo:expense_fixed' %}">固定費</a>
-      <a class="kb-tab {% if tab_key == 'variable' %}is-active{% endif %}" href="{% url 'kakeibo:expense_variable' %}">変動費</a>
-      <a class="kb-tab" href="{% url 'kakeibo:expense' %}">戻る</a>
-      <a class="kb-tab" href="{% url 'kakeibo:dashboard' %}">ホーム</a>
-    </div>
-
     {% if tab_key == "fixed" %}
       <div class="kb-muted" style="margin-top:10px;">
         固定費は「日付なし」。変更しない限り、毎月同じ内容として扱う。
       </div>
-    {% else %}
+    {% elif tab_key == "variable" %}
       <div class="kb-muted" style="margin-top:10px;">
         変動費は「年月（YYYY-MM）」だけ。カード/立替を選ぶとカテゴリ(code)は自動で決まる。
+      </div>
+    {% else %}
+      <div class="kb-muted" style="margin-top:10px;">
+        ここは管理画面。追加→一覧で確認、という流れでOK。
       </div>
     {% endif %}
   </section>
@@ -62,7 +58,7 @@
       {% if edit_mode %}
         {% if tab_key == "fixed" %}
           <a class="kb-btn" href="{% url 'kakeibo:expense_fixed' %}" style="margin-left:8px;">キャンセル</a>
-        {% else %}
+        {% elif tab_key == "variable" %}
           <a class="kb-btn" href="{% url 'kakeibo:expense_variable' %}" style="margin-left:8px;">キャンセル</a>
         {% endif %}
       {% endif %}
@@ -92,7 +88,8 @@
                 {% if r.memo %}
                   <div class="kb-muted">{{ r.memo }}</div>
                 {% endif %}
-              {% else %}
+
+              {% elif tab_key == "variable" %}
                 <div>
                   <span class="kb-tag">変動費</span>
                   <span class="kb-tag">{{ r.month|date:"Y-m" }}</span>
@@ -107,6 +104,8 @@
                 {% if r.memo %}
                   <div class="kb-muted">{{ r.memo }}</div>
                 {% endif %}
+              {% else %}
+                <div class="kb-strong">データ</div>
               {% endif %}
             </div>
 
@@ -116,7 +115,7 @@
               <div style="display:flex; gap:8px;">
                 {% if tab_key == "fixed" %}
                   <a class="kb-btn" href="{% url 'kakeibo:expense_fixed' %}?edit={{ r.id }}">編集</a>
-                {% else %}
+                {% elif tab_key == "variable" %}
                   <a class="kb-btn" href="{% url 'kakeibo:expense_variable' %}?edit={{ r.id }}">編集</a>
                 {% endif %}
 
