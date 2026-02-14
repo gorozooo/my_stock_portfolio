@@ -5,7 +5,8 @@
 # このファイルは何？
 # 銀行（/kakeibo/bank/）
 # - 月次で「口座残高」を手入力する
-# - 口座は設定タブの「口座」で追加（owner=B/G/HOUSE）
+# - owner（家計/B/G）を画面で選び、そのownerの口座だけを選べるようにする
+# - BankBalance自体にはownerを保存しない（Account.ownerで管理）
 # =========================================
 
 from django.contrib.auth.decorators import login_required
@@ -37,11 +38,11 @@ def bank(request):
         if action == "create":
             form = BankBalanceForm(request.POST)
             if form.is_valid():
-                # unique_together(month, account) なので、同月同口座は上書き（get_or_create）
                 m = form.cleaned_data["month"]
                 acc = form.cleaned_data["account"]
                 bal = form.cleaned_data["balance"]
 
+                # unique_together(month, account) なので同月同口座は上書き
                 obj, _ = BankBalance.objects.get_or_create(month=m, account=acc, defaults={"balance": bal})
                 if obj.balance != bal:
                     obj.balance = bal
@@ -67,7 +68,7 @@ def bank(request):
     else:
         form = BankBalanceForm(initial={"month": timezone.localdate().replace(day=1)})
 
-    return render(request, "kakeibo/bank.html", {
+    return render(request, "kakeibo/bank_balance.html", {
         "title": "銀行残高（月次）",
         "form": form,
         "rows": rows,
