@@ -17,8 +17,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   if (path === "/kakeibo/" || path === "/kakeibo") return mark("home");
-  if (path.startsWith("/kakeibo/expense/")) return mark("expense");
-  if (path.startsWith("/kakeibo/income/")) return mark("income");
-  if (path.startsWith("/kakeibo/settings/")) return mark("settings");
+  if (path.startsWith("/kakeibo/expense")) return mark("expense");
+  if (path.startsWith("/kakeibo/income")) return mark("income");
+  if (path.startsWith("/kakeibo/bank")) return mark("bank");
+  if (path.startsWith("/kakeibo/settings")) return mark("settings");
   return mark("home");
 });
