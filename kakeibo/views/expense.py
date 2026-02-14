@@ -7,6 +7,10 @@
 # - 入口で「固定費 / 変動費」を選ぶ
 # - 固定費：テンプレ（毎月同じ）
 # - 変動費：月次（カード/立替）
+#
+# ★重要（今回の修正）
+# POSTでフォームが invalid のとき、
+# エラー付きフォームを捨てずにそのまま画面へ返す（＝登録されない原因の見える化）
 # =========================================
 
 from django.contrib.auth.decorators import login_required
@@ -41,6 +45,9 @@ def expense_fixed(request):
         edit_obj = get_object_or_404(FixedExpenseTemplate, id=edit_id)
         edit_mode = True
 
+    # ★formはここで作って、POSTでinvalidでも捨てない
+    form = FixedExpenseTemplateForm(instance=edit_obj) if (edit_mode and edit_obj) else FixedExpenseTemplateForm()
+
     if request.method == "POST":
         action = request.POST.get("action") or ""
 
@@ -52,6 +59,8 @@ def expense_fixed(request):
 
         elif action == "update":
             obj = get_object_or_404(FixedExpenseTemplate, id=request.POST.get("id"))
+            edit_obj = obj
+            edit_mode = True
             form = FixedExpenseTemplateForm(request.POST, instance=obj)
             if form.is_valid():
                 form.save()
@@ -63,11 +72,6 @@ def expense_fixed(request):
             return redirect("/kakeibo/expense/fixed/")
 
     rows = FixedExpenseTemplate.objects.order_by("-is_active", "id")
-
-    if edit_mode and edit_obj:
-        form = FixedExpenseTemplateForm(instance=edit_obj)
-    else:
-        form = FixedExpenseTemplateForm()
 
     return render(request, "kakeibo/manage_list.html", {
         "title": "固定費（毎月）",
@@ -92,6 +96,9 @@ def expense_variable(request):
         edit_obj = get_object_or_404(MonthlyVariableExpense, id=edit_id)
         edit_mode = True
 
+    # ★formはここで作って、POSTでinvalidでも捨てない
+    form = MonthlyVariableExpenseForm(instance=edit_obj) if (edit_mode and edit_obj) else MonthlyVariableExpenseForm()
+
     if request.method == "POST":
         action = request.POST.get("action") or ""
 
@@ -103,6 +110,8 @@ def expense_variable(request):
 
         elif action == "update":
             obj = get_object_or_404(MonthlyVariableExpense, id=request.POST.get("id"))
+            edit_obj = obj
+            edit_mode = True
             form = MonthlyVariableExpenseForm(request.POST, instance=obj)
             if form.is_valid():
                 form.save()
@@ -114,11 +123,6 @@ def expense_variable(request):
             return redirect("/kakeibo/expense/variable/")
 
     rows = MonthlyVariableExpense.objects.order_by("-month", "-id")[:200]
-
-    if edit_mode and edit_obj:
-        form = MonthlyVariableExpenseForm(instance=edit_obj)
-    else:
-        form = MonthlyVariableExpenseForm()
 
     return render(request, "kakeibo/manage_list.html", {
         "title": "変動費（月次：カード/立替）",
