@@ -3,9 +3,11 @@
 # [PATH] kakeibo/views/settings.py
 #
 # このファイルは何？
-# 家計簿の設定画面（/kakeibo/settings/）。
+# 家計簿の設定（/kakeibo/settings/）
 # - タブ：収入 / 支出 / 口座 / カード
 # - それぞれで追加・編集・削除
+# - Category: name/code/order を管理（codeは必要な時だけ）
+# - Account: owner/name を管理（kindはタブで固定）
 # =========================================
 
 from django.contrib.auth.decorators import login_required
@@ -34,9 +36,7 @@ def settings_view(request):
     edit_mode = False
     edit_obj = None
 
-    # -----------------------------
-    # GET: 編集対象の読み込み
-    # -----------------------------
+    # GET: 編集対象
     if edit_id:
         if is_category_tab(tab):
             edit_obj = get_object_or_404(Category, id=edit_id, type=("INCOME" if tab == "income" else "EXPENSE"))
@@ -46,9 +46,7 @@ def settings_view(request):
             edit_obj = get_object_or_404(Account, id=edit_id, kind=kind)
             edit_mode = True
 
-    # -----------------------------
     # POST: create/update/delete
-    # -----------------------------
     if request.method == "POST":
         action = request.POST.get("action") or ""
 
@@ -102,29 +100,15 @@ def settings_view(request):
                 obj.delete()
                 return redirect(f"/kakeibo/settings/?tab={tab}")
 
-        # バリデーション失敗時は落とさず表示継続
-        # form は下で再生成される
-
-    # -----------------------------
-    # GET/POST共通：一覧とフォームを用意
-    # -----------------------------
+    # 一覧＆フォーム
     if is_category_tab(tab):
         ctype = "INCOME" if tab == "income" else "EXPENSE"
         rows = Category.objects.filter(type=ctype).order_by("order", "id")
-
-        if edit_mode and edit_obj:
-            form = CategoryForm(instance=edit_obj)
-        else:
-            form = CategoryForm()
-
+        form = CategoryForm(instance=edit_obj) if (edit_mode and edit_obj) else CategoryForm()
     else:
         kind = "ACCOUNT" if tab == "account" else "CARD"
-        rows = Account.objects.filter(kind=kind).order_by("id")
-
-        if edit_mode and edit_obj:
-            form = AccountForm(instance=edit_obj)
-        else:
-            form = AccountForm()
+        rows = Account.objects.filter(kind=kind).order_by("owner", "id")
+        form = AccountForm(instance=edit_obj) if (edit_mode and edit_obj) else AccountForm()
 
     return render(request, "kakeibo/settings.html", {
         "title": "家計簿 設定",
