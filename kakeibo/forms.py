@@ -7,7 +7,11 @@
 # - 設定（カテゴリ/口座/カード）
 # - 収入（月次）
 # - 支出：固定費テンプレ / 変動費（月次：カード/立替）
-# - 銀行残高（月次） ※ownerを画面で選び、口座候補をownerで絞る
+# - 銀行残高（月次）
+#
+# ★重要（今回の修正）
+# 変動費の「分類(category)」はユーザー入力不要で自動決定するため
+# フォーム上は非表示（HiddenInput）にして入力要求もしない。
 # =========================================
 
 from django import forms
@@ -117,10 +121,14 @@ class MonthlyVariableExpenseForm(forms.ModelForm):
         today = timezone.localdate()
         self.fields["month"].initial = normalize_month(today)
 
-        # 表示上は出すが、実際は code で自動強制される
+        # ✅ category はユーザー入力不要：完全自動なので非表示＆入力要求もしない
+        self.fields["category"].required = False
+        self.fields["category"].widget = forms.HiddenInput()
+
+        # 参考：DB上は必要なので、querysetは残しておく（Hiddenでも安全）
         self.fields["category"].queryset = Category.objects.filter(type="EXPENSE").order_by("order", "id")
 
-        # ✅ 重要：カード候補は最初は空にする（owner選択後にJSで入れる）
+        # ✅ カード候補は最初は空にする（owner選択後にJSで入れる）
         self.fields["card"].queryset = Account.objects.none()
 
         self.fields["amount"].widget.attrs.update({"inputmode": "numeric"})
@@ -184,7 +192,7 @@ class BankBalanceForm(forms.ModelForm):
         today = timezone.localdate()
         self.fields["month"].initial = normalize_month(today)
 
-        # ✅ 重要：口座候補は最初は空（owner選択後にJSで入れる）
+        # ✅ 口座候補は最初は空（owner選択後にJSで入れる）
         self.fields["account"].queryset = Account.objects.none()
 
         self.fields["balance"].widget.attrs.update({"inputmode": "numeric"})
