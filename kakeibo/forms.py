@@ -14,6 +14,12 @@
 # DjangoのDateFieldは通常 "YYYY-MM-DD" を期待するためバリデーションで落ちる。
 # → フォーム側で month を上書きし、input_formats=["%Y-%m"] を許可。
 #   受け取ったら必ず day=1 に揃えて保存する。
+#
+# ★重要（今回の修正②）
+# 変動費（カード）と銀行残高（口座）は owner によって候補を絞るが、
+# queryset を Account.objects.none() のままだと POST バリデーションで弾かれて保存できない。
+# → POST時（self.dataがある時）に owner を見て queryset を復元する。
+#   編集時（self.instanceがある時）も同様に復元する。
 # =========================================
 
 from django import forms
@@ -44,6 +50,7 @@ class MonthField(forms.DateField):
     - <input type="month"> が送る "YYYY-MM" を受け取るためのDateField。
     - DateFieldとしてパースした後、day=1に揃える。
     """
+
     def __init__(self, *args, **kwargs):
         kwargs.setdefault("input_formats", ["%Y-%m", "%Y-%m-%d"])
         super().__init__(*args, **kwargs)
@@ -145,8 +152,20 @@ class MonthlyVariableExpenseForm(forms.ModelForm):
         self.fields["category"].widget = forms.HiddenInput()
         self.fields["category"].queryset = Category.objects.filter(type="EXPENSE").order_by("order", "id")
 
-        # ✅ カード候補は最初は空（owner選択後にJSで入れる）
+        # ✅ カード候補：基本は空（owner選択後にJSで入れる）
         self.fields["card"].queryset = Account.objects.none()
+
+        # ★重要：POST時は owner に応じて queryset を復元しないと保存できない
+        if self.data:
+            owner = self.data.get("owner")
+            if owner:
+                self.fields["card"].queryset = Account.objects.filter(kind="CARD", owner=owner).order_by("owner", "id")
+            else:
+                # owner 未選択なら、とりあえず全カード（※バリデーションで弾くので安全）
+                self.fields["card"].queryset = Account.objects.filter(kind="CARD").order_by("owner", "id")
+        elif self.instance and getattr(self.instance, "pk", None):
+            # 編集時：既存のownerに合わせて候補を復元
+            self.fields["card"].queryset = Account.objects.filter(kind="CARD", owner=self.instance.owner).order_by("owner", "id")
 
         self.fields["amount"].widget.attrs.update({"inputmode": "numeric"})
 
@@ -162,7 +181,7 @@ class MonthlyVariableExpenseForm(forms.ModelForm):
                 self.add_error("card", "カードを選択してね。")
             else:
                 # サーバ側でも安全にチェック（owner一致 & kind=CARD）
-                if card.kind != "CARD" or card.owner != owner:
+                if card.kind != "CARD" or (owner and card.owner != owner):
                     self.add_error("card", "選んだカードが「誰の支出」と一致していません。")
         else:
             cleaned["card"] = None
@@ -205,17 +224,25 @@ class BankBalanceForm(forms.ModelForm):
         today = timezone.localdate()
         self.fields["month"].initial = normalize_month(today)
 
-        # ✅ 口座候補は最初は空（owner選択後にJSで入れる）
+        # ✅ 口座候補：基本は空（owner選択後にJSで入れる）
         self.fields["account"].queryset = Account.objects.none()
 
-        self.fields["balance"].widget.attrs.update({"inputmode": "numeric"})
-
-        # 編集時：既存レコードの口座ownerを初期表示に反映
-        if self.instance and getattr(self.instance, "pk", None):
+        # ★重要：POST時は owner に応じて queryset を復元しないと保存できない
+        if self.data:
+            owner = self.data.get("owner")
+            if owner:
+                self.fields["account"].queryset = Account.objects.filter(kind="ACCOUNT", owner=owner).order_by("owner", "id")
+            else:
+                self.fields["account"].queryset = Account.objects.filter(kind="ACCOUNT").order_by("owner", "id")
+        elif self.instance and getattr(self.instance, "pk", None):
+            # 編集時：既存レコードの口座ownerを初期表示＆候補復元
             try:
                 self.fields["owner"].initial = self.instance.account.owner
+                self.fields["account"].queryset = Account.objects.filter(kind="ACCOUNT", owner=self.instance.account.owner).order_by("owner", "id")
             except Exception:
-                pass
+                self.fields["account"].queryset = Account.objects.filter(kind="ACCOUNT").order_by("owner", "id")
+
+        self.fields["balance"].widget.attrs.update({"inputmode": "numeric"})
 
     def clean(self):
         cleaned = super().clean()
