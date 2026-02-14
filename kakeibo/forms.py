@@ -10,8 +10,10 @@
 # - 銀行残高（月次）
 #
 # ★重要（今回の修正）
-# 変動費の「分類(category)」はユーザー入力不要で自動決定するため
-# フォーム上は非表示（HiddenInput）にして入力要求もしない。
+# iPhoneの <input type="month"> は "YYYY-MM" を送るが、
+# DjangoのDateFieldは通常 "YYYY-MM-DD" を期待するためバリデーションで落ちる。
+# → フォーム側で month を上書きし、input_formats=["%Y-%m"] を許可。
+#   受け取ったら必ず day=1 に揃えて保存する。
 # =========================================
 
 from django import forms
@@ -34,6 +36,23 @@ def normalize_month(d):
 
 class MonthInput(forms.DateInput):
     input_type = "month"
+
+
+class MonthField(forms.DateField):
+    """
+    このフィールドは何？
+    - <input type="month"> が送る "YYYY-MM" を受け取るためのDateField。
+    - DateFieldとしてパースした後、day=1に揃える。
+    """
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("input_formats", ["%Y-%m", "%Y-%m-%d"])
+        super().__init__(*args, **kwargs)
+
+    def to_python(self, value):
+        d = super().to_python(value)
+        if d is None:
+            return None
+        return normalize_month(d)
 
 
 # ----------------------------
@@ -63,11 +82,13 @@ class AccountForm(forms.ModelForm):
 # 収入（月次）
 # ----------------------------
 class MonthlyIncomeForm(forms.ModelForm):
+    # ✅ month を上書き（YYYY-MM を受け取れるようにする）
+    month = MonthField(label="対象月", widget=MonthInput())
+
     class Meta:
         model = MonthlyIncome
         fields = ["month", "owner", "category", "amount", "memo"]
         widgets = {
-            "month": MonthInput(),
             "memo": forms.TextInput(attrs={"placeholder": "例：2月 給与 / 副業 など"}),
         }
 
@@ -79,10 +100,6 @@ class MonthlyIncomeForm(forms.ModelForm):
 
         self.fields["category"].queryset = Category.objects.filter(type="INCOME").order_by("order", "id")
         self.fields["amount"].widget.attrs.update({"inputmode": "numeric"})
-
-    def clean_month(self):
-        m = self.cleaned_data["month"]
-        return normalize_month(m)
 
 
 # ----------------------------
@@ -107,11 +124,13 @@ class FixedExpenseTemplateForm(forms.ModelForm):
 # 変動費（月次：カード/立替）
 # ----------------------------
 class MonthlyVariableExpenseForm(forms.ModelForm):
+    # ✅ month を上書き（YYYY-MM を受け取れるようにする）
+    month = MonthField(label="対象月", widget=MonthInput())
+
     class Meta:
         model = MonthlyVariableExpense
         fields = ["month", "owner", "var_type", "category", "card", "amount", "memo"]
         widgets = {
-            "month": MonthInput(),
             "memo": forms.TextInput(attrs={"placeholder": "例：楽天カード 2月分 / 子供用品立替 など"}),
         }
 
@@ -124,18 +143,12 @@ class MonthlyVariableExpenseForm(forms.ModelForm):
         # ✅ category はユーザー入力不要：完全自動なので非表示＆入力要求もしない
         self.fields["category"].required = False
         self.fields["category"].widget = forms.HiddenInput()
-
-        # 参考：DB上は必要なので、querysetは残しておく（Hiddenでも安全）
         self.fields["category"].queryset = Category.objects.filter(type="EXPENSE").order_by("order", "id")
 
-        # ✅ カード候補は最初は空にする（owner選択後にJSで入れる）
+        # ✅ カード候補は最初は空（owner選択後にJSで入れる）
         self.fields["card"].queryset = Account.objects.none()
 
         self.fields["amount"].widget.attrs.update({"inputmode": "numeric"})
-
-    def clean_month(self):
-        m = self.cleaned_data["month"]
-        return normalize_month(m)
 
     def clean(self):
         cleaned = super().clean()
@@ -176,15 +189,15 @@ class BankBalanceForm(forms.ModelForm):
         ("G", "G（妻）"),
     ]
 
+    # ✅ month を上書き（YYYY-MM を受け取れるようにする）
+    month = MonthField(label="対象月", widget=MonthInput())
+
     # ✅ 画面用：ownerを選ぶ（BankBalanceには保存しない）
     owner = forms.ChoiceField(label="所有者", choices=OWNER_CHOICES, required=True)
 
     class Meta:
         model = BankBalance
         fields = ["month", "owner", "account", "balance"]
-        widgets = {
-            "month": MonthInput(),
-        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -203,10 +216,6 @@ class BankBalanceForm(forms.ModelForm):
                 self.fields["owner"].initial = self.instance.account.owner
             except Exception:
                 pass
-
-    def clean_month(self):
-        m = self.cleaned_data["month"]
-        return normalize_month(m)
 
     def clean(self):
         cleaned = super().clean()
