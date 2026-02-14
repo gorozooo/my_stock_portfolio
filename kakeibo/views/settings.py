@@ -3,21 +3,13 @@
 # [PATH] kakeibo/views/settings.py
 #
 # このファイルは何？
-# 家計簿の設定（/kakeibo/settings/）
-# - タブ：収入 / 支出 / 口座 / カード
-# - それぞれで追加・編集・削除
-# - Category: name/code/order を管理（codeは必要な時だけ）
-# - Account: owner/name を管理（kindはタブで固定）
-#
-# ★重要（今回の修正）
-# Categoryの code は「空じゃない時だけ」ユニーク制約がある。
-# もし重複codeを入れた場合に 500 で落ちないよう、
-# IntegrityError をフォームエラーとして表示する。
+# 家計簿の設定
+# - /kakeibo/settings/      : 設定メニュー（今回追加）
+# - /kakeibo/settings/edit/ : 従来の編集画面（収入/支出/口座/カード）
 # =========================================
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db import IntegrityError
 from django.shortcuts import redirect, render, get_object_or_404
 
 from .permissions import kakeibo_access_required
@@ -26,7 +18,27 @@ from ..models import Category, Account
 
 
 @login_required
+def settings_menu(request):
+    """
+    このViewは何？
+    - 下タブ「設定」から最初に出す「選択画面」。
+    - ここから「収入/支出/口座/カード/管理」へ移動する。
+    """
+    if not kakeibo_access_required(request.user):
+        raise PermissionDenied("You do not have access to kakeibo.")
+
+    return render(request, "kakeibo/settings_menu.html", {
+        "title": "設定",
+    })
+
+
+@login_required
 def settings_view(request):
+    """
+    このViewは何？
+    - 従来の「収入/支出/口座/カード」を編集する画面。
+    - 入口は settings_menu から（/kakeibo/settings/edit/?tab=...）
+    """
     if not kakeibo_access_required(request.user):
         raise PermissionDenied("You do not have access to kakeibo.")
 
@@ -52,9 +64,6 @@ def settings_view(request):
             edit_obj = get_object_or_404(Account, id=edit_id, kind=kind)
             edit_mode = True
 
-    form = None
-    rows = None
-
     # POST: create/update/delete
     if request.method == "POST":
         action = request.POST.get("action") or ""
@@ -67,16 +76,8 @@ def settings_view(request):
                 if form.is_valid():
                     obj = form.save(commit=False)
                     obj.type = ctype
-                    try:
-                        obj.save()
-                        return redirect(f"/kakeibo/settings/?tab={tab}")
-                    except IntegrityError:
-                        # code重複など（Partial Unique）で落ちた場合
-                        code = (obj.code or "").strip()
-                        if code:
-                            form.add_error("code", f"このコード（{code}）は既に使われています。")
-                        else:
-                            form.add_error(None, "保存に失敗しました（DB制約）。入力内容を見直してください。")
+                    obj.save()
+                    return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
             elif action == "update":
                 obj = get_object_or_404(Category, id=request.POST.get("id"), type=ctype)
@@ -84,20 +85,13 @@ def settings_view(request):
                 if form.is_valid():
                     x = form.save(commit=False)
                     x.type = ctype
-                    try:
-                        x.save()
-                        return redirect(f"/kakeibo/settings/?tab={tab}")
-                    except IntegrityError:
-                        code = (x.code or "").strip()
-                        if code:
-                            form.add_error("code", f"このコード（{code}）は既に使われています。")
-                        else:
-                            form.add_error(None, "保存に失敗しました（DB制約）。入力内容を見直してください。")
+                    x.save()
+                    return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
             elif action == "delete":
                 obj = get_object_or_404(Category, id=request.POST.get("id"), type=ctype)
                 obj.delete()
-                return redirect(f"/kakeibo/settings/?tab={tab}")
+                return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
         elif is_account_tab(tab):
             kind = "ACCOUNT" if tab == "account" else "CARD"
@@ -108,7 +102,7 @@ def settings_view(request):
                     obj = form.save(commit=False)
                     obj.kind = kind
                     obj.save()
-                    return redirect(f"/kakeibo/settings/?tab={tab}")
+                    return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
             elif action == "update":
                 obj = get_object_or_404(Account, id=request.POST.get("id"), kind=kind)
@@ -117,24 +111,22 @@ def settings_view(request):
                     x = form.save(commit=False)
                     x.kind = kind
                     x.save()
-                    return redirect(f"/kakeibo/settings/?tab={tab}")
+                    return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
             elif action == "delete":
                 obj = get_object_or_404(Account, id=request.POST.get("id"), kind=kind)
                 obj.delete()
-                return redirect(f"/kakeibo/settings/?tab={tab}")
+                return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
-    # 一覧＆フォーム（POSTでformができていればそれを優先して表示）
+    # 一覧＆フォーム
     if is_category_tab(tab):
         ctype = "INCOME" if tab == "income" else "EXPENSE"
         rows = Category.objects.filter(type=ctype).order_by("order", "id")
-        if form is None:
-            form = CategoryForm(instance=edit_obj) if (edit_mode and edit_obj) else CategoryForm()
+        form = CategoryForm(instance=edit_obj) if (edit_mode and edit_obj) else CategoryForm()
     else:
         kind = "ACCOUNT" if tab == "account" else "CARD"
         rows = Account.objects.filter(kind=kind).order_by("owner", "id")
-        if form is None:
-            form = AccountForm(instance=edit_obj) if (edit_mode and edit_obj) else AccountForm()
+        form = AccountForm(instance=edit_obj) if (edit_mode and edit_obj) else AccountForm()
 
     return render(request, "kakeibo/settings.html", {
         "title": "家計簿 設定",
