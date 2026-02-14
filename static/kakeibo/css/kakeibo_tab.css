@@ -4,8 +4,8 @@
 
 このファイルは何？
 - 家計簿専用の下タブUI。
+- 株アプリの bottom_tab.css とは別物（混ぜない）。
 - SF Symbols風（SVGをstaticに置き、CSS maskで描画）で統一する。
-- 4タブ固定（ログアウトなし）
 */
 
 .kb-wrap-with-tab{
@@ -18,7 +18,7 @@
   z-index: 10000;
 
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr); /* ✅ 銀行を追加して 5タブ */
   gap: 2px;
 
   background: rgba(13,16,24,.78);
@@ -58,7 +58,9 @@
   letter-spacing: .01em;
 }
 
-/* SF Symbols風：SVGを mask で塗る */
+/* =========================
+   SF Symbols風：SVGを mask で塗る
+   ========================= */
 .kbico{
   width: 22px;
   height: 22px;
@@ -88,12 +90,16 @@
   -webkit-mask-image: url("/static/kakeibo/icons/plus.svg");
   mask-image: url("/static/kakeibo/icons/plus.svg");
 }
+.kbico-bank{
+  -webkit-mask-image: url("/static/kakeibo/icons/bank.svg");
+  mask-image: url("/static/kakeibo/icons/bank.svg");
+}
 .kbico-gear{
   -webkit-mask-image: url("/static/kakeibo/icons/gear.svg");
   mask-image: url("/static/kakeibo/icons/gear.svg");
 }
 
-/* Active 表現（今のまま） */
+/* Active / Pressed 表現（iOS寄せ） */
 .kbtab-btn.is-active{
   color: rgba(255,255,255,.98);
 }
