@@ -1,0 +1,94 @@
+<!--
+[FILE] manage_list.html
+[PATH] <project_root>/templates/kakeibo/manage_list.html
+
+このファイルは何？
+- 追加フォーム + 登録済み一覧（編集/削除）を1画面で気持ちよく回すための共通テンプレ。
+- 固定費 / 変動費 / 銀行残高 の管理で使う。
+-->
+
+{% extends "kakeibo/base_kakeibo.html" %}
+{% load humanize %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+  <section class="kb-card">
+    <div class="kb-title">{{ title }}</div>
+
+    {% if tab_key == "variable" %}
+      <div class="kb-muted" style="margin-top:-4px;">
+        ※ 変動費は「カード / 立替」を選ぶ。<br>
+        ※ 設定で「支出カテゴリ」に code=CARD と code=ADVANCE を1つずつ作っておく（必須）。
+      </div>
+    {% endif %}
+
+    {% if edit_mode %}
+      <div class="kb-muted" style="margin-top:10px;">編集中：保存すると上書きされます。</div>
+    {% endif %}
+
+    <form method="post" class="kb-form" style="margin-top:10px;">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="{% if edit_mode %}update{% else %}create{% endif %}">
+      {% if edit_mode %}
+        <input type="hidden" name="id" value="{{ edit_obj.id }}">
+      {% endif %}
+
+      {{ form.as_p }}
+
+      <button class="kb-btn kb-btn-primary" type="submit">
+        {% if edit_mode %}更新{% else %}追加{% endif %}
+      </button>
+
+      {% if edit_mode %}
+        <a class="kb-btn" href="?" style="margin-left:8px;">キャンセル</a>
+      {% endif %}
+    </form>
+  </section>
+
+  <section class="kb-card">
+    <div class="kb-title">登録済み</div>
+
+    {% if rows %}
+      <ul class="kb-list">
+        {% for r in rows %}
+          <li class="kb-list-item" style="align-items:flex-start;">
+            <div>
+              {% if tab_key == "fixed" %}
+                <div class="kb-strong">{{ r.get_owner_display }} / {{ r.category }} / ¥{{ r.amount|intcomma }}</div>
+                <div class="kb-muted">{{ r.memo }} {% if not r.is_active %}(無効){% endif %}</div>
+
+              {% elif tab_key == "variable" %}
+                <div class="kb-strong">{{ r.month }} / {{ r.get_owner_display }} / {{ r.get_var_type_display }} / ¥{{ r.amount|intcomma }}</div>
+                <div class="kb-muted">
+                  {% if r.var_type == "CARD" %}カード：{{ r.card }}{% endif %}
+                  {% if r.memo %} / {{ r.memo }}{% endif %}
+                </div>
+
+              {% elif tab_key == "bank" %}
+                <div class="kb-strong">{{ r.month }} / {{ r.account.get_owner_display }} / {{ r.account }} / ¥{{ r.balance|intcomma }}</div>
+                <div class="kb-muted">更新：{{ r.updated_at }}</div>
+
+              {% else %}
+                <div class="kb-strong">{{ r }}</div>
+              {% endif %}
+            </div>
+
+            <div style="display:flex; gap:8px; align-items:center;">
+              <a class="kb-btn" href="?edit={{ r.id }}">編集</a>
+
+              <form method="post" style="display:inline;">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="delete">
+                <input type="hidden" name="id" value="{{ r.id }}">
+                <button class="kb-btn" type="submit" onclick="return confirm('削除します。OK？')">削除</button>
+              </form>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="kb-muted">まだありません。</div>
+    {% endif %}
+  </section>
+{% endblock %}
