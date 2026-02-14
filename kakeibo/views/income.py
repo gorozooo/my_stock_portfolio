@@ -3,25 +3,36 @@
 # [PATH] kakeibo/views/income.py
 #
 # このファイルは何？
-# 収入画面（/kakeibo/income/）。
-# - Transaction方式は廃止
-# - いまは「月次方式の収入入力」を作る前の仮画面（django checkを通すため）
+# 収入入力（/kakeibo/income/）。
+# - B案：月次方式（YYYY-MM）
+# - owner（HOUSE/B/G） + 収入カテゴリ + 金額 + メモ
+# - 口座/カードは不要（あなたの仕様どおり）
 # =========================================
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 
 from .permissions import kakeibo_access_required
+from ..forms import MonthlyIncomeForm
 
 
 @login_required
-def income_create(request):
+def income(request):
     if not kakeibo_access_required(request.user):
         raise PermissionDenied("You do not have access to kakeibo.")
 
-    # ✅ いったん落ちない仮ページ
-    return render(request, "kakeibo/coming_soon.html", {
-        "title": "収入",
-        "message": "収入（月次方式）は次のステップで実装します。",
+    if request.method == "POST":
+        form = MonthlyIncomeForm(request.POST)
+        if form.is_valid():
+            form.save()
+            return redirect("kakeibo:dashboard")
+    else:
+        form = MonthlyIncomeForm()
+
+    return render(request, "kakeibo/form_simple.html", {
+        "title": "収入（月次）を追加",
+        "form": form,
+        "submit_label": "登録",
+        "help_text": "日付は「年月（YYYY-MM）」だけ。口座は選ばない方式。",
     })
