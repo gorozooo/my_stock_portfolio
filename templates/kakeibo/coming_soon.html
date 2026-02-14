@@ -1,0 +1,23 @@
+<!--
+[FILE] coming_soon.html
+[PATH] <project_root>/templates/kakeibo/coming_soon.html
+
+このファイルは何？
+- 収入/支出の「月次方式フォーム」を作るまでの仮ページ。
+- django check を通して、次の実装へ進むために使う。
+-->
+
+{% extends "kakeibo/base_kakeibo.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+  <section class="kb-card">
+    <div class="kb-title">{{ title }}</div>
+    <div class="kb-muted">{{ message }}</div>
+
+    <div style="margin-top:12px;">
+      <a class="kb-btn kb-btn-primary" href="{% url 'kakeibo:dashboard' %}">ホームに戻る</a>
+    </div>
+  </section>
+{% endblock %}
