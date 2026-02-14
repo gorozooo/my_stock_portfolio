@@ -6,6 +6,7 @@
 - 家計簿アプリ専用の共通レイアウト（ベーステンプレ）。
 - 家計簿専用の「下タブ」を使う（株アプリとは混ぜない）。
 - 下タブ：ホーム / 支出 / 収入 / 銀行 / 設定
+- 今回：設定タブは「設定メニュー」へ飛ばす
 -->
 {% load static %}
 <!doctype html>
@@ -46,7 +47,8 @@
     <div class="kbtab-txt">銀行</div>
   </a>
 
-  <a class="kbtab-btn" href="{% url 'kakeibo:settings' %}" data-kbtab="settings" aria-label="設定">
+  <!-- ✅ ここが変更点：設定メニューへ -->
+  <a class="kbtab-btn" href="{% url 'kakeibo:settings_menu' %}" data-kbtab="settings" aria-label="設定">
     <div class="kbtab-ico"><span class="kbico kbico-gear"></span></div>
     <div class="kbtab-txt">設定</div>
   </a>
