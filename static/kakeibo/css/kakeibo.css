@@ -113,6 +113,7 @@ body{
    - 等幅4分割
    - Activeは塗り＋光＋ボーダーで強調
    - 下線バー演出（after）は完全に使わない
+   - ✅ 外枠を消して、少し左に寄せる
    ========================================================= */
 
 .kb-tabs{
@@ -121,13 +122,16 @@ body{
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 
-  padding: 10px;
-  border-radius: 16px;
-  border: 1px solid var(--seg-border);
-  background: var(--seg-bg);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.06),
-    0 10px 24px rgba(0,0,0,0.22);
+  /* ✅ 外枠・背景・影を完全に消す（“二重コンテナ感”を消す） */
+  padding: 0;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+
+  /* ✅ セグメントを気持ちよく左に寄せる（カードpadding 14pxの体感調整） */
+  margin-left: -8px;
+  margin-right: -8px;
 }
 
 .kb-tab{
@@ -175,6 +179,12 @@ body{
 
 /* 画面が狭い時に詰まりすぎないよう微調整 */
 @media (max-width: 390px){
-  .kb-tabs{ gap: 6px; padding: 8px; border-radius: 14px; }
+  .kb-tabs{
+    gap: 6px;
+    padding: 0;
+    border-radius: 0;
+    margin-left: -8px;
+    margin-right: -8px;
+  }
   .kb-tab{ height: 42px; border-radius: 13px; font-size: 14px; }
 }
