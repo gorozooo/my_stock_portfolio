@@ -3,10 +3,9 @@
 [PATH] <project_root>/templates/kakeibo/manage_list.html
 
 このファイルは何？
-- 固定費・変動費の「管理画面」共通テンプレ（上タブ無し版）。
-- 上：タイトル＋説明（ナビは下タブに統一）
-- 中：追加/編集フォーム
-- 下：登録済み一覧（編集/削除）
+- 固定費・変動費の「管理画面」共通テンプレ。
+- 上の白枠タブ（固定/変動/戻る/ホーム）は出さない（下タブだけで移動）。
+- 変動費は owner に応じてカード候補を自動で絞る（JS）。
 -->
 {% extends "kakeibo/base_kakeibo.html" %}
 {% load static %}
@@ -22,13 +21,11 @@
       <div class="kb-muted" style="margin-top:10px;">
         固定費は「日付なし」。変更しない限り、毎月同じ内容として扱う。
       </div>
-    {% elif tab_key == "variable" %}
-      <div class="kb-muted" style="margin-top:10px;">
-        変動費は「年月（YYYY-MM）」だけ。カード/立替を選ぶとカテゴリ(code)は自動で決まる。
-      </div>
     {% else %}
       <div class="kb-muted" style="margin-top:10px;">
-        ここは管理画面。追加→一覧で確認、という流れでOK。
+        変動費は「年月（YYYY-MM）」だけ。<br>
+        種類がカード/立替ならカテゴリ(code)は自動で決まる。<br>
+        「誰の支出」を選ぶと、その人のカードだけが候補に出る。
       </div>
     {% endif %}
   </section>
@@ -41,7 +38,7 @@
       <div class="kb-muted" style="margin-bottom:10px;">編集中：保存すると上書きされます。</div>
     {% endif %}
 
-    <form method="post" class="kb-form">
+    <form method="post" class="kb-form" id="kb-manage-form" data-tabkey="{{ tab_key }}">
       {% csrf_token %}
 
       <input type="hidden" name="action" value="{% if edit_mode %}update{% else %}create{% endif %}">
@@ -58,7 +55,7 @@
       {% if edit_mode %}
         {% if tab_key == "fixed" %}
           <a class="kb-btn" href="{% url 'kakeibo:expense_fixed' %}" style="margin-left:8px;">キャンセル</a>
-        {% elif tab_key == "variable" %}
+        {% else %}
           <a class="kb-btn" href="{% url 'kakeibo:expense_variable' %}" style="margin-left:8px;">キャンセル</a>
         {% endif %}
       {% endif %}
@@ -88,8 +85,7 @@
                 {% if r.memo %}
                   <div class="kb-muted">{{ r.memo }}</div>
                 {% endif %}
-
-              {% elif tab_key == "variable" %}
+              {% else %}
                 <div>
                   <span class="kb-tag">変動費</span>
                   <span class="kb-tag">{{ r.month|date:"Y-m" }}</span>
@@ -104,8 +100,6 @@
                 {% if r.memo %}
                   <div class="kb-muted">{{ r.memo }}</div>
                 {% endif %}
-              {% else %}
-                <div class="kb-strong">データ</div>
               {% endif %}
             </div>
 
@@ -115,7 +109,7 @@
               <div style="display:flex; gap:8px;">
                 {% if tab_key == "fixed" %}
                   <a class="kb-btn" href="{% url 'kakeibo:expense_fixed' %}?edit={{ r.id }}">編集</a>
-                {% elif tab_key == "variable" %}
+                {% else %}
                   <a class="kb-btn" href="{% url 'kakeibo:expense_variable' %}?edit={{ r.id }}">編集</a>
                 {% endif %}
 
@@ -137,7 +131,8 @@
 {% endblock %}
 
 {% block extra_js %}
+  <script src="{% static 'kakeibo/js/kakeibo_owner_filter.js' %}?v=1" defer></script>
   {% if tab_key == "variable" %}
-    <script src="{% static 'kakeibo/js/kakeibo_expense.js' %}?v=1" defer></script>
+    <script src="{% static 'kakeibo/js/kakeibo_expense.js' %}?v=2" defer></script>
   {% endif %}
 {% endblock %}
