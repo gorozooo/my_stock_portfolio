@@ -1,0 +1,36 @@
+<!--
+[FILE] settings_menu.html
+[PATH] <project_root>/templates/kakeibo/settings_menu.html
+
+このファイルは何？
+- 下タブ「設定」を押したときに最初に表示する「設定メニュー画面」。
+- ここから「収入/支出/口座/カード/管理」へ移動する。
+-->
+
+{% extends "kakeibo/base_kakeibo.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+  <section class="kb-card">
+    <div class="kb-title">設定</div>
+    <div class="kb-muted" style="margin-top:8px;">
+      ここから各設定・管理画面へ移動します。
+    </div>
+  </section>
+
+  <section class="kb-card">
+    <div class="kb-title">メニュー</div>
+
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <a class="kb-btn kb-btn-primary" href="/kakeibo/settings/edit/?tab=income">収入の分類</a>
+      <a class="kb-btn kb-btn-primary" href="/kakeibo/settings/edit/?tab=expense">支出の分類</a>
+      <a class="kb-btn kb-btn-primary" href="/kakeibo/settings/edit/?tab=account">口座</a>
+      <a class="kb-btn kb-btn-primary" href="/kakeibo/settings/edit/?tab=card">カード</a>
+
+      <hr style="border:none; border-top:1px solid rgba(255,255,255,0.12); margin:6px 0;">
+
+      <a class="kb-btn" href="{% url 'kakeibo:manage_menu' %}">管理（探して編集・削除）</a>
+    </div>
+  </section>
+{% endblock %}
