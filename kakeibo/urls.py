@@ -4,12 +4,12 @@
 #
 # このファイルは何？
 # /kakeibo/ 配下のURLを、家計簿の各画面に接続する（B案：月次方式）。
-# 追加：
-# - ownerで絞ったカード/口座の候補を返すAPI
+# - 今回：/kakeibo/settings/ は「設定メニュー」に変更
+# - 既存の設定編集画面は /kakeibo/settings/edit/ に移動
+# - 管理画面を /kakeibo/manage/ 配下に追加
 # =========================================
 
 from django.urls import path
-
 from .views import (
     dashboard,
     income,
@@ -17,10 +17,16 @@ from .views import (
     expense_fixed,
     expense_variable,
     bank,
+    # settings
+    settings_menu,
     settings_view,
+    # manage
+    manage_menu,
+    manage_income,
+    manage_variable,
+    manage_fixed,
+    manage_bank,
 )
-
-from .views.api import api_cards, api_accounts
 
 app_name = "kakeibo"
 
@@ -38,10 +44,15 @@ urlpatterns = [
     # 銀行（月次残高）
     path("bank/", bank, name="bank"),
 
-    # 設定（カテゴリ/口座/カード）
-    path("settings/", settings_view, name="settings"),
+    # 設定：まずメニューを出す
+    path("settings/", settings_menu, name="settings_menu"),
+    # 設定：編集（従来のタブ切替画面）
+    path("settings/edit/", settings_view, name="settings"),
 
-    # --- API（ownerで候補を絞る） ---
-    path("api/cards/", api_cards, name="api_cards"),
-    path("api/accounts/", api_accounts, name="api_accounts"),
+    # 管理：探して編集/削除する専用
+    path("manage/", manage_menu, name="manage_menu"),
+    path("manage/income/", manage_income, name="manage_income"),
+    path("manage/variable/", manage_variable, name="manage_variable"),
+    path("manage/fixed/", manage_fixed, name="manage_fixed"),
+    path("manage/bank/", manage_bank, name="manage_bank"),
 ]
