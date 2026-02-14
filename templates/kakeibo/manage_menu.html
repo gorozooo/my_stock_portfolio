@@ -1,0 +1,33 @@
+<!--
+[FILE] manage_menu.html
+[PATH] <project_root>/templates/kakeibo/manage_menu.html
+
+このファイルは何？
+- 管理（探して編集/削除）の入口。
+-->
+
+{% extends "kakeibo/base_kakeibo.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+  <section class="kb-card">
+    <div class="kb-title">{{ title }}</div>
+    <div class="kb-muted" style="margin-top:8px;">
+      年月で絞って、登録済みを探して編集・削除できます。
+    </div>
+  </section>
+
+  <section class="kb-card">
+    <div class="kb-title">管理メニュー</div>
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <a class="kb-btn kb-btn-primary" href="{% url 'kakeibo:manage_income' %}">収入（管理）</a>
+      <a class="kb-btn kb-btn-primary" href="{% url 'kakeibo:manage_variable' %}">変動費（管理）</a>
+      <a class="kb-btn kb-btn-primary" href="{% url 'kakeibo:manage_fixed' %}">固定費（管理）</a>
+      <a class="kb-btn kb-btn-primary" href="{% url 'kakeibo:manage_bank' %}">銀行残高（管理）</a>
+
+      <hr style="border:none; border-top:1px solid rgba(255,255,255,0.12); margin:6px 0;">
+      <a class="kb-btn" href="{% url 'kakeibo:settings_menu' %}">設定へ戻る</a>
+    </div>
+  </section>
+{% endblock %}
