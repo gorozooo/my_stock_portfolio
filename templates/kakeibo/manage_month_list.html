@@ -1,0 +1,123 @@
+<!--
+[FILE] manage_month_list.html
+[PATH] <project_root>/templates/kakeibo/manage_month_list.html
+
+このファイルは何？
+- 月次データ（収入/変動費/銀行）を「年月で絞って」一覧→編集/削除する管理画面。
+-->
+
+{% extends "kakeibo/base_kakeibo.html" %}
+{% load humanize %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+  <section class="kb-card">
+    <div class="kb-title">{{ title }}</div>
+
+    <form method="get" class="kb-form" style="margin-top:10px;">
+      <label>対象月</label>
+      <input type="month" name="month" value="{{ month|date:'Y-m' }}">
+
+      <label style="margin-top:10px;">所有者</label>
+      <select name="owner">
+        <option value="" {% if not owner %}selected{% endif %}>全部</option>
+        <option value="HOUSE" {% if owner == "HOUSE" %}selected{% endif %}>家計</option>
+        <option value="B" {% if owner == "B" %}selected{% endif %}>B（夫）</option>
+        <option value="G" {% if owner == "G" %}selected{% endif %}>G（妻）</option>
+      </select>
+
+      <button class="kb-btn kb-btn-primary" type="submit" style="margin-top:12px;">絞り込み</button>
+      <a class="kb-btn" href="{% url 'kakeibo:manage_menu' %}" style="margin-left:8px;">戻る</a>
+    </form>
+  </section>
+
+  {% if edit_mode and form %}
+    <section class="kb-card">
+      <div class="kb-title">編集</div>
+      <form method="post" class="kb-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="update">
+        <input type="hidden" name="id" value="{{ edit_obj.id }}">
+        {{ form.as_p }}
+        <button class="kb-btn kb-btn-primary" type="submit">更新</button>
+
+        {% if kind == "income" %}
+          <a class="kb-btn" href="{% url 'kakeibo:manage_income' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}" style="margin-left:8px;">キャンセル</a>
+        {% elif kind == "variable" %}
+          <a class="kb-btn" href="{% url 'kakeibo:manage_variable' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}" style="margin-left:8px;">キャンセル</a>
+        {% else %}
+          <a class="kb-btn" href="{% url 'kakeibo:manage_bank' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}" style="margin-left:8px;">キャンセル</a>
+        {% endif %}
+      </form>
+    </section>
+  {% endif %}
+
+  <section class="kb-card">
+    <div class="kb-title">登録済み（{{ month|date:'Y-m' }}）</div>
+
+    {% if rows %}
+      <ul class="kb-list">
+        {% for r in rows %}
+          <li class="kb-list-item" style="align-items:flex-start;">
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              {% if kind == "income" %}
+                <div>
+                  <span class="kb-tag">収入</span>
+                  <span class="kb-tag">{{ r.get_owner_display }}</span>
+                </div>
+                <div class="kb-strong">{{ r.category.name }}</div>
+                {% if r.memo %}<div class="kb-muted">{{ r.memo }}</div>{% endif %}
+
+              {% elif kind == "variable" %}
+                <div>
+                  <span class="kb-tag">変動費</span>
+                  <span class="kb-tag">{{ r.get_owner_display }}</span>
+                  <span class="kb-tag">{{ r.get_var_type_display }}</span>
+                </div>
+                {% if r.var_type == "CARD" and r.card %}<div class="kb-strong">{{ r.card.name }}</div>{% endif %}
+                {% if r.memo %}<div class="kb-muted">{{ r.memo }}</div>{% endif %}
+
+              {% else %}
+                <div>
+                  <span class="kb-tag">銀行</span>
+                  <span class="kb-tag">{{ r.account.get_owner_display }}</span>
+                </div>
+                <div class="kb-strong">{{ r.account.name }}</div>
+              {% endif %}
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end; min-width:110px;">
+              {% if kind == "income" %}
+                <div class="kb-amt">¥{{ r.amount|intcomma }}</div>
+              {% elif kind == "variable" %}
+                <div class="kb-amt">¥{{ r.amount|intcomma }}</div>
+              {% else %}
+                <div class="kb-amt">¥{{ r.balance|intcomma }}</div>
+              {% endif %}
+
+              <div style="display:flex; gap:8px;">
+                {% if kind == "income" %}
+                  <a class="kb-btn" href="{% url 'kakeibo:manage_income' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}&edit={{ r.id }}">編集</a>
+                {% elif kind == "variable" %}
+                  <a class="kb-btn" href="{% url 'kakeibo:manage_variable' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}&edit={{ r.id }}">編集</a>
+                {% else %}
+                  <a class="kb-btn" href="{% url 'kakeibo:manage_bank' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}&edit={{ r.id }}">編集</a>
+                {% endif %}
+
+                <form method="post" style="display:inline;">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="id" value="{{ r.id }}">
+                  <button class="kb-btn" type="submit" onclick="return confirm('削除します。OK？')">削除</button>
+                </form>
+              </div>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="kb-muted">この月のデータはまだありません。</div>
+    {% endif %}
+  </section>
+{% endblock %}
