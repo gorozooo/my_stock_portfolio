@@ -4,7 +4,7 @@
 
 このファイルは何？
 - 家計簿トップ画面（/kakeibo/）。
-- B案（月次方式）に合わせたKPI表示。
+- B案：月次方式の合計をシンプルに表示する。
 -->
 
 {% extends "kakeibo/base_kakeibo.html" %}
@@ -18,34 +18,19 @@
 
     <div class="kb-kpi-row">
       <div class="kb-kpi">
-        <div class="kb-kpi-label">今月の収入（手入力）</div>
-        <div class="kb-kpi-value">¥{{ total_income|intcomma }}</div>
+        <div class="kb-kpi-label">支出合計</div>
+        <div class="kb-kpi-value">¥{{ total_expense|intcomma }}</div>
+        <div class="kb-muted">固定費：¥{{ fixed_sum|intcomma }} / 変動費：¥{{ var_sum|intcomma }}</div>
       </div>
 
       <div class="kb-kpi">
-        <div class="kb-kpi-label">今月の支出（自動）</div>
-        <div class="kb-kpi-value">¥{{ total_expense|intcomma }}</div>
+        <div class="kb-kpi-label">収入合計</div>
+        <div class="kb-kpi-value">¥{{ total_income|intcomma }}</div>
       </div>
     </div>
 
     <div class="kb-muted" style="margin-top:10px;">
-      支出内訳：固定費 ¥{{ total_fixed|intcomma }} / 変動費 ¥{{ total_variable|intcomma }}
+      ※ 日付は「年月（YYYY-MM）」で管理。銀行残高は「銀行」タブで月次手入力。
     </div>
-  </section>
-
-  <section class="kb-card">
-    <div class="kb-title">銀行残高（手入力）</div>
-    <div class="kb-kpi-row">
-      <div class="kb-kpi">
-        <div class="kb-kpi-label">合計</div>
-        <div class="kb-kpi-value">¥{{ total_bank|intcomma }}</div>
-      </div>
-
-      <div class="kb-kpi">
-        <div class="kb-kpi-label">総資産（自動）</div>
-        <div class="kb-kpi-value">¥{{ total_assets|intcomma }}</div>
-      </div>
-    </div>
-    <div class="kb-muted">※ 銀行残高は「銀行」タブで月次入力にする（次で実装）。</div>
   </section>
 {% endblock %}
