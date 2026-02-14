@@ -8,6 +8,7 @@
 # =========================================
 
 from .dashboard import dashboard
-from .expense import expense_create
-from .income import income_create
+from .income import income
+from .expense import expense, expense_fixed, expense_variable
+from .bank import bank
 from .settings import settings_view
