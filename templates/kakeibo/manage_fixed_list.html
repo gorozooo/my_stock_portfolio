@@ -1,0 +1,89 @@
+<!--
+[FILE] manage_fixed_list.html
+[PATH] <project_root>/templates/kakeibo/manage_fixed_list.html
+
+このファイルは何？
+- 固定費テンプレを「探して編集/削除」する管理画面。
+- 固定費は月を持たないので owner だけで絞り込み。
+-->
+
+{% extends "kakeibo/base_kakeibo.html" %}
+{% load humanize %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+  <section class="kb-card">
+    <div class="kb-title">{{ title }}</div>
+
+    <form method="get" class="kb-form" style="margin-top:10px;">
+      <label>所有者</label>
+      <select name="owner">
+        <option value="" {% if not owner %}selected{% endif %}>全部</option>
+        <option value="HOUSE" {% if owner == "HOUSE" %}selected{% endif %}>家計</option>
+        <option value="B" {% if owner == "B" %}selected{% endif %}>B（夫）</option>
+        <option value="G" {% if owner == "G" %}selected{% endif %}>G（妻）</option>
+      </select>
+
+      <button class="kb-btn kb-btn-primary" type="submit" style="margin-top:12px;">絞り込み</button>
+      <a class="kb-btn" href="{% url 'kakeibo:manage_menu' %}" style="margin-left:8px;">戻る</a>
+    </form>
+  </section>
+
+  {% if edit_mode and form %}
+    <section class="kb-card">
+      <div class="kb-title">編集</div>
+      <form method="post" class="kb-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="update">
+        <input type="hidden" name="id" value="{{ edit_obj.id }}">
+        {{ form.as_p }}
+        <button class="kb-btn kb-btn-primary" type="submit">更新</button>
+        <a class="kb-btn" href="{% url 'kakeibo:manage_fixed' %}?owner={{ owner }}" style="margin-left:8px;">キャンセル</a>
+      </form>
+    </section>
+  {% endif %}
+
+  <section class="kb-card">
+    <div class="kb-title">登録済み</div>
+
+    {% if rows %}
+      <ul class="kb-list">
+        {% for r in rows %}
+          <li class="kb-list-item" style="align-items:flex-start;">
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              <div>
+                <span class="kb-tag">固定費</span>
+                <span class="kb-tag">{{ r.get_owner_display }}</span>
+                {% if r.is_active %}
+                  <span class="kb-tag" style="color:rgba(86,204,242,0.95);">有効</span>
+                {% else %}
+                  <span class="kb-tag">停止</span>
+                {% endif %}
+              </div>
+              <div class="kb-strong">{{ r.category.name }}</div>
+              {% if r.memo %}<div class="kb-muted">{{ r.memo }}</div>{% endif %}
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end; min-width:110px;">
+              <div class="kb-amt">¥{{ r.amount|intcomma }}</div>
+
+              <div style="display:flex; gap:8px;">
+                <a class="kb-btn" href="{% url 'kakeibo:manage_fixed' %}?owner={{ owner }}&edit={{ r.id }}">編集</a>
+
+                <form method="post" style="display:inline;">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="id" value="{{ r.id }}">
+                  <button class="kb-btn" type="submit" onclick="return confirm('削除します。OK？')">削除</button>
+                </form>
+              </div>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="kb-muted">まだありません。</div>
+    {% endif %}
+  </section>
+{% endblock %}
