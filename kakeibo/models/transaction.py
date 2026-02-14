@@ -32,7 +32,7 @@ class Transaction(models.Model):
         Account,
         on_delete=models.CASCADE,
         related_name="transactions",
-        verbose_name="Account",
+        verbose_name="口座/カード",
     )
 
     category = models.ForeignKey(
