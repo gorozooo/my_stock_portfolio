@@ -3,17 +3,16 @@
 # [PATH] kakeibo/views/expense.py
 #
 # このファイルは何？
-# 支出入力画面（/kakeibo/expense/）を担当するView。
-# 「カードまとめ」も「立替」も、この画面から登録する。
+# 支出画面（/kakeibo/expense/）。
+# - Transaction方式は廃止
+# - いまは「固定費/変動費 分岐UI」を作る前の仮画面（django checkを通すため）
 # =========================================
 
-from datetime import date
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.shortcuts import redirect, render
+from django.shortcuts import render
 
 from .permissions import kakeibo_access_required
-from ..forms import ExpenseForm
 
 
 @login_required
@@ -21,16 +20,8 @@ def expense_create(request):
     if not kakeibo_access_required(request.user):
         raise PermissionDenied("You do not have access to kakeibo.")
 
-    if request.method == "POST":
-        form = ExpenseForm(request.POST)
-        if form.is_valid():
-            form.save()
-            return redirect("kakeibo:dashboard")
-    else:
-        form = ExpenseForm(initial={"date": date.today()})
-
-    return render(request, "kakeibo/transaction_form.html", {
-        "title": "支出を追加",
-        "form": form,
-        "submit_label": "登録",
+    # ✅ いったん落ちない仮ページ
+    return render(request, "kakeibo/coming_soon.html", {
+        "title": "支出",
+        "message": "支出（固定費/変動費の分岐）は次のステップで実装します。",
     })
