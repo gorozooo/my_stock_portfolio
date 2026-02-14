@@ -4,7 +4,7 @@
 
 このファイルは何？
 - 家計簿トップ画面（/kakeibo/）。
-- 「今月の家計」をシンプルに見える化する。
+- B案（月次方式）に合わせたKPI表示。
 -->
 
 {% extends "kakeibo/base_kakeibo.html" %}
@@ -15,53 +15,37 @@
 {% block content %}
   <section class="kb-card">
     <div class="kb-title">今月（{{ month_label }}）</div>
+
     <div class="kb-kpi-row">
       <div class="kb-kpi">
-        <div class="kb-kpi-label">支出合計</div>
-        <div class="kb-kpi-value">¥{{ total_expense|intcomma }}</div>
-      </div>
-      <div class="kb-kpi">
-        <div class="kb-kpi-label">収入合計</div>
+        <div class="kb-kpi-label">今月の収入（手入力）</div>
         <div class="kb-kpi-value">¥{{ total_income|intcomma }}</div>
       </div>
+
+      <div class="kb-kpi">
+        <div class="kb-kpi-label">今月の支出（自動）</div>
+        <div class="kb-kpi-value">¥{{ total_expense|intcomma }}</div>
+      </div>
     </div>
-    <div class="kb-muted">※ 明細入力はしない。カードごとのまとめ入力が基本。</div>
+
+    <div class="kb-muted" style="margin-top:10px;">
+      支出内訳：固定費 ¥{{ total_fixed|intcomma }} / 変動費 ¥{{ total_variable|intcomma }}
+    </div>
   </section>
 
   <section class="kb-card">
-    <div class="kb-title">カードまとめ（口座別）</div>
-    {% if card_rows %}
-      <ul class="kb-list">
-        {% for r in card_rows %}
-          <li class="kb-list-item">
-            <span class="kb-strong">{{ r.account__name }}</span>
-            <span class="kb-amt">¥{{ r.total|intcomma }}</span>
-          </li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <div class="kb-muted">まだ登録がありません。まず「➖支出」でカードまとめを入れてOK。</div>
-    {% endif %}
-  </section>
+    <div class="kb-title">銀行残高（手入力）</div>
+    <div class="kb-kpi-row">
+      <div class="kb-kpi">
+        <div class="kb-kpi-label">合計</div>
+        <div class="kb-kpi-value">¥{{ total_bank|intcomma }}</div>
+      </div>
 
-  <section class="kb-card">
-    <div class="kb-title">立替（今月の最新）</div>
-    {% if advances %}
-      <ul class="kb-list">
-        {% for t in advances %}
-          <li class="kb-list-item">
-            <span>
-              <span class="kb-tag">立替</span>
-              <span class="kb-muted">{{ t.date }}</span>
-              <span class="kb-strong">{{ t.memo }}</span>
-              <span class="kb-muted">（{{ t.get_paid_by_display }}）</span>
-            </span>
-            <span class="kb-amt">¥{{ t.amount|intcomma }}</span>
-          </li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <div class="kb-muted">立替はまだありません。</div>
-    {% endif %}
+      <div class="kb-kpi">
+        <div class="kb-kpi-label">総資産（自動）</div>
+        <div class="kb-kpi-value">¥{{ total_assets|intcomma }}</div>
+      </div>
+    </div>
+    <div class="kb-muted">※ 銀行残高は「銀行」タブで月次入力にする（次で実装）。</div>
   </section>
 {% endblock %}
