@@ -39,7 +39,11 @@ def settings_view(request):
     # GET: 編集対象
     if edit_id:
         if is_category_tab(tab):
-            edit_obj = get_object_or_404(Category, id=edit_id, type=("INCOME" if tab == "income" else "EXPENSE"))
+            edit_obj = get_object_or_404(
+                Category,
+                id=edit_id,
+                type=("INCOME" if tab == "income" else "EXPENSE"),
+            )
             edit_mode = True
         elif is_account_tab(tab):
             kind = "ACCOUNT" if tab == "account" else "CARD"
@@ -54,7 +58,7 @@ def settings_view(request):
             ctype = "INCOME" if tab == "income" else "EXPENSE"
 
             if action == "create":
-                form = CategoryForm(request.POST)
+                form = CategoryForm(request.POST, tab=tab)
                 if form.is_valid():
                     obj = form.save(commit=False)
                     obj.type = ctype
@@ -63,7 +67,7 @@ def settings_view(request):
 
             elif action == "update":
                 obj = get_object_or_404(Category, id=request.POST.get("id"), type=ctype)
-                form = CategoryForm(request.POST, instance=obj)
+                form = CategoryForm(request.POST, instance=obj, tab=tab)
                 if form.is_valid():
                     x = form.save(commit=False)
                     x.type = ctype
@@ -104,7 +108,7 @@ def settings_view(request):
     if is_category_tab(tab):
         ctype = "INCOME" if tab == "income" else "EXPENSE"
         rows = Category.objects.filter(type=ctype).order_by("order", "id")
-        form = CategoryForm(instance=edit_obj) if (edit_mode and edit_obj) else CategoryForm()
+        form = CategoryForm(instance=edit_obj, tab=tab) if (edit_mode and edit_obj) else CategoryForm(tab=tab)
     else:
         kind = "ACCOUNT" if tab == "account" else "CARD"
         rows = Account.objects.filter(kind=kind).order_by("owner", "id")
