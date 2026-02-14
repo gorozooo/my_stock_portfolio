@@ -6,14 +6,12 @@
 # 家計簿の設定（/kakeibo/settings/）
 # - タブ：収入 / 支出 / 口座 / カード
 # - それぞれで追加・編集・削除
-# - Category: name/order を管理（codeは自動で必要な時だけ入れる）
+# - Category: name/order を管理（codeは自動）
 # - Account: owner/name を管理（kindはタブで固定）
 #
-# 重要：
-# - 支出カテゴリで「カード」「立替」を作ったら、code を自動で入れる
-#   - カード → code="CARD"
-#   - 立替 → code="ADVANCE"
-# - それ以外は code=""（空）
+# 重要仕様：
+# - 支出カテゴリの「カード」「立替」は code を自動で CARD / ADVANCE にする
+# - code はフォームで入力させない（事故防止）
 # =========================================
 
 from django.contrib.auth.decorators import login_required
@@ -25,21 +23,28 @@ from ..forms import CategoryForm, AccountForm
 from ..models import Category, Account
 
 
-def _auto_set_expense_category_code(obj: Category):
+def _auto_set_category_code_if_needed(obj: Category):
     """
-    支出カテゴリの code を自動セットする。
-    - 名前が「カード」 → CARD
-    - 名前が「立替」   → ADVANCE
-    - それ以外         → ""（空）
+    支出カテゴリだけ特別ルール：
+    - name が「カード」→ code=CARD
+    - name が「立替」→ code=ADVANCE
+    それ以外は code=""（自由カテゴリ）
     """
-    name = (obj.name or "").strip()
+    if obj.type != "EXPENSE":
+        obj.code = ""
+        return obj
 
-    if name == "カード":
+    # 既に固定コードなら維持（誤って消さない）
+    if obj.code in ("CARD", "ADVANCE"):
+        return obj
+
+    if obj.name == "カード":
         obj.code = "CARD"
-    elif name == "立替":
+    elif obj.name == "立替":
         obj.code = "ADVANCE"
     else:
         obj.code = ""
+    return obj
 
 
 @login_required
@@ -85,14 +90,7 @@ def settings_view(request):
                 if form.is_valid():
                     obj = form.save(commit=False)
                     obj.type = ctype
-
-                    # ✅ 支出カテゴリだけ code を自動セット
-                    if ctype == "EXPENSE":
-                        _auto_set_expense_category_code(obj)
-                    else:
-                        # 収入カテゴリは code は使わない前提なので空で固定
-                        obj.code = ""
-
+                    obj = _auto_set_category_code_if_needed(obj)
                     obj.save()
                     return redirect(f"/kakeibo/settings/?tab={tab}")
 
@@ -103,11 +101,12 @@ def settings_view(request):
                     x = form.save(commit=False)
                     x.type = ctype
 
-                    # ✅ 支出カテゴリだけ code を自動セット
-                    if ctype == "EXPENSE":
-                        _auto_set_expense_category_code(x)
+                    # 既存の code が固定（CARD/ADVANCE）なら維持。
+                    # そうでなければ、名称が「カード」「立替」に変わった時だけ自動セット。
+                    if obj.code in ("CARD", "ADVANCE"):
+                        x.code = obj.code
                     else:
-                        x.code = ""
+                        x = _auto_set_category_code_if_needed(x)
 
                     x.save()
                     return redirect(f"/kakeibo/settings/?tab={tab}")
