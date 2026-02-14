@@ -4,18 +4,23 @@
 #
 # このファイルは何？
 # 家計簿トップ画面（/kakeibo/）を表示するView。
-# 夫婦グループのみアクセス可。
-# 今月の支出合計 / カード別合計 / 立替一覧 をシンプルに出す。
+# - Transaction方式は廃止済み（B案：月次方式）
+# - いまは「月次モデルで集計する前の暫定ダッシュボード」
+#   → django check を通し、次の画面実装へ進むための土台
 # =========================================
 
 from datetime import date
+
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db.models import Sum
 from django.shortcuts import render
 
 from .permissions import kakeibo_access_required
-from ..models import Transaction
+from ..models import MonthlyIncome, MonthlyVariableExpense, FixedExpenseTemplate, BankBalance
+
+
+def _month_first(d: date) -> date:
+    return d.replace(day=1)
 
 
 @login_required
@@ -24,32 +29,53 @@ def dashboard(request):
         raise PermissionDenied("You do not have access to kakeibo.")
 
     today = date.today()
-    month_start = today.replace(day=1)
+    month = _month_first(today)
 
-    qs = Transaction.objects.filter(date__gte=month_start, date__lte=today)
-
-    total_expense = qs.filter(type="EXPENSE").aggregate(s=Sum("amount"))["s"] or 0
-    total_income = qs.filter(type="INCOME").aggregate(s=Sum("amount"))["s"] or 0
-
-    # ✅ CategoryはFKなので code で判定（表示名を変えても壊れない）
-    card_rows = (
-        qs.filter(type="EXPENSE", category__code="CARD_SUMMARY")
-          .values("account__name")
-          .annotate(total=Sum("amount"))
-          .order_by("-total")
+    # ✅ 収入（今月）
+    income_total = (
+        MonthlyIncome.objects
+        .filter(month=month)
+        .values_list("amount", flat=True)
     )
+    total_income = int(sum(income_total)) if income_total else 0
 
-    advances = (
-        qs.filter(type="EXPENSE", category__code="ADVANCE")
-          .order_by("-date", "-id")[:50]
+    # ✅ 変動費（今月）
+    var_total = (
+        MonthlyVariableExpense.objects
+        .filter(month=month)
+        .values_list("amount", flat=True)
     )
+    total_variable = int(sum(var_total)) if var_total else 0
+
+    # ✅ 固定費（テンプレの合計：今月も同じ想定）
+    fixed_total = (
+        FixedExpenseTemplate.objects
+        .filter(is_active=True)
+        .values_list("amount", flat=True)
+    )
+    total_fixed = int(sum(fixed_total)) if fixed_total else 0
+
+    total_expense = total_variable + total_fixed
+
+    # ✅ 銀行残高（今月）
+    bal_total = (
+        BankBalance.objects
+        .filter(month=month)
+        .values_list("balance", flat=True)
+    )
+    total_bank = int(sum(bal_total)) if bal_total else 0
+
+    # ✅ 総資産（あなたのExcel思想：銀行残高は手入力、総資産は自動）
+    total_assets = total_bank
 
     context = {
-        "title": "家計簿ダッシュボード",
-        "month_label": f"{today.year}-{today.month:02d}",
-        "total_expense": int(total_expense),
-        "total_income": int(total_income),
-        "card_rows": card_rows,
-        "advances": advances,
+        "title": "家計簿",
+        "month_label": f"{month.year}-{month.month:02d}",
+        "total_income": total_income,
+        "total_expense": total_expense,
+        "total_bank": total_bank,
+        "total_assets": total_assets,
+        "total_fixed": total_fixed,
+        "total_variable": total_variable,
     }
     return render(request, "kakeibo/dashboard.html", context)
