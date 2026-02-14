@@ -1,0 +1,27 @@
+<!--
+[FILE] form_simple.html
+[PATH] <project_root>/templates/kakeibo/form_simple.html
+
+このファイルは何？
+- シンプルな単発フォーム画面（収入など）に使う共通テンプレ。
+-->
+
+{% extends "kakeibo/base_kakeibo.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+  <section class="kb-card">
+    <div class="kb-title">{{ title }}</div>
+
+    {% if help_text %}
+      <div class="kb-muted" style="margin-bottom:10px;">{{ help_text }}</div>
+    {% endif %}
+
+    <form method="post" class="kb-form">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button class="kb-btn kb-btn-primary" type="submit">{{ submit_label }}</button>
+    </form>
+  </section>
+{% endblock %}
