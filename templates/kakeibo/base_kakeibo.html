@@ -7,7 +7,7 @@
 - 家計簿専用の「下タブ」を使う（株アプリとは混ぜない）。
 - 下タブ：ホーム / 支出 / 収入 / 銀行 / 設定
 - 設定タブは「設定メニュー」へ飛ばす
-- ★今回：Django messages を拾って「トースト表示」する
+- Django messages を拾って「トースト表示」する
 -->
 {% load static %}
 <!doctype html>
@@ -20,7 +20,7 @@
   <link rel="stylesheet" href="{% static 'kakeibo/css/kakeibo.css' %}?v=4">
   <link rel="stylesheet" href="{% static 'kakeibo/css/kakeibo_tab.css' %}?v=2">
   <!-- ✅ Toast -->
-  <link rel="stylesheet" href="{% static 'kakeibo/css/kakeibo_toast.css' %}?v=1">
+  <link rel="stylesheet" href="{% static 'kakeibo/css/kakeibo_toast.css' %}?v=2">
 
   {% block extra_head %}{% endblock %}
 </head>
@@ -75,7 +75,7 @@
 <script src="{% static 'kakeibo/js/kakeibo.js' %}" defer></script>
 <script src="{% static 'kakeibo/js/kakeibo_tab.js' %}?v=2" defer></script>
 <!-- ✅ Toast -->
-<script src="{% static 'kakeibo/js/kakeibo_toast.js' %}?v=1" defer></script>
+<script src="{% static 'kakeibo/js/kakeibo_toast.js' %}?v=2" defer></script>
 
 {% block extra_js %}{% endblock %}
 </body>
