@@ -66,7 +66,7 @@ def bank(request):
     else:
         form = BankBalanceForm(initial={"month": timezone.localdate().replace(day=1)})
 
-    return render(request, "kakeibo/bank_form.html", {
+    return render(request, "kakeibo/bank.html", {
         "title": "銀行残高（月次）",
         "form": form,
         "edit_mode": edit_mode,
