@@ -31,7 +31,7 @@ def income(request):
     else:
         form = MonthlyIncomeForm()
 
-    return render(request, "kakeibo/income_form.html", {
+    return render(request, "kakeibo/income_manage.html", {
         "title": "収入（月次）",
         "form": form,
     })
