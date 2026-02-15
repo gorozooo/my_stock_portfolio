@@ -3,13 +3,12 @@
 [PATH] <project_root>/templates/kakeibo/manage_list.html
 
 このファイルは何？
-- 固定費・変動費の「管理画面」共通テンプレ。
-- 上の白枠タブ（固定/変動/戻る/ホーム）は出さない（下タブだけで移動）。
-- 変動費は owner に応じてカード候補を自動で絞る（JS）。
+- 入力専用テンプレ（固定費/変動費）。
+- ★B案：入力画面から「登録済み一覧」を完全に消す（スッキリ特化）
+- 編集/削除は「設定 → 管理（探して編集・削除）」で行う
 -->
 {% extends "kakeibo/base_kakeibo.html" %}
 {% load static %}
-{% load humanize %}
 
 {% block title %}{{ title }}{% endblock %}
 
@@ -28,9 +27,13 @@
         「誰の支出」を選ぶと、その人のカードだけが候補に出る。
       </div>
     {% endif %}
+
+    <div class="kb-muted" style="margin-top:10px;">
+      登録済みの編集・削除は「設定 → 管理（探して編集・削除）」で行います。
+    </div>
   </section>
 
-  <!-- フォーム -->
+  <!-- フォーム（入力のみ） -->
   <section class="kb-card">
     <div class="kb-title">{% if edit_mode %}編集{% else %}追加{% endif %}</div>
 
@@ -60,73 +63,11 @@
         {% endif %}
       {% endif %}
     </form>
-  </section>
 
-  <!-- 一覧 -->
-  <section class="kb-card">
-    <div class="kb-title">登録済み</div>
-
-    {% if rows %}
-      <ul class="kb-list">
-        {% for r in rows %}
-          <li class="kb-list-item" style="align-items:flex-start;">
-            <div style="display:flex; flex-direction:column; gap:6px;">
-              {% if tab_key == "fixed" %}
-                <div>
-                  <span class="kb-tag">固定費</span>
-                  {% if r.is_active %}
-                    <span class="kb-tag" style="color:rgba(86,204,242,0.95);">有効</span>
-                  {% else %}
-                    <span class="kb-tag">停止</span>
-                  {% endif %}
-                  <span class="kb-muted">{{ r.get_owner_display }}</span>
-                </div>
-                <div class="kb-strong">{{ r.category.name }}</div>
-                {% if r.memo %}
-                  <div class="kb-muted">{{ r.memo }}</div>
-                {% endif %}
-              {% else %}
-                <div>
-                  <span class="kb-tag">変動費</span>
-                  <span class="kb-tag">{{ r.month|date:"Y-m" }}</span>
-                  <span class="kb-tag">{{ r.get_var_type_display }}</span>
-                  <span class="kb-muted">{{ r.get_owner_display }}</span>
-                </div>
-
-                {% if r.var_type == "CARD" and r.card %}
-                  <div class="kb-strong">{{ r.card.name }}</div>
-                {% endif %}
-
-                {% if r.memo %}
-                  <div class="kb-muted">{{ r.memo }}</div>
-                {% endif %}
-              {% endif %}
-            </div>
-
-            <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end; min-width:110px;">
-              <div class="kb-amt">¥{{ r.amount|intcomma }}</div>
-
-              <div style="display:flex; gap:8px;">
-                {% if tab_key == "fixed" %}
-                  <a class="kb-btn" href="{% url 'kakeibo:expense_fixed' %}?edit={{ r.id }}">編集</a>
-                {% else %}
-                  <a class="kb-btn" href="{% url 'kakeibo:expense_variable' %}?edit={{ r.id }}">編集</a>
-                {% endif %}
-
-                <form method="post" style="display:inline;">
-                  {% csrf_token %}
-                  <input type="hidden" name="action" value="delete">
-                  <input type="hidden" name="id" value="{{ r.id }}">
-                  <button class="kb-btn" type="submit" onclick="return confirm('削除します。OK？')">削除</button>
-                </form>
-              </div>
-            </div>
-          </li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <div class="kb-muted">まだありません。</div>
-    {% endif %}
+    <div style="display:flex; gap:10px; margin-top:14px;">
+      <a class="kb-btn" href="{% url 'kakeibo:manage_menu' %}">管理へ</a>
+      <a class="kb-btn" href="{% url 'kakeibo:settings_menu' %}">設定へ</a>
+    </div>
   </section>
 {% endblock %}
 
