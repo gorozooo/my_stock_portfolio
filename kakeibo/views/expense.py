@@ -8,11 +8,11 @@
 # - 固定費：テンプレ（毎月同じ）
 # - 変動費：月次（カード/立替）
 #
-# ★重要（今回の修正）
-# POSTでフォームが invalid のとき、
-# エラー付きフォームを捨てずにそのまま画面へ返す（＝登録されない原因の見える化）
+# ★重要
+# POSTでフォームが invalid のとき、エラー付きフォームを捨てずにそのまま画面へ返す
 #
-# ★今回：登録/更新/削除が成功したらトースト（messages）を出す
+# ★今回
+# 登録/更新/削除が成功したら「何を変更したか」までトースト表示する
 # =========================================
 
 from django.contrib import messages
@@ -23,6 +23,24 @@ from django.shortcuts import redirect, render, get_object_or_404
 from .permissions import kakeibo_access_required
 from ..forms import FixedExpenseTemplateForm, MonthlyVariableExpenseForm
 from ..models import FixedExpenseTemplate, MonthlyVariableExpense
+
+
+def _owner_label(owner: str) -> str:
+    m = {
+        "HOUSE": "家計",
+        "B": "B（夫）",
+        "G": "G（妻）",
+    }
+    return m.get(owner, owner or "不明")
+
+
+def _yen(amount) -> str:
+    if amount is None:
+        return ""
+    try:
+        return f"{int(amount):,}"
+    except Exception:
+        return f"{amount}"
 
 
 @login_required
@@ -57,8 +75,13 @@ def expense_fixed(request):
         if action == "create":
             form = FixedExpenseTemplateForm(request.POST)
             if form.is_valid():
-                form.save()
-                messages.success(request, "固定費を登録しました。")
+                obj = form.save()
+
+                owner = getattr(obj, "owner", "")
+                category = getattr(getattr(obj, "category", None), "name", "")
+                amount = getattr(obj, "amount", None)
+                messages.success(request, f"✅ 固定費を登録：{_owner_label(owner)} / {category} / ¥{_yen(amount)}")
+
                 return redirect("/kakeibo/expense/fixed/")
 
         elif action == "update":
@@ -67,14 +90,25 @@ def expense_fixed(request):
             edit_mode = True
             form = FixedExpenseTemplateForm(request.POST, instance=obj)
             if form.is_valid():
-                form.save()
-                messages.success(request, "固定費を更新しました。")
+                x = form.save()
+
+                owner = getattr(x, "owner", "")
+                category = getattr(getattr(x, "category", None), "name", "")
+                amount = getattr(x, "amount", None)
+                messages.success(request, f"✅ 固定費を更新：{_owner_label(owner)} / {category} / ¥{_yen(amount)}")
+
                 return redirect("/kakeibo/expense/fixed/")
 
         elif action == "delete":
             obj = get_object_or_404(FixedExpenseTemplate, id=request.POST.get("id"))
+
+            owner = getattr(obj, "owner", "")
+            category = getattr(getattr(obj, "category", None), "name", "")
+            amount = getattr(obj, "amount", None)
+
             obj.delete()
-            messages.success(request, "固定費を削除しました。")
+            messages.success(request, f"✅ 固定費を削除：{_owner_label(owner)} / {category} / ¥{_yen(amount)}")
+
             return redirect("/kakeibo/expense/fixed/")
 
     rows = FixedExpenseTemplate.objects.order_by("-is_active", "id")
@@ -111,8 +145,20 @@ def expense_variable(request):
         if action == "create":
             form = MonthlyVariableExpenseForm(request.POST)
             if form.is_valid():
-                form.save()
-                messages.success(request, "変動費を登録しました。")
+                obj = form.save()
+
+                month = getattr(obj, "month", None)
+                owner = getattr(obj, "owner", "")
+                var_type = getattr(obj, "var_type", "")
+                card_name = getattr(getattr(obj, "card", None), "name", "")
+                amount = getattr(obj, "amount", None)
+
+                month_s = month.strftime("%Y-%m") if month else ""
+                vt = "カード" if var_type == "CARD" else ("立替" if var_type == "ADVANCE" else var_type)
+                head = f"{month_s} / {_owner_label(owner)} / {vt}"
+                tail = f" / {card_name}" if (var_type == "CARD" and card_name) else ""
+                messages.success(request, f"✅ 変動費を登録：{head}{tail} / ¥{_yen(amount)}")
+
                 return redirect("/kakeibo/expense/variable/")
 
         elif action == "update":
@@ -121,14 +167,39 @@ def expense_variable(request):
             edit_mode = True
             form = MonthlyVariableExpenseForm(request.POST, instance=obj)
             if form.is_valid():
-                form.save()
-                messages.success(request, "変動費を更新しました。")
+                x = form.save()
+
+                month = getattr(x, "month", None)
+                owner = getattr(x, "owner", "")
+                var_type = getattr(x, "var_type", "")
+                card_name = getattr(getattr(x, "card", None), "name", "")
+                amount = getattr(x, "amount", None)
+
+                month_s = month.strftime("%Y-%m") if month else ""
+                vt = "カード" if var_type == "CARD" else ("立替" if var_type == "ADVANCE" else var_type)
+                head = f"{month_s} / {_owner_label(owner)} / {vt}"
+                tail = f" / {card_name}" if (var_type == "CARD" and card_name) else ""
+                messages.success(request, f"✅ 変動費を更新：{head}{tail} / ¥{_yen(amount)}")
+
                 return redirect("/kakeibo/expense/variable/")
 
         elif action == "delete":
             obj = get_object_or_404(MonthlyVariableExpense, id=request.POST.get("id"))
+
+            month = getattr(obj, "month", None)
+            owner = getattr(obj, "owner", "")
+            var_type = getattr(obj, "var_type", "")
+            card_name = getattr(getattr(obj, "card", None), "name", "")
+            amount = getattr(obj, "amount", None)
+
+            month_s = month.strftime("%Y-%m") if month else ""
+            vt = "カード" if var_type == "CARD" else ("立替" if var_type == "ADVANCE" else var_type)
+            head = f"{month_s} / {_owner_label(owner)} / {vt}"
+            tail = f" / {card_name}" if (var_type == "CARD" and card_name) else ""
+
             obj.delete()
-            messages.success(request, "変動費を削除しました。")
+            messages.success(request, f"✅ 変動費を削除：{head}{tail} / ¥{_yen(amount)}")
+
             return redirect("/kakeibo/expense/variable/")
 
     rows = MonthlyVariableExpense.objects.order_by("-month", "-id")[:200]
