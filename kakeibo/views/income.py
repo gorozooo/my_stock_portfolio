@@ -8,8 +8,11 @@
 # - owner（HOUSE/B/G） + 収入カテゴリ + 金額 + メモ
 # - ★B案：入力画面から「登録済み一覧」を完全に消す（スッキリ特化）
 # - 編集/削除は「設定 → 管理（探して編集・削除） → 収入（管理）」で行う
+#
+# ★今回：登録が成功したらトースト（messages）を出す
 # =========================================
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect, render
@@ -27,6 +30,7 @@ def income(request):
         form = MonthlyIncomeForm(request.POST)
         if form.is_valid():
             form.save()
+            messages.success(request, "収入を登録しました。")
             return redirect("kakeibo:income")
     else:
         form = MonthlyIncomeForm()
