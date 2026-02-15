@@ -4,6 +4,7 @@
 
 このファイルは何？
 - 管理（探して編集/削除）の入口。
+- “迷子にならない” 導線（設定へ戻る）を強化。
 -->
 
 {% extends "kakeibo/base_kakeibo.html" %}
@@ -14,7 +15,7 @@
   <section class="kb-card">
     <div class="kb-title">{{ title }}</div>
     <div class="kb-muted" style="margin-top:8px;">
-      年月で絞って、登録済みを探して編集・削除できます。
+      年月や所有者で絞って、登録済みを探して編集・削除できます。
     </div>
   </section>
 
@@ -27,6 +28,7 @@
       <a class="kb-btn kb-btn-primary" href="{% url 'kakeibo:manage_bank' %}">銀行残高（管理）</a>
 
       <hr style="border:none; border-top:1px solid rgba(255,255,255,0.12); margin:6px 0;">
+
       <a class="kb-btn" href="{% url 'kakeibo:settings_menu' %}">設定へ戻る</a>
     </div>
   </section>
