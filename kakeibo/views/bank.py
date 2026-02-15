@@ -8,7 +8,7 @@
 # - 口座は設定タブの「口座」で追加（owner=B/G/HOUSE）
 # - ★B案：入力画面に登録済み一覧を出さない（管理で探す）
 #
-# ★今回：登録/更新が成功したらトースト（messages）を出す
+# ★今回：登録/更新が成功したら「どの口座の何月をいくら」までトースト表示する
 # =========================================
 
 from django.contrib import messages
@@ -20,6 +20,15 @@ from django.utils import timezone
 from .permissions import kakeibo_access_required
 from ..forms import BankBalanceForm
 from ..models import BankBalance
+
+
+def _yen(amount) -> str:
+    if amount is None:
+        return ""
+    try:
+        return f"{int(amount):,}"
+    except Exception:
+        return f"{amount}"
 
 
 @login_required
@@ -41,32 +50,44 @@ def bank(request):
         if action == "create":
             form = BankBalanceForm(request.POST)
             if form.is_valid():
-                # unique_together(month, account) なので、同月同口座は上書き（get_or_create）
                 m = form.cleaned_data["month"]
                 acc = form.cleaned_data["account"]
                 bal = form.cleaned_data["balance"]
 
-                obj, created = BankBalance.objects.get_or_create(month=m, account=acc, defaults={"balance": bal})
+                obj, created = BankBalance.objects.get_or_create(
+                    month=m,
+                    account=acc,
+                    defaults={"balance": bal},
+                )
+
+                month_s = m.strftime("%Y-%m") if m else ""
+                acc_name = getattr(acc, "name", "")
+
                 if not created and obj.balance != bal:
                     obj.balance = bal
                     obj.save()
-                    messages.success(request, "銀行残高を更新しました。")
+                    messages.success(request, f"✅ 銀行残高を更新：{month_s} / {acc_name} / ¥{_yen(bal)}")
                 elif created:
-                    messages.success(request, "銀行残高を登録しました。")
+                    messages.success(request, f"✅ 銀行残高を登録：{month_s} / {acc_name} / ¥{_yen(bal)}")
                 else:
-                    messages.success(request, "銀行残高は変更なしでした。")
+                    messages.success(request, f"✅ 銀行残高：変更なし（{month_s} / {acc_name}）")
 
                 return redirect("/kakeibo/bank/")
-            # invalid はそのまま返す
 
         elif action == "update":
             obj = get_object_or_404(BankBalance, id=request.POST.get("id"))
             form = BankBalanceForm(request.POST, instance=obj)
             if form.is_valid():
-                form.save()
-                messages.success(request, "銀行残高を更新しました。")
+                x = form.save()
+
+                m = getattr(x, "month", None)
+                acc = getattr(x, "account", None)
+                bal = getattr(x, "balance", None)
+                month_s = m.strftime("%Y-%m") if m else ""
+                acc_name = getattr(acc, "name", "")
+
+                messages.success(request, f"✅ 銀行残高を更新：{month_s} / {acc_name} / ¥{_yen(bal)}")
                 return redirect("/kakeibo/bank/")
-            # invalid はそのまま返す
 
         elif action == "delete":
             # 入力画面では削除しない方針（管理でやる）
