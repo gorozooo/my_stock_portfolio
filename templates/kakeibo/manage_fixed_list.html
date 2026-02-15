@@ -5,6 +5,7 @@
 このファイルは何？
 - 固定費テンプレを「探して編集/削除」する管理画面。
 - 固定費は月を持たないので owner だけで絞り込み。
+- ★今回の改善：ownerの初期値（session復元）前提、戻る導線を統一
 -->
 
 {% extends "kakeibo/base_kakeibo.html" %}
@@ -26,7 +27,8 @@
       </select>
 
       <button class="kb-btn kb-btn-primary" type="submit" style="margin-top:12px;">絞り込み</button>
-      <a class="kb-btn" href="{% url 'kakeibo:manage_menu' %}" style="margin-left:8px;">戻る</a>
+      <a class="kb-btn" href="{% url 'kakeibo:manage_menu' %}" style="margin-left:8px;">管理メニュー</a>
+      <a class="kb-btn" href="{% url 'kakeibo:settings_menu' %}" style="margin-left:8px;">設定</a>
     </form>
   </section>
 
