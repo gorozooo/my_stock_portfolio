@@ -4,6 +4,7 @@
 
 このファイルは何？
 - 月次データ（収入/変動費/銀行）を「年月で絞って」一覧→編集/削除する管理画面。
+- ★今回の改善：前月/次月ボタン、戻る導線の統一、ownerの初期値（session復元）前提
 -->
 
 {% extends "kakeibo/base_kakeibo.html" %}
@@ -15,7 +16,22 @@
   <section class="kb-card">
     <div class="kb-title">{{ title }}</div>
 
-    <form method="get" class="kb-form" style="margin-top:10px;">
+    <!-- 月移動（ワンタップ） -->
+    <div style="display:flex; gap:10px; margin-top:10px;">
+      {% if kind == "income" %}
+        <a class="kb-btn" href="{% url 'kakeibo:manage_income' %}?month={{ prev_month|date:'Y-m' }}&owner={{ owner }}">◀ 前月</a>
+        <a class="kb-btn" href="{% url 'kakeibo:manage_income' %}?month={{ next_month|date:'Y-m' }}&owner={{ owner }}">次月 ▶</a>
+      {% elif kind == "variable" %}
+        <a class="kb-btn" href="{% url 'kakeibo:manage_variable' %}?month={{ prev_month|date:'Y-m' }}&owner={{ owner }}">◀ 前月</a>
+        <a class="kb-btn" href="{% url 'kakeibo:manage_variable' %}?month={{ next_month|date:'Y-m' }}&owner={{ owner }}">次月 ▶</a>
+      {% else %}
+        <a class="kb-btn" href="{% url 'kakeibo:manage_bank' %}?month={{ prev_month|date:'Y-m' }}&owner={{ owner }}">◀ 前月</a>
+        <a class="kb-btn" href="{% url 'kakeibo:manage_bank' %}?month={{ next_month|date:'Y-m' }}&owner={{ owner }}">次月 ▶</a>
+      {% endif %}
+    </div>
+
+    <!-- 絞り込み -->
+    <form method="get" class="kb-form" style="margin-top:14px;">
       <label>対象月</label>
       <input type="month" name="month" value="{{ month|date:'Y-m' }}">
 
@@ -28,7 +44,8 @@
       </select>
 
       <button class="kb-btn kb-btn-primary" type="submit" style="margin-top:12px;">絞り込み</button>
-      <a class="kb-btn" href="{% url 'kakeibo:manage_menu' %}" style="margin-left:8px;">戻る</a>
+      <a class="kb-btn" href="{% url 'kakeibo:manage_menu' %}" style="margin-left:8px;">管理メニュー</a>
+      <a class="kb-btn" href="{% url 'kakeibo:settings_menu' %}" style="margin-left:8px;">設定</a>
     </form>
   </section>
 
