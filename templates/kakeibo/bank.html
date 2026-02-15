@@ -3,26 +3,25 @@
 [PATH] <project_root>/templates/kakeibo/bank.html
 
 このファイルは何？
-- 銀行残高（月次）の専用ページ。
-- 上のローカルタブは置かない（ナビは下タブに統一）。
-- 中：追加/編集フォーム
-- 下：登録済み一覧（編集/削除）
+- 銀行残高（月次）の入力専用画面。
+- ★B案：入力画面から「登録済み一覧」を完全に消す（スッキリ特化）
+- 編集/削除は「設定 → 管理（探して編集・削除）」で行う
 -->
 {% extends "kakeibo/base_kakeibo.html" %}
-{% load humanize %}
+{% load static %}
 
 {% block title %}{{ title }}{% endblock %}
 
 {% block content %}
   <section class="kb-card">
     <div class="kb-title">{{ title }}</div>
+
     <div class="kb-muted" style="margin-top:10px;">
-      銀行残高は「月ごと（YYYY-MM）」に手入力。
-      口座は「設定 → 口座」で、owner（家計/B/G）を選んで追加してから使う。
+      対象月（YYYY-MM）と所有者を選び、口座残高を登録します。<br>
+      登録済みの編集・削除は「設定 → 管理（探して編集・削除）」で行います。
     </div>
   </section>
 
-  <!-- フォーム -->
   <section class="kb-card">
     <div class="kb-title">{% if edit_mode %}編集{% else %}追加{% endif %}</div>
 
@@ -30,7 +29,7 @@
       <div class="kb-muted" style="margin-bottom:10px;">編集中：保存すると上書きされます。</div>
     {% endif %}
 
-    <form method="post" class="kb-form">
+    <form method="post" class="kb-form" id="kb-bank-form">
       {% csrf_token %}
 
       <input type="hidden" name="action" value="{% if edit_mode %}update{% else %}create{% endif %}">
@@ -41,51 +40,21 @@
       {{ form.as_p }}
 
       <button class="kb-btn kb-btn-primary" type="submit">
-        {% if edit_mode %}更新{% else %}登録{% endif %}
+        {% if edit_mode %}更新{% else %}追加{% endif %}
       </button>
 
       {% if edit_mode %}
         <a class="kb-btn" href="{% url 'kakeibo:bank' %}" style="margin-left:8px;">キャンセル</a>
       {% endif %}
     </form>
+
+    <div style="display:flex; gap:10px; margin-top:14px;">
+      <a class="kb-btn" href="{% url 'kakeibo:manage_menu' %}">管理へ</a>
+      <a class="kb-btn" href="{% url 'kakeibo:settings_menu' %}">設定へ</a>
+    </div>
   </section>
+{% endblock %}
 
-  <!-- 一覧 -->
-  <section class="kb-card">
-    <div class="kb-title">登録済み</div>
-
-    {% if rows %}
-      <ul class="kb-list">
-        {% for r in rows %}
-          <li class="kb-list-item" style="align-items:flex-start;">
-            <div style="display:flex; flex-direction:column; gap:6px;">
-              <div>
-                <span class="kb-tag">{{ r.month|date:"Y-m" }}</span>
-                <span class="kb-muted">{{ r.account.get_owner_display }}</span>
-              </div>
-              <div class="kb-strong">{{ r.account.name }}</div>
-              <div class="kb-muted">更新：{{ r.updated_at|date:"Y-m-d H:i" }}</div>
-            </div>
-
-            <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end; min-width:130px;">
-              <div class="kb-amt">¥{{ r.balance|intcomma }}</div>
-
-              <div style="display:flex; gap:8px;">
-                <a class="kb-btn" href="{% url 'kakeibo:bank' %}?edit={{ r.id }}">編集</a>
-
-                <form method="post" style="display:inline;">
-                  {% csrf_token %}
-                  <input type="hidden" name="action" value="delete">
-                  <input type="hidden" name="id" value="{{ r.id }}">
-                  <button class="kb-btn" type="submit" onclick="return confirm('削除します。OK？')">削除</button>
-                </form>
-              </div>
-            </div>
-          </li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <div class="kb-muted">まだありません。まず「追加」で今月の残高を入れてOK。</div>
-    {% endif %}
-  </section>
+{% block extra_js %}
+  <script src="{% static 'kakeibo/js/kakeibo_owner_filter.js' %}?v=1" defer></script>
 {% endblock %}
