@@ -20,6 +20,10 @@
 # queryset を Account.objects.none() のままだと POST バリデーションで弾かれて保存できない。
 # → POST時（self.dataがある時）に owner を見て queryset を復元する。
 #   編集時（self.instanceがある時）も同様に復元する。
+#
+# ★重要（今回の修正③）
+# 「管理（編集）」や「JSが効かない/順番がズレた」ケースでも落ちないように、
+# owner が取れない場合は “全候補” で受け、最終チェックは clean() で厳密に行う。
 # =========================================
 
 from django import forms
@@ -141,6 +145,17 @@ class MonthlyVariableExpenseForm(forms.ModelForm):
             "memo": forms.TextInput(attrs={"placeholder": "例：楽天カード 2月分 / 子供用品立替 など"}),
         }
 
+    def _set_card_queryset_by_owner(self, owner: str | None):
+        """
+        何をする？
+        - owner があれば、そのownerのカードだけに絞る
+        - owner がなければ、全カードにする（POSTバリデーション落ち回避）
+        """
+        if owner:
+            self.fields["card"].queryset = Account.objects.filter(kind="CARD", owner=owner).order_by("owner", "id")
+        else:
+            self.fields["card"].queryset = Account.objects.filter(kind="CARD").order_by("owner", "id")
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -152,20 +167,21 @@ class MonthlyVariableExpenseForm(forms.ModelForm):
         self.fields["category"].widget = forms.HiddenInput()
         self.fields["category"].queryset = Category.objects.filter(type="EXPENSE").order_by("order", "id")
 
-        # ✅ カード候補：基本は空（owner選択後にJSで入れる）
+        # ✅ 初期は空（JSが入れる想定）。ただし POST/編集では必ず復元する
         self.fields["card"].queryset = Account.objects.none()
 
-        # ★重要：POST時は owner に応じて queryset を復元しないと保存できない
+        # --- queryset復元（重要）---
         if self.data:
-            owner = self.data.get("owner")
-            if owner:
-                self.fields["card"].queryset = Account.objects.filter(kind="CARD", owner=owner).order_by("owner", "id")
-            else:
-                # owner 未選択なら、とりあえず全カード（※バリデーションで弾くので安全）
-                self.fields["card"].queryset = Account.objects.filter(kind="CARD").order_by("owner", "id")
+            # POST（作成/更新）
+            owner = (self.data.get("owner") or "").strip() or None
+            if not owner and self.instance and getattr(self.instance, "pk", None):
+                # ownerがPOSTに無い場合は、編集インスタンスから推定
+                owner = getattr(self.instance, "owner", None) or None
+            self._set_card_queryset_by_owner(owner)
+
         elif self.instance and getattr(self.instance, "pk", None):
-            # 編集時：既存のownerに合わせて候補を復元
-            self.fields["card"].queryset = Account.objects.filter(kind="CARD", owner=self.instance.owner).order_by("owner", "id")
+            # GET（編集表示）
+            self._set_card_queryset_by_owner(getattr(self.instance, "owner", None))
 
         self.fields["amount"].widget.attrs.update({"inputmode": "numeric"})
 
@@ -181,7 +197,9 @@ class MonthlyVariableExpenseForm(forms.ModelForm):
                 self.add_error("card", "カードを選択してね。")
             else:
                 # サーバ側でも安全にチェック（owner一致 & kind=CARD）
-                if card.kind != "CARD" or (owner and card.owner != owner):
+                if card.kind != "CARD":
+                    self.add_error("card", "カードを選択してね。")
+                if owner and card.owner != owner:
                     self.add_error("card", "選んだカードが「誰の支出」と一致していません。")
         else:
             cleaned["card"] = None
@@ -218,29 +236,44 @@ class BankBalanceForm(forms.ModelForm):
         model = BankBalance
         fields = ["month", "owner", "account", "balance"]
 
+    def _set_account_queryset_by_owner(self, owner: str | None):
+        """
+        何をする？
+        - owner があれば、そのownerの口座だけに絞る
+        - owner がなければ、全口座にする（POSTバリデーション落ち回避）
+        """
+        if owner:
+            self.fields["account"].queryset = Account.objects.filter(kind="ACCOUNT", owner=owner).order_by("owner", "id")
+        else:
+            self.fields["account"].queryset = Account.objects.filter(kind="ACCOUNT").order_by("owner", "id")
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         today = timezone.localdate()
         self.fields["month"].initial = normalize_month(today)
 
-        # ✅ 口座候補：基本は空（owner選択後にJSで入れる）
+        # ✅ 初期は空（JSが入れる想定）。ただし POST/編集では必ず復元する
         self.fields["account"].queryset = Account.objects.none()
 
-        # ★重要：POST時は owner に応じて queryset を復元しないと保存できない
+        # --- queryset復元（重要）---
         if self.data:
-            owner = self.data.get("owner")
-            if owner:
-                self.fields["account"].queryset = Account.objects.filter(kind="ACCOUNT", owner=owner).order_by("owner", "id")
-            else:
-                self.fields["account"].queryset = Account.objects.filter(kind="ACCOUNT").order_by("owner", "id")
+            owner = (self.data.get("owner") or "").strip() or None
+            if not owner and self.instance and getattr(self.instance, "pk", None):
+                # 編集インスタンスから推定
+                try:
+                    owner = self.instance.account.owner
+                except Exception:
+                    owner = None
+            self._set_account_queryset_by_owner(owner)
+
         elif self.instance and getattr(self.instance, "pk", None):
-            # 編集時：既存レコードの口座ownerを初期表示＆候補復元
+            # GET（編集表示）
             try:
                 self.fields["owner"].initial = self.instance.account.owner
-                self.fields["account"].queryset = Account.objects.filter(kind="ACCOUNT", owner=self.instance.account.owner).order_by("owner", "id")
+                self._set_account_queryset_by_owner(self.instance.account.owner)
             except Exception:
-                self.fields["account"].queryset = Account.objects.filter(kind="ACCOUNT").order_by("owner", "id")
+                self._set_account_queryset_by_owner(None)
 
         self.fields["balance"].widget.attrs.update({"inputmode": "numeric"})
 
