@@ -3,9 +3,9 @@
 [PATH] <project_root>/templates/kakeibo/settings.html
 
 このファイルは何？
-- 家計簿の設定画面。
-- タブで「収入 / 支出 / 口座 / カード」を切り替え、
-  各項目を追加・編集・削除できる。
+- 家計簿の設定編集画面（収入/支出/口座/カード）。
+- 上タブは使わない（設定メニューから直で入る方式）。
+- 追加・編集・削除ができる。
 -->
 {% extends "kakeibo/base_kakeibo.html" %}
 
@@ -13,14 +13,10 @@
 
 {% block content %}
   <section class="kb-card">
-    <div class="kb-title">設定</div>
+    <div class="kb-title">{{ title }}</div>
 
-    <!-- タブ -->
-    <div class="kb-tabs" role="tablist" aria-label="設定タブ">
-      <a class="kb-tab {% if tab == 'income' %}is-active{% endif %}" href="?tab=income">収入</a>
-      <a class="kb-tab {% if tab == 'expense' %}is-active{% endif %}" href="?tab=expense">支出</a>
-      <a class="kb-tab {% if tab == 'account' %}is-active{% endif %}" href="?tab=account">口座</a>
-      <a class="kb-tab {% if tab == 'card' %}is-active{% endif %}" href="?tab=card">カード</a>
+    <div style="display:flex; gap:10px; margin-top:10px;">
+      <a class="kb-btn" href="{% url 'kakeibo:settings_menu' %}">設定メニューへ戻る</a>
     </div>
 
     <div class="kb-muted" style="margin-top:10px;">
@@ -32,7 +28,7 @@
   {% if tab == "income" or tab == "expense" %}
     <section class="kb-card">
       <div class="kb-title">
-        {% if tab == "income" %}収入の分類{% else %}支出の分類{% endif %}
+        {% if tab == "income" %}収入{% else %}支出{% endif %}
       </div>
 
       {% if edit_mode %}
@@ -54,7 +50,7 @@
         </button>
 
         {% if edit_mode %}
-          <a class="kb-btn" href="?tab={{ tab }}" style="margin-left:8px;">キャンセル</a>
+          <a class="kb-btn" href="/kakeibo/settings/edit/?tab={{ tab }}" style="margin-left:8px;">キャンセル</a>
         {% endif %}
       </form>
     </section>
@@ -69,7 +65,7 @@
               <span class="kb-strong">{{ r.name }}</span>
 
               <span style="display:flex; gap:8px; align-items:center;">
-                <a class="kb-btn" href="?tab={{ tab }}&edit={{ r.id }}">編集</a>
+                <a class="kb-btn" href="/kakeibo/settings/edit/?tab={{ tab }}&edit={{ r.id }}">編集</a>
 
                 <form method="post" style="display:inline;">
                   {% csrf_token %}
@@ -92,7 +88,7 @@
   {% if tab == "account" or tab == "card" %}
     <section class="kb-card">
       <div class="kb-title">
-        {% if tab == "account" %}口座{% else %}カード{% endif %}を追加
+        {% if tab == "account" %}口座{% else %}カード{% endif %}
       </div>
 
       {% if edit_mode %}
@@ -114,7 +110,7 @@
         </button>
 
         {% if edit_mode %}
-          <a class="kb-btn" href="?tab={{ tab }}" style="margin-left:8px;">キャンセル</a>
+          <a class="kb-btn" href="/kakeibo/settings/edit/?tab={{ tab }}" style="margin-left:8px;">キャンセル</a>
         {% endif %}
       </form>
     </section>
@@ -129,7 +125,7 @@
               <span class="kb-strong">{{ r.name }}</span>
 
               <span style="display:flex; gap:8px; align-items:center;">
-                <a class="kb-btn" href="?tab={{ tab }}&edit={{ r.id }}">編集</a>
+                <a class="kb-btn" href="/kakeibo/settings/edit/?tab={{ tab }}&edit={{ r.id }}">編集</a>
 
                 <form method="post" style="display:inline;">
                   {% csrf_token %}
