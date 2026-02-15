@@ -11,8 +11,11 @@
 # ★重要（今回の修正）
 # POSTでフォームが invalid のとき、
 # エラー付きフォームを捨てずにそのまま画面へ返す（＝登録されない原因の見える化）
+#
+# ★今回：登録/更新/削除が成功したらトースト（messages）を出す
 # =========================================
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect, render, get_object_or_404
@@ -55,6 +58,7 @@ def expense_fixed(request):
             form = FixedExpenseTemplateForm(request.POST)
             if form.is_valid():
                 form.save()
+                messages.success(request, "固定費を登録しました。")
                 return redirect("/kakeibo/expense/fixed/")
 
         elif action == "update":
@@ -64,11 +68,13 @@ def expense_fixed(request):
             form = FixedExpenseTemplateForm(request.POST, instance=obj)
             if form.is_valid():
                 form.save()
+                messages.success(request, "固定費を更新しました。")
                 return redirect("/kakeibo/expense/fixed/")
 
         elif action == "delete":
             obj = get_object_or_404(FixedExpenseTemplate, id=request.POST.get("id"))
             obj.delete()
+            messages.success(request, "固定費を削除しました。")
             return redirect("/kakeibo/expense/fixed/")
 
     rows = FixedExpenseTemplate.objects.order_by("-is_active", "id")
@@ -106,6 +112,7 @@ def expense_variable(request):
             form = MonthlyVariableExpenseForm(request.POST)
             if form.is_valid():
                 form.save()
+                messages.success(request, "変動費を登録しました。")
                 return redirect("/kakeibo/expense/variable/")
 
         elif action == "update":
@@ -115,11 +122,13 @@ def expense_variable(request):
             form = MonthlyVariableExpenseForm(request.POST, instance=obj)
             if form.is_valid():
                 form.save()
+                messages.success(request, "変動費を更新しました。")
                 return redirect("/kakeibo/expense/variable/")
 
         elif action == "delete":
             obj = get_object_or_404(MonthlyVariableExpense, id=request.POST.get("id"))
             obj.delete()
+            messages.success(request, "変動費を削除しました。")
             return redirect("/kakeibo/expense/variable/")
 
     rows = MonthlyVariableExpense.objects.order_by("-month", "-id")[:200]
