@@ -7,7 +7,7 @@
 # - /kakeibo/settings/      : 設定メニュー（入口）
 # - /kakeibo/settings/edit/ : 設定の編集（収入/支出/口座/カード）
 #
-# ★今回：追加/更新/削除が成功したらトースト（messages）を出す
+# ★今回：追加/更新/削除が成功したら「何を」までトースト表示する
 # =========================================
 
 from django.contrib import messages
@@ -55,7 +55,6 @@ def settings_view(request):
     def is_account_tab(t):
         return t in ("account", "card")
 
-    # 表示タイトル（iPhoneで迷わない用）
     title_map = {
         "income": "収入",
         "expense": "支出",
@@ -67,7 +66,6 @@ def settings_view(request):
     edit_mode = False
     edit_obj = None
 
-    # GET: 編集対象
     if edit_id:
         if is_category_tab(tab):
             edit_obj = get_object_or_404(
@@ -81,7 +79,6 @@ def settings_view(request):
             edit_obj = get_object_or_404(Account, id=edit_id, kind=kind)
             edit_mode = True
 
-    # POST: create/update/delete
     if request.method == "POST":
         action = request.POST.get("action") or ""
 
@@ -94,7 +91,7 @@ def settings_view(request):
                     obj = form.save(commit=False)
                     obj.type = ctype
                     obj.save()
-                    messages.success(request, f"{page_title}の分類を追加しました。")
+                    messages.success(request, f"✅ {page_title}の分類を追加：{obj.name}")
                     return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
             elif action == "update":
@@ -104,13 +101,14 @@ def settings_view(request):
                     x = form.save(commit=False)
                     x.type = ctype
                     x.save()
-                    messages.success(request, f"{page_title}の分類を更新しました。")
+                    messages.success(request, f"✅ {page_title}の分類を更新：{x.name}")
                     return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
             elif action == "delete":
                 obj = get_object_or_404(Category, id=request.POST.get("id"), type=ctype)
+                name = obj.name
                 obj.delete()
-                messages.success(request, f"{page_title}の分類を削除しました。")
+                messages.success(request, f"✅ {page_title}の分類を削除：{name}")
                 return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
         elif is_account_tab(tab):
@@ -122,7 +120,7 @@ def settings_view(request):
                     obj = form.save(commit=False)
                     obj.kind = kind
                     obj.save()
-                    messages.success(request, f"{page_title}を追加しました。")
+                    messages.success(request, f"✅ {page_title}を追加：{obj.name}")
                     return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
             elif action == "update":
@@ -132,16 +130,16 @@ def settings_view(request):
                     x = form.save(commit=False)
                     x.kind = kind
                     x.save()
-                    messages.success(request, f"{page_title}を更新しました。")
+                    messages.success(request, f"✅ {page_title}を更新：{x.name}")
                     return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
             elif action == "delete":
                 obj = get_object_or_404(Account, id=request.POST.get("id"), kind=kind)
+                name = obj.name
                 obj.delete()
-                messages.success(request, f"{page_title}を削除しました。")
+                messages.success(request, f"✅ {page_title}を削除：{name}")
                 return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
-    # 一覧＆フォーム
     if is_category_tab(tab):
         ctype = "INCOME" if tab == "income" else "EXPENSE"
         rows = Category.objects.filter(type=ctype).order_by("order", "id")
