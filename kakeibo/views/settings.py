@@ -6,8 +6,11 @@
 # 家計簿の設定
 # - /kakeibo/settings/      : 設定メニュー（入口）
 # - /kakeibo/settings/edit/ : 設定の編集（収入/支出/口座/カード）
+#
+# ★今回：追加/更新/削除が成功したらトースト（messages）を出す
 # =========================================
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect, render, get_object_or_404
@@ -91,6 +94,7 @@ def settings_view(request):
                     obj = form.save(commit=False)
                     obj.type = ctype
                     obj.save()
+                    messages.success(request, f"{page_title}の分類を追加しました。")
                     return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
             elif action == "update":
@@ -100,11 +104,13 @@ def settings_view(request):
                     x = form.save(commit=False)
                     x.type = ctype
                     x.save()
+                    messages.success(request, f"{page_title}の分類を更新しました。")
                     return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
             elif action == "delete":
                 obj = get_object_or_404(Category, id=request.POST.get("id"), type=ctype)
                 obj.delete()
+                messages.success(request, f"{page_title}の分類を削除しました。")
                 return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
         elif is_account_tab(tab):
@@ -116,6 +122,7 @@ def settings_view(request):
                     obj = form.save(commit=False)
                     obj.kind = kind
                     obj.save()
+                    messages.success(request, f"{page_title}を追加しました。")
                     return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
             elif action == "update":
@@ -125,11 +132,13 @@ def settings_view(request):
                     x = form.save(commit=False)
                     x.kind = kind
                     x.save()
+                    messages.success(request, f"{page_title}を更新しました。")
                     return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
             elif action == "delete":
                 obj = get_object_or_404(Account, id=request.POST.get("id"), kind=kind)
                 obj.delete()
+                messages.success(request, f"{page_title}を削除しました。")
                 return redirect(f"/kakeibo/settings/edit/?tab={tab}")
 
     # 一覧＆フォーム
