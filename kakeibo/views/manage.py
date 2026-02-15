@@ -12,7 +12,7 @@
 # - month も前回選択から自動復元（月次系のみ）
 # - 編集/削除後も、同じ month/owner に戻る
 #
-# ★今回：更新/削除が成功したらトースト（messages）を出す
+# ★今回：更新/削除が成功したら「何を」までトースト表示する
 # =========================================
 
 from django.contrib import messages
@@ -36,6 +36,24 @@ from ..models import (
 )
 
 
+def _owner_label(owner: str) -> str:
+    m = {
+        "HOUSE": "家計",
+        "B": "B（夫）",
+        "G": "G（妻）",
+    }
+    return m.get(owner, owner or "不明")
+
+
+def _yen(amount) -> str:
+    if amount is None:
+        return ""
+    try:
+        return f"{int(amount):,}"
+    except Exception:
+        return f"{amount}"
+
+
 # -----------------------------
 # session key helpers
 # -----------------------------
@@ -48,12 +66,6 @@ def _sess_key_month(kind: str) -> str:
 
 
 def _get_owner(request, kind: str) -> str:
-    """
-    何をする？
-    - ?owner= があればそれを使う
-    - なければ session の前回値を使う（なければ空=全部）
-    - 取得後、sessionへ保存（次回の初期値になる）
-    """
     owner = (request.GET.get("owner") or "").strip()
     if owner == "":
         owner = (request.session.get(_sess_key_owner(kind)) or "").strip()
@@ -62,13 +74,6 @@ def _get_owner(request, kind: str) -> str:
 
 
 def _month_from_get_or_session(request, kind: str):
-    """
-    何をする？
-    - ?month=YYYY-MM を受け取って Date(YYYY-MM-01) にする
-    - なければ session の前回値を使う
-    - それもなければ当月
-    - 取得後、sessionへ保存（次回の初期値になる）
-    """
     today = timezone.localdate().replace(day=1)
 
     s = (request.GET.get("month") or "").strip()
@@ -95,10 +100,6 @@ def _month_str(d) -> str:
 
 
 def _add_month(d, delta: int):
-    """
-    何をする？
-    - d (YYYY-MM-01) に delta ヶ月足した month を返す
-    """
     y = d.year
     m = d.month + delta
     while m <= 0:
@@ -147,13 +148,22 @@ def manage_income(request):
             obj = get_object_or_404(MonthlyIncome, id=request.POST.get("id"))
             form = MonthlyIncomeForm(request.POST, instance=obj)
             if form.is_valid():
-                form.save()
-                messages.success(request, "収入を更新しました。")
+                x = form.save()
+                m = getattr(x, "month", None)
+                m_s = m.strftime("%Y-%m") if m else ""
+                messages.success(
+                    request,
+                    f"✅ 収入を更新：{m_s} / {_owner_label(getattr(x,'owner',''))} / {getattr(getattr(x,'category',None),'name','')} / ¥{_yen(getattr(x,'amount',None))}",
+                )
                 return redirect(f"/kakeibo/manage/income/?month={_month_str(month)}&owner={owner}")
+
         elif action == "delete":
             obj = get_object_or_404(MonthlyIncome, id=request.POST.get("id"))
+            m = getattr(obj, "month", None)
+            m_s = m.strftime("%Y-%m") if m else ""
+            msg = f"✅ 収入を削除：{m_s} / {_owner_label(getattr(obj,'owner',''))} / {getattr(getattr(obj,'category',None),'name','')} / ¥{_yen(getattr(obj,'amount',None))}"
             obj.delete()
-            messages.success(request, "収入を削除しました。")
+            messages.success(request, msg)
             return redirect(f"/kakeibo/manage/income/?month={_month_str(month)}&owner={owner}")
 
     form = MonthlyIncomeForm(instance=edit_obj) if (edit_mode and edit_obj) else None
@@ -199,13 +209,30 @@ def manage_variable(request):
             obj = get_object_or_404(MonthlyVariableExpense, id=request.POST.get("id"))
             form = MonthlyVariableExpenseForm(request.POST, instance=obj)
             if form.is_valid():
-                form.save()
-                messages.success(request, "変動費を更新しました。")
+                x = form.save()
+                m = getattr(x, "month", None)
+                m_s = m.strftime("%Y-%m") if m else ""
+                var_type = getattr(x, "var_type", "")
+                vt = "カード" if var_type == "CARD" else ("立替" if var_type == "ADVANCE" else var_type)
+                card_name = getattr(getattr(x, "card", None), "name", "")
+                tail = f" / {card_name}" if (var_type == "CARD" and card_name) else ""
+                messages.success(
+                    request,
+                    f"✅ 変動費を更新：{m_s} / {_owner_label(getattr(x,'owner',''))} / {vt}{tail} / ¥{_yen(getattr(x,'amount',None))}",
+                )
                 return redirect(f"/kakeibo/manage/variable/?month={_month_str(month)}&owner={owner}")
+
         elif action == "delete":
             obj = get_object_or_404(MonthlyVariableExpense, id=request.POST.get("id"))
+            m = getattr(obj, "month", None)
+            m_s = m.strftime("%Y-%m") if m else ""
+            var_type = getattr(obj, "var_type", "")
+            vt = "カード" if var_type == "CARD" else ("立替" if var_type == "ADVANCE" else var_type)
+            card_name = getattr(getattr(obj, "card", None), "name", "")
+            tail = f" / {card_name}" if (var_type == "CARD" and card_name) else ""
+            msg = f"✅ 変動費を削除：{m_s} / {_owner_label(getattr(obj,'owner',''))} / {vt}{tail} / ¥{_yen(getattr(obj,'amount',None))}"
             obj.delete()
-            messages.success(request, "変動費を削除しました。")
+            messages.success(request, msg)
             return redirect(f"/kakeibo/manage/variable/?month={_month_str(month)}&owner={owner}")
 
     form = MonthlyVariableExpenseForm(instance=edit_obj) if (edit_mode and edit_obj) else None
@@ -251,13 +278,25 @@ def manage_bank(request):
             obj = get_object_or_404(BankBalance, id=request.POST.get("id"))
             form = BankBalanceForm(request.POST, instance=obj)
             if form.is_valid():
-                form.save()
-                messages.success(request, "銀行残高を更新しました。")
+                x = form.save()
+                m = getattr(x, "month", None)
+                m_s = m.strftime("%Y-%m") if m else ""
+                acc = getattr(x, "account", None)
+                acc_name = getattr(acc, "name", "")
+                bal = getattr(x, "balance", None)
+                messages.success(request, f"✅ 銀行残高を更新：{m_s} / {acc_name} / ¥{_yen(bal)}")
                 return redirect(f"/kakeibo/manage/bank/?month={_month_str(month)}&owner={owner}")
+
         elif action == "delete":
             obj = get_object_or_404(BankBalance, id=request.POST.get("id"))
+            m = getattr(obj, "month", None)
+            m_s = m.strftime("%Y-%m") if m else ""
+            acc = getattr(obj, "account", None)
+            acc_name = getattr(acc, "name", "")
+            bal = getattr(obj, "balance", None)
+            msg = f"✅ 銀行残高を削除：{m_s} / {acc_name} / ¥{_yen(bal)}"
             obj.delete()
-            messages.success(request, "銀行残高を削除しました。")
+            messages.success(request, msg)
             return redirect(f"/kakeibo/manage/bank/?month={_month_str(month)}&owner={owner}")
 
     form = BankBalanceForm(instance=edit_obj) if (edit_mode and edit_obj) else None
@@ -302,13 +341,18 @@ def manage_fixed(request):
             obj = get_object_or_404(FixedExpenseTemplate, id=request.POST.get("id"))
             form = FixedExpenseTemplateForm(request.POST, instance=obj)
             if form.is_valid():
-                form.save()
-                messages.success(request, "固定費を更新しました。")
+                x = form.save()
+                messages.success(
+                    request,
+                    f"✅ 固定費を更新：{_owner_label(getattr(x,'owner',''))} / {getattr(getattr(x,'category',None),'name','')} / ¥{_yen(getattr(x,'amount',None))}",
+                )
                 return redirect(f"/kakeibo/manage/fixed/?owner={owner}")
+
         elif action == "delete":
             obj = get_object_or_404(FixedExpenseTemplate, id=request.POST.get("id"))
+            msg = f"✅ 固定費を削除：{_owner_label(getattr(obj,'owner',''))} / {getattr(getattr(obj,'category',None),'name','')} / ¥{_yen(getattr(obj,'amount',None))}"
             obj.delete()
-            messages.success(request, "固定費を削除しました。")
+            messages.success(request, msg)
             return redirect(f"/kakeibo/manage/fixed/?owner={owner}")
 
     form = FixedExpenseTemplateForm(instance=edit_obj) if (edit_mode and edit_obj) else None
