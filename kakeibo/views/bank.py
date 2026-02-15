@@ -7,8 +7,11 @@
 # - 月次で「口座残高」を手入力する（入力のみ）
 # - 口座は設定タブの「口座」で追加（owner=B/G/HOUSE）
 # - ★B案：入力画面に登録済み一覧を出さない（管理で探す）
+#
+# ★今回：登録/更新が成功したらトースト（messages）を出す
 # =========================================
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect, render, get_object_or_404
@@ -43,19 +46,27 @@ def bank(request):
                 acc = form.cleaned_data["account"]
                 bal = form.cleaned_data["balance"]
 
-                obj, _ = BankBalance.objects.get_or_create(month=m, account=acc, defaults={"balance": bal})
-                if obj.balance != bal:
+                obj, created = BankBalance.objects.get_or_create(month=m, account=acc, defaults={"balance": bal})
+                if not created and obj.balance != bal:
                     obj.balance = bal
                     obj.save()
+                    messages.success(request, "銀行残高を更新しました。")
+                elif created:
+                    messages.success(request, "銀行残高を登録しました。")
+                else:
+                    messages.success(request, "銀行残高は変更なしでした。")
 
                 return redirect("/kakeibo/bank/")
+            # invalid はそのまま返す
 
         elif action == "update":
             obj = get_object_or_404(BankBalance, id=request.POST.get("id"))
             form = BankBalanceForm(request.POST, instance=obj)
             if form.is_valid():
                 form.save()
+                messages.success(request, "銀行残高を更新しました。")
                 return redirect("/kakeibo/bank/")
+            # invalid はそのまま返す
 
         elif action == "delete":
             # 入力画面では削除しない方針（管理でやる）
