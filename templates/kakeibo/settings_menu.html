@@ -4,7 +4,7 @@
 
 このファイルは何？
 - 下タブ「設定」を押したときに最初に表示する「設定メニュー画面」。
-- ここから「収入/支出/口座/カード/管理」へ移動する。
+- ここから「収入 / 支出 / 口座 / カード / 管理」へ移動する。
 -->
 
 {% extends "kakeibo/base_kakeibo.html" %}
@@ -23,8 +23,8 @@
     <div class="kb-title">メニュー</div>
 
     <div style="display:flex; flex-direction:column; gap:10px;">
-      <a class="kb-btn kb-btn-primary" href="/kakeibo/settings/edit/?tab=income">収入の分類</a>
-      <a class="kb-btn kb-btn-primary" href="/kakeibo/settings/edit/?tab=expense">支出の分類</a>
+      <a class="kb-btn kb-btn-primary" href="/kakeibo/settings/edit/?tab=income">収入</a>
+      <a class="kb-btn kb-btn-primary" href="/kakeibo/settings/edit/?tab=expense">支出</a>
       <a class="kb-btn kb-btn-primary" href="/kakeibo/settings/edit/?tab=account">口座</a>
       <a class="kb-btn kb-btn-primary" href="/kakeibo/settings/edit/?tab=card">カード</a>
 
