@@ -6,7 +6,8 @@
 - 家計簿アプリ専用の共通レイアウト（ベーステンプレ）。
 - 家計簿専用の「下タブ」を使う（株アプリとは混ぜない）。
 - 下タブ：ホーム / 支出 / 収入 / 銀行 / 設定
-- 今回：設定タブは「設定メニュー」へ飛ばす
+- 設定タブは「設定メニュー」へ飛ばす
+- ★今回：Django messages を拾って「トースト表示」する
 -->
 {% load static %}
 <!doctype html>
@@ -18,9 +19,26 @@
 
   <link rel="stylesheet" href="{% static 'kakeibo/css/kakeibo.css' %}?v=4">
   <link rel="stylesheet" href="{% static 'kakeibo/css/kakeibo_tab.css' %}?v=2">
+  <!-- ✅ Toast -->
+  <link rel="stylesheet" href="{% static 'kakeibo/css/kakeibo_toast.css' %}?v=1">
+
   {% block extra_head %}{% endblock %}
 </head>
 <body>
+
+<!-- ✅ Toast host（messages をここに流し込む） -->
+<div class="kb-toast-host" aria-live="polite" aria-atomic="true">
+  {% if messages %}
+    {% for message in messages %}
+      <div class="kb-toast"
+           data-level="{{ message.tags|default:'info' }}"
+           role="status">
+        <div class="kb-toast-msg">{{ message }}</div>
+        <button type="button" class="kb-toast-x" aria-label="閉じる">×</button>
+      </div>
+    {% endfor %}
+  {% endif %}
+</div>
 
 <main class="kb-wrap kb-wrap-with-tab">
   {% block content %}{% endblock %}
@@ -47,7 +65,7 @@
     <div class="kbtab-txt">銀行</div>
   </a>
 
-  <!-- ✅ ここが変更点：設定メニューへ -->
+  <!-- ✅ 設定メニューへ -->
   <a class="kbtab-btn" href="{% url 'kakeibo:settings_menu' %}" data-kbtab="settings" aria-label="設定">
     <div class="kbtab-ico"><span class="kbico kbico-gear"></span></div>
     <div class="kbtab-txt">設定</div>
@@ -56,6 +74,9 @@
 
 <script src="{% static 'kakeibo/js/kakeibo.js' %}" defer></script>
 <script src="{% static 'kakeibo/js/kakeibo_tab.js' %}?v=2" defer></script>
+<!-- ✅ Toast -->
+<script src="{% static 'kakeibo/js/kakeibo_toast.js' %}?v=1" defer></script>
+
 {% block extra_js %}{% endblock %}
 </body>
 </html>
