@@ -4,8 +4,8 @@
 #
 # このファイルは何？
 # 家計簿の設定
-# - /kakeibo/settings/      : 設定メニュー（今回追加）
-# - /kakeibo/settings/edit/ : 従来の編集画面（収入/支出/口座/カード）
+# - /kakeibo/settings/      : 設定メニュー（入口）
+# - /kakeibo/settings/edit/ : 設定の編集（収入/支出/口座/カード）
 # =========================================
 
 from django.contrib.auth.decorators import login_required
@@ -36,8 +36,9 @@ def settings_menu(request):
 def settings_view(request):
     """
     このViewは何？
-    - 従来の「収入/支出/口座/カード」を編集する画面。
+    - 「収入/支出/口座/カード」を編集する画面。
     - 入口は settings_menu から（/kakeibo/settings/edit/?tab=...）
+    - 上タブは使わない（メニュー方式）
     """
     if not kakeibo_access_required(request.user):
         raise PermissionDenied("You do not have access to kakeibo.")
@@ -51,13 +52,26 @@ def settings_view(request):
     def is_account_tab(t):
         return t in ("account", "card")
 
+    # 表示タイトル（iPhoneで迷わない用）
+    title_map = {
+        "income": "収入",
+        "expense": "支出",
+        "account": "口座",
+        "card": "カード",
+    }
+    page_title = title_map.get(tab, "設定")
+
     edit_mode = False
     edit_obj = None
 
     # GET: 編集対象
     if edit_id:
         if is_category_tab(tab):
-            edit_obj = get_object_or_404(Category, id=edit_id, type=("INCOME" if tab == "income" else "EXPENSE"))
+            edit_obj = get_object_or_404(
+                Category,
+                id=edit_id,
+                type=("INCOME" if tab == "income" else "EXPENSE"),
+            )
             edit_mode = True
         elif is_account_tab(tab):
             kind = "ACCOUNT" if tab == "account" else "CARD"
@@ -129,7 +143,7 @@ def settings_view(request):
         form = AccountForm(instance=edit_obj) if (edit_mode and edit_obj) else AccountForm()
 
     return render(request, "kakeibo/settings.html", {
-        "title": "家計簿 設定",
+        "title": page_title,
         "tab": tab,
         "rows": rows,
         "form": form,
