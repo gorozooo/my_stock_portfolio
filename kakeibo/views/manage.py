@@ -11,8 +11,11 @@
 # - owner を前回選択から自動復元（種類ごとに session に保存）
 # - month も前回選択から自動復元（月次系のみ）
 # - 編集/削除後も、同じ month/owner に戻る
+#
+# ★今回：更新/削除が成功したらトースト（messages）を出す
 # =========================================
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect, render, get_object_or_404
@@ -145,10 +148,12 @@ def manage_income(request):
             form = MonthlyIncomeForm(request.POST, instance=obj)
             if form.is_valid():
                 form.save()
+                messages.success(request, "収入を更新しました。")
                 return redirect(f"/kakeibo/manage/income/?month={_month_str(month)}&owner={owner}")
         elif action == "delete":
             obj = get_object_or_404(MonthlyIncome, id=request.POST.get("id"))
             obj.delete()
+            messages.success(request, "収入を削除しました。")
             return redirect(f"/kakeibo/manage/income/?month={_month_str(month)}&owner={owner}")
 
     form = MonthlyIncomeForm(instance=edit_obj) if (edit_mode and edit_obj) else None
@@ -195,10 +200,12 @@ def manage_variable(request):
             form = MonthlyVariableExpenseForm(request.POST, instance=obj)
             if form.is_valid():
                 form.save()
+                messages.success(request, "変動費を更新しました。")
                 return redirect(f"/kakeibo/manage/variable/?month={_month_str(month)}&owner={owner}")
         elif action == "delete":
             obj = get_object_or_404(MonthlyVariableExpense, id=request.POST.get("id"))
             obj.delete()
+            messages.success(request, "変動費を削除しました。")
             return redirect(f"/kakeibo/manage/variable/?month={_month_str(month)}&owner={owner}")
 
     form = MonthlyVariableExpenseForm(instance=edit_obj) if (edit_mode and edit_obj) else None
@@ -245,10 +252,12 @@ def manage_bank(request):
             form = BankBalanceForm(request.POST, instance=obj)
             if form.is_valid():
                 form.save()
+                messages.success(request, "銀行残高を更新しました。")
                 return redirect(f"/kakeibo/manage/bank/?month={_month_str(month)}&owner={owner}")
         elif action == "delete":
             obj = get_object_or_404(BankBalance, id=request.POST.get("id"))
             obj.delete()
+            messages.success(request, "銀行残高を削除しました。")
             return redirect(f"/kakeibo/manage/bank/?month={_month_str(month)}&owner={owner}")
 
     form = BankBalanceForm(instance=edit_obj) if (edit_mode and edit_obj) else None
@@ -294,10 +303,12 @@ def manage_fixed(request):
             form = FixedExpenseTemplateForm(request.POST, instance=obj)
             if form.is_valid():
                 form.save()
+                messages.success(request, "固定費を更新しました。")
                 return redirect(f"/kakeibo/manage/fixed/?owner={owner}")
         elif action == "delete":
             obj = get_object_or_404(FixedExpenseTemplate, id=request.POST.get("id"))
             obj.delete()
+            messages.success(request, "固定費を削除しました。")
             return redirect(f"/kakeibo/manage/fixed/?owner={owner}")
 
     form = FixedExpenseTemplateForm(instance=edit_obj) if (edit_mode and edit_obj) else None
