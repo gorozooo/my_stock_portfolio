@@ -1,114 +1,111 @@
 /*
-[FILE] kakeibo_tab.css
-[PATH] <project_root>/static/kakeibo/css/kakeibo_tab.css
+[FILE] kakeibo_toast.css
+[PATH] <project_root>/static/kakeibo/css/kakeibo_toast.css
 
 このファイルは何？
-- 家計簿専用の下タブUI。
-- 株アプリの bottom_tab.css とは別物（混ぜない）。
-- SF Symbols風（SVGをstaticに置き、CSS maskで描画）で統一する。
+- Django messages を「トースト表示」するためのCSS。
+- ★今回：上に表示（safe-area対応）、文字を見やすく3行整形できるようにする。
 */
 
-.kb-wrap-with-tab{
-  padding-bottom: calc(92px + env(safe-area-inset-bottom));
-}
-
-.kbtab{
+.kb-toast-host{
   position: fixed;
-  left: 0; right: 0; bottom: 0;
-  z-index: 10000;
+  left: 12px;
+  right: 12px;
 
-  display: grid;
-  grid-template-columns: repeat(5, 1fr); /* ✅ 銀行を追加して 5タブ */
-  gap: 2px;
+  /* ✅ 上に出す（iPhoneノッチ/ダイナミックアイランド回避） */
+  top: calc(12px + env(safe-area-inset-top, 0px));
 
-  background: rgba(13,16,24,.78);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border-top: 1px solid rgba(255,255,255,.10);
-  padding-bottom: max(0px, env(safe-area-inset-bottom));
-  transform: translateZ(0);
-}
-
-.kbtab-btn{
-  padding: 10px 2px calc(12px + env(safe-area-inset-bottom));
-  text-decoration: none;
-
-  color: rgba(255,255,255,.70);
+  z-index: 9999;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.kb-toast{
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+
+  background: rgba(18, 22, 28, 0.78);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.35);
+  backdrop-filter: blur(14px);
+
+  /* ✅ 上から「降りてくる」感じ */
+  transform: translateY(-10px);
+  opacity: 0;
+  transition: transform 220ms ease, opacity 220ms ease;
+}
+
+.kb-toast.is-show{
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* メッセージ（JSで3行に整形する） */
+.kb-toast-msg{
+  font-size: 14px;
+  line-height: 1.35;
+  color: rgba(255,255,255,0.92);
+  word-break: break-word;
+
+  display: flex;
+  flex-direction: column;
   gap: 4px;
 
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
+  min-width: 0;
 }
 
-.kbtab-ico{
-  width: 22px;
-  height: 22px;
+.kb-toast-line{
+  font-size: 14px;
+  line-height: 1.25;
+  color: rgba(255,255,255,0.95);
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.kb-toast-sub{
+  font-size: 13px;
+  line-height: 1.25;
+  color: rgba(255,255,255,0.78);
+}
+
+.kb-toast-amt{
+  font-size: 15px;
+  line-height: 1.2;
+  color: rgba(255,255,255,0.95);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+}
+
+.kb-toast-x{
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.92);
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  font-size: 18px;
+  line-height: 1;
   display: grid;
   place-items: center;
+
+  flex: 0 0 auto;
 }
 
-.kbtab-txt{
-  font-size: 11px;
-  font-weight: 800;
-  white-space: nowrap;
-  letter-spacing: .01em;
+/* level (message.tags) */
+.kb-toast[data-level*="success"]{
+  border-color: rgba(86, 204, 242, 0.35);
 }
-
-/* =========================
-   SF Symbols風：SVGを mask で塗る
-   ========================= */
-.kbico{
-  width: 22px;
-  height: 22px;
-  display: block;
-  background: currentColor;
-
-  -webkit-mask-repeat: no-repeat;
-  -webkit-mask-position: center;
-  -webkit-mask-size: 22px 22px;
-
-  mask-repeat: no-repeat;
-  mask-position: center;
-  mask-size: 22px 22px;
-
-  opacity: .95;
+.kb-toast[data-level*="error"]{
+  border-color: rgba(255, 95, 95, 0.45);
 }
-
-.kbico-home{
-  -webkit-mask-image: url("/static/kakeibo/icons/home.svg");
-  mask-image: url("/static/kakeibo/icons/home.svg");
-}
-.kbico-minus{
-  -webkit-mask-image: url("/static/kakeibo/icons/minus.svg");
-  mask-image: url("/static/kakeibo/icons/minus.svg");
-}
-.kbico-plus{
-  -webkit-mask-image: url("/static/kakeibo/icons/plus.svg");
-  mask-image: url("/static/kakeibo/icons/plus.svg");
-}
-.kbico-bank{
-  -webkit-mask-image: url("/static/kakeibo/icons/bank.svg");
-  mask-image: url("/static/kakeibo/icons/bank.svg");
-}
-.kbico-gear{
-  -webkit-mask-image: url("/static/kakeibo/icons/gear.svg");
-  mask-image: url("/static/kakeibo/icons/gear.svg");
-}
-
-/* Active / Pressed 表現（iOS寄せ） */
-.kbtab-btn.is-active{
-  color: rgba(255,255,255,.98);
-}
-
-.kbtab-btn.is-active .kbico{
-  filter: drop-shadow(0 0 10px rgba(255,255,255,.18));
-}
-
-.kbtab-btn:active{
-  transform: translateY(1px);
-  opacity: .92;
+.kb-toast[data-level*="warning"]{
+  border-color: rgba(255, 200, 80, 0.45);
 }
