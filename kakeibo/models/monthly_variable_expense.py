@@ -49,6 +49,8 @@ class MonthlyVariableExpense(models.Model):
     item_category = models.ForeignKey(
         Category,
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="monthly_variable_item_expenses",
         verbose_name="項目",
         limit_choices_to={"type": "EXPENSE"},
