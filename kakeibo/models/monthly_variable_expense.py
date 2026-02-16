@@ -46,15 +46,15 @@ class MonthlyVariableExpense(models.Model):
     )
 
     # ✅ ユーザーが選ぶ「支出項目」
-        item_category = models.ForeignKey(
-            Category,
-            on_delete=models.PROTECT,
-            null=False,
-            blank=False,
-            related_name="monthly_variable_item_expenses",
-            verbose_name="項目",
-            limit_choices_to={"type": "EXPENSE"},
-        )
+    item_category = models.ForeignKey(
+        Category,
+        on_delete=models.PROTECT,
+        null=False,
+        blank=False,
+        related_name="monthly_variable_item_expenses",
+        verbose_name="項目",
+        limit_choices_to={"type": "EXPENSE"},
+    )
 
     # CARD のときだけ使う（ADVANCE のときは空）
     card = models.ForeignKey(
