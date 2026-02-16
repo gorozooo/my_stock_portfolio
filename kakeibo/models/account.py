@@ -18,9 +18,9 @@ class Account(models.Model):
     ]
 
     OWNER_CHOICES = [
-        ("HOUSE", "家計"),
-        ("B", "B（夫）"),
-        ("G", "G（妻）"),
+        ("HOUSE", "家"),
+        ("B", "ぼーや"),
+        ("G", "ゴロ"),
     ]
 
     kind = models.CharField(
