@@ -1,102 +1,22 @@
 <!--
+=========================================
 [FILE] dashboard.html
-[PATH] <project_root>/templates/kakeibo/dashboard.html
+[PATH] templates/kakeibo/dashboard.html
 
 このファイルは何？
 - 家計簿トップ画面（/kakeibo/）。
 - KPI（①②③）→ 年度（④）→ 当月（⑤）→ 可視化（⑥）→ 将来枠（⑦）
+- CSS/JS は static に分離（dashboard.css / dashboard.js）
+=========================================
 -->
 
 {% extends "kakeibo/base_kakeibo.html" %}
-{% load humanize %}
+{% load static humanize %}
 
 {% block title %}家計簿{% endblock %}
 
 {% block extra_head %}
-<style>
-  /* dashboard 専用（必要最小限） */
-  .kb-grid-3{
-    display:grid;
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
-  .kb-kpi-big{
-    font-size: 26px;
-    font-weight: 800;
-    letter-spacing: 0.2px;
-    margin-top: 6px;
-  }
-  .kb-kpi-sub{
-    margin-top: 8px;
-    font-size: 12px;
-    opacity: 0.82;
-  }
-  .kb-pill-row{
-    display:flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 10px;
-  }
-  .kb-pill{
-    display:inline-flex;
-    align-items:center;
-    gap:6px;
-    padding: 6px 10px;
-    border-radius: 999px;
-    border: 1px solid rgba(255,255,255,0.12);
-    background: rgba(255,255,255,0.05);
-    font-size: 12px;
-    color: rgba(255,255,255,0.92);
-  }
-
-  .kb-bar{
-    margin-top:10px;
-    border-radius: 999px;
-    border: 1px solid rgba(255,255,255,0.12);
-    background: rgba(255,255,255,0.06);
-    overflow:hidden;
-    height: 14px;
-  }
-  .kb-bar > i{
-    display:block;
-    height: 100%;
-    width: 0%;
-    background: rgba(86, 204, 242, 0.65);
-  }
-  .kb-bar-2{
-    display:flex;
-    height: 14px;
-    border-radius: 999px;
-    overflow:hidden;
-    border: 1px solid rgba(255,255,255,0.12);
-    background: rgba(255,255,255,0.06);
-    margin-top:10px;
-  }
-  .kb-bar-2 > i{
-    display:block;
-    height: 100%;
-  }
-  .kb-bar-fixed{ background: rgba(255, 200, 80, 0.65); }
-  .kb-bar-var{ background: rgba(86, 204, 242, 0.65); }
-
-  .kb-row-2{
-    display:grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin-top: 10px;
-  }
-
-  .kb-mini-label{ font-size: 12px; opacity: .8; }
-  .kb-mini-val{ font-size: 16px; font-weight: 750; margin-top: 4px; }
-  .kb-mini-delta{ font-size: 12px; opacity: .85; margin-top: 4px; }
-
-  .kb-note{
-    margin-top: 10px;
-    font-size: 12px;
-    opacity: 0.75;
-    line-height: 1.35;
-  }
-</style>
+<link rel="stylesheet" href="{% static 'kakeibo/css/dashboard.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -107,58 +27,67 @@
   <section class="kb-card">
     <div class="kb-title">今月（{{ month_label }}）</div>
 
-    <div class="kb-grid-3" style="margin-top:12px;">
+    <div class="kb-grid-3 kb-mt-12">
 
       <!-- ① 総資産 -->
-      <div class="kb-card" style="padding:14px;">
+      <div class="kb-card kb-pad-14">
         <div class="kb-mini-label">我が家の総資産</div>
         <div class="kb-kpi-big">¥{{ kpi_total_assets|intcomma }}</div>
         <div class="kb-kpi-sub">※ 楽天銀行(B)+イオン銀行(家)+楽天投資（評価額+余力）</div>
-        
+
+        {% if debug %}
         <div class="kb-note">
-          ＜内訳＞
-          <br>楽天銀行(B)：¥{{ rakuten_bank_b|intcomma }}
-          <br>イオン銀行(家)：¥{{ aeon_bank_house|intcomma }}
+          ＜内訳（debug=1の時だけ表示）＞
+          <br>楽天銀行(B)：¥{{ rakuten_bank_b|intcomma }}（{{ rakuten_bank_account_name_used }} / {{ rakuten_bank_month_used }}）
+          <br>イオン銀行(家)：¥{{ aeon_bank_house|intcomma }}（{{ aeon_bank_account_name_used }} / {{ aeon_bank_month_used }}）
           <br>楽天評価額：¥{{ rakuten_eval|intcomma }}
-          <br>楽天余力：¥{{ rakuten_cash_free|intcomma }}
+          <br>楽天余力（白丸）：¥{{ rakuten_cash_free|intcomma }}
         </div>
-        
+        {% endif %}
       </div>
 
       <!-- ② 楽天銀行(B) 実残高 -->
-      <div class="kb-card" style="padding:14px;">
+      <div class="kb-card kb-pad-14">
         <div class="kb-mini-label">楽天銀行(B) 実残高</div>
         <div class="kb-kpi-big">¥{{ kpi_rakuten_bank_actual|intcomma }}</div>
-        <div class="kb-kpi-sub">※ 4,136,736 − 楽天余力 − 楽天銀行(B)</div>
-        
+        <div class="kb-kpi-sub">※ 4,136,736 − 楽天余力（白丸） − 楽天銀行(B)</div>
+
+        {% if debug %}
         <div class="kb-note">
-          ＜計算式＞
+          ＜計算式（debug=1の時だけ表示）＞
           <br>4,136,736
           − 余力 ¥{{ rakuten_cash_free|intcomma }}
           − 楽天銀行(B) ¥{{ rakuten_bank_b|intcomma }}
         </div>
-        
+        {% endif %}
       </div>
 
       <!-- ③ 投資（評価額+余力） -->
-      <div class="kb-card" style="padding:14px;">
+      <div class="kb-card kb-pad-14">
         <div class="kb-mini-label">投資（評価額＋現金余力）</div>
         <div class="kb-kpi-big">¥{{ kpi_invest_total|intcomma }}</div>
 
         <div class="kb-pill-row">
           <span class="kb-pill">評価額：¥{{ rakuten_eval|intcomma }}</span>
-          <span class="kb-pill">余力：¥{{ rakuten_cash_free|intcomma }}</span>
+          <span class="kb-pill">余力（白丸）：¥{{ rakuten_cash_free|intcomma }}</span>
         </div>
-        
+
+        {% if debug %}
         <div class="kb-note">
-          ＜内訳＞
+          ＜内訳（debug=1の時だけ表示）＞
           <br>評価額：¥{{ rakuten_eval|intcomma }}
-          <br>余力：¥{{ rakuten_cash_free|intcomma }}
+          <br>余力（白丸）：¥{{ rakuten_cash_free|intcomma }}
         </div>
-        
+        {% endif %}
       </div>
 
     </div>
+
+    {% if debug %}
+      <div class="kb-debug-hint">
+        debug表示中。消すならURLの <code>?debug=1</code> を外す。
+      </div>
+    {% endif %}
   </section>
 
 
@@ -179,7 +108,7 @@
       </div>
     </div>
 
-    <div style="margin-top:12px;">
+    <div class="kb-mt-12">
       <div class="kb-mini-label">差額</div>
       <div class="kb-mini-val">¥{{ year_diff|intcomma }}</div>
     </div>
@@ -218,12 +147,12 @@
       </div>
     </div>
 
-    <div style="margin-top:12px;">
+    <div class="kb-mt-12">
       <div class="kb-mini-label">差額</div>
       <div class="kb-mini-val">¥{{ month_diff|intcomma }}</div>
     </div>
 
-    <div class="kb-row-2" style="margin-top:14px;">
+    <div class="kb-row-2 kb-mt-14">
       <div>
         <div class="kb-mini-label">固定費</div>
         <div class="kb-mini-val">¥{{ fixed_sum|intcomma }}</div>
@@ -258,19 +187,19 @@
     </div>
 
     <!-- 支出率バー -->
-    <div style="margin-top:14px;">
+    <div class="kb-mt-14">
       <div class="kb-mini-label">支出率（支出 ÷ 収入）</div>
       <div class="kb-mini-delta">
         {% if expense_rate is not None %}{{ expense_rate }}%{% else %}—（収入が0のため計算不可）{% endif %}
       </div>
 
       <div class="kb-bar" aria-label="支出率バー">
-        <i style="width:{% if expense_rate is not None %}{{ expense_rate|floatformat:0 }}{% else %}0{% endif %}%"></i>
+        <i data-bar="expense" data-pct="{% if expense_rate is not None %}{{ expense_rate }}{% else %}0{% endif %}"></i>
       </div>
     </div>
 
     <!-- 固定/変動比バー -->
-    <div style="margin-top:16px;">
+    <div class="kb-mt-16">
       <div class="kb-mini-label">支出内訳（固定 vs 変動）</div>
       <div class="kb-mini-delta">
         固定 {% if fixed_rate is not None %}{{ fixed_rate }}%{% else %}—{% endif %}
@@ -278,8 +207,8 @@
       </div>
 
       <div class="kb-bar-2" aria-label="固定変動内訳バー">
-        <i class="kb-bar-fixed" style="width:{% if fixed_rate is not None %}{{ fixed_rate|floatformat:0 }}{% else %}0{% endif %}%"></i>
-        <i class="kb-bar-var" style="width:{% if var_rate is not None %}{{ var_rate|floatformat:0 }}{% else %}0{% endif %}%"></i>
+        <i class="kb-bar-fixed" data-bar="fixed" data-pct="{% if fixed_rate is not None %}{{ fixed_rate }}{% else %}0{% endif %}"></i>
+        <i class="kb-bar-var" data-bar="var" data-pct="{% if var_rate is not None %}{{ var_rate }}{% else %}0{% endif %}"></i>
       </div>
     </div>
   </section>
@@ -297,4 +226,5 @@
     </div>
   </section>
 
+<script src="{% static 'kakeibo/js/dashboard.js' %}"></script>
 {% endblock %}
