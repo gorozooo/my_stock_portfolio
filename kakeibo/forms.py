@@ -210,9 +210,9 @@ class MonthlyVariableExpenseForm(forms.ModelForm):
 # ----------------------------
 class BankBalanceForm(forms.ModelForm):
     OWNER_CHOICES = [
-        ("HOUSE", "家計"),
-        ("B", "B（夫）"),
-        ("G", "G（妻）"),
+        ("HOUSE", "家"),
+        ("B", "ぼーや"),
+        ("G", "ごろ"),
     ]
 
     month = MonthField(label="対象月", widget=MonthInput())
