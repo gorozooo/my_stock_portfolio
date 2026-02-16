@@ -4,9 +4,10 @@
 #
 # このファイルは何？
 # /kakeibo/ 配下のURLを、家計簿の各画面に接続する（B案：月次方式）。
-# - 今回：/kakeibo/settings/ は「設定メニュー」に変更
-# - 既存の設定編集画面は /kakeibo/settings/edit/ に移動
-# - 管理画面を /kakeibo/manage/ 配下に追加
+# - /kakeibo/settings/ は「設定メニュー」
+# - /kakeibo/settings/edit/ は設定編集
+# - /kakeibo/manage/ 配下に管理画面
+# - ★API: ownerでカード/口座候補を返す
 # =========================================
 
 from django.urls import path
@@ -27,6 +28,9 @@ from .views import (
     manage_fixed,
     manage_bank,
 )
+
+# ✅ APIを追加
+from .views.api import api_cards, api_accounts
 
 app_name = "kakeibo"
 
@@ -55,4 +59,8 @@ urlpatterns = [
     path("manage/variable/", manage_variable, name="manage_variable"),
     path("manage/fixed/", manage_fixed, name="manage_fixed"),
     path("manage/bank/", manage_bank, name="manage_bank"),
+
+    # ✅ API（JSが叩く）
+    path("api/cards/", api_cards, name="api_cards"),
+    path("api/accounts/", api_accounts, name="api_accounts"),
 ]
