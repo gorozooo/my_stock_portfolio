@@ -3,14 +3,12 @@
 # [PATH] kakeibo/models/monthly_variable_expense.py
 #
 # このファイルは何？
-# 変動費（カード/立替）を月次で保存するモデル。
+# 変動費を「月次」で保存するモデル。
 # - month は月単位（内部はDateFieldで必ず1日固定）
-# - var_type は CARD（カード） / ADVANCE（立替）
+# - var_type は「種類」：CARD / ADVANCE / PENSION / OTHER
 # - CARD の場合だけ card を選ぶ（設定で登録したカード）
-#
-# ★今回（理想形）
-# - category は「支払い手段の内部分類」(code=CARD / ADVANCE) を自動セット用に残す（画面では非表示）
-# - item_category を追加して「年金・保険」「その他」など“支出項目”を選べるようにする
+# - category は「支出カテゴリ」から自動で決める（code = var_type）
+#   → 画面で分類入力は不要（あなたの方針どおり）
 # =========================================
 
 from django.db import models
@@ -25,9 +23,12 @@ class MonthlyVariableExpense(models.Model):
         ("G", "ごろ"),
     ]
 
+    # ✅ 種類に「年金・保険」「その他」を追加
     VAR_TYPE_CHOICES = [
         ("CARD", "カード"),
         ("ADVANCE", "立替"),
+        ("PENSION", "年金・保険"),
+        ("OTHER", "その他"),
     ]
 
     month = models.DateField("対象月")  # 常に day=1 に揃える
@@ -35,28 +36,17 @@ class MonthlyVariableExpense(models.Model):
 
     var_type = models.CharField("種類", max_length=20, choices=VAR_TYPE_CHOICES)
 
-    # ✅ 内部用：支払い手段カテゴリ（code=CARD / ADVANCE を自動で入れる）
-    # 画面では非表示にして、フォーム側で強制セットする
+    # ✅ 分類は Category で保持する（ただし入力はさせない：フォームで自動決定）
+    #    ルール：Category(type=EXPENSE, code=var_type) をセットする
     category = models.ForeignKey(
         Category,
         on_delete=models.PROTECT,
         related_name="monthly_variable_expenses",
-        verbose_name="支払い分類（内部）",
+        verbose_name="分類",
         limit_choices_to={"type": "EXPENSE"},
     )
 
-    # ✅ ユーザーが選ぶ「支出項目」
-    item_category = models.ForeignKey(
-        Category,
-        on_delete=models.PROTECT,
-        null=False,
-        blank=False,
-        related_name="monthly_variable_item_expenses",
-        verbose_name="項目",
-        limit_choices_to={"type": "EXPENSE"},
-    )
-
-    # CARD のときだけ使う（ADVANCE のときは空）
+    # CARD のときだけ使う（それ以外は空）
     card = models.ForeignKey(
         Account,
         on_delete=models.PROTECT,
