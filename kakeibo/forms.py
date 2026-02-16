@@ -221,9 +221,9 @@ class MonthlyVariableExpenseForm(forms.ModelForm):
 # ----------------------------
 class BankBalanceForm(forms.ModelForm):
     OWNER_CHOICES = [
-        ("HOUSE", "家計"),
-        ("B", "B（夫）"),
-        ("G", "G（妻）"),
+        ("HOUSE", "家"),
+        ("B", "ぼーや"),
+        ("G", "ごろ"),
     ]
 
     # ✅ month を上書き（YYYY-MM を受け取れるようにする）
