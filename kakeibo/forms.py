@@ -6,7 +6,7 @@
 # 家計簿のフォーム定義（B案：月次方式）。
 # - 設定（カテゴリ/口座/カード）
 # - 収入（月次）
-# - 支出：固定費テンプレ / 変動費（月次）
+# - 支出：固定費テンプレ / 変動費（月次：カード/立替）
 # - 銀行残高（月次）
 #
 # ★重要（今回の修正）
@@ -17,14 +17,10 @@
 #
 # ★重要（今回の修正②）
 # 変動費（カード）と銀行残高（口座）は owner によって候補を絞るが、
-# queryset を Account.objects.none() のままだと POST バリデーションで弾かれて保存できない。
-# → POST時（self.dataがある時）に owner を見て queryset を復元する。
-#   編集時（self.instanceがある時）も同様に復元する。
-#
-# ★重要（今回の修正③）
-# 変動費の「種類(var_type)」に PENSION(年金・保険) / OTHER(その他) を追加。
-# - 分類(category)は入力させない（Hidden）＝ code=var_type の支出カテゴリを自動でセット
-# - カード選択は var_type=CARD の時だけ必須
+# queryset を Account.objects.none() のままだと GET表示で候補が0件になり、
+# JSが動かなかった場合に「カードが出ない」事故になる。
+# → GETでも最低限 “全候補” を出す（kindで絞る）。
+#   POST時（self.dataがある時）と編集時（self.instanceがある時）は、ownerで絞る。
 # =========================================
 
 from django import forms
@@ -76,7 +72,7 @@ class CategoryForm(forms.ModelForm):
         fields = ["name", "code", "order"]
         widgets = {
             "name": forms.TextInput(attrs={"placeholder": "例：食費 / 給与 / お小遣い など"}),
-            "code": forms.TextInput(attrs={"placeholder": "例：CARD / ADVANCE / PENSION / OTHER など"}),
+            "code": forms.TextInput(attrs={"placeholder": "例：CARD / ADVANCE（必要な時だけ）"}),
             "order": forms.NumberInput(attrs={"inputmode": "numeric"}),
         }
 
@@ -94,6 +90,7 @@ class AccountForm(forms.ModelForm):
 # 収入（月次）
 # ----------------------------
 class MonthlyIncomeForm(forms.ModelForm):
+    # ✅ month を上書き（YYYY-MM を受け取れるようにする）
     month = MonthField(label="対象月", widget=MonthInput())
 
     class Meta:
@@ -132,16 +129,17 @@ class FixedExpenseTemplateForm(forms.ModelForm):
 
 
 # ----------------------------
-# 変動費（月次）
+# 変動費（月次：カード/立替）
 # ----------------------------
 class MonthlyVariableExpenseForm(forms.ModelForm):
+    # ✅ month を上書き（YYYY-MM を受け取れるようにする）
     month = MonthField(label="対象月", widget=MonthInput())
 
     class Meta:
         model = MonthlyVariableExpense
         fields = ["month", "owner", "var_type", "category", "card", "amount", "memo"]
         widgets = {
-            "memo": forms.TextInput(attrs={"placeholder": "例：2月分 / 年金 / その他 など"}),
+            "memo": forms.TextInput(attrs={"placeholder": "例：楽天カード 2月分 / 子供用品立替 など"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -150,23 +148,25 @@ class MonthlyVariableExpenseForm(forms.ModelForm):
         today = timezone.localdate()
         self.fields["month"].initial = normalize_month(today)
 
-        # ✅ category はユーザー入力不要（var_typeから自動決定）
+        # ✅ category はユーザー入力不要：完全自動なので非表示＆入力要求もしない
         self.fields["category"].required = False
         self.fields["category"].widget = forms.HiddenInput()
         self.fields["category"].queryset = Category.objects.filter(type="EXPENSE").order_by("order", "id")
 
-        # ✅ カード候補：基本は空（owner選択後にJSで入れる）
-        self.fields["card"].queryset = Account.objects.none()
+        # ✅ 重要：GETでも最低限候補が出るようにする（JSが死んでも使える）
+        self.fields["card"].queryset = Account.objects.filter(kind="CARD").order_by("owner", "id")
 
-        # POST時は owner に応じて queryset を復元しないと保存できない
+        # ★POST時：owner に応じて候補を絞る（バリデーションも通る）
         if self.data:
-            owner = self.data.get("owner")
+            owner = (self.data.get("owner") or "").strip()
             if owner:
                 self.fields["card"].queryset = Account.objects.filter(kind="CARD", owner=owner).order_by("owner", "id")
-            else:
-                self.fields["card"].queryset = Account.objects.filter(kind="CARD").order_by("owner", "id")
+
+        # ★編集時：既存ownerに合わせて絞る
         elif self.instance and getattr(self.instance, "pk", None):
-            self.fields["card"].queryset = Account.objects.filter(kind="CARD", owner=self.instance.owner).order_by("owner", "id")
+            inst_owner = getattr(self.instance, "owner", None)
+            if inst_owner:
+                self.fields["card"].queryset = Account.objects.filter(kind="CARD", owner=inst_owner).order_by("owner", "id")
 
         self.fields["amount"].widget.attrs.update({"inputmode": "numeric"})
 
@@ -176,18 +176,19 @@ class MonthlyVariableExpenseForm(forms.ModelForm):
         card = cleaned.get("card")
         owner = cleaned.get("owner")
 
-        # ✅ カードは var_type=CARD の時だけ必須
+        # ✅ var_type に応じて card 必須/不要
         if var_type == "CARD":
             if not card:
                 self.add_error("card", "カードを選択してね。")
             else:
+                # サーバ側でも安全にチェック（owner一致 & kind=CARD）
                 if card.kind != "CARD" or (owner and card.owner != owner):
                     self.add_error("card", "選んだカードが「誰の支出」と一致していません。")
         else:
             cleaned["card"] = None
 
-        # ✅ category は code=var_type で自動セット（CARD/ADVANCE/PENSION/OTHER すべて）
-        if var_type:
+        # ✅ category は code で強制（CARD/ADVANCE）
+        if var_type in ("CARD", "ADVANCE"):
             need_code = var_type
             q = Category.objects.filter(type="EXPENSE", code=need_code)
             if q.exists():
@@ -203,12 +204,15 @@ class MonthlyVariableExpenseForm(forms.ModelForm):
 # ----------------------------
 class BankBalanceForm(forms.ModelForm):
     OWNER_CHOICES = [
-        ("HOUSE", "家計"),
-        ("B", "B（夫）"),
-        ("G", "G（妻）"),
+        ("HOUSE", "家"),
+        ("B", "ぼーや"),
+        ("G", "ごろ"),
     ]
 
+    # ✅ month を上書き（YYYY-MM を受け取れるようにする）
     month = MonthField(label="対象月", widget=MonthInput())
+
+    # ✅ 画面用：ownerを選ぶ（BankBalanceには保存しない）
     owner = forms.ChoiceField(label="所有者", choices=OWNER_CHOICES, required=True)
 
     class Meta:
@@ -221,18 +225,23 @@ class BankBalanceForm(forms.ModelForm):
         today = timezone.localdate()
         self.fields["month"].initial = normalize_month(today)
 
-        self.fields["account"].queryset = Account.objects.none()
+        # ✅ 重要：GETでも最低限候補が出るようにする（JSが死んでも使える）
+        self.fields["account"].queryset = Account.objects.filter(kind="ACCOUNT").order_by("owner", "id")
 
+        # ★POST時：owner に応じて候補を絞る
         if self.data:
-            owner = self.data.get("owner")
+            owner = (self.data.get("owner") or "").strip()
             if owner:
                 self.fields["account"].queryset = Account.objects.filter(kind="ACCOUNT", owner=owner).order_by("owner", "id")
-            else:
-                self.fields["account"].queryset = Account.objects.filter(kind="ACCOUNT").order_by("owner", "id")
+
+        # ★編集時：既存レコードの口座ownerを初期表示＆候補復元
         elif self.instance and getattr(self.instance, "pk", None):
             try:
                 self.fields["owner"].initial = self.instance.account.owner
-                self.fields["account"].queryset = Account.objects.filter(kind="ACCOUNT", owner=self.instance.account.owner).order_by("owner", "id")
+                self.fields["account"].queryset = Account.objects.filter(
+                    kind="ACCOUNT",
+                    owner=self.instance.account.owner
+                ).order_by("owner", "id")
             except Exception:
                 self.fields["account"].queryset = Account.objects.filter(kind="ACCOUNT").order_by("owner", "id")
 
