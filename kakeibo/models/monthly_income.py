@@ -14,9 +14,9 @@ from .category import Category
 
 class MonthlyIncome(models.Model):
     OWNER_CHOICES = [
-        ("HOUSE", "家計"),
-        ("B", "B（夫）"),
-        ("G", "G（妻）"),
+        ("HOUSE", "家"),
+        ("B", "ぼーや"),
+        ("G", "ごろ"),
     ]
 
     month = models.DateField("対象月")  # 常に day=1 に揃える
