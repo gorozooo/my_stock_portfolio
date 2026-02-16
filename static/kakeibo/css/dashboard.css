@@ -1,38 +1,33 @@
 /* =========================================
-[FILE] dashboard.css
-[PATH] static/kakeibo/css/dashboard.css
-
-このファイルは何？
-- kakeibo/dashboard.html 専用スタイル
-- HTMLから分離して管理しやすくする
-========================================= */
+ * [FILE] dashboard.css
+ * [PATH] <project_root>/static/kakeibo/dashboard.css
+ *
+ * このファイルは何？
+ * 家計簿トップ（/kakeibo/）専用スタイル。
+ * ========================================= */
 
 .kb-grid-3{
   display:grid;
   grid-template-columns: 1fr;
   gap: 12px;
 }
-
 .kb-kpi-big{
   font-size: 26px;
   font-weight: 800;
   letter-spacing: 0.2px;
   margin-top: 6px;
 }
-
 .kb-kpi-sub{
   margin-top: 8px;
   font-size: 12px;
   opacity: 0.82;
 }
-
 .kb-pill-row{
   display:flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
 }
-
 .kb-pill{
   display:inline-flex;
   align-items:center;
@@ -53,15 +48,12 @@
   overflow:hidden;
   height: 14px;
 }
-
 .kb-bar > i{
   display:block;
   height: 100%;
   width: 0%;
   background: rgba(86, 204, 242, 0.65);
-  transition: width .45s ease;
 }
-
 .kb-bar-2{
   display:flex;
   height: 14px;
@@ -71,14 +63,10 @@
   background: rgba(255,255,255,0.06);
   margin-top:10px;
 }
-
 .kb-bar-2 > i{
   display:block;
   height: 100%;
-  width: 0%;
-  transition: width .45s ease;
 }
-
 .kb-bar-fixed{ background: rgba(255, 200, 80, 0.65); }
 .kb-bar-var{ background: rgba(86, 204, 242, 0.65); }
 
@@ -98,22 +86,4 @@
   font-size: 12px;
   opacity: 0.75;
   line-height: 1.35;
-}
-
-.kb-pad-14{ padding:14px; }
-.kb-mt-12{ margin-top:12px; }
-.kb-mt-14{ margin-top:14px; }
-.kb-mt-16{ margin-top:16px; }
-
-.kb-debug-hint{
-  margin-top: 10px;
-  font-size: 12px;
-  opacity: .75;
-}
-
-.kb-debug-hint code{
-  padding: 2px 6px;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.06);
 }
