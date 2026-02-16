@@ -49,10 +49,22 @@
   function setRowVisible(fieldId, visible) {
     const el = qs(fieldId);
     if (!el) return;
-    // Django form.as_p は <p> に入ることが多いので親を探す
     const p = el.closest("p") || el.parentElement;
     if (!p) return;
     p.style.display = visible ? "" : "none";
+  }
+
+  function readOwnerValue(ownerEl) {
+    if (!ownerEl) return "";
+    let v = (ownerEl.value || "").trim();
+
+    // iPhoneで「初期描画直後に value が空扱い」になるケースを潰す
+    if (!v && ownerEl.selectedIndex >= 0) {
+      const opt = ownerEl.options[ownerEl.selectedIndex];
+      const ov = opt ? String(opt.value || "").trim() : "";
+      if (ov) v = ov;
+    }
+    return v;
   }
 
   async function setupVariableExpense() {
@@ -63,34 +75,45 @@
     if (!ownerEl || !varTypeEl || !cardEl) return;
 
     async function refreshCards() {
-      const owner = ownerEl.value;
+      const owner = readOwnerValue(ownerEl);
+
       if (!owner) {
         replaceOptions(cardEl, [], "先に「誰の支出」を選択");
-        return;
+        return false;
       }
+
       const items = await fetchItems(`/kakeibo/api/cards/?owner=${encodeURIComponent(owner)}`);
-      replaceOptions(cardEl, items, "カードを選択");
+      replaceOptions(cardEl, items, (items.length ? "カードを選択" : "この所有者のカードがありません"));
+      return true;
     }
 
     function refreshVisibility() {
-      const vt = varTypeEl.value;
+      const vt = (varTypeEl.value || "").trim();
       const isCard = (vt === "CARD");
       setRowVisible("#id_card", isCard);
+
       // カード以外なら選択を消す
       if (!isCard) cardEl.value = "";
     }
 
-    ownerEl.addEventListener("change", async () => {
-      await refreshCards();
-    });
+    // ownerは iPhone で change が遅れることがあるので input/blur も拾う
+    ownerEl.addEventListener("change", refreshCards);
+    ownerEl.addEventListener("input", refreshCards);
+    ownerEl.addEventListener("blur", refreshCards);
 
     varTypeEl.addEventListener("change", () => {
       refreshVisibility();
+      // 種類をカードにした瞬間にカード候補を確実に出す
+      if ((varTypeEl.value || "").trim() === "CARD") {
+        refreshCards();
+      }
     });
 
-    // 初期表示
-    await refreshCards();
+    // 初期表示：即1回 + 少し遅延でもう1回（Safari対策）
     refreshVisibility();
+    await refreshCards();
+    window.setTimeout(refreshCards, 250);
+    window.setTimeout(refreshCards, 800);
   }
 
   document.addEventListener("DOMContentLoaded", setupVariableExpense);
