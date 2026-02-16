@@ -14,9 +14,9 @@ from .category import Category
 
 class FixedExpenseTemplate(models.Model):
     OWNER_CHOICES = [
-        ("HOUSE", "家計"),
-        ("B", "B（夫）"),
-        ("G", "G（妻）"),
+        ("HOUSE", "家"),
+        ("B", "ぼーや"),
+        ("G", "ごろ"),
     ]
 
     owner = models.CharField("誰の支出", max_length=10, choices=OWNER_CHOICES)
