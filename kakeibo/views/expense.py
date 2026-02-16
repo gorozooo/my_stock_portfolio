@@ -12,7 +12,7 @@
 # POSTでフォームが invalid のとき、エラー付きフォームを捨てずにそのまま画面へ返す
 #
 # ★今回
-# 登録/更新/削除が成功したら「何を変更したか」までトースト表示する
+# 変動費：項目（item_category）を導入したので、トーストに項目名も出す
 # =========================================
 
 from django.contrib import messages
@@ -66,7 +66,6 @@ def expense_fixed(request):
         edit_obj = get_object_or_404(FixedExpenseTemplate, id=edit_id)
         edit_mode = True
 
-    # ★formはここで作って、POSTでinvalidでも捨てない
     form = FixedExpenseTemplateForm(instance=edit_obj) if (edit_mode and edit_obj) else FixedExpenseTemplateForm()
 
     if request.method == "POST":
@@ -136,7 +135,6 @@ def expense_variable(request):
         edit_obj = get_object_or_404(MonthlyVariableExpense, id=edit_id)
         edit_mode = True
 
-    # ★formはここで作って、POSTでinvalidでも捨てない
     form = MonthlyVariableExpenseForm(instance=edit_obj) if (edit_mode and edit_obj) else MonthlyVariableExpenseForm()
 
     if request.method == "POST":
@@ -151,11 +149,12 @@ def expense_variable(request):
                 owner = getattr(obj, "owner", "")
                 var_type = getattr(obj, "var_type", "")
                 card_name = getattr(getattr(obj, "card", None), "name", "")
+                item_name = getattr(getattr(obj, "item_category", None), "name", "")
                 amount = getattr(obj, "amount", None)
 
                 month_s = month.strftime("%Y-%m") if month else ""
                 vt = "カード" if var_type == "CARD" else ("立替" if var_type == "ADVANCE" else var_type)
-                head = f"{month_s} / {_owner_label(owner)} / {vt}"
+                head = f"{month_s} / {_owner_label(owner)} / {vt} / {item_name}"
                 tail = f" / {card_name}" if (var_type == "CARD" and card_name) else ""
                 messages.success(request, f"✅ 変動費を登録：{head}{tail} / ¥{_yen(amount)}")
 
@@ -173,11 +172,12 @@ def expense_variable(request):
                 owner = getattr(x, "owner", "")
                 var_type = getattr(x, "var_type", "")
                 card_name = getattr(getattr(x, "card", None), "name", "")
+                item_name = getattr(getattr(x, "item_category", None), "name", "")
                 amount = getattr(x, "amount", None)
 
                 month_s = month.strftime("%Y-%m") if month else ""
                 vt = "カード" if var_type == "CARD" else ("立替" if var_type == "ADVANCE" else var_type)
-                head = f"{month_s} / {_owner_label(owner)} / {vt}"
+                head = f"{month_s} / {_owner_label(owner)} / {vt} / {item_name}"
                 tail = f" / {card_name}" if (var_type == "CARD" and card_name) else ""
                 messages.success(request, f"✅ 変動費を更新：{head}{tail} / ¥{_yen(amount)}")
 
@@ -190,11 +190,12 @@ def expense_variable(request):
             owner = getattr(obj, "owner", "")
             var_type = getattr(obj, "var_type", "")
             card_name = getattr(getattr(obj, "card", None), "name", "")
+            item_name = getattr(getattr(obj, "item_category", None), "name", "")
             amount = getattr(obj, "amount", None)
 
             month_s = month.strftime("%Y-%m") if month else ""
             vt = "カード" if var_type == "CARD" else ("立替" if var_type == "ADVANCE" else var_type)
-            head = f"{month_s} / {_owner_label(owner)} / {vt}"
+            head = f"{month_s} / {_owner_label(owner)} / {vt} / {item_name}"
             tail = f" / {card_name}" if (var_type == "CARD" and card_name) else ""
 
             obj.delete()
