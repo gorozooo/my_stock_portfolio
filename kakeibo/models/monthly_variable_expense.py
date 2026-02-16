@@ -16,9 +16,9 @@ from .category import Category
 
 class MonthlyVariableExpense(models.Model):
     OWNER_CHOICES = [
-        ("HOUSE", "家計"),
-        ("B", "B（夫）"),
-        ("G", "G（妻）"),
+        ("HOUSE", "家"),
+        ("B", "ぼーや"),
+        ("G", "ごろ"),
     ]
 
     VAR_TYPE_CHOICES = [
