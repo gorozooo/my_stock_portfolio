@@ -4,7 +4,10 @@
 
 このファイルは何？
 - 家計簿トップ画面（/kakeibo/）。
-- B案：月次方式の合計をシンプルに表示する。
+- 前月/次月ボタンのみで月を切り替える（?month=YYYY-MM）
+- KPI：支出/収入/差額/銀行残高
+- owner別の内訳（家計 / B / G）
+- 管理画面へジャンプ導線（その月で開く）
 -->
 
 {% extends "kakeibo/base_kakeibo.html" %}
@@ -14,7 +17,20 @@
 
 {% block content %}
   <section class="kb-card">
-    <div class="kb-title">今月（{{ month_label }}）</div>
+    <div class="kb-title">家計簿</div>
+
+    <div style="display:flex; gap:10px; margin-top:10px;">
+      <a class="kb-btn" href="?month={{ prev_month|date:'Y-m' }}">◀ 前月</a>
+      <a class="kb-btn" href="?month={{ next_month|date:'Y-m' }}">次月 ▶</a>
+    </div>
+
+    <div class="kb-muted" style="margin-top:10px;">
+      対象月：<span class="kb-strong">{{ month_label }}</span>
+    </div>
+  </section>
+
+  <section class="kb-card">
+    <div class="kb-title">今月のKPI（{{ month_label }}）</div>
 
     <div class="kb-kpi-row">
       <div class="kb-kpi">
@@ -29,8 +45,64 @@
       </div>
     </div>
 
-    <div class="kb-muted" style="margin-top:10px;">
-      ※ 日付は「年月（YYYY-MM）」で管理。銀行残高は「銀行」タブで月次手入力。
+    <div class="kb-kpi-row" style="margin-top:12px;">
+      <div class="kb-kpi">
+        <div class="kb-kpi-label">差額（収入 − 支出）</div>
+        <div class="kb-kpi-value">¥{{ diff|intcomma }}</div>
+        <div class="kb-muted">プラスなら黒字、マイナスなら赤字</div>
+      </div>
+
+      <div class="kb-kpi">
+        <div class="kb-kpi-label">銀行残高合計</div>
+        <div class="kb-kpi-value">¥{{ bank_total|intcomma }}</div>
+        <div class="kb-muted">「銀行」タブで月次入力</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="kb-card">
+    <div class="kb-title">owner別 内訳</div>
+
+    <div class="kb-muted" style="margin-top:8px; margin-bottom:10px;">
+      家計 / B（夫） / G（妻）
+    </div>
+
+    <ul class="kb-list">
+      <li class="kb-list-item" style="align-items:flex-start;">
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <div class="kb-strong">収入</div>
+          <div class="kb-muted">家計：¥{{ income_by.HOUSE|intcomma }} / B：¥{{ income_by.B|intcomma }} / G：¥{{ income_by.G|intcomma }}</div>
+        </div>
+      </li>
+
+      <li class="kb-list-item" style="align-items:flex-start;">
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <div class="kb-strong">支出（固定+変動）</div>
+          <div class="kb-muted">家計：¥{{ expense_by.HOUSE|intcomma }} / B：¥{{ expense_by.B|intcomma }} / G：¥{{ expense_by.G|intcomma }}</div>
+          <div class="kb-muted">固定：家計¥{{ fixed_by.HOUSE|intcomma }} / B¥{{ fixed_by.B|intcomma }} / G¥{{ fixed_by.G|intcomma }}</div>
+          <div class="kb-muted">変動：家計¥{{ var_by.HOUSE|intcomma }} / B¥{{ var_by.B|intcomma }} / G¥{{ var_by.G|intcomma }}</div>
+        </div>
+      </li>
+
+      <li class="kb-list-item" style="align-items:flex-start;">
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <div class="kb-strong">銀行残高</div>
+          <div class="kb-muted">家計：¥{{ bank_by.HOUSE|intcomma }} / B：¥{{ bank_by.B|intcomma }} / G：¥{{ bank_by.G|intcomma }}</div>
+        </div>
+      </li>
+    </ul>
+  </section>
+
+  <section class="kb-card">
+    <div class="kb-title">管理へ（{{ month_label }}）</div>
+    <div style="display:flex; flex-direction:column; gap:10px; margin-top:10px;">
+      <a class="kb-btn kb-btn-primary" href="{% url 'kakeibo:manage_income' %}?month={{ month_label }}">収入（管理）を開く</a>
+      <a class="kb-btn kb-btn-primary" href="{% url 'kakeibo:manage_variable' %}?month={{ month_label }}">変動費（管理）を開く</a>
+      <a class="kb-btn kb-btn-primary" href="{% url 'kakeibo:manage_bank' %}?month={{ month_label }}">銀行残高（管理）を開く</a>
+
+      <hr style="border:none; border-top:1px solid rgba(255,255,255,0.12); margin:6px 0;">
+
+      <a class="kb-btn" href="{% url 'kakeibo:manage_menu' %}">管理メニューへ</a>
     </div>
   </section>
 {% endblock %}
