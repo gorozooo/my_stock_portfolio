@@ -4,14 +4,19 @@
 
 このファイルは何？
 - Django messages を「トースト表示」するためのCSS。
-- 下タブに被らない位置（tabの上）に出す。
+- ★今回：上に表示（ノッチ/セーフエリア考慮）
+- 文字は複数行で読みやすく（改行も保持）
 */
 
 .kb-toast-host{
   position: fixed;
   left: 12px;
   right: 12px;
-  bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+
+  /* ✅ 上に出す（セーフエリア込み） */
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  bottom: auto;
+
   z-index: 9999;
   display: flex;
   flex-direction: column;
@@ -22,18 +27,19 @@
 .kb-toast{
   pointer-events: auto;
   display: flex;
-  align-items: center;
+  align-items: flex-start; /* ✅ 複数行に合わせる */
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   padding: 12px 14px;
   border-radius: 14px;
-  background: rgba(255, 0, 0, 0.9) !important;
+
   background: rgba(18, 22, 28, 0.78);
   border: 1px solid rgba(255,255,255,0.12);
   box-shadow: 0 12px 28px rgba(0,0,0,0.35);
   backdrop-filter: blur(14px);
 
-  transform: translateY(10px);
+  /* ✅ 上から出るアニメ */
+  transform: translateY(-10px);
   opacity: 0;
   transition: transform 220ms ease, opacity 220ms ease;
 }
@@ -45,22 +51,29 @@
 
 .kb-toast-msg{
   font-size: 14px;
-  line-height: 1.35;
+  line-height: 1.45;
   color: rgba(255,255,255,0.92);
+
+  /* ✅ 改行をそのまま表示＆複数行OK */
+  white-space: pre-wrap;
   word-break: break-word;
+
+  /* ✅ 右の×分を確保して読みやすく */
+  padding-right: 4px;
 }
 
 .kb-toast-x{
   border: 1px solid rgba(255,255,255,0.18);
   background: rgba(255,255,255,0.06);
   color: rgba(255,255,255,0.92);
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   font-size: 18px;
   line-height: 1;
   display: grid;
   place-items: center;
+  flex: 0 0 auto;
 }
 
 /* level (message.tags) */
