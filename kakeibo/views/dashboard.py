@@ -9,6 +9,14 @@
 # - 当月の収入・支出・差額＋固定/変動内訳
 # - 先月比（収入/支出/固定/変動）
 # - 可視化（支出率バー、固定/変動比バー）
+#
+# ★今回の修正ポイント
+# 1) BankBalance（月次）が当月に無いと 0 になる問題
+#    → month<=当月 の最新を拾う（フォールバック）
+# 2) 楽天余力（白丸）は cash_dashboard の定義と揃える
+#    → portfolio.services.cash_service.broker_summaries(today) の
+#       broker="楽天" の available を使用（完全一致）
+# 3) テンプレは HTML/CSS/JS を分離（dashboard.html 参照）
 # =========================================
 
 from decimal import Decimal
@@ -20,7 +28,7 @@ from django.shortcuts import render
 from django.utils import timezone
 
 from .permissions import kakeibo_access_required
-from ..models import MonthlyIncome, FixedExpenseTemplate, MonthlyVariableExpense, BankBalance
+from ..models import MonthlyIncome, FixedExpenseTemplate, MonthlyVariableExpense, BankBalance, Account
 
 
 def month_first(d):
@@ -50,10 +58,6 @@ def _sum_qs(qs, field: str):
     return _int(qs.aggregate(s=Sum(field))["s"])
 
 
-def _yen(v: int) -> str:
-    return f"{_int(v):,}"
-
-
 def _pct(num: int, den: int):
     den = _int(den)
     num = _int(num)
@@ -80,51 +84,72 @@ def _delta_pct(now: int, prev: int):
         return None
 
 
-def _bank_balance(month, owner: str, name_contains: str) -> int:
+def _bank_balance_fallback(month, owner: str, name_contains: str) -> dict:
     """
     何をする？
-    - 家計簿BankBalance（月次）から、対象の口座の残高を1つ取得する。
-    - owner（HOUSE/B/G）と、口座名の部分一致で探す。
+    - 家計簿の銀行残高(BankBalance)を「当月が無ければ最新月」で拾う。
+    - owner（HOUSE/B/G）と、口座名の部分一致で “口座” を探す。
+    - その口座の BankBalance を month<=対象月 の範囲で最新を拾う。
+
+    戻り値：
+      {
+        "balance": int,
+        "month": "YYYY-MM" or None,
+        "account_name": str or None,
+      }
     """
+    # まず口座候補（Account）を拾う
+    accs = (
+        Account.objects
+        .filter(kind="ACCOUNT", owner=owner, name__icontains=name_contains)
+        .order_by("id")
+    )
+    if not accs.exists():
+        return {"balance": 0, "month": None, "account_name": None}
+
+    # 次に BankBalance を「月次の最新」で拾う（当月が無くてもOK）
     obj = (
         BankBalance.objects
-        .filter(month=month, account__owner=owner, account__name__icontains=name_contains)
+        .filter(account__in=accs, month__lte=month)
         .select_related("account")
-        .order_by("-id")
+        .order_by("-month", "-id")
         .first()
     )
-    return _int(getattr(obj, "balance", 0))
+    if not obj:
+        return {"balance": 0, "month": None, "account_name": accs.first().name}
+
+    mm = getattr(obj, "month", None)
+    month_label = f"{mm.year}-{mm.month:02d}" if mm else None
+    return {
+        "balance": _int(getattr(obj, "balance", 0)),
+        "month": month_label,
+        "account_name": getattr(getattr(obj, "account", None), "name", None),
+    }
 
 
-def _portfolio_rakuten_cash_free() -> int:
+def _portfolio_rakuten_available_from_cash_dashboard(today) -> int:
     """
     何をする？
-    - 楽天の「現金余力（今すぐ使える資金）」を返す。
-    - portfolio.MarginState の latest(as_of) を楽天の全BrokerAccount分合算する。
+    - cash_dashboard（現金ダッシュボード）と同じ定義で「楽天の余力（白丸）」を取る。
+    - portfolio.services.cash_service.broker_summaries(today) の broker="楽天" の available を返す。
+
+    これで「白丸とホームがズレる」問題を根絶できる。
     """
     try:
-        from portfolio.models_cash import BrokerAccount, MarginState
+        from portfolio.services import cash_service as cash_svc
     except Exception:
         return 0
 
-    total = 0
-    # broker は "楽天"（ユーザー指定）
-    accounts = BrokerAccount.objects.filter(broker="楽天").order_by("id")
+    try:
+        rows = cash_svc.broker_summaries(today) or []
+    except Exception:
+        return 0
 
-    for acc in accounts:
-        ms = MarginState.objects.filter(account=acc).order_by("-as_of", "-id").first()
-        if not ms:
-            continue
-        try:
-            total += _int(ms.available_funds)
-        except Exception:
-            # available_funds は property。念のためフォールバック
-            try:
-                total += _int(getattr(ms, "cash_free", 0))
-            except Exception:
-                pass
+    for r in rows:
+        if (r.get("broker") or "").strip() == "楽天":
+            return _int(r.get("available", 0))
 
-    return _int(total)
+    return 0
 
 
 def _portfolio_rakuten_eval() -> int:
@@ -162,6 +187,8 @@ def dashboard(request):
     today = timezone.localdate()
     m = month_first(today)
     prev_m = add_month(m, -1)
+
+    debug = (request.GET.get("debug") or "").strip() == "1"
 
     # -----------------------
     # kakeibo：当月
@@ -228,21 +255,25 @@ def dashboard(request):
     year_diff = _int(year_income - year_expense)
 
     # -----------------------
-    # 銀行（家計簿）
+    # 銀行（家計簿）：当月が無ければ最新月で拾う
     # -----------------------
-    rakuten_bank_b = _bank_balance(m, owner="B", name_contains="楽天銀行")
-    aeon_bank_house = _bank_balance(m, owner="HOUSE", name_contains="イオン銀行")
+    rakuten_bank = _bank_balance_fallback(m, owner="B", name_contains="楽天銀行")
+    aeon_bank = _bank_balance_fallback(m, owner="HOUSE", name_contains="イオン銀行")
+
+    rakuten_bank_b = _int(rakuten_bank["balance"])
+    aeon_bank_house = _int(aeon_bank["balance"])
 
     # -----------------------
     # portfolio（楽天：投資）
     # -----------------------
-    rakuten_cash_free = _portfolio_rakuten_cash_free()  # スクショ白丸の「余力」を想定
+    rakuten_cash_free = _portfolio_rakuten_available_from_cash_dashboard(today)  # 白丸と完全一致
     rakuten_eval = _portfolio_rakuten_eval()
     invest_total = _int(rakuten_cash_free + rakuten_eval)
 
     # -----------------------
     # KPI
     # -----------------------
+    # あなたの定義：総資産 = 楽天銀行(B) + イオン銀行(家) + 楽天投資(評価額+余力)
     total_assets = _int(rakuten_bank_b + aeon_bank_house + invest_total)
 
     # あなたのルール：実残高 = 4,136,736 - 余力 - 楽天銀行(B)
@@ -257,6 +288,7 @@ def dashboard(request):
 
     context = {
         "title": "家計簿",
+        "debug": debug,
 
         # month labels
         "month_label": f"{m.year}-{m.month:02d}",
@@ -267,10 +299,17 @@ def dashboard(request):
         "kpi_rakuten_bank_actual": rakuten_bank_actual,
         "kpi_invest_total": invest_total,
 
-        # KPI 補助（必要なら表示に使える）
+        # KPI 補助（デバッグ表示用にも使う）
         "rakuten_cash_free": rakuten_cash_free,
         "rakuten_eval": rakuten_eval,
         "rakuten_bank_b": rakuten_bank_b,
+        "aeon_bank_house": aeon_bank_house,
+
+        # 銀行：どの月を拾ったか（当月が無いとズレるので、今だけ見える化）
+        "rakuten_bank_month_used": rakuten_bank.get("month"),
+        "rakuten_bank_account_name_used": rakuten_bank.get("account_name"),
+        "aeon_bank_month_used": aeon_bank.get("month"),
+        "aeon_bank_account_name_used": aeon_bank.get("account_name"),
 
         # 年度
         "year_label": f"{y}",
@@ -299,8 +338,5 @@ def dashboard(request):
         "expense_rate": expense_rate,   # %
         "fixed_rate": fixed_rate,       # %
         "var_rate": var_rate,           # %
-
-        # 銀行（内訳は小さく出さない方針だが、将来用に渡しておく）
-        "aeon_bank_house": aeon_bank_house,
     }
     return render(request, "kakeibo/dashboard.html", context)
