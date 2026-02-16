@@ -23,9 +23,9 @@ from ..forms import MonthlyIncomeForm
 
 def _owner_label(owner: str) -> str:
     m = {
-        "HOUSE": "家計",
-        "B": "B（夫）",
-        "G": "G（妻）",
+        "HOUSE": "家",
+        "B": "ぼーや",
+        "G": "ごろ",
     }
     return m.get(owner, owner or "不明")
 
