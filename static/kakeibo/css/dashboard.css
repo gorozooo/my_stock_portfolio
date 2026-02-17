@@ -4,156 +4,147 @@
 
 このファイルは何？
 - kakeibo/dashboard.html 専用スタイル
-- B案（改）：とにかく整列。数字を右揃え、等幅、表（グリッド）で揃える
+- B案（改2）：枠はセクション外側だけ。内側は枠にせず、整列と区切り線で見やすくする。
+- 「縦文字っぽく見える」問題を潰す（幅・改行・行高・省略ルール）
 ========================================= */
 
+/* セクション余白は統一 */
 .kb-sec{
   padding: 14px;
 }
 
-/* 数字は等幅・右揃えで桁を揃える */
+/* 数字は桁が揃うように */
 .kb-num{
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
 }
 
-/* ① 総資産（変な強調をやめてフラットに） */
-.kb-kpi-hero{
-  padding: 14px;
-  border-radius: 16px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.03);
+/* ------- KPI HERO ------- */
+.kb-hero{
+  padding: 2px 0;
 }
-.kb-kpi-hero-val{
+.kb-hero-val{
   font-size: 26px;
-  font-weight: 820;
+  font-weight: 840;
   letter-spacing: 0.2px;
   margin-top: 6px;
 }
 
-/* ②③：2列 */
-.kb-kpi-2col{
+/* ------- KPI 2列（枠なし） ------- */
+.kb-kpi-pair{
   display:grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: 16px;
 }
-@media (max-width: 350px){
-  .kb-kpi-2col{ grid-template-columns: 1fr; }
-}
-
-.kb-kpi-box{
-  padding: 12px;
-  border-radius: 16px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.03);
+@media (max-width: 360px){
+  .kb-kpi-pair{ grid-template-columns: 1fr; }
 }
 
-/* KPI 1行：左ラベル / 右値 を固定 */
-.kb-kpi-row{
+/* 各カラムは “中身だけ” で整列 */
+.kb-kpi-col{
+  min-width: 0; /* 省略が効くように */
+}
+
+.kb-kpi-cap{
+  font-size: 12px;
+  opacity: .82;
+  white-space: nowrap;       /* ラベルを縦崩れさせない */
+  overflow: hidden;
+  text-overflow: ellipsis;   /* 長くても見た目崩さない */
+}
+
+.kb-kpi-val{
+  margin-top: 6px;
+  font-size: 20px;
+  font-weight: 820;
+  letter-spacing: 0.1px;
+  line-height: 1.15;
+}
+
+/* 投資のサブ行（枠なし整列） */
+.kb-kpi-subrows{
+  display:grid;
+  gap: 6px;
+}
+.kb-subrow{
   display:grid;
   grid-template-columns: 1fr auto;
   align-items: baseline;
   gap: 10px;
 }
-.kb-kpi-mid{
-  font-size: 20px;
-  font-weight: 780;
-  letter-spacing: 0.1px;
-  text-align: right;
-}
-
-/* 投資の明細：表で整列 */
-.kb-kpi-mini-table{
-  border-top: 1px solid rgba(255,255,255,0.10);
-  margin-top: 10px;
-  padding-top: 10px;
-}
-.kb-kpi-mini-row{
-  display:grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
-  align-items:center;
-  padding: 6px 0;
-}
-.kb-kpi-mini-label{
+.kb-subkey{
   font-size: 12px;
-  opacity: .82;
+  opacity: .78;
+  white-space: nowrap;
+  overflow:hidden;
+  text-overflow: ellipsis;
 }
-.kb-kpi-mini-val{
+.kb-subval{
   font-size: 13px;
   font-weight: 760;
-  text-align:right;
+  text-align: right;
+  white-space: nowrap;
 }
 
-/* 汎用：2列（当月の収入/支出など） */
-.kb-2col{
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-@media (max-width: 350px){
-  .kb-2col{ grid-template-columns: 1fr; }
+/* ------- 区切り線（薄い） ------- */
+.kb-divider{
+  height: 1px;
+  background: rgba(255,255,255,0.10);
 }
 
-.kb-box{
-  padding: 12px;
-  border-radius: 16px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.03);
-}
-.kb-box-top{
+/* ------- 行リスト（表グリッドに見せない） ------- */
+.kb-list{
   display:grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
-  align-items: baseline;
+  gap: 0;
 }
-.kb-box-val{
-  font-size: 18px;
-  font-weight: 820;
-  text-align:right;
+.kb-li{
+  display:flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 2px;
+  border-top: 1px solid rgba(255,255,255,0.10);
 }
+.kb-li:first-child{ border-top: none; }
 
-/* 表（年度・当月内訳） */
-.kb-table{
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 16px;
-  overflow:hidden;
-  background: rgba(255,255,255,0.03);
-}
-.kb-trow{
-  display:grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
-  align-items:center;
-  padding: 12px;
-  border-top: 1px solid rgba(255,255,255,0.08);
-}
-.kb-trow:first-child{ border-top:none; }
-.kb-tlabel{
+.kb-li-label{
   font-size: 12px;
   opacity: .82;
+  white-space: nowrap;
 }
-.kb-tval{
+.kb-li-val{
   font-size: 16px;
   font-weight: 760;
-  text-align:right;
+  text-align: right;
+  white-space: nowrap;
 }
-.kb-strong .kb-tval{
+.kb-li-strong .kb-li-val{
   font-size: 17px;
-  font-weight: 840;
+  font-weight: 860;
 }
 
-/* テキスト類 */
+/* ------- テキスト類 ------- */
 .kb-mini-label{ font-size: 12px; opacity: .82; }
-.kb-mini-delta{ font-size: 12px; opacity: .80; line-height: 1.25; }
+.kb-mini-delta{
+  font-size: 12px;
+  opacity: .80;
+  line-height: 1.25;
+}
+.kb-mini-deltas{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 360px){
+  .kb-mini-deltas{ grid-template-columns: 1fr; }
+}
+
 .kb-note{
   font-size: 12px;
   opacity: 0.75;
   line-height: 1.35;
-  margin-top: 10px;
 }
 
-/* バー */
+/* ------- バー ------- */
 .kb-bar{
   margin-top:10px;
   border-radius: 999px;
@@ -187,7 +178,8 @@
 .kb-bar-fixed{ background: rgba(255, 200, 80, 0.65); }
 .kb-bar-var{ background: rgba(86, 204, 242, 0.65); }
 
-/* 余白 */
+/* ------- 余白 ------- */
+.kb-mt-6{ margin-top:6px; }
 .kb-mt-10{ margin-top:10px; }
 .kb-mt-12{ margin-top:12px; }
 .kb-mt-14{ margin-top:14px; }
