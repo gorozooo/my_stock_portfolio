@@ -572,15 +572,6 @@ def _build_row(h: Holding) -> RowVM:
 
 
 def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
-    """
-    何をする？
-    - holdings 一覧の集計（summary）を作る
-    - ★楽天アプリの「評価額合計」と同じ定義に寄せる
-
-    楽天定義（重要）：
-    - 現物：評価額（valuation）を合計
-    - 信用（MARGIN）：建玉の「評価損益（pnl）」だけを合計（評価額は足さない）
-    """
     n = 0
     acq_sum_jpy = 0.0
     val_sum_jpy = 0.0
@@ -607,8 +598,12 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
         acq_i_native = q * cost
         acq_sum_jpy += acq_i_native * fx
 
-        # --- 含み損益（JPY） ---
-        pnl_jpy: Optional[float] = None
+        # 評価額は RowVM 側で既に JPY ベースに統一済み
+        if r.valuation is not None:
+            val_sum_jpy += float(r.valuation)
+            have_val += 1
+
+        # 含み損益も RowVM 側で JPY ベースに統一済み
         if r.pnl is not None:
             pnl_jpy = float(r.pnl)
             pnl_sum_acc_jpy += pnl_jpy
@@ -623,22 +618,6 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
                 top_gain = (pnl_jpy, h)
             if top_loss is None or pnl_jpy < top_loss[0]:
                 top_loss = (pnl_jpy, h)
-
-        # --- 評価額合計（楽天定義に合わせる） ---
-        acc = (getattr(h, "account", "") or "").upper()
-        if acc == "MARGIN":
-            # ★信用は「評価額」ではなく「評価損益」を評価額合計に足す（楽天と一致）
-            if pnl_jpy is not None:
-                val_sum_jpy += pnl_jpy
-                have_val += 1
-            else:
-                # pnl が取れないときは 0 扱い（足さない）
-                pass
-        else:
-            # ★現物は評価額（valuation）をそのまま足す
-            if r.valuation is not None:
-                val_sum_jpy += float(r.valuation)
-                have_val += 1
 
         # 保有日数
         if r.days is not None:
@@ -664,7 +643,7 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
     summary: Dict[str, Optional[float]] = dict(
         count=n,
         acq=acq_sum_jpy,
-        val=val_sum_jpy if have_val else None,  # ★楽天定義の「評価額合計」
+        val=val_sum_jpy if have_val else None,
         pnl=pnl_sum,
         pnl_pct=pnl_pct,
         winners=winners,
