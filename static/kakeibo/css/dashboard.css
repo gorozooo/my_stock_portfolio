@@ -4,152 +4,156 @@
 
 このファイルは何？
 - kakeibo/dashboard.html 専用スタイル
-- B案：ダッシュボードっぽい「情報整理重視」
-- 余白/整列/階層（見出し→数値→補足）で“読みやすさ”を作る
+- B案（改）：とにかく整列。数字を右揃え、等幅、表（グリッド）で揃える
 ========================================= */
 
 .kb-sec{
   padding: 14px;
 }
 
-/* 見出し：左＝タイトル、右＝補助 */
-.kb-head{
-  display:flex;
-  align-items:flex-end;
-  justify-content:space-between;
-  gap: 10px;
-}
-.kb-subtitle{
-  font-size: 12px;
-  opacity: .70;
-  white-space: nowrap;
+/* 数字は等幅・右揃えで桁を揃える */
+.kb-num{
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
 }
 
-/* KPI: HERO（総資産） */
+/* ① 総資産（変な強調をやめてフラットに） */
 .kb-kpi-hero{
   padding: 14px;
   border-radius: 16px;
   border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.04);
+  background: rgba(255,255,255,0.03);
 }
-
-/* ①は現状サイズ維持 */
-.kb-kpi-big{
+.kb-kpi-hero-val{
   font-size: 26px;
   font-weight: 820;
   letter-spacing: 0.2px;
   margin-top: 6px;
 }
 
-/* ②③ 横2列 */
-.kb-kpi-subgrid{
+/* ②③：2列 */
+.kb-kpi-2col{
   display:grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
-
-/* iPhoneの極小幅は縦1列 */
 @media (max-width: 350px){
-  .kb-kpi-subgrid{ grid-template-columns: 1fr; }
+  .kb-kpi-2col{ grid-template-columns: 1fr; }
 }
 
-.kb-kpi-tile{
+.kb-kpi-box{
   padding: 12px;
   border-radius: 16px;
   border: 1px solid rgba(255,255,255,0.12);
   background: rgba(255,255,255,0.03);
 }
 
-/* ②③の数字は小さめ */
+/* KPI 1行：左ラベル / 右値 を固定 */
+.kb-kpi-row{
+  display:grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 10px;
+}
 .kb-kpi-mid{
   font-size: 20px;
   font-weight: 780;
-  margin-top: 6px;
   letter-spacing: 0.1px;
+  text-align: right;
 }
 
-/* ピル */
-.kb-pill-row{
-  display:flex;
-  flex-wrap: wrap;
-  gap: 8px;
+/* 投資の明細：表で整列 */
+.kb-kpi-mini-table{
+  border-top: 1px solid rgba(255,255,255,0.10);
   margin-top: 10px;
+  padding-top: 10px;
 }
-.kb-pill{
-  display:inline-flex;
+.kb-kpi-mini-row{
+  display:grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
   align-items:center;
-  gap:6px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.05);
+  padding: 6px 0;
+}
+.kb-kpi-mini-label{
   font-size: 12px;
-  color: rgba(255,255,255,0.92);
+  opacity: .82;
+}
+.kb-kpi-mini-val{
+  font-size: 13px;
+  font-weight: 760;
+  text-align:right;
 }
 
-/* 年度：表っぽい整列 */
-.kb-metrics{
+/* 汎用：2列（当月の収入/支出など） */
+.kb-2col{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 350px){
+  .kb-2col{ grid-template-columns: 1fr; }
+}
+
+.kb-box{
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.03);
+}
+.kb-box-top{
+  display:grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+}
+.kb-box-val{
+  font-size: 18px;
+  font-weight: 820;
+  text-align:right;
+}
+
+/* 表（年度・当月内訳） */
+.kb-table{
   border: 1px solid rgba(255,255,255,0.10);
   border-radius: 16px;
   overflow:hidden;
   background: rgba(255,255,255,0.03);
 }
-.kb-metric-row{
-  display:flex;
+.kb-trow{
+  display:grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
   align-items:center;
-  justify-content:space-between;
   padding: 12px;
   border-top: 1px solid rgba(255,255,255,0.08);
 }
-.kb-metric-row:first-child{
-  border-top: none;
-}
-.kb-metric-label{
+.kb-trow:first-child{ border-top:none; }
+.kb-tlabel{
   font-size: 12px;
   opacity: .82;
 }
-.kb-metric-val{
+.kb-tval{
   font-size: 16px;
   font-weight: 760;
-  letter-spacing: .1px;
+  text-align:right;
 }
-.kb-metric-strong .kb-metric-val{
+.kb-strong .kb-tval{
   font-size: 17px;
-  font-weight: 820;
+  font-weight: 840;
 }
 
-/* 当月ブロック */
-.kb-row-2{
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-.kb-block{
-  padding: 12px;
-  border-radius: 16px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.03);
-}
-.kb-block-wide{
-  padding: 12px;
-  border-radius: 16px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.03);
-}
-
+/* テキスト類 */
 .kb-mini-label{ font-size: 12px; opacity: .82; }
-.kb-mini-val{ font-size: 16px; font-weight: 760; margin-top: 6px; }
-.kb-val-big{ font-size: 18px; font-weight: 820; }
-.kb-mini-delta{ font-size: 12px; opacity: .80; margin-top: 6px; line-height: 1.25; }
-
+.kb-mini-delta{ font-size: 12px; opacity: .80; line-height: 1.25; }
 .kb-note{
-  margin-top: 10px;
   font-size: 12px;
   opacity: 0.75;
   line-height: 1.35;
+  margin-top: 10px;
 }
 
-/* バーは見やすさ優先（そのまま） */
+/* バー */
 .kb-bar{
   margin-top:10px;
   border-radius: 999px;
@@ -165,7 +169,6 @@
   background: rgba(86, 204, 242, 0.65);
   transition: width .45s ease;
 }
-
 .kb-bar-2{
   display:flex;
   height: 14px;
@@ -184,11 +187,13 @@
 .kb-bar-fixed{ background: rgba(255, 200, 80, 0.65); }
 .kb-bar-var{ background: rgba(86, 204, 242, 0.65); }
 
-/* ユーティリティ */
+/* 余白 */
+.kb-mt-10{ margin-top:10px; }
 .kb-mt-12{ margin-top:12px; }
 .kb-mt-14{ margin-top:14px; }
 .kb-mt-16{ margin-top:16px; }
 
+/* debug */
 .kb-debug-hint{
   margin-top: 10px;
   font-size: 12px;
