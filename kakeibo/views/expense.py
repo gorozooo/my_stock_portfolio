@@ -6,13 +6,14 @@
 # 支出（/kakeibo/expense/）
 # - 入口で「固定費 / 変動費」を選ぶ
 # - 固定費：テンプレ（毎月同じ）
-# - 変動費：月次（カード/立替）
+# - 変動費：月次（カード/立替/年金・保険/その他）
 #
 # ★重要
 # POSTでフォームが invalid のとき、エラー付きフォームを捨てずにそのまま画面へ返す
 #
-# ★今回
-# 変動費：項目（item_category）を導入したので、トーストに項目名も出す
+# ★今回の修正ポイント
+# - 変動費のトースト表示で存在しない item_category を参照していたので、
+#   実在する category を表示する（保存エラーとは別だが、表示崩れを防ぐ）
 # =========================================
 
 from django.contrib import messages
@@ -149,12 +150,12 @@ def expense_variable(request):
                 owner = getattr(obj, "owner", "")
                 var_type = getattr(obj, "var_type", "")
                 card_name = getattr(getattr(obj, "card", None), "name", "")
-                item_name = getattr(getattr(obj, "item_category", None), "name", "")
+                category_name = getattr(getattr(obj, "category", None), "name", "")
                 amount = getattr(obj, "amount", None)
 
                 month_s = month.strftime("%Y-%m") if month else ""
-                vt = "カード" if var_type == "CARD" else ("立替" if var_type == "ADVANCE" else var_type)
-                head = f"{month_s} / {_owner_label(owner)} / {vt} / {item_name}"
+                vt = "カード" if var_type == "CARD" else ("立替" if var_type == "ADVANCE" else ("年金・保険" if var_type == "PENSION" else ("その他" if var_type == "OTHER" else var_type)))
+                head = f"{month_s} / {_owner_label(owner)} / {vt} / {category_name}"
                 tail = f" / {card_name}" if (var_type == "CARD" and card_name) else ""
                 messages.success(request, f"✅ 変動費を登録：{head}{tail} / ¥{_yen(amount)}")
 
@@ -172,12 +173,12 @@ def expense_variable(request):
                 owner = getattr(x, "owner", "")
                 var_type = getattr(x, "var_type", "")
                 card_name = getattr(getattr(x, "card", None), "name", "")
-                item_name = getattr(getattr(x, "item_category", None), "name", "")
+                category_name = getattr(getattr(x, "category", None), "name", "")
                 amount = getattr(x, "amount", None)
 
                 month_s = month.strftime("%Y-%m") if month else ""
-                vt = "カード" if var_type == "CARD" else ("立替" if var_type == "ADVANCE" else var_type)
-                head = f"{month_s} / {_owner_label(owner)} / {vt} / {item_name}"
+                vt = "カード" if var_type == "CARD" else ("立替" if var_type == "ADVANCE" else ("年金・保険" if var_type == "PENSION" else ("その他" if var_type == "OTHER" else var_type)))
+                head = f"{month_s} / {_owner_label(owner)} / {vt} / {category_name}"
                 tail = f" / {card_name}" if (var_type == "CARD" and card_name) else ""
                 messages.success(request, f"✅ 変動費を更新：{head}{tail} / ¥{_yen(amount)}")
 
@@ -190,12 +191,12 @@ def expense_variable(request):
             owner = getattr(obj, "owner", "")
             var_type = getattr(obj, "var_type", "")
             card_name = getattr(getattr(obj, "card", None), "name", "")
-            item_name = getattr(getattr(obj, "item_category", None), "name", "")
+            category_name = getattr(getattr(obj, "category", None), "name", "")
             amount = getattr(obj, "amount", None)
 
             month_s = month.strftime("%Y-%m") if month else ""
-            vt = "カード" if var_type == "CARD" else ("立替" if var_type == "ADVANCE" else var_type)
-            head = f"{month_s} / {_owner_label(owner)} / {vt} / {item_name}"
+            vt = "カード" if var_type == "CARD" else ("立替" if var_type == "ADVANCE" else ("年金・保険" if var_type == "PENSION" else ("その他" if var_type == "OTHER" else var_type)))
+            head = f"{month_s} / {_owner_label(owner)} / {vt} / {category_name}"
             tail = f" / {card_name}" if (var_type == "CARD" and card_name) else ""
 
             obj.delete()
