@@ -6,7 +6,7 @@
 # 家計簿のフォーム定義（B案：月次方式）。
 # - 設定（カテゴリ/口座/カード）
 # - 収入（月次）
-# - 支出：固定費テンプレ / 変動費（月次：カード/立替）
+# - 支出：固定費テンプレ / 変動費（月次：カード/立替/年金・保険/その他）
 # - 銀行残高（月次）
 #
 # ★重要（今回の修正）
@@ -21,6 +21,12 @@
 # JSが動かなかった場合に「カードが出ない」事故になる。
 # → GETでも最低限 “全候補” を出す（kindで絞る）。
 #   POST時（self.dataがある時）と編集時（self.instanceがある時）は、ownerで絞る。
+#
+# ★今回の修正ポイント（今回のエラー原因）
+# - 変動費の category は DBで NOT NULL。
+# - なのに clean() で category を CARD/ADVANCE の時しかセットしていなかったため、
+#   PENSION/OTHER で category_id が NULL になって IntegrityError が出ていた。
+# → 全 var_type で Category(type=EXPENSE, code=var_type) を必ず自動セットする。
 # =========================================
 
 from django import forms
@@ -129,7 +135,7 @@ class FixedExpenseTemplateForm(forms.ModelForm):
 
 
 # ----------------------------
-# 変動費（月次：カード/立替）
+# 変動費（月次：カード/立替/年金・保険/その他）
 # ----------------------------
 class MonthlyVariableExpenseForm(forms.ModelForm):
     # ✅ month を上書き（YYYY-MM を受け取れるようにする）
@@ -149,6 +155,7 @@ class MonthlyVariableExpenseForm(forms.ModelForm):
         self.fields["month"].initial = normalize_month(today)
 
         # ✅ category はユーザー入力不要：完全自動なので非表示＆入力要求もしない
+        #    ただし DB は NOT NULL なので、clean() で必ずセットする（今回の修正）
         self.fields["category"].required = False
         self.fields["category"].widget = forms.HiddenInput()
         self.fields["category"].queryset = Category.objects.filter(type="EXPENSE").order_by("order", "id")
@@ -187,14 +194,14 @@ class MonthlyVariableExpenseForm(forms.ModelForm):
         else:
             cleaned["card"] = None
 
-        # ✅ category は code で強制（CARD/ADVANCE）
-        if var_type in ("CARD", "ADVANCE"):
-            need_code = var_type
-            q = Category.objects.filter(type="EXPENSE", code=need_code)
+        # ✅ category は var_type を code として必ず自動セット（★今回の本命修正）
+        #    ルール：Category(type=EXPENSE, code=var_type) をセットする
+        if var_type:
+            q = Category.objects.filter(type="EXPENSE", code=var_type)
             if q.exists():
                 cleaned["category"] = q.first()
             else:
-                self.add_error("category", f"設定で code={need_code} の支出カテゴリを1つ作ってください。")
+                self.add_error("category", f"設定で code={var_type} の支出カテゴリを1つ作ってください。")
 
         return cleaned
 
