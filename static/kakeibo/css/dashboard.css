@@ -3,197 +3,309 @@
 [PATH] static/kakeibo/css/dashboard.css
 
 このファイルは何？
-- kakeibo/dashboard.html 専用スタイル
-- B案（改2）：枠はセクション外側だけ。内側は枠にせず、整列と区切り線で見やすくする。
-- 「縦文字っぽく見える」問題を潰す（幅・改行・行高・省略ルール）
+- dashboard.html 専用スタイル
+- ★枠（カード）でセクション分けをしない
+- ★表/グリッド/罫線を使わない（線で区切らず、余白で区切る）
+- ★白一色をやめ、意味のある色を使う（収入/支出/差額/銀行/投資）
 ========================================= */
 
-/* セクション余白は統一 */
-.kb-sec{
-  padding: 14px;
+:root{
+  --t: rgba(255,255,255,0.92);
+  --m: rgba(255,255,255,0.70);
+  --d: rgba(255,255,255,0.55);
+
+  --plus: rgba(78,226,162,1);
+  --minus: rgba(255,166,68,1);
+  --diff: rgba(86,204,242,1);
+
+  --bank: rgba(194, 240, 255, 0.95);
+  --invest: rgba(190, 210, 255, 0.95);
+
+  /* 背景を単調にしない（でも派手すぎない） */
+  --bg1: rgba(10, 18, 22, 1);
+  --bg2: rgba(14, 26, 32, 1);
 }
 
-/* 数字は桁が揃うように */
-.kb-num{
+/* 画面全体：うっすらグラデで“黒一色”を脱却 */
+body{
+  background: radial-gradient(1200px 700px at 10% 0%, rgba(86,204,242,0.10), transparent 60%),
+              radial-gradient(900px 600px at 90% 20%, rgba(78,226,162,0.08), transparent 60%),
+              linear-gradient(180deg, var(--bg2), var(--bg1));
+}
+
+/* 数字を整列させる */
+.ds-num{
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
 }
 
-/* ------- KPI HERO ------- */
-.kb-hero{
-  padding: 2px 0;
+/* ====== ヘッダー ====== */
+.ds-head{
+  padding: 6px 2px 10px;
 }
-.kb-hero-val{
-  font-size: 26px;
-  font-weight: 840;
-  letter-spacing: 0.2px;
-  margin-top: 6px;
-}
-
-/* ------- KPI 2列（枠なし） ------- */
-.kb-kpi-pair{
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-@media (max-width: 360px){
-  .kb-kpi-pair{ grid-template-columns: 1fr; }
-}
-
-/* 各カラムは “中身だけ” で整列 */
-.kb-kpi-col{
-  min-width: 0; /* 省略が効くように */
-}
-
-.kb-kpi-cap{
-  font-size: 12px;
-  opacity: .82;
-  white-space: nowrap;       /* ラベルを縦崩れさせない */
-  overflow: hidden;
-  text-overflow: ellipsis;   /* 長くても見た目崩さない */
-}
-
-.kb-kpi-val{
-  margin-top: 6px;
-  font-size: 20px;
-  font-weight: 820;
-  letter-spacing: 0.1px;
-  line-height: 1.15;
-}
-
-/* 投資のサブ行（枠なし整列） */
-.kb-kpi-subrows{
-  display:grid;
-  gap: 6px;
-}
-.kb-subrow{
-  display:grid;
-  grid-template-columns: 1fr auto;
+.ds-head-left{
+  display:flex;
   align-items: baseline;
   gap: 10px;
 }
-.kb-subkey{
+.ds-title{
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--t);
+}
+.ds-sub{
   font-size: 12px;
-  opacity: .78;
-  white-space: nowrap;
-  overflow:hidden;
-  text-overflow: ellipsis;
-}
-.kb-subval{
-  font-size: 13px;
-  font-weight: 760;
-  text-align: right;
-  white-space: nowrap;
+  color: var(--m);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
 }
 
-/* ------- 区切り線（薄い） ------- */
-.kb-divider{
-  height: 1px;
-  background: rgba(255,255,255,0.10);
+/* ====== HERO ====== */
+.ds-hero{
+  padding: 12px 2px 8px;
 }
-
-/* ------- 行リスト（表グリッドに見せない） ------- */
-.kb-list{
-  display:grid;
-  gap: 0;
+.ds-hero-kicker{
+  font-size: 12px;
+  color: var(--m);
 }
-.kb-li{
+.ds-hero-value{
+  margin-top: 6px;
+  font-size: 30px;
+  font-weight: 950;
+  letter-spacing: .2px;
+  color: var(--t);
+  line-height: 1.12;
+}
+.ds-hero-hint{
   display:flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 2px;
-  border-top: 1px solid rgba(255,255,255,0.10);
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
 }
-.kb-li:first-child{ border-top: none; }
-
-.kb-li-label{
+.ds-chip{
   font-size: 12px;
-  opacity: .82;
-  white-space: nowrap;
+  color: rgba(255,255,255,0.82);
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
 }
-.kb-li-val{
-  font-size: 16px;
-  font-weight: 760;
+.ds-chip-invest{ background: rgba(86,204,242,0.10); }
+.ds-chip-bank{ background: rgba(194,240,255,0.08); }
+.ds-chip-neutral{ background: rgba(255,255,255,0.05); }
+
+/* ====== 2カラム（でも“箱”にはしない） ====== */
+.ds-split{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-top: 14px;
+}
+@media (max-width: 360px){
+  .ds-split{ grid-template-columns: 1fr; }
+}
+
+.ds-stat{
+  padding: 6px 0;   /* 枠を作らず、余白だけ */
+}
+.ds-stat-top{
+  display:flex;
+  align-items:center;
+  gap: 8px;
+}
+.ds-stat-label{
+  font-size: 12px;
+  color: var(--m);
+}
+.ds-stat-val{
+  margin-top: 6px;
+  font-size: 20px;
+  font-weight: 900;
+  color: var(--t);
+}
+
+/* mini（評価額/余力）— 表にしない：行間で見せる */
+.ds-mini-list{
+  display:grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+.ds-mini-row{
+  display:flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+.ds-mini-key{
+  font-size: 12px;
+  color: var(--d);
+}
+.ds-mini-val{
+  font-size: 13px;
+  font-weight: 850;
+  color: rgba(255,255,255,0.86);
   text-align: right;
   white-space: nowrap;
 }
-.kb-li-strong .kb-li-val{
-  font-size: 17px;
-  font-weight: 860;
+
+/* ====== ブロック（セクション枠なし） ====== */
+.ds-block{
+  margin-top: 22px;
+  padding: 0 2px;     /* 背景や枠は一切なし */
+}
+.ds-block-head{
+  display:flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ds-block-title{
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--t);
+}
+.ds-block-sub{
+  font-size: 12px;
+  color: var(--m);
 }
 
-/* ------- テキスト類 ------- */
-.kb-mini-label{ font-size: 12px; opacity: .82; }
-.kb-mini-delta{
-  font-size: 12px;
-  opacity: .80;
-  line-height: 1.25;
+/* “行”は罫線なし。背景も付けない。間だけで区切る */
+.ds-rows{
+  display:grid;
+  gap: 12px;
+  margin-top: 12px;
 }
-.kb-mini-deltas{
+.ds-row{
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ds-row-left{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  min-width: 0;
+}
+.ds-row-label{
+  font-size: 12px;
+  color: var(--m);
+  white-space: nowrap;
+}
+.ds-row-right{
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--t);
+  white-space: nowrap;
+  text-align:right;
+}
+.ds-row-strong .ds-row-label{
+  color: rgba(255,255,255,0.82);
+}
+.ds-row-strong .ds-row-right{
+  font-size: 18px;
+  font-weight: 950;
+}
+
+/* ====== 色（数字の意味付け） ====== */
+.ds-plus{ color: var(--plus); }
+.ds-minus{ color: var(--minus); }
+.ds-diff{ color: var(--diff); }
+
+/* ====== ドット（線の代わりに“印”で区別） ====== */
+.ds-dot{
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  opacity: .95;
+}
+.ds-dot-plus{ background: var(--plus); }
+.ds-dot-minus{ background: var(--minus); }
+.ds-dot-diff{ background: var(--diff); }
+.ds-dot-bank{ background: var(--bank); }
+.ds-dot-invest{ background: var(--invest); }
+.ds-dot-neutral{ background: rgba(255,255,255,0.40); }
+
+/* ====== テキスト類 ====== */
+.ds-meta{
+  font-size: 12px;
+  color: var(--m);
+  line-height: 1.25;
+  margin-top: 6px;
+}
+.ds-meta-grid{
   display:grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
 @media (max-width: 360px){
-  .kb-mini-deltas{ grid-template-columns: 1fr; }
+  .ds-meta-grid{ grid-template-columns: 1fr; }
 }
-
-.kb-note{
+.ds-note{
   font-size: 12px;
-  opacity: 0.75;
+  color: rgba(255,255,255,0.72);
   line-height: 1.35;
 }
+.ds-mini-label{
+  font-size: 12px;
+  color: var(--m);
+}
 
-/* ------- バー ------- */
-.kb-bar{
+/* ====== バー ====== */
+.ds-bar{
   margin-top:10px;
   border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.08);
   overflow:hidden;
   height: 14px;
 }
-.kb-bar > i{
+.ds-bar > i{
   display:block;
   height: 100%;
   width: 0%;
-  background: rgba(86, 204, 242, 0.65);
+  background: rgba(86, 204, 242, 0.72);
   transition: width .45s ease;
 }
-.kb-bar-2{
+.ds-bar-2{
   display:flex;
   height: 14px;
   border-radius: 999px;
   overflow:hidden;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.08);
   margin-top:10px;
 }
-.kb-bar-2 > i{
+.ds-bar-2 > i{
   display:block;
   height: 100%;
   width: 0%;
   transition: width .45s ease;
 }
-.kb-bar-fixed{ background: rgba(255, 200, 80, 0.65); }
-.kb-bar-var{ background: rgba(86, 204, 242, 0.65); }
+.ds-bar-fixed{ background: rgba(255, 200, 80, 0.78); }
+.ds-bar-var{ background: rgba(86, 204, 242, 0.72); }
 
-/* ------- 余白 ------- */
-.kb-mt-6{ margin-top:6px; }
-.kb-mt-10{ margin-top:10px; }
-.kb-mt-12{ margin-top:12px; }
-.kb-mt-14{ margin-top:14px; }
-.kb-mt-16{ margin-top:16px; }
+/* ====== 余白 ====== */
+.ds-mt-10{ margin-top:10px; }
+.ds-mt-14{ margin-top:14px; }
+.ds-mt-16{ margin-top:16px; }
 
 /* debug */
-.kb-debug-hint{
+.ds-debug{
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.80);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.ds-debug-hint{
   margin-top: 10px;
   font-size: 12px;
-  opacity: .75;
+  opacity: .90;
 }
-.kb-debug-hint code{
+.ds-debug-hint code{
   padding: 2px 6px;
   border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.10);
 }
