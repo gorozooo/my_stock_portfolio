@@ -4,222 +4,68 @@
 
 このファイルは何？
 - kakeibo/dashboard.html 専用スタイル
-- C案：ゲームUIっぽい「気分が上がる」見た目（やりすぎない範囲）
+- B案：ダッシュボードっぽい「情報整理重視」
+- 余白/整列/階層（見出し→数値→補足）で“読みやすさ”を作る
 ========================================= */
 
-/* =========================
-   基本（C案の味付け）
-========================= */
-:root{
-  --kb-neon-cyan: rgba(86, 204, 242, 0.85);
-  --kb-neon-amber: rgba(255, 200, 80, 0.85);
-  --kb-neon-pink: rgba(255, 120, 220, 0.55);
-  --kb-glass: rgba(255,255,255,0.06);
-  --kb-glass-2: rgba(255,255,255,0.04);
-  --kb-line: rgba(255,255,255,0.12);
-  --kb-line-2: rgba(255,255,255,0.08);
+.kb-sec{
+  padding: 14px;
 }
 
-/* セクション全体を「箱の重さ」から解放して、階層を作る */
-.kb-section{
-  position: relative;
-  background: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.03));
-  border: 1px solid var(--kb-line-2);
-  box-shadow:
-    0 10px 30px rgba(0,0,0,0.25),
-    inset 0 1px 0 rgba(255,255,255,0.06);
-  overflow: hidden;
-}
-
-/* 薄いスキャンライン（雰囲気だけ） */
-.kb-section::before{
-  content:"";
-  position:absolute;
-  inset:0;
-  background:
-    repeating-linear-gradient(
-      to bottom,
-      rgba(255,255,255,0.025) 0px,
-      rgba(255,255,255,0.025) 1px,
-      rgba(0,0,0,0) 6px,
-      rgba(0,0,0,0) 10px
-    );
-  opacity: .18;
-  pointer-events:none;
-}
-
-/* タイトルにアクセント（ゲージっぽい） */
-.kb-title-accent{
+/* 見出し：左＝タイトル、右＝補助 */
+.kb-head{
   display:flex;
-  align-items:center;
-  gap:10px;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap: 10px;
 }
-.kb-title-accent::after{
-  content:"";
-  flex: 1;
-  height: 2px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--kb-neon-cyan), rgba(255,255,255,0.12));
-  opacity: .7;
+.kb-subtitle{
+  font-size: 12px;
+  opacity: .70;
+  white-space: nowrap;
 }
 
-/* アイコン */
-.kb-ico{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  width: 18px;
-  height: 18px;
-  font-size: 14px;
-  filter: drop-shadow(0 0 8px rgba(86,204,242,0.35));
-}
-
-/* バッジ */
-.kb-badge{
-  margin-left: 10px;
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  letter-spacing: .4px;
-  border: 1px solid var(--kb-line);
-  background: rgba(255,255,255,0.06);
-  opacity: .92;
-}
-.kb-badge-hot{
-  border-color: rgba(255,255,255,0.18);
-  background: linear-gradient(90deg, rgba(255,120,220,0.25), rgba(86,204,242,0.18));
-  box-shadow: 0 0 18px rgba(255,120,220,0.12);
-}
-
-/* =========================
-   KPIレイアウト
-========================= */
-.kb-grid-3{
-  display:grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-}
-
-/* KPI専用の中身（HERO + subgrid） */
-.kb-kpi-wrap{
-  padding-bottom: 16px;
-}
-
+/* KPI: HERO（総資産） */
 .kb-kpi-hero{
-  position: relative;
-  border: 1px solid rgba(255,255,255,0.16);
-  background: radial-gradient(1200px 220px at 20% 0%, rgba(86,204,242,0.14), rgba(255,255,255,0.05));
-  box-shadow:
-    0 14px 38px rgba(0,0,0,0.28),
-    0 0 0 1px rgba(86,204,242,0.10),
-    inset 0 1px 0 rgba(255,255,255,0.08);
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
 }
 
-/* HEROの上に薄い光 */
-.kb-kpi-hero::after{
-  content:"";
-  position:absolute;
-  inset:-2px;
-  border-radius: 18px;
-  background: radial-gradient(600px 120px at 30% 0%, rgba(86,204,242,0.18), rgba(0,0,0,0));
-  pointer-events:none;
-  opacity: .8;
-}
-
-.kb-kpi-subgrid{
-  display:grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-}
-@media (min-width: 360px){
-  .kb-kpi-subgrid{
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-.kb-kpi-sub{
-  border: 1px solid rgba(255,255,255,0.14);
-  background: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.03));
-  box-shadow:
-    0 10px 26px rgba(0,0,0,0.18),
-    inset 0 1px 0 rgba(255,255,255,0.06);
-}
-
-/* KPIラベル */
-.kb-kpi-label{
-  display:flex;
-  align-items:center;
-  gap:8px;
-}
-
-/* --- KPI（標準：総資産で使う） --- */
+/* ①は現状サイズ維持 */
 .kb-kpi-big{
   font-size: 26px;
-  font-weight: 860;
+  font-weight: 820;
   letter-spacing: 0.2px;
   margin-top: 6px;
-  text-shadow:
-    0 0 18px rgba(86,204,242,0.10),
-    0 2px 0 rgba(0,0,0,0.25);
 }
 
-/* HERO数字だけ、少し“勝ち”の演出 */
-.kb-kpi-hero-num{
-  font-size: 30px;
-  letter-spacing: 0.4px;
-  text-shadow:
-    0 0 26px rgba(86,204,242,0.18),
-    0 2px 0 rgba(0,0,0,0.28);
+/* ②③ 横2列 */
+.kb-kpi-subgrid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
-/* --- KPI（小さめ：②③で使う） --- */
-.kb-kpi-small .kb-kpi-big{
-  font-size: 20px;
-  font-weight: 820;
-  letter-spacing: 0.1px;
-  margin-top: 6px;
-  text-shadow:
-    0 0 16px rgba(255,200,80,0.08),
-    0 2px 0 rgba(0,0,0,0.24);
+/* iPhoneの極小幅は縦1列 */
+@media (max-width: 350px){
+  .kb-kpi-subgrid{ grid-template-columns: 1fr; }
 }
 
-/* =========================
-   メトリクス（年度/当月の見やすさ）
-========================= */
-.kb-metric{
-  padding: 10px 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(0,0,0,0.08);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
-}
-.kb-metric-wide{
+.kb-kpi-tile{
   padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.03);
 }
 
-/* テキスト */
-.kb-mini-label{ font-size: 12px; opacity: .84; }
-.kb-mini-val{
-  font-size: 17px;
+/* ②③の数字は小さめ */
+.kb-kpi-mid{
+  font-size: 20px;
   font-weight: 780;
   margin-top: 6px;
-  letter-spacing: .2px;
-  text-shadow: 0 2px 0 rgba(0,0,0,0.25);
-}
-.kb-mini-delta{
-  font-size: 12px;
-  opacity: .82;
-  margin-top: 6px;
-  line-height: 1.25;
-}
-
-.kb-kpi-sub{
-  margin-top: 8px;
-  font-size: 12px;
-  opacity: 0.82;
+  letter-spacing: 0.1px;
 }
 
 /* ピル */
@@ -239,91 +85,106 @@
   background: rgba(255,255,255,0.05);
   font-size: 12px;
   color: rgba(255,255,255,0.92);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
 }
 
-/* =========================
-   バー（発光ゲージ）
-========================= */
+/* 年度：表っぽい整列 */
+.kb-metrics{
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 16px;
+  overflow:hidden;
+  background: rgba(255,255,255,0.03);
+}
+.kb-metric-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding: 12px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+.kb-metric-row:first-child{
+  border-top: none;
+}
+.kb-metric-label{
+  font-size: 12px;
+  opacity: .82;
+}
+.kb-metric-val{
+  font-size: 16px;
+  font-weight: 760;
+  letter-spacing: .1px;
+}
+.kb-metric-strong .kb-metric-val{
+  font-size: 17px;
+  font-weight: 820;
+}
+
+/* 当月ブロック */
+.kb-row-2{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.kb-block{
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.03);
+}
+.kb-block-wide{
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.03);
+}
+
+.kb-mini-label{ font-size: 12px; opacity: .82; }
+.kb-mini-val{ font-size: 16px; font-weight: 760; margin-top: 6px; }
+.kb-val-big{ font-size: 18px; font-weight: 820; }
+.kb-mini-delta{ font-size: 12px; opacity: .80; margin-top: 6px; line-height: 1.25; }
+
+.kb-note{
+  margin-top: 10px;
+  font-size: 12px;
+  opacity: 0.75;
+  line-height: 1.35;
+}
+
+/* バーは見やすさ優先（そのまま） */
 .kb-bar{
   margin-top:10px;
   border-radius: 999px;
   border: 1px solid rgba(255,255,255,0.12);
   background: rgba(255,255,255,0.06);
   overflow:hidden;
-  height: 16px; /* 少し太く */
-  position: relative;
+  height: 14px;
 }
-
 .kb-bar > i{
   display:block;
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, rgba(86,204,242,0.35), rgba(86,204,242,0.80));
-  transition: width .55s cubic-bezier(.2,.9,.2,1);
-  box-shadow: 0 0 18px rgba(86,204,242,0.22);
+  background: rgba(86, 204, 242, 0.65);
+  transition: width .45s ease;
 }
 
-/* スキャンっぽい光が走る（雰囲気） */
-.kb-bar-glow::after{
-  content:"";
-  position:absolute;
-  top:0;
-  left:-30%;
-  width: 30%;
-  height:100%;
-  background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.12), rgba(255,255,255,0));
-  transform: skewX(-18deg);
-  opacity: .55;
-  pointer-events:none;
-}
-
-/* 2分割バー */
 .kb-bar-2{
   display:flex;
-  height: 16px;
+  height: 14px;
   border-radius: 999px;
   overflow:hidden;
   border: 1px solid rgba(255,255,255,0.12);
   background: rgba(255,255,255,0.06);
   margin-top:10px;
-  position: relative;
 }
-
 .kb-bar-2 > i{
   display:block;
   height: 100%;
   width: 0%;
-  transition: width .55s cubic-bezier(.2,.9,.2,1);
+  transition: width .45s ease;
 }
+.kb-bar-fixed{ background: rgba(255, 200, 80, 0.65); }
+.kb-bar-var{ background: rgba(86, 204, 242, 0.65); }
 
-.kb-bar-fixed{
-  background: linear-gradient(90deg, rgba(255,200,80,0.35), rgba(255,200,80,0.85));
-  box-shadow: 0 0 18px rgba(255,200,80,0.18);
-}
-.kb-bar-var{
-  background: linear-gradient(90deg, rgba(86,204,242,0.35), rgba(86,204,242,0.85));
-  box-shadow: 0 0 18px rgba(86,204,242,0.18);
-}
-
-/* =========================
-   既存ユーティリティ
-========================= */
-.kb-row-2{
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 10px;
-}
-
-.kb-note{
-  margin-top: 10px;
-  font-size: 12px;
-  opacity: 0.78;
-  line-height: 1.35;
-}
-
-.kb-pad-14{ padding:14px; }
+/* ユーティリティ */
 .kb-mt-12{ margin-top:12px; }
 .kb-mt-14{ margin-top:14px; }
 .kb-mt-16{ margin-top:16px; }
@@ -338,12 +199,4 @@
   border-radius: 8px;
   border: 1px solid rgba(255,255,255,0.12);
   background: rgba(255,255,255,0.06);
-}
-
-/* ささやかな“押した感” */
-.kb-card{
-  transform: translateZ(0);
-}
-.kb-card:active{
-  transform: scale(0.997);
 }
