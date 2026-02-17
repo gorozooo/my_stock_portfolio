@@ -29,7 +29,7 @@
 
     <div class="kb-grid-3 kb-mt-12">
 
-      <!-- ① 総資産 -->
+      <!-- ① 総資産（現状の大きさのまま） -->
       <div class="kb-card kb-pad-14">
         <div class="kb-mini-label">我が家の総資産</div>
         <div class="kb-kpi-big">¥{{ kpi_total_assets|intcomma }}</div>
@@ -45,8 +45,8 @@
         {% endif %}
       </div>
 
-      <!-- ② 楽天銀行(B) 実残高 -->
-      <div class="kb-card kb-pad-14">
+      <!-- ② 楽天銀行残高（小さくする） -->
+      <div class="kb-card kb-pad-14 kb-kpi-small">
         <div class="kb-mini-label">楽天銀行残高</div>
         <div class="kb-kpi-big">¥{{ kpi_rakuten_bank_actual|intcomma }}</div>
 
@@ -60,8 +60,8 @@
         {% endif %}
       </div>
 
-      <!-- ③ 投資（評価額+余力） -->
-      <div class="kb-card kb-pad-14">
+      <!-- ③ 投資（小さくする） -->
+      <div class="kb-card kb-pad-14 kb-kpi-small">
         <div class="kb-mini-label">投資</div>
         <div class="kb-kpi-big">¥{{ kpi_invest_total|intcomma }}</div>
 
@@ -93,7 +93,7 @@
        ④ 年度（1-12）収支
   ========================== -->
   <section class="kb-card">
-    <div class="kb-title">年度の収支（{{ year_label }}年）</div>
+    <div class="kb-title">年度収支（{{ year_label }}年）</div>
 
     <div class="kb-row-2">
       <div>
@@ -112,7 +112,7 @@
     </div>
 
     <div class="kb-note">
-      ※ 固定費は「固定費テンプレ合計 × 12」で年度推定（今のB案ルール）。
+      ※ 年度の集計ルールは dashboard.py 側の定義に従います。
     </div>
   </section>
 
