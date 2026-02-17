@@ -372,7 +372,8 @@ def dashboard(request):
         .aggregate(s=Sum("amount"))["s"] or 0
     )
 
-    year_fixed = _int(fixed_sum * 12)
+    # ★修正：固定費は当月分だけにする
+    year_fixed = _int(fixed_sum)
     year_expense = _int(year_fixed + year_var)
     year_diff = _int(year_income - year_expense)
 
