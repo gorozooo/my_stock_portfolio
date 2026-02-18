@@ -24,22 +24,12 @@
 <div class="kb-dash">
 
   <!-- =========================
-       今月：ヘッダー＋総資産（ヒーロー）
+       総資産（ヒーロー）
   ========================== -->
   <header class="kb-hero">
-    <div class="kb-hero-top">
-      <div class="kb-hero-title">今月</div>
-      <div class="kb-hero-chip">{{ month_label }}</div>
-    </div>
 
     <div class="kb-hero-label">我が家の総資産</div>
     <div class="kb-hero-value">¥{{ kpi_total_assets|intcomma }}</div>
-
-    <div class="kb-hero-actions">
-      <span class="kb-tag">投資</span>
-      <span class="kb-tag">銀行</span>
-      <span class="kb-tag">現状サマリー</span>
-    </div>
 
     {% if debug %}
     <div class="kb-debug">
