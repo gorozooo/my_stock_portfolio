@@ -9,11 +9,12 @@
 # - 月（選択可）の収入・支出・差額＋固定/変動内訳 + 先月比
 # - 可視化（支出率バー、固定/変動比バー）※月選択に連動
 #
-# ★今回の修正ポイント
-# 1) 年度/年月を選択できる（GET: ?year=YYYY&month=YYYY-MM）
-# 2) 年度支出：固定費×12 をやめる（固定費は “1ヶ月分” として足す）
-#    year_expense = year_var + fixed_sum
-# 3) 月の可視化は月の収支（選択月）に完全連動（m を統一）
+# ★今回の修正ポイント（確定方針どおり）
+# 1) MonthlySnapshot（確定値）を導入：POST「この月を確定」で作成/上書き
+# 2) 固定費は「確定ボタン押下時点のテンプレ合計」を snapshot.fixed に保存
+# 3) 画面表示：選択月に snapshot があれば snapshot を正として表示（再計算ブレ防止）
+# 4) 年度収支：その年度の snapshot 合計（snapshotが無い年度は従来計算にフォールバック）
+# 5) 月の可視化：選択月（snapshot or 動的計算）に完全連動
 # =========================================
 
 from decimal import Decimal
@@ -22,11 +23,18 @@ from datetime import date
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db.models import Sum
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.utils import timezone
 
 from .permissions import kakeibo_access_required
-from ..models import MonthlyIncome, FixedExpenseTemplate, MonthlyVariableExpense, BankBalance, Account
+from ..models import (
+    MonthlyIncome,
+    FixedExpenseTemplate,
+    MonthlyVariableExpense,
+    BankBalance,
+    Account,
+    MonthlySnapshot,
+)
 
 
 def month_first(d):
@@ -300,13 +308,16 @@ def _portfolio_rakuten_eval_like_rakuten(user) -> int:
 def _year_options() -> list[int]:
     """
     何をする？
-    - DBに存在する月次データ（収入 or 変動費）から年度候補を作る
+    - DBに存在する月次データ（収入 or 変動費 or snapshot）から年度候補を作る
     """
     ys = set()
     for y in MonthlyIncome.objects.values_list("month__year", flat=True).distinct():
         if y:
             ys.add(int(y))
     for y in MonthlyVariableExpense.objects.values_list("month__year", flat=True).distinct():
+        if y:
+            ys.add(int(y))
+    for y in MonthlySnapshot.objects.values_list("month__year", flat=True).distinct():
         if y:
             ys.add(int(y))
     if not ys:
@@ -328,40 +339,13 @@ def _month_options(today: date, months_back: int = 24) -> list[dict]:
     return out
 
 
-@login_required
-def dashboard(request):
-    if not kakeibo_access_required(request.user):
-        raise PermissionDenied("You do not have access to kakeibo.")
-
-    today = timezone.localdate()
-
-    debug = (request.GET.get("debug") or "").strip() == "1"
-
-    # -----------------------
-    # 選択（GET）
-    # -----------------------
-    year_options = _year_options()
-
-    req_year = request.GET.get("year")
-    try:
-        selected_year = int(req_year) if req_year else today.year
-    except Exception:
-        selected_year = today.year
-    if selected_year not in year_options:
-        year_options = sorted(list(set(year_options + [selected_year])), reverse=True)
-
-    req_month = request.GET.get("month")
-    selected_month_date = _parse_month_yyyy_mm(req_month) or month_first(today)
-    m = month_first(selected_month_date)
-    prev_m = add_month(m, -1)
-
-    selected_month = f"{m.year}-{m.month:02d}"
-
-    month_options = _month_options(today=today, months_back=24)
-
-    # -----------------------
+def _build_dynamic_month_values(request, today: date, m: date) -> dict:
+    """
+    何をする？
+    - snapshot が無いときに使う「動的計算」一式をまとめて作る
+    - ここで作った値を snapshot 保存にも流用する（確定時に同じ値が保存される）
+    """
     # kakeibo：選択月
-    # -----------------------
     total_income = _sum_qs(MonthlyIncome.objects.filter(month=m), "amount")
 
     fixed_sum = _sum_qs(
@@ -377,13 +361,198 @@ def dashboard(request):
     total_expense = _int(fixed_sum + var_sum)
     month_diff = _int(total_income - total_expense)
 
+    # 銀行（家計簿）：選択月が無ければ最新月で拾う
+    rakuten_bank = _bank_balance_fallback(m, owner="B", name_contains="楽天銀行")
+    aeon_bank = _bank_balance_fallback(m, owner="HOUSE", name_contains="イオン銀行")
+
+    rakuten_bank_b = _int(rakuten_bank["balance"])
+    aeon_bank_house = _int(aeon_bank["balance"])
+
+    # portfolio（楽天：投資） ※「確定時点の画面値」を保存したいので today ベース
+    rakuten_cash_free = _portfolio_rakuten_available_from_cash_dashboard(today)
+    rakuten_eval = _portfolio_rakuten_eval_like_rakuten(request.user)
+    invest_total = _int(rakuten_cash_free + rakuten_eval)
+
+    # KPI
+    total_assets = _int(rakuten_bank_b + aeon_bank_house + invest_total)
+
+    # あなたのルール：実残高 = 4,136,736 - 余力 - 楽天銀行(B)
+    rakuten_bank_actual = _int(4_136_736 - rakuten_cash_free - rakuten_bank_b)
+
+    # 可視化用（%）
+    expense_rate = _pct(total_expense, total_income)
+    fixed_rate = _pct(fixed_sum, total_expense)
+    var_rate = _pct(var_sum, total_expense)
+
+    return {
+        # 月収支
+        "total_income": total_income,
+        "fixed_sum": fixed_sum,
+        "var_sum": var_sum,
+        "total_expense": total_expense,
+        "month_diff": month_diff,
+
+        # KPI
+        "kpi_total_assets": total_assets,
+        "kpi_rakuten_bank_actual": rakuten_bank_actual,
+        "kpi_invest_total": invest_total,
+
+        # 内訳
+        "rakuten_eval": rakuten_eval,
+        "rakuten_cash_free": rakuten_cash_free,
+        "rakuten_bank_b": rakuten_bank_b,
+        "aeon_bank_house": aeon_bank_house,
+
+        # debug用
+        "rakuten_bank_month_used": rakuten_bank.get("month"),
+        "rakuten_bank_account_name_used": rakuten_bank.get("account_name"),
+        "aeon_bank_month_used": aeon_bank.get("month"),
+        "aeon_bank_account_name_used": aeon_bank.get("account_name"),
+
+        # viz
+        "expense_rate": expense_rate,
+        "fixed_rate": fixed_rate,
+        "var_rate": var_rate,
+    }
+
+
+@login_required
+def dashboard(request):
+    if not kakeibo_access_required(request.user):
+        raise PermissionDenied("You do not have access to kakeibo.")
+
+    today = timezone.localdate()
+    debug = (request.GET.get("debug") or "").strip() == "1"
+
     # -----------------------
-    # kakeibo：先月（選択月の1つ前）
+    # 選択（GET / POST）
+    # -----------------------
+    year_options = _year_options()
+
+    # year
+    req_year = request.GET.get("year") or request.POST.get("year")
+    try:
+        selected_year = int(req_year) if req_year else today.year
+    except Exception:
+        selected_year = today.year
+    if selected_year not in year_options:
+        year_options = sorted(list(set(year_options + [selected_year])), reverse=True)
+
+    # month
+    req_month = request.GET.get("month") or request.POST.get("month")
+    selected_month_date = _parse_month_yyyy_mm(req_month) or month_first(today)
+    m = month_first(selected_month_date)
+    prev_m = add_month(m, -1)
+    selected_month = f"{m.year}-{m.month:02d}"
+
+    month_options = _month_options(today=today, months_back=24)
+
+    # -----------------------
+    # POST：この月を確定（作成/上書き）
+    # -----------------------
+    if request.method == "POST" and (request.POST.get("action") or "").strip() == "confirm_snapshot":
+        dyn = _build_dynamic_month_values(request, today=today, m=m)
+
+        # 確定値として保存（上書きOK）
+        MonthlySnapshot.objects.update_or_create(
+            month=m,
+            defaults={
+                "income": _int(dyn["total_income"]),
+                "fixed": _int(dyn["fixed_sum"]),
+                "variable": _int(dyn["var_sum"]),
+                "expense_total": _int(dyn["total_expense"]),
+                "diff": _int(dyn["month_diff"]),
+
+                "kpi_total_assets": _int(dyn["kpi_total_assets"]),
+                "kpi_rakuten_bank_actual": _int(dyn["kpi_rakuten_bank_actual"]),
+                "kpi_invest_total": _int(dyn["kpi_invest_total"]),
+
+                "rakuten_eval": _int(dyn["rakuten_eval"]),
+                "rakuten_cash_free": _int(dyn["rakuten_cash_free"]),
+                "rakuten_bank_b": _int(dyn["rakuten_bank_b"]),
+                "aeon_bank_house": _int(dyn["aeon_bank_house"]),
+
+                "locked_at": timezone.now(),
+            }
+        )
+
+        # GETへ戻す（選択を維持）
+        q = f"?year={selected_year}&month={selected_month}"
+        if debug:
+            q += "&debug=1"
+        return redirect(request.path + q)
+
+    # -----------------------
+    # 表示（選択月）：snapshot があればそれを正にする
+    # -----------------------
+    snap = MonthlySnapshot.objects.filter(month=m).first()
+    is_snapshot = bool(snap)
+
+    if snap:
+        # snapshot優先（これが“正”）
+        total_income = _int(snap.income)
+        fixed_sum = _int(snap.fixed)
+        var_sum = _int(snap.variable)
+        total_expense = _int(snap.expense_total)
+        month_diff = _int(snap.diff)
+
+        total_assets = _int(snap.kpi_total_assets)
+        rakuten_bank_actual = _int(snap.kpi_rakuten_bank_actual)
+        invest_total = _int(snap.kpi_invest_total)
+
+        rakuten_eval = _int(snap.rakuten_eval)
+        rakuten_cash_free = _int(snap.rakuten_cash_free)
+        rakuten_bank_b = _int(snap.rakuten_bank_b)
+        aeon_bank_house = _int(snap.aeon_bank_house)
+
+        # snapshot表示の時は、fallback月表示は意味薄いので None にする
+        rakuten_bank_month_used = None
+        rakuten_bank_account_name_used = None
+        aeon_bank_month_used = None
+        aeon_bank_account_name_used = None
+
+        # vizはsnapshotの収支で計算（選択月に連動）
+        expense_rate = _pct(total_expense, total_income)
+        fixed_rate = _pct(fixed_sum, total_expense)
+        var_rate = _pct(var_sum, total_expense)
+    else:
+        dyn = _build_dynamic_month_values(request, today=today, m=m)
+
+        total_income = dyn["total_income"]
+        fixed_sum = dyn["fixed_sum"]
+        var_sum = dyn["var_sum"]
+        total_expense = dyn["total_expense"]
+        month_diff = dyn["month_diff"]
+
+        total_assets = dyn["kpi_total_assets"]
+        rakuten_bank_actual = dyn["kpi_rakuten_bank_actual"]
+        invest_total = dyn["kpi_invest_total"]
+
+        rakuten_eval = dyn["rakuten_eval"]
+        rakuten_cash_free = dyn["rakuten_cash_free"]
+        rakuten_bank_b = dyn["rakuten_bank_b"]
+        aeon_bank_house = dyn["aeon_bank_house"]
+
+        rakuten_bank_month_used = dyn["rakuten_bank_month_used"]
+        rakuten_bank_account_name_used = dyn["rakuten_bank_account_name_used"]
+        aeon_bank_month_used = dyn["aeon_bank_month_used"]
+        aeon_bank_account_name_used = dyn["aeon_bank_account_name_used"]
+
+        expense_rate = dyn["expense_rate"]
+        fixed_rate = dyn["fixed_rate"]
+        var_rate = dyn["var_rate"]
+
+    # -----------------------
+    # 先月比（選択月に対して）
+    # ※ snapshotがあっても先月比は「表示上の参考」なので、現行のDB（月次入力）から出す
     # -----------------------
     prev_income = _sum_qs(MonthlyIncome.objects.filter(month=prev_m), "amount")
     prev_var = _sum_qs(MonthlyVariableExpense.objects.filter(month=prev_m), "amount")
 
-    prev_fixed = fixed_sum
+    # 固定費はテンプレ合計で比較（確定値がある月でも“比較ロジック”は現状維持）
+    # 将来：固定費の月次明細が入ったらここも snapshot/明細ベースに置き換え可能
+    template_fixed_now = _sum_qs(FixedExpenseTemplate.objects.filter(is_active=True), "amount")
+    prev_fixed = template_fixed_now
     prev_expense = _int(prev_fixed + prev_var)
 
     d_income = _delta(total_income, prev_income)
@@ -398,57 +567,39 @@ def dashboard(request):
 
     # -----------------------
     # 年度（選択year）
+    # - snapshotがある年度は snapshot合計を正
+    # - snapshotが無い年度は従来計算にフォールバック
     # -----------------------
-    year_income = _int(
-        MonthlyIncome.objects
-        .filter(month__year=selected_year)
-        .aggregate(s=Sum("amount"))["s"] or 0
-    )
-
-    year_var = _int(
-        MonthlyVariableExpense.objects
-        .filter(month__year=selected_year)
-        .aggregate(s=Sum("amount"))["s"] or 0
-    )
-
-    # ✅ 固定費×12はやめる：1ヶ月分だけ足す
-    year_expense = _int(year_var + fixed_sum)
-    year_diff = _int(year_income - year_expense)
-
-    # -----------------------
-    # 銀行（家計簿）：選択月が無ければ最新月で拾う
-    # -----------------------
-    rakuten_bank = _bank_balance_fallback(m, owner="B", name_contains="楽天銀行")
-    aeon_bank = _bank_balance_fallback(m, owner="HOUSE", name_contains="イオン銀行")
-
-    rakuten_bank_b = _int(rakuten_bank["balance"])
-    aeon_bank_house = _int(aeon_bank["balance"])
-
-    # -----------------------
-    # portfolio（楽天：投資）
-    # -----------------------
-    rakuten_cash_free = _portfolio_rakuten_available_from_cash_dashboard(today)
-    rakuten_eval = _portfolio_rakuten_eval_like_rakuten(request.user)
-    invest_total = _int(rakuten_cash_free + rakuten_eval)
-
-    # -----------------------
-    # KPI
-    # -----------------------
-    total_assets = _int(rakuten_bank_b + aeon_bank_house + invest_total)
-
-    # あなたのルール：実残高 = 4,136,736 - 余力 - 楽天銀行(B)
-    rakuten_bank_actual = _int(4_136_736 - rakuten_cash_free - rakuten_bank_b)
-
-    # -----------------------
-    # 可視化用（%）※選択月に連動
-    # -----------------------
-    expense_rate = _pct(total_expense, total_income)
-    fixed_rate = _pct(fixed_sum, total_expense)
-    var_rate = _pct(var_sum, total_expense)
+    snaps_year = list(MonthlySnapshot.objects.filter(month__year=selected_year))
+    if snaps_year:
+        year_income = _int(sum(_int(s.income) for s in snaps_year))
+        year_expense = _int(sum(_int(s.expense_total) for s in snaps_year))
+        year_diff = _int(sum(_int(s.diff) for s in snaps_year))
+        year_is_snapshot = True
+    else:
+        # フォールバック（従来）
+        year_income = _int(
+            MonthlyIncome.objects
+            .filter(month__year=selected_year)
+            .aggregate(s=Sum("amount"))["s"] or 0
+        )
+        year_var = _int(
+            MonthlyVariableExpense.objects
+            .filter(month__year=selected_year)
+            .aggregate(s=Sum("amount"))["s"] or 0
+        )
+        # ここは従来どおり “1ヶ月分だけ足す” で暫定
+        year_expense = _int(year_var + template_fixed_now)
+        year_diff = _int(year_income - year_expense)
+        year_is_snapshot = False
 
     context = {
         "title": "家計簿",
         "debug": debug,
+
+        # snapshot表示フラグ
+        "is_snapshot": is_snapshot,
+        "snapshot_locked_at": getattr(snap, "locked_at", None),
 
         # 選択UI
         "year_options": year_options,
@@ -471,16 +622,17 @@ def dashboard(request):
         "rakuten_bank_b": rakuten_bank_b,
         "aeon_bank_house": aeon_bank_house,
 
-        "rakuten_bank_month_used": rakuten_bank.get("month"),
-        "rakuten_bank_account_name_used": rakuten_bank.get("account_name"),
-        "aeon_bank_month_used": aeon_bank.get("month"),
-        "aeon_bank_account_name_used": aeon_bank.get("account_name"),
+        "rakuten_bank_month_used": rakuten_bank_month_used,
+        "rakuten_bank_account_name_used": rakuten_bank_account_name_used,
+        "aeon_bank_month_used": aeon_bank_month_used,
+        "aeon_bank_account_name_used": aeon_bank_account_name_used,
 
         # 年度（選択）
         "year_label": f"{selected_year}",
         "year_income": year_income,
         "year_expense": year_expense,
         "year_diff": year_diff,
+        "year_is_snapshot": year_is_snapshot,
 
         # 月（選択）
         "total_income": total_income,
