@@ -4,93 +4,333 @@
 
 このファイルは何？
 - kakeibo/dashboard.html 専用スタイル
-- HTMLから分離して管理しやすくする
+- A：枠で囲わない。余白＋薄い区切りで整理。
+- 色は「意味のある数値」だけ（収入/支出/差額）。
 ========================================= */
 
-.kb-grid-3{
-  display:grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
+.kb-dash{
+  padding: 2px 2px 10px;
 }
 
-/* --- KPI（標準：総資産で使う） --- */
-.kb-kpi-big{
-  font-size: 26px;
+/* ---------- hero ---------- */
+.kb-hero{
+  padding: 18px 14px 10px;
+}
+
+.kb-hero-top{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-bottom: 14px;
+}
+
+.kb-hero-title{
+  font-size: 22px;
   font-weight: 800;
-  letter-spacing: 0.2px;
-  margin-top: 6px;
+  letter-spacing: .2px;
 }
 
-/* --- KPI（小さめ：②③で使う） --- */
-.kb-kpi-small .kb-kpi-big{
-  font-size: 20px;
-  font-weight: 780;
-  letter-spacing: 0.1px;
-  margin-top: 6px;
-}
-
-.kb-kpi-sub{
-  margin-top: 8px;
+.kb-hero-chip{
   font-size: 12px;
-  opacity: 0.82;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.82);
 }
 
-/* 見出し行（タイトル＋右側に年月を小さく出す） */
-.kb-title-row{
+.kb-hero-label{
+  font-size: 12px;
+  color: rgba(255,255,255,0.62);
+  letter-spacing: .2px;
+}
+
+.kb-hero-value{
+  font-size: 44px;
+  font-weight: 900;
+  letter-spacing: .6px;
+  margin-top: 6px;
+  line-height: 1.05;
+}
+
+.kb-hero-actions{
+  display:flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.kb-tag{
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.78);
+}
+
+/* ---------- divider ---------- */
+.kb-divider{
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+  margin: 10px 14px;
+}
+
+.kb-divider-lg{
+  margin: 18px 14px;
+}
+
+.kb-divider-thin{
+  background: rgba(255,255,255,0.06);
+  margin: 14px 0;
+}
+
+/* ---------- sections ---------- */
+.kb-section{
+  padding: 6px 14px;
+}
+
+.kb-section-head{
   display:flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
+  margin-bottom: 10px;
 }
 
-.kb-title-sub{
+.kb-section-title{
+  font-size: 22px;
+  font-weight: 850;
+  letter-spacing: .2px;
+}
+
+.kb-section-side{
   font-size: 12px;
-  opacity: 0.72;
-  letter-spacing: 0.2px;
+  color: rgba(255,255,255,0.58);
 }
 
-.kb-pill-row{
-  display:flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
+/* ---------- layout ---------- */
+.kb-two{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
 }
 
-.kb-pill{
-  display:inline-flex;
-  align-items:center;
-  gap:6px;
-  padding: 6px 10px;
+.kb-two-gap{
+  gap: 18px;
+}
+
+/* iPhone幅は2カラム維持（Aの“紙感”） */
+@media (max-width: 360px){
+  .kb-hero-value{ font-size: 38px; }
+  .kb-two{ gap: 12px; }
+}
+
+/* ---------- dots ---------- */
+.kb-dot{
+  width: 10px;
+  height: 10px;
   border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.05);
-  font-size: 12px;
-  color: rgba(255,255,255,0.92);
+  display:inline-block;
+  flex: 0 0 auto;
+  margin-top: 2px;
+  box-shadow: 0 0 0 4px rgba(255,255,255,0.03);
 }
 
+.kb-dot-bank{ background: rgba(210, 220, 255, 0.9); }
+.kb-dot-invest{ background: rgba(150, 190, 255, 0.9); }
+
+.kb-dot-income{ background: rgba(73, 209, 141, 0.95); }
+.kb-dot-expense{ background: rgba(244, 162, 97, 0.95); }
+.kb-dot-diff{ background: rgba(108, 207, 246, 0.95); }
+.kb-dot-muted{ background: rgba(255,255,255,0.22); }
+
+/* ---------- metric blocks (no boxes) ---------- */
+.kb-metric{ }
+
+.kb-metric-head{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+}
+
+.kb-metric-label{
+  font-size: 13px;
+  color: rgba(255,255,255,0.68);
+  letter-spacing: .2px;
+}
+
+.kb-metric-value{
+  font-size: 28px;
+  font-weight: 880;
+  margin-top: 10px;
+  letter-spacing: .2px;
+}
+
+.kb-subrows{
+  margin-top: 12px;
+  display:flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kb-subrow{
+  display:flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.kb-subkey{
+  color: rgba(255,255,255,0.55);
+}
+
+.kb-subval{
+  color: rgba(255,255,255,0.9);
+  font-weight: 700;
+}
+
+/* ---------- list rows ---------- */
+.kb-list{
+  display:flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.kb-row{
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.kb-row:last-child{
+  border-bottom: none;
+}
+
+.kb-row-left{
+  display:flex;
+  align-items:flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.kb-row-label{
+  font-size: 14px;
+  color: rgba(255,255,255,0.7);
+  letter-spacing: .2px;
+  white-space: nowrap;
+}
+
+.kb-row-val{
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: .2px;
+  text-align:right;
+  white-space: nowrap;
+}
+
+.kb-row-strong .kb-row-val{
+  font-size: 26px;
+}
+
+/* ---------- monthly mini blocks ---------- */
+.kb-mini{ }
+
+.kb-mini-head{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+}
+
+.kb-mini-label{
+  font-size: 13px;
+  color: rgba(255,255,255,0.68);
+}
+
+.kb-mini-val{
+  font-size: 34px;
+  font-weight: 950;
+  margin-top: 10px;
+  letter-spacing: .2px;
+}
+
+.kb-mini-sub{
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.58);
+  line-height: 1.35;
+}
+
+/* ---------- footer line items ---------- */
+.kb-foot{
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.kb-foot-item{
+  font-size: 12px;
+  color: rgba(255,255,255,0.6);
+  line-height: 1.35;
+}
+
+/* ---------- meaning colors (numbers only) ---------- */
+.kb-val-income{ color: rgba(73, 209, 141, 0.95); }
+.kb-val-expense{ color: rgba(244, 162, 97, 0.95); }
+.kb-val-diff{ color: rgba(108, 207, 246, 0.95); }
+
+/* ---------- text helpers ---------- */
+.kb-muted{
+  margin-top: 10px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.58);
+  line-height: 1.55;
+}
+
+/* ---------- viz ---------- */
+.kb-viz{
+  margin-top: 14px;
+  display:flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.kb-viz-head{
+  font-size: 13px;
+  color: rgba(255,255,255,0.70);
+}
+
+.kb-viz-sub{
+  margin-top: 6px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.58);
+}
+
+/* bars (keep, but less “boxy”) */
 .kb-bar{
   margin-top:10px;
   border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.12);
   background: rgba(255,255,255,0.06);
   overflow:hidden;
-  height: 14px;
+  height: 12px;
 }
 
 .kb-bar > i{
   display:block;
   height: 100%;
   width: 0%;
-  background: rgba(86, 204, 242, 0.65);
+  background: rgba(108, 207, 246, 0.70);
   transition: width .45s ease;
 }
 
 .kb-bar-2{
   display:flex;
-  height: 14px;
+  height: 12px;
   border-radius: 999px;
   overflow:hidden;
-  border: 1px solid rgba(255,255,255,0.12);
   background: rgba(255,255,255,0.06);
   margin-top:10px;
 }
@@ -102,41 +342,24 @@
   transition: width .45s ease;
 }
 
-.kb-bar-fixed{ background: rgba(255, 200, 80, 0.65); }
-.kb-bar-var{ background: rgba(86, 204, 242, 0.65); }
+.kb-bar-fixed{ background: rgba(244, 162, 97, 0.65); }
+.kb-bar-var{ background: rgba(108, 207, 246, 0.65); }
 
-.kb-row-2{
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 10px;
+/* ---------- debug ---------- */
+.kb-debug{
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.06);
 }
 
-.kb-mini-label{ font-size: 12px; opacity: .8; }
-.kb-mini-val{ font-size: 16px; font-weight: 750; margin-top: 4px; }
-.kb-mini-delta{ font-size: 12px; opacity: .85; margin-top: 4px; }
-
-.kb-note{
-  margin-top: 10px;
+.kb-debug-title{
   font-size: 12px;
-  opacity: 0.75;
-  line-height: 1.35;
+  color: rgba(255,255,255,0.55);
+  margin-bottom: 6px;
 }
 
-.kb-pad-14{ padding:14px; }
-.kb-mt-12{ margin-top:12px; }
-.kb-mt-14{ margin-top:14px; }
-.kb-mt-16{ margin-top:16px; }
-
-.kb-debug-hint{
-  margin-top: 10px;
+.kb-debug-text{
   font-size: 12px;
-  opacity: .75;
-}
-
-.kb-debug-hint code{
-  padding: 2px 6px;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.60);
+  line-height: 1.45;
 }
