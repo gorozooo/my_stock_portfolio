@@ -5,7 +5,7 @@
 
 このファイルは何？
 - dashboard のバー表示を data-pct から設定する
-- A：UIは軽く、JSは最小限（バーだけ）
+- 追加：年度/年月 select を変えたら GET で自動送信
 =========================================
 */
 
@@ -23,5 +23,17 @@
     });
   }
 
-  document.addEventListener("DOMContentLoaded", setBars);
+  function bindAutoSubmit(){
+    document.querySelectorAll("select[data-autosubmit='1']").forEach(sel=>{
+      sel.addEventListener("change", ()=>{
+        const form = sel.closest("form");
+        if (form) form.submit();
+      });
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", ()=>{
+    setBars();
+    bindAutoSubmit();
+  });
 })();
