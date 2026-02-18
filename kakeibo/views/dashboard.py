@@ -5,23 +5,19 @@
 # このファイルは何？
 # 家計簿トップ画面（/kakeibo/）。
 # - KPI：総資産 / 楽天銀行(B)の実残高 / 投資（評価額＋現金余力）
-# - 年度（1月〜12月）の収支
-# - 当月の収入・支出・差額＋固定/変動内訳
-# - 先月比（収入/支出/固定/変動）
-# - 可視化（支出率バー、固定/変動比バー）
+# - 年度（選択可）の収支
+# - 月（選択可）の収入・支出・差額＋固定/変動内訳 + 先月比
+# - 可視化（支出率バー、固定/変動比バー）※月選択に連動
 #
 # ★今回の修正ポイント
-# 1) BankBalance（月次）が当月に無いと 0 になる問題
-#    → month<=当月 の最新を拾う（フォールバック）
-# 2) 楽天余力（白丸）は cash_dashboard の定義と揃える
-#    → portfolio.services.cash_service.broker_summaries(today) の
-#       broker="楽天" の available を使用（完全一致）
-# 3) ★楽天評価額（rakuten_eval）を「楽天アプリの定義」に完全一致させる
-#    → 現物：評価額を足す / 信用(MARGIN)：建玉“評価損益”だけを足す
-# 4) テンプレは HTML/CSS/JS を分離（dashboard.html 参照）
+# 1) 年度/年月を選択できる（GET: ?year=YYYY&month=YYYY-MM）
+# 2) 年度支出：固定費×12 をやめる（固定費は “1ヶ月分” として足す）
+#    year_expense = year_var + fixed_sum
+# 3) 月の可視化は月の収支（選択月）に完全連動（m を統一）
 # =========================================
 
 from decimal import Decimal
+from datetime import date
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
@@ -86,19 +82,31 @@ def _delta_pct(now: int, prev: int):
         return None
 
 
+def _parse_month_yyyy_mm(s: str | None) -> date | None:
+    """
+    何をする？
+    - "YYYY-MM" を date(YYYY, MM, 1) にする
+    """
+    if not s:
+        return None
+    s = str(s).strip()
+    try:
+        y, m = s.split("-")
+        y = int(y)
+        m = int(m)
+        if y < 1900 or y > 2500:
+            return None
+        if m < 1 or m > 12:
+            return None
+        return date(y, m, 1)
+    except Exception:
+        return None
+
+
 def _bank_balance_fallback(month, owner: str, name_contains: str) -> dict:
     """
     何をする？
     - 家計簿の銀行残高(BankBalance)を「当月が無ければ最新月」で拾う。
-    - owner（HOUSE/B/G）と、口座名の部分一致で “口座” を探す。
-    - その口座の BankBalance を month<=対象月 の範囲で最新を拾う。
-
-    戻り値：
-      {
-        "balance": int,
-        "month": "YYYY-MM" or None,
-        "account_name": str or None,
-      }
     """
     accs = (
         Account.objects
@@ -130,8 +138,7 @@ def _bank_balance_fallback(month, owner: str, name_contains: str) -> dict:
 def _portfolio_rakuten_available_from_cash_dashboard(today) -> int:
     """
     何をする？
-    - cash_dashboard（現金ダッシュボード）と同じ定義で「楽天の余力（白丸）」を取る。
-    - portfolio.services.cash_service.broker_summaries(today) の broker="楽天" の available を返す。
+    - cash_dashboard と同じ定義で「楽天の余力（白丸）」を取る。
     """
     try:
         from portfolio.services import cash_service as cash_svc
@@ -154,7 +161,6 @@ def _fx_usd_jpy() -> float:
     """
     何をする？
     - USD/JPY を取得して返す（失敗時は 1.0）
-    - dashboard 用：軽量・堅牢に。yfinance が落ちたら 1.0 フォールバック。
     """
     try:
         import yfinance as yf
@@ -184,7 +190,7 @@ def _norm_ticker_for_yf(ticker: str) -> str:
 def _last_close_map(tickers_norm: list[str]) -> dict[str, float]:
     """
     何をする？
-    - 複数ティッカーの終値をまとめて取って dict で返す（取れないものは欠ける）
+    - 複数ティッカーの終値をまとめて取って dict で返す
     """
     out: dict[str, float] = {}
     if not tickers_norm:
@@ -213,7 +219,6 @@ def _last_close_map(tickers_norm: list[str]) -> dict[str, float]:
                     else:
                         s = df.xs(nsym, axis=1)["Close"]
                 else:
-                    # 1銘柄のとき
                     s = df["Close"]
                 s = pd.Series(s).dropna()
                 if s.empty:
@@ -235,15 +240,8 @@ def _last_close_map(tickers_norm: list[str]) -> dict[str, float]:
 def _portfolio_rakuten_eval_like_rakuten(user) -> int:
     """
     何をする？
-    - 楽天アプリの「評価額合計（あなたのスクショの 4,219,034 の定義）」に合わせる。
-
-    ルール：
-    - 現物（NISA/特定など）：評価額（時価評価額）を足す
-    - 信用（account="MARGIN"）：建玉“評価損益（含み損益）”だけを足す
-      ※ 信用建玉の「評価額」は足さない（ここがズレの原因）
-
-    価格ソース：
-    - yfinance 終値（holdings と同系統）を使用
+    - 楽天アプリの「評価額合計」に合わせる。
+    - 現物：評価額を足す / 信用(MARGIN)：評価損益だけ足す
     """
     try:
         from portfolio.models import Holding
@@ -255,9 +253,8 @@ def _portfolio_rakuten_eval_like_rakuten(user) -> int:
     if not holds:
         return 0
 
-    # 価格をまとめて取る（終値）
     norms = [_norm_ticker_for_yf(h.ticker) for h in holds]
-    price_map = _last_close_map(list(dict.fromkeys(norms)))  # 重複排除
+    price_map = _last_close_map(list(dict.fromkeys(norms)))
 
     usd_jpy = _fx_usd_jpy()
 
@@ -278,10 +275,8 @@ def _portfolio_rakuten_eval_like_rakuten(user) -> int:
                 continue
             price = Decimal(str(price))
 
-            # 評価額（建玉の時価）
             valuation_jpy = price * fx * Decimal(q)
 
-            # 含み損益（BUY/SELL対応）
             cost_unit = Decimal(str(h.avg_cost or 0))
             side = (getattr(h, "side", "BUY") or "BUY").upper()
             if side == "SELL":
@@ -292,10 +287,8 @@ def _portfolio_rakuten_eval_like_rakuten(user) -> int:
             acc = (getattr(h, "account", "") or "").upper()
 
             if acc == "MARGIN":
-                # ★楽天の「信用建玉評価損益」扱い：評価損益だけ足す
                 total += pnl_jpy
             else:
-                # ★現物：評価額を足す
                 total += valuation_jpy
 
         except Exception:
@@ -304,19 +297,70 @@ def _portfolio_rakuten_eval_like_rakuten(user) -> int:
     return _int(total)
 
 
+def _year_options() -> list[int]:
+    """
+    何をする？
+    - DBに存在する月次データ（収入 or 変動費）から年度候補を作る
+    """
+    ys = set()
+    for y in MonthlyIncome.objects.values_list("month__year", flat=True).distinct():
+        if y:
+            ys.add(int(y))
+    for y in MonthlyVariableExpense.objects.values_list("month__year", flat=True).distinct():
+        if y:
+            ys.add(int(y))
+    if not ys:
+        ys.add(timezone.localdate().year)
+    return sorted(list(ys), reverse=True)
+
+
+def _month_options(today: date, months_back: int = 24) -> list[dict]:
+    """
+    何をする？
+    - 今日から遡って months_back ヶ月分の "YYYY-MM" リストを作る（UI用）
+    """
+    out = []
+    m = month_first(today)
+    for i in range(months_back):
+        mm = add_month(m, -i)
+        s = f"{mm.year}-{mm.month:02d}"
+        out.append({"value": s, "label": s})
+    return out
+
+
 @login_required
 def dashboard(request):
     if not kakeibo_access_required(request.user):
         raise PermissionDenied("You do not have access to kakeibo.")
 
     today = timezone.localdate()
-    m = month_first(today)
-    prev_m = add_month(m, -1)
 
     debug = (request.GET.get("debug") or "").strip() == "1"
 
     # -----------------------
-    # kakeibo：当月
+    # 選択（GET）
+    # -----------------------
+    year_options = _year_options()
+
+    req_year = request.GET.get("year")
+    try:
+        selected_year = int(req_year) if req_year else today.year
+    except Exception:
+        selected_year = today.year
+    if selected_year not in year_options:
+        year_options = sorted(list(set(year_options + [selected_year])), reverse=True)
+
+    req_month = request.GET.get("month")
+    selected_month_date = _parse_month_yyyy_mm(req_month) or month_first(today)
+    m = month_first(selected_month_date)
+    prev_m = add_month(m, -1)
+
+    selected_month = f"{m.year}-{m.month:02d}"
+
+    month_options = _month_options(today=today, months_back=24)
+
+    # -----------------------
+    # kakeibo：選択月
     # -----------------------
     total_income = _sum_qs(MonthlyIncome.objects.filter(month=m), "amount")
 
@@ -334,14 +378,10 @@ def dashboard(request):
     month_diff = _int(total_income - total_expense)
 
     # -----------------------
-    # kakeibo：先月
+    # kakeibo：先月（選択月の1つ前）
     # -----------------------
     prev_income = _sum_qs(MonthlyIncome.objects.filter(month=prev_m), "amount")
-
-    prev_var = _sum_qs(
-        MonthlyVariableExpense.objects.filter(month=prev_m),
-        "amount"
-    )
+    prev_var = _sum_qs(MonthlyVariableExpense.objects.filter(month=prev_m), "amount")
 
     prev_fixed = fixed_sum
     prev_expense = _int(prev_fixed + prev_var)
@@ -357,28 +397,26 @@ def dashboard(request):
     dp_var = _delta_pct(var_sum, prev_var)
 
     # -----------------------
-    # 年度（1月〜12月）
+    # 年度（選択year）
     # -----------------------
-    y = m.year
     year_income = _int(
         MonthlyIncome.objects
-        .filter(month__year=y)
+        .filter(month__year=selected_year)
         .aggregate(s=Sum("amount"))["s"] or 0
     )
 
     year_var = _int(
         MonthlyVariableExpense.objects
-        .filter(month__year=y)
+        .filter(month__year=selected_year)
         .aggregate(s=Sum("amount"))["s"] or 0
     )
 
-    # ★修正：固定費は当月分だけにする
-    year_fixed = _int(fixed_sum)
-    year_expense = _int(year_fixed + year_var)
+    # ✅ 固定費×12はやめる：1ヶ月分だけ足す
+    year_expense = _int(year_var + fixed_sum)
     year_diff = _int(year_income - year_expense)
 
     # -----------------------
-    # 銀行（家計簿）：当月が無ければ最新月で拾う
+    # 銀行（家計簿）：選択月が無ければ最新月で拾う
     # -----------------------
     rakuten_bank = _bank_balance_fallback(m, owner="B", name_contains="楽天銀行")
     aeon_bank = _bank_balance_fallback(m, owner="HOUSE", name_contains="イオン銀行")
@@ -389,11 +427,8 @@ def dashboard(request):
     # -----------------------
     # portfolio（楽天：投資）
     # -----------------------
-    rakuten_cash_free = _portfolio_rakuten_available_from_cash_dashboard(today)  # 白丸と完全一致
-
-    # ★ここが今回の本丸：楽天アプリと同じ定義の「評価額」
+    rakuten_cash_free = _portfolio_rakuten_available_from_cash_dashboard(today)
     rakuten_eval = _portfolio_rakuten_eval_like_rakuten(request.user)
-
     invest_total = _int(rakuten_cash_free + rakuten_eval)
 
     # -----------------------
@@ -405,7 +440,7 @@ def dashboard(request):
     rakuten_bank_actual = _int(4_136_736 - rakuten_cash_free - rakuten_bank_b)
 
     # -----------------------
-    # 可視化用（%）
+    # 可視化用（%）※選択月に連動
     # -----------------------
     expense_rate = _pct(total_expense, total_income)
     fixed_rate = _pct(fixed_sum, total_expense)
@@ -415,13 +450,22 @@ def dashboard(request):
         "title": "家計簿",
         "debug": debug,
 
+        # 選択UI
+        "year_options": year_options,
+        "selected_year": selected_year,
+        "month_options": month_options,
+        "selected_month": selected_month,
+
+        # 表示用ラベル（選択月）
         "month_label": f"{m.year}-{m.month:02d}",
         "prev_month_label": f"{prev_m.year}-{prev_m.month:02d}",
 
+        # KPI
         "kpi_total_assets": total_assets,
         "kpi_rakuten_bank_actual": rakuten_bank_actual,
         "kpi_invest_total": invest_total,
 
+        # 内訳
         "rakuten_cash_free": rakuten_cash_free,
         "rakuten_eval": rakuten_eval,
         "rakuten_bank_b": rakuten_bank_b,
@@ -432,17 +476,20 @@ def dashboard(request):
         "aeon_bank_month_used": aeon_bank.get("month"),
         "aeon_bank_account_name_used": aeon_bank.get("account_name"),
 
-        "year_label": f"{y}",
+        # 年度（選択）
+        "year_label": f"{selected_year}",
         "year_income": year_income,
         "year_expense": year_expense,
         "year_diff": year_diff,
 
+        # 月（選択）
         "total_income": total_income,
         "total_expense": total_expense,
         "month_diff": month_diff,
         "fixed_sum": fixed_sum,
         "var_sum": var_sum,
 
+        # 先月比（選択月に対して）
         "d_income": d_income,
         "d_expense": d_expense,
         "d_fixed": d_fixed,
@@ -452,6 +499,7 @@ def dashboard(request):
         "dp_fixed": dp_fixed,
         "dp_var": dp_var,
 
+        # 可視化（選択月に連動）
         "expense_rate": expense_rate,
         "fixed_rate": fixed_rate,
         "var_rate": var_rate,
