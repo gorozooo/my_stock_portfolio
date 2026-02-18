@@ -14,3 +14,4 @@ from .monthly_income import MonthlyIncome
 from .fixed_expense_template import FixedExpenseTemplate
 from .monthly_variable_expense import MonthlyVariableExpense
 from .bank_balance import BankBalance
+from .monthly_snapshot import MonthlySnapshot
