@@ -7,6 +7,7 @@
 - 家計簿トップ画面（/kakeibo/）。
 - A：枠で囲わず、余白と薄い区切り線で“静かに整理”するデザイン。
 - 年度/年月の選択（GET）で集計を切り替える。
+- 月次Snapshotは「この月を確定」ボタンで作成/上書きし、確定があればそれを正として表示。
 - 色は「意味のある数値」だけ（収入=緑 / 支出=橙 / 差額=±で緑赤 / 銀行残高=±で緑赤）。
 - CSS/JS は static に分離（dashboard.css / dashboard.js）
 =========================================
@@ -102,6 +103,7 @@
       <form method="get" class="kb-filter" id="kb-filter-year">
         <!-- 月選択を維持 -->
         <input type="hidden" name="month" value="{{ selected_month }}">
+        {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
         <select name="year" class="kb-select" data-autosubmit="1" aria-label="年度選択">
           {% for y in year_options %}
             <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>{{ y }}年</option>
@@ -139,12 +141,18 @@
         </div>
       </div>
     </div>
+
+    {% if year_is_snapshot %}
+      <div class="kb-muted kb-mt-10">※ 年度は「確定済み（月次Snapshot）」の合計です。</div>
+    {% else %}
+      <div class="kb-muted kb-mt-10">※ この年度はまだ確定が無いので暫定計算です（確定すると合計が固定されます）。</div>
+    {% endif %}
   </section>
 
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       月の収支（年月選択）
+       月の収支（年月選択 + 確定）
   ========================== -->
   <section class="kb-section" id="monthly">
     <div class="kb-section-head">
@@ -153,12 +161,37 @@
       <form method="get" class="kb-filter" id="kb-filter-month">
         <!-- 年度選択を維持 -->
         <input type="hidden" name="year" value="{{ selected_year }}">
+        {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
         <select name="month" class="kb-select" data-autosubmit="1" aria-label="年月選択">
           {% for m in month_options %}
             <option value="{{ m.value }}" {% if m.value == selected_month %}selected{% endif %}>{{ m.label }}</option>
           {% endfor %}
         </select>
       </form>
+    </div>
+
+    <!-- ✅ 確定ボタン（上書きOK） -->
+    <div class="kb-confirm-row">
+      <form method="post" class="kb-confirm-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="confirm_snapshot">
+        <input type="hidden" name="year" value="{{ selected_year }}">
+        <input type="hidden" name="month" value="{{ selected_month }}">
+        {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
+        <button type="submit" class="kb-btn-confirm">
+          この月を確定（上書きOK）
+        </button>
+      </form>
+
+      {% if is_snapshot %}
+        <div class="kb-confirm-badge">
+          確定済み{% if snapshot_locked_at %}（{{ snapshot_locked_at|date:"Y-m-d H:i" }}）{% endif %}
+        </div>
+      {% else %}
+        <div class="kb-confirm-badge kb-confirm-badge-muted">
+          未確定（確定するとこの月の数字が固定されます）
+        </div>
+      {% endif %}
     </div>
 
     <div class="kb-two kb-two-gap">
