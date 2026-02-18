@@ -5,7 +5,8 @@
 
 このファイルは何？
 - 家計簿トップ画面（/kakeibo/）。
-- KPI（①②③）→ 年度（④）→ 当月（⑤）→ 可視化（⑥）→ 将来枠（⑦）
+- A：枠で囲わず、余白と薄い区切り線で“静かに整理”するデザイン。
+- 色は「意味のある数値」だけに使う（収入/支出/差額）。
 - CSS/JS は static に分離（dashboard.css / dashboard.js）
 =========================================
 -->
@@ -20,125 +21,151 @@
 {% endblock %}
 
 {% block content %}
+<div class="kb-dash">
 
   <!-- =========================
-       ①②③ KPI（3段）
-       ★上の「今月（YYYY-MM）」は消す（主役は総資産）
+       今月：ヘッダー＋総資産（ヒーロー）
   ========================== -->
-  <section class="kb-card">
-    <div class="kb-grid-3 kb-mt-12">
+  <header class="kb-hero">
+    <div class="kb-hero-top">
+      <div class="kb-hero-title">今月</div>
+      <div class="kb-hero-chip">{{ month_label }}</div>
+    </div>
 
-      <!-- ① 総資産（現状の大きさのまま） -->
-      <div class="kb-card kb-pad-14">
-        <div class="kb-mini-label">我が家の総資産</div>
-        <div class="kb-kpi-big">¥{{ kpi_total_assets|intcomma }}</div>
+    <div class="kb-hero-label">我が家の総資産</div>
+    <div class="kb-hero-value">¥{{ kpi_total_assets|intcomma }}</div>
 
-        {% if debug %}
-        <div class="kb-note">
-          ＜内訳（debug=1の時だけ表示）＞
-          <br>楽天銀行(B)：¥{{ rakuten_bank_b|intcomma }}（{{ rakuten_bank_account_name_used }} / {{ rakuten_bank_month_used }}）
-          <br>イオン銀行(家)：¥{{ aeon_bank_house|intcomma }}（{{ aeon_bank_account_name_used }} / {{ aeon_bank_month_used }}）
-          <br>楽天評価額：¥{{ rakuten_eval|intcomma }}
-          <br>楽天余力（白丸）：¥{{ rakuten_cash_free|intcomma }}
-        </div>
-        {% endif %}
-      </div>
-
-      <!-- ② 楽天銀行残高（小さくする） -->
-      <div class="kb-card kb-pad-14 kb-kpi-small">
-        <div class="kb-mini-label">楽天銀行残高</div>
-        <div class="kb-kpi-big">¥{{ kpi_rakuten_bank_actual|intcomma }}</div>
-
-        {% if debug %}
-        <div class="kb-note">
-          ＜計算式（debug=1の時だけ表示）＞
-          <br>4,136,736
-          − 余力 ¥{{ rakuten_cash_free|intcomma }}
-          − 楽天銀行(B) ¥{{ rakuten_bank_b|intcomma }}
-        </div>
-        {% endif %}
-      </div>
-
-      <!-- ③ 投資（小さくする） -->
-      <div class="kb-card kb-pad-14 kb-kpi-small">
-        <div class="kb-mini-label">投資</div>
-        <div class="kb-kpi-big">¥{{ kpi_invest_total|intcomma }}</div>
-
-        <div class="kb-pill-row">
-          <span class="kb-pill">評価額：¥{{ rakuten_eval|intcomma }}</span>
-          <span class="kb-pill">余力：¥{{ rakuten_cash_free|intcomma }}</span>
-        </div>
-
-        {% if debug %}
-        <div class="kb-note">
-          ＜内訳（debug=1の時だけ表示）＞
-          <br>評価額：¥{{ rakuten_eval|intcomma }}
-          <br>余力（白丸）：¥{{ rakuten_cash_free|intcomma }}
-        </div>
-        {% endif %}
-      </div>
-
+    <div class="kb-hero-actions">
+      <span class="kb-tag">投資</span>
+      <span class="kb-tag">銀行</span>
+      <span class="kb-tag">現状サマリー</span>
     </div>
 
     {% if debug %}
-      <div class="kb-debug-hint">
-        debug表示中。消すならURLの <code>?debug=1</code> を外す。
+    <div class="kb-debug">
+      <div class="kb-debug-title">debug</div>
+      <div class="kb-debug-text">
+        楽天銀行(B)：¥{{ rakuten_bank_b|intcomma }}（{{ rakuten_bank_account_name_used }} / {{ rakuten_bank_month_used }}）<br>
+        イオン銀行(家)：¥{{ aeon_bank_house|intcomma }}（{{ aeon_bank_account_name_used }} / {{ aeon_bank_month_used }}）<br>
+        楽天評価額：¥{{ rakuten_eval|intcomma }}<br>
+        楽天余力（白丸）：¥{{ rakuten_cash_free|intcomma }}
       </div>
+    </div>
     {% endif %}
-  </section>
+  </header>
 
-
-  <!-- =========================
-       ④ 年度（1-12）収支
-  ========================== -->
-  <section class="kb-card">
-    <div class="kb-title-row">
-      <div class="kb-title">年度収支</div>
-      <div class="kb-title-sub">{{ year_label }}年</div>
-    </div>
-
-    <div class="kb-row-2">
-      <div>
-        <div class="kb-mini-label">収入</div>
-        <div class="kb-mini-val">¥{{ year_income|intcomma }}</div>
-      </div>
-      <div>
-        <div class="kb-mini-label">支出</div>
-        <div class="kb-mini-val">¥{{ year_expense|intcomma }}</div>
-      </div>
-    </div>
-
-    <div class="kb-mt-12">
-      <div class="kb-mini-label">差額</div>
-      <div class="kb-mini-val">¥{{ year_diff|intcomma }}</div>
-    </div>
-  </section>
-
+  <div class="kb-divider"></div>
 
   <!-- =========================
-       ⑤ 当月 収入/支出/差額 + 内訳
+       サマリー（枠なし・2カラム）
   ========================== -->
-  <section class="kb-card">
-    <div class="kb-title-row">
-      <div class="kb-title">当月の収支</div>
-      <div class="kb-title-sub">{{ month_label }}</div>
+  <section class="kb-section">
+    <div class="kb-two">
+      <div class="kb-metric">
+        <div class="kb-metric-head">
+          <span class="kb-dot kb-dot-bank"></span>
+          <span class="kb-metric-label">楽天銀行残高</span>
+        </div>
+        <div class="kb-metric-value">¥{{ kpi_rakuten_bank_actual|intcomma }}</div>
+
+        {% if debug %}
+        <div class="kb-muted">
+          4,136,736 − 余力 ¥{{ rakuten_cash_free|intcomma }} − 楽天銀行(B) ¥{{ rakuten_bank_b|intcomma }}
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="kb-metric">
+        <div class="kb-metric-head">
+          <span class="kb-dot kb-dot-invest"></span>
+          <span class="kb-metric-label">投資</span>
+        </div>
+        <div class="kb-metric-value">¥{{ kpi_invest_total|intcomma }}</div>
+
+        <div class="kb-subrows">
+          <div class="kb-subrow">
+            <div class="kb-subkey">評価額</div>
+            <div class="kb-subval">¥{{ rakuten_eval|intcomma }}</div>
+          </div>
+          <div class="kb-subrow">
+            <div class="kb-subkey">余力</div>
+            <div class="kb-subval">¥{{ rakuten_cash_free|intcomma }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="kb-divider kb-divider-lg"></div>
+
+  <!-- =========================
+       年度収支（枠なし・行）
+  ========================== -->
+  <section class="kb-section">
+    <div class="kb-section-head">
+      <div class="kb-section-title">年度収支</div>
+      <div class="kb-section-side">{{ year_label }}年</div>
     </div>
 
-    <div class="kb-row-2">
-      <div>
-        <div class="kb-mini-label">収入</div>
-        <div class="kb-mini-val">¥{{ total_income|intcomma }}</div>
-        <div class="kb-mini-delta">
+    <div class="kb-list">
+      <div class="kb-row">
+        <div class="kb-row-left">
+          <span class="kb-dot kb-dot-income"></span>
+          <span class="kb-row-label">収入</span>
+        </div>
+        <div class="kb-row-val kb-val-income">¥{{ year_income|intcomma }}</div>
+      </div>
+
+      <div class="kb-row">
+        <div class="kb-row-left">
+          <span class="kb-dot kb-dot-expense"></span>
+          <span class="kb-row-label">支出</span>
+        </div>
+        <div class="kb-row-val kb-val-expense">¥{{ year_expense|intcomma }}</div>
+      </div>
+
+      <div class="kb-row kb-row-strong">
+        <div class="kb-row-left">
+          <span class="kb-dot kb-dot-diff"></span>
+          <span class="kb-row-label">差額</span>
+        </div>
+        <div class="kb-row-val kb-val-diff">¥{{ year_diff|intcomma }}</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="kb-divider kb-divider-lg"></div>
+
+  <!-- =========================
+       当月収支（枠なし・整理）
+  ========================== -->
+  <section class="kb-section">
+    <div class="kb-section-head">
+      <div class="kb-section-title">当月の収支</div>
+      <div class="kb-section-side">{{ month_label }}</div>
+    </div>
+
+    <div class="kb-two kb-two-gap">
+      <div class="kb-mini">
+        <div class="kb-mini-head">
+          <span class="kb-dot kb-dot-income"></span>
+          <span class="kb-mini-label">収入</span>
+        </div>
+        <div class="kb-mini-val kb-val-income">¥{{ total_income|intcomma }}</div>
+        <div class="kb-mini-sub">
           先月（{{ prev_month_label }}）比：
           {% if dp_income is not None %}{{ dp_income }}%{% else %}—{% endif %}
           （{% if d_income >= 0 %}+{% endif %}{{ d_income|intcomma }}）
         </div>
       </div>
 
-      <div>
-        <div class="kb-mini-label">支出</div>
-        <div class="kb-mini-val">¥{{ total_expense|intcomma }}</div>
-        <div class="kb-mini-delta">
+      <div class="kb-mini">
+        <div class="kb-mini-head">
+          <span class="kb-dot kb-dot-expense"></span>
+          <span class="kb-mini-label">支出</span>
+        </div>
+        <div class="kb-mini-val kb-val-expense">¥{{ total_expense|intcomma }}</div>
+        <div class="kb-mini-sub">
           先月（{{ prev_month_label }}）比：
           {% if dp_expense is not None %}{{ dp_expense }}%{% else %}—{% endif %}
           （{% if d_expense >= 0 %}+{% endif %}{{ d_expense|intcomma }}）
@@ -146,84 +173,102 @@
       </div>
     </div>
 
-    <div class="kb-mt-12">
-      <div class="kb-mini-label">差額</div>
-      <div class="kb-mini-val">¥{{ month_diff|intcomma }}</div>
-    </div>
+    <div class="kb-divider kb-divider-thin"></div>
 
-    <div class="kb-row-2 kb-mt-14">
-      <div>
-        <div class="kb-mini-label">固定費</div>
-        <div class="kb-mini-val">¥{{ fixed_sum|intcomma }}</div>
-        <div class="kb-mini-delta">
-          先月比：
-          {% if dp_fixed is not None %}{{ dp_fixed }}%{% else %}—{% endif %}
-          （{% if d_fixed >= 0 %}+{% endif %}{{ d_fixed|intcomma }}）
+    <div class="kb-list">
+      <div class="kb-row kb-row-strong">
+        <div class="kb-row-left">
+          <span class="kb-dot kb-dot-diff"></span>
+          <span class="kb-row-label">差額</span>
         </div>
+        <div class="kb-row-val kb-val-diff">¥{{ month_diff|intcomma }}</div>
       </div>
 
-      <div>
-        <div class="kb-mini-label">変動費</div>
-        <div class="kb-mini-val">¥{{ var_sum|intcomma }}</div>
-        <div class="kb-mini-delta">
-          先月比：
-          {% if dp_var is not None %}{{ dp_var }}%{% else %}—{% endif %}
-          （{% if d_var >= 0 %}+{% endif %}{{ d_var|intcomma }}）
+      <div class="kb-row">
+        <div class="kb-row-left">
+          <span class="kb-dot kb-dot-muted"></span>
+          <span class="kb-row-label">固定費</span>
         </div>
+        <div class="kb-row-val">¥{{ fixed_sum|intcomma }}</div>
+      </div>
+
+      <div class="kb-row">
+        <div class="kb-row-left">
+          <span class="kb-dot kb-dot-muted"></span>
+          <span class="kb-row-label">変動費</span>
+        </div>
+        <div class="kb-row-val">¥{{ var_sum|intcomma }}</div>
+      </div>
+    </div>
+
+    <div class="kb-two kb-foot">
+      <div class="kb-foot-item">
+        固定費 先月比：{% if dp_fixed is not None %}{{ dp_fixed }}%{% else %}—{% endif %}（{% if d_fixed >= 0 %}+{% endif %}{{ d_fixed|intcomma }}）
+      </div>
+      <div class="kb-foot-item">
+        変動費 先月比：{% if dp_var is not None %}{{ dp_var }}%{% else %}—{% endif %}（{% if d_var >= 0 %}+{% endif %}{{ d_var|intcomma }}）
       </div>
     </div>
   </section>
 
+  <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       ⑥ 可視化（バー）
+       可視化（バー）
   ========================== -->
-  <section class="kb-card">
-    <div class="kb-title">当月の可視化</div>
+  <section class="kb-section">
+    <div class="kb-section-head">
+      <div class="kb-section-title">当月の可視化</div>
+      <div class="kb-section-side">比率</div>
+    </div>
 
-    <div class="kb-note">
+    <div class="kb-muted">
       収入に対して支出がどれくらいか、支出内訳（固定/変動）がどうなっているかを“1秒で”見える化。
     </div>
 
-    <!-- 支出率バー -->
-    <div class="kb-mt-14">
-      <div class="kb-mini-label">支出率（支出 ÷ 収入）</div>
-      <div class="kb-mini-delta">
-        {% if expense_rate is not None %}{{ expense_rate }}%{% else %}—（収入が0のため計算不可）{% endif %}
+    <div class="kb-viz">
+      <div class="kb-viz-block">
+        <div class="kb-viz-head">支出率（支出 ÷ 収入）</div>
+        <div class="kb-viz-sub">
+          {% if expense_rate is not None %}{{ expense_rate }}%{% else %}—（収入が0のため計算不可）{% endif %}
+        </div>
+        <div class="kb-bar" aria-label="支出率バー">
+          <i data-bar="expense" data-pct="{% if expense_rate is not None %}{{ expense_rate }}{% else %}0{% endif %}"></i>
+        </div>
       </div>
 
-      <div class="kb-bar" aria-label="支出率バー">
-        <i data-bar="expense" data-pct="{% if expense_rate is not None %}{{ expense_rate }}{% else %}0{% endif %}"></i>
-      </div>
-    </div>
-
-    <!-- 固定/変動比バー -->
-    <div class="kb-mt-16">
-      <div class="kb-mini-label">支出内訳（固定 vs 変動）</div>
-      <div class="kb-mini-delta">
-        固定 {% if fixed_rate is not None %}{{ fixed_rate }}%{% else %}—{% endif %}
-        / 変動 {% if var_rate is not None %}{{ var_rate }}%{% else %}—{% endif %}
-      </div>
-
-      <div class="kb-bar-2" aria-label="固定変動内訳バー">
-        <i class="kb-bar-fixed" data-bar="fixed" data-pct="{% if fixed_rate is not None %}{{ fixed_rate }}{% else %}0{% endif %}"></i>
-        <i class="kb-bar-var" data-bar="var" data-pct="{% if var_rate is not None %}{{ var_rate }}{% else %}0{% endif %}"></i>
+      <div class="kb-viz-block">
+        <div class="kb-viz-head">支出内訳（固定 vs 変動）</div>
+        <div class="kb-viz-sub">
+          固定 {% if fixed_rate is not None %}{{ fixed_rate }}%{% else %}—{% endif %}
+          / 変動 {% if var_rate is not None %}{{ var_rate }}%{% else %}—{% endif %}
+        </div>
+        <div class="kb-bar-2" aria-label="固定変動内訳バー">
+          <i class="kb-bar-fixed" data-bar="fixed" data-pct="{% if fixed_rate is not None %}{{ fixed_rate }}{% else %}0{% endif %}"></i>
+          <i class="kb-bar-var" data-bar="var" data-pct="{% if var_rate is not None %}{{ var_rate }}{% else %}0{% endif %}"></i>
+        </div>
       </div>
     </div>
   </section>
 
+  <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       ⑦ 将来：資金移動（フロー）
+       将来：資金移動
   ========================== -->
-  <section class="kb-card">
-    <div class="kb-title">資金移動（将来）</div>
-    <div class="kb-note">
-      将来的に：給与口座→支払い口座、各口座の不足/余剰が「見ただけで」わかるフロー画面をここに追加。
-      <br>
+  <section class="kb-section">
+    <div class="kb-section-head">
+      <div class="kb-section-title">資金移動</div>
+      <div class="kb-section-side">将来</div>
+    </div>
+
+    <div class="kb-muted">
+      将来的に：給与口座→支払い口座、各口座の不足/余剰が「見ただけで」わかるフロー画面をここに追加。<br>
       今は枠だけ。データが揃ったら “入れるべき金額/引き出せる金額” を自動計算。
     </div>
   </section>
+
+</div>
 
 <script src="{% static 'kakeibo/js/dashboard.js' %}"></script>
 {% endblock %}
