@@ -6,7 +6,8 @@
 このファイルは何？
 - 家計簿トップ画面（/kakeibo/）。
 - A：枠で囲わず、余白と薄い区切り線で“静かに整理”するデザイン。
-- 色は「意味のある数値」だけに使う（収入/支出/差額）。
+- 年度/年月の選択（GET）で集計を切り替える。
+- 色は「意味のある数値」だけ（収入=緑 / 支出=橙 / 差額=±で緑赤 / 銀行残高=±で緑赤）。
 - CSS/JS は static に分離（dashboard.css / dashboard.js）
 =========================================
 -->
@@ -27,7 +28,6 @@
        総資産（ヒーロー）
   ========================== -->
   <header class="kb-hero">
-
     <div class="kb-hero-label">我が家の総資産</div>
     <div class="kb-hero-value">¥{{ kpi_total_assets|intcomma }}</div>
 
@@ -56,7 +56,11 @@
           <span class="kb-dot kb-dot-bank"></span>
           <span class="kb-metric-label">楽天銀行残高</span>
         </div>
-        <div class="kb-metric-value">¥{{ kpi_rakuten_bank_actual|intcomma }}</div>
+
+        <!-- ✅ ±で色 -->
+        <div class="kb-metric-value {% if kpi_rakuten_bank_actual >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
+          ¥{{ kpi_rakuten_bank_actual|intcomma }}
+        </div>
 
         {% if debug %}
         <div class="kb-muted">
@@ -89,12 +93,21 @@
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       年度収支（枠なし・行）
+       年度収支（年度選択）
   ========================== -->
-  <section class="kb-section">
+  <section class="kb-section" id="yearly">
     <div class="kb-section-head">
       <div class="kb-section-title">年度収支</div>
-      <div class="kb-section-side">{{ year_label }}年</div>
+
+      <form method="get" class="kb-filter" id="kb-filter-year">
+        <!-- 月選択を維持 -->
+        <input type="hidden" name="month" value="{{ selected_month }}">
+        <select name="year" class="kb-select" data-autosubmit="1" aria-label="年度選択">
+          {% for y in year_options %}
+            <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>{{ y }}年</option>
+          {% endfor %}
+        </select>
+      </form>
     </div>
 
     <div class="kb-list">
@@ -119,7 +132,11 @@
           <span class="kb-dot kb-dot-diff"></span>
           <span class="kb-row-label">差額</span>
         </div>
-        <div class="kb-row-val kb-val-diff">¥{{ year_diff|intcomma }}</div>
+
+        <!-- ✅ 年度差額は ±で色 -->
+        <div class="kb-row-val {% if year_diff >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
+          ¥{{ year_diff|intcomma }}
+        </div>
       </div>
     </div>
   </section>
@@ -127,12 +144,21 @@
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       当月収支（枠なし・整理）
+       月の収支（年月選択）
   ========================== -->
-  <section class="kb-section">
+  <section class="kb-section" id="monthly">
     <div class="kb-section-head">
       <div class="kb-section-title">月の収支</div>
-      <div class="kb-section-side">{{ month_label }}</div>
+
+      <form method="get" class="kb-filter" id="kb-filter-month">
+        <!-- 年度選択を維持 -->
+        <input type="hidden" name="year" value="{{ selected_year }}">
+        <select name="month" class="kb-select" data-autosubmit="1" aria-label="年月選択">
+          {% for m in month_options %}
+            <option value="{{ m.value }}" {% if m.value == selected_month %}selected{% endif %}>{{ m.label }}</option>
+          {% endfor %}
+        </select>
+      </form>
     </div>
 
     <div class="kb-two kb-two-gap">
@@ -171,7 +197,11 @@
           <span class="kb-dot kb-dot-diff"></span>
           <span class="kb-row-label">差額</span>
         </div>
-        <div class="kb-row-val kb-val-diff">¥{{ month_diff|intcomma }}</div>
+
+        <!-- ✅ 月差額は ±で色 -->
+        <div class="kb-row-val {% if month_diff >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
+          ¥{{ month_diff|intcomma }}
+        </div>
       </div>
 
       <div class="kb-row">
@@ -192,10 +222,12 @@
     </div>
 
     <div class="kb-two kb-foot">
-      <div class="kb-foot-item">
+      <!-- ✅ +は緑 / -は赤 / 0は無色 -->
+      <div class="kb-foot-item {% if d_fixed > 0 %}kb-val-pos{% elif d_fixed < 0 %}kb-val-neg{% endif %}">
         固定費 先月比：{% if dp_fixed is not None %}{{ dp_fixed }}%{% else %}—{% endif %}（{% if d_fixed >= 0 %}+{% endif %}{{ d_fixed|intcomma }}）
       </div>
-      <div class="kb-foot-item">
+
+      <div class="kb-foot-item {% if d_var > 0 %}kb-val-pos{% elif d_var < 0 %}kb-val-neg{% endif %}">
         変動費 先月比：{% if dp_var is not None %}{{ dp_var }}%{% else %}—{% endif %}（{% if d_var >= 0 %}+{% endif %}{{ d_var|intcomma }}）
       </div>
     </div>
@@ -204,11 +236,12 @@
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       可視化（バー）
+       可視化（バー）※月の収支と同じ month に連動
   ========================== -->
-  <section class="kb-section">
+  <section class="kb-section" id="viz">
     <div class="kb-section-head">
       <div class="kb-section-title">月の可視化</div>
+      <div class="kb-section-side">{{ month_label }}</div>
     </div>
 
     <div class="kb-muted">
