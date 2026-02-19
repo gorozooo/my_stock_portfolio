@@ -14,7 +14,7 @@
   <section class="kb-card">
     <div class="kb-title">支出</div>
     <div class="kb-muted" style="margin-top:6px;">
-      まず種類を選ぶ（固定費は毎月同じ / 変動費はカード・立替を月次で記録）
+      種類を選ぼう
     </div>
   </section>
 
@@ -23,16 +23,13 @@
 
     <div style="display:grid; gap:10px;">
       <a class="kb-btn kb-btn-primary" href="{% url 'kakeibo:expense_fixed' %}" style="text-align:center; padding:14px 12px;">
-        固定費（毎月同じ）
+        固定費
       </a>
 
       <a class="kb-btn kb-btn-primary" href="{% url 'kakeibo:expense_variable' %}" style="text-align:center; padding:14px 12px;">
-        変動費（月次：カード / 立替）
+        変動費
       </a>
     </div>
 
-    <div class="kb-muted" style="margin-top:12px;">
-      ※ 変動費の「カード/立替」は、入力画面で選ぶだけ。カテゴリ(code)は自動で決まる。
-    </div>
   </section>
 {% endblock %}
