@@ -6,10 +6,10 @@
 - kakeibo/dashboard.html 専用スタイル
 - A：枠で囲わず、余白＋薄い区切りで整理。
 - select（年度/年月）と、±色（pos/neg）。
-- 月次Snapshotの「確定」ボタン＆確定バッジ（kb-confirm-*）
-- ★配置ルール（指示どおり）
-  - 年セレクト：年度収支見出し行の「タイトル左隣」
-  - 月セレクト：月の収支見出し行の「タイトル左隣」
+- ★変更（指示どおり）
+  - 年度収支：右側の白丸は表示しない（HTML側で空に）
+  - 月の収支：確定UIを「年月セレクトの直下」に配置（ボタン左 / ステータス右）
+  - 確定ボタンはピルではなく、分かりやすいボタン
 ========================================= */
 
 .kb-dash{
@@ -68,6 +68,7 @@
   font-size: 22px;
   font-weight: 850;
   letter-spacing: .2px;
+  white-space: nowrap; /* ✅ タイトルが折り返さない */
 }
 
 .kb-section-side{
@@ -75,12 +76,24 @@
   color: rgba(255,255,255,0.58);
 }
 
-/* ---------- head left group (select + title) ---------- */
+/* ---------- head left group (select + title + under-row) ---------- */
 .kb-head-left{
+  display:flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 年度収支の見出し行（横並び） */
+.kb-head-left > .kb-filter + .kb-section-title{
+  margin-top: 0;
+}
+
+/* 月の見出し：select + title を横並びにする */
+.kb-month-head{
   display:flex;
   align-items: baseline;
   gap: 10px;
-  min-width: 0;
 }
 
 /* ---------- filter (select) ---------- */
@@ -91,7 +104,6 @@
   position: relative;
 }
 
-/* 見出し行に入れるので余計な上下を出さない */
 .kb-filter-inline{
   margin: 0;
 }
@@ -133,9 +145,7 @@
 @media (max-width: 360px){
   .kb-hero-value{ font-size: 38px; }
   .kb-two{ gap: 12px; }
-
-  /* 狭い時は、見出し左の「select + title」が詰まりやすいので少しだけ詰める */
-  .kb-head-left{ gap: 8px; }
+  .kb-month-head{ gap: 8px; }
   .kb-section-title{ font-size: 21px; }
 }
 
@@ -162,7 +172,6 @@
 .kb-val-income{ color: rgba(73, 209, 141, 0.95); }
 .kb-val-expense{ color: rgba(244, 162, 97, 0.95); }
 
-/* ✅ 差額/残高/先月比：±で色 */
 .kb-val-pos{ color: rgba(73, 209, 141, 0.95) !important; }
 .kb-val-neg{ color: rgba(244, 90, 90, 0.95) !important; }
 
@@ -377,53 +386,57 @@
 }
 
 /* =========================================
-   Snapshot 確定UI（見出し右側）
+   ✅ 月の収支：確定UI（年月セレクト直下）
+   - ボタン左 / ステータス右
+   - ボタンはピルじゃなく、分かりやすい“普通のボタン”
 ========================================= */
 
-.kb-head-actions{
+.kb-confirm-under{
   display:flex;
   align-items:center;
   gap: 10px;
   flex-wrap: wrap;
-  justify-content: flex-end;
 }
 
+/* form余白ゼロ */
 .kb-confirm-form{
   margin: 0;
 }
 
-.kb-btn-confirm{
+/* ✅ 分かりやすいボタン */
+.kb-btn-confirm-solid{
   appearance:none;
   -webkit-appearance: none;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.05);
-  color: rgba(255,255,255,0.82);
-  padding: 8px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 850;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(108, 207, 246, 0.22);
+  color: rgba(255,255,255,0.92);
+  padding: 10px 14px;
+  border-radius: 10px;        /* ← ピルではない */
+  font-size: 13px;
+  font-weight: 900;
   letter-spacing: .12px;
   line-height: 1;
   outline: none;
   white-space: nowrap;
 }
 
-.kb-btn-confirm:active{
+.kb-btn-confirm-solid:active{
   transform: translateY(1px);
 }
 
-.kb-confirm-badge{
+/* ステータス（ボタンの右） */
+.kb-confirm-status{
   font-size: 12px;
-  color: rgba(255,255,255,0.60);
-  padding: 8px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.70);
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.10);
   background: rgba(255,255,255,0.03);
   white-space: nowrap;
 }
 
-.kb-confirm-badge-muted{
-  color: rgba(255,255,255,0.52);
+.kb-confirm-status-muted{
+  color: rgba(255,255,255,0.55);
   background: rgba(255,255,255,0.02);
 }
 
