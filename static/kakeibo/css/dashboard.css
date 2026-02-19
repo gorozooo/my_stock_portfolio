@@ -6,10 +6,10 @@
 - kakeibo/dashboard.html 専用スタイル
 - A：枠で囲わず、余白＋薄い区切りで整理。
 - select（年度/年月）と、±色（pos/neg）。
-- ★変更（指示どおり）
-  - 年度収支：右側の白丸は表示しない（HTML側で空に）
-  - 月の収支：確定UIを「年月セレクトの直下」に配置（ボタン左 / ステータス右）
-  - 確定ボタンはピルではなく、分かりやすいボタン
+- 変更：
+  - 年度収支：年セレクトを「タイトル左」に横並び固定（kb-head-left-year）
+  - 月の収支：確定UIは年月セレクト直下（ボタン左/ステータス右）
+  - 月の先月比：+なら緑 / -なら赤（テンプレ側で kb-val-pos/neg を付与）
 ========================================= */
 
 .kb-dash{
@@ -68,7 +68,7 @@
   font-size: 22px;
   font-weight: 850;
   letter-spacing: .2px;
-  white-space: nowrap; /* ✅ タイトルが折り返さない */
+  white-space: nowrap;
 }
 
 .kb-section-side{
@@ -76,7 +76,7 @@
   color: rgba(255,255,255,0.58);
 }
 
-/* ---------- head left group (select + title + under-row) ---------- */
+/* ---------- head left group ---------- */
 .kb-head-left{
   display:flex;
   flex-direction: column;
@@ -84,12 +84,15 @@
   min-width: 0;
 }
 
-/* 年度収支の見出し行（横並び） */
-.kb-head-left > .kb-filter + .kb-section-title{
-  margin-top: 0;
+/* ✅ 年度収支：横並び（年セレクト左＋タイトル右） */
+.kb-head-left-year{
+  display:flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
 }
 
-/* 月の見出し：select + title を横並びにする */
+/* 月の見出し：select + title を横並び */
 .kb-month-head{
   display:flex;
   align-items: baseline;
@@ -146,6 +149,7 @@
   .kb-hero-value{ font-size: 38px; }
   .kb-two{ gap: 12px; }
   .kb-month-head{ gap: 8px; }
+  .kb-head-left-year{ gap: 8px; }
   .kb-section-title{ font-size: 21px; }
 }
 
@@ -387,8 +391,6 @@
 
 /* =========================================
    ✅ 月の収支：確定UI（年月セレクト直下）
-   - ボタン左 / ステータス右
-   - ボタンはピルじゃなく、分かりやすい“普通のボタン”
 ========================================= */
 
 .kb-confirm-under{
@@ -398,12 +400,10 @@
   flex-wrap: wrap;
 }
 
-/* form余白ゼロ */
 .kb-confirm-form{
   margin: 0;
 }
 
-/* ✅ 分かりやすいボタン */
 .kb-btn-confirm-solid{
   appearance:none;
   -webkit-appearance: none;
@@ -411,7 +411,7 @@
   background: rgba(108, 207, 246, 0.22);
   color: rgba(255,255,255,0.92);
   padding: 10px 14px;
-  border-radius: 10px;        /* ← ピルではない */
+  border-radius: 10px;
   font-size: 13px;
   font-weight: 900;
   letter-spacing: .12px;
@@ -424,7 +424,6 @@
   transform: translateY(1px);
 }
 
-/* ステータス（ボタンの右） */
 .kb-confirm-status{
   font-size: 12px;
   color: rgba(255,255,255,0.70);
