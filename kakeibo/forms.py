@@ -103,7 +103,7 @@ class MonthlyIncomeForm(forms.ModelForm):
         model = MonthlyIncome
         fields = ["month", "owner", "category", "amount", "memo"]
         widgets = {
-            "memo": forms.TextInput(attrs={"placeholder": "例：2月 給与 / 副業 など"}),
+            "memo": forms.TextInput(attrs={"placeholder": "例： お年玉/ 副業 など"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -124,7 +124,7 @@ class FixedExpenseTemplateForm(forms.ModelForm):
         model = FixedExpenseTemplate
         fields = ["owner", "category", "amount", "memo", "is_active"]
         widgets = {
-            "memo": forms.TextInput(attrs={"placeholder": "例：家賃 / 保険 / サブスク など"}),
+            "memo": forms.TextInput(attrs={"placeholder": "例：保険 / プルデンシャル / サブスク など"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -145,7 +145,7 @@ class MonthlyVariableExpenseForm(forms.ModelForm):
         model = MonthlyVariableExpense
         fields = ["month", "owner", "var_type", "category", "card", "amount", "memo"]
         widgets = {
-            "memo": forms.TextInput(attrs={"placeholder": "例：楽天カード 2月分 / 子供用品立替 など"}),
+            "memo": forms.TextInput(attrs={"placeholder": "例：コンタクト / 子供用品 など"}),
         }
 
     def __init__(self, *args, **kwargs):
