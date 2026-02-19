@@ -8,11 +8,12 @@
 - A：枠で囲わず、余白と薄い区切り線で“静かに整理”するデザイン。
 - 年度/年月の選択（GET）で集計を切り替える。
 - ★配置ルール（指示どおり）
-  - 年セレクト：年度収支見出し行の「左側（タイトルの左隣）」
-  - 月セレクト：月の収支見出し行の「左側（タイトルの左隣）」
-  - 月の右側：未確定/確定(日時) + 確定ボタン
+  - 年セレクト：年度収支見出し行の「タイトル左隣」
+  - 年度収支：右側の白丸（年表示）は出さない
+  - 月セレクト：月の収支見出し行の「タイトル左隣」
+  - 確定ボタン：年月セレクトのすぐ下
+  - ステータス：確定ボタンのすぐ右（同じ行）
 - 月次Snapshotは「確定」ボタンで作成/上書きし、確定があればそれを正として表示。
-- 色は「意味のある数値」だけ（収入=緑 / 支出=橙 / 差額=±で緑赤 / 銀行残高=±で緑赤）。
 - CSS/JS は static に分離（dashboard.css / dashboard.js）
 =========================================
 -->
@@ -62,7 +63,6 @@
           <span class="kb-metric-label">楽天銀行残高</span>
         </div>
 
-        <!-- ✅ ±で色 -->
         <div class="kb-metric-value {% if kpi_rakuten_bank_actual >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
           ¥{{ kpi_rakuten_bank_actual|intcomma }}
         </div>
@@ -99,12 +99,12 @@
 
   <!-- =========================
        年度収支（年セレクト：見出し行の左隣）
+       ★右側の白丸（年表示）は出さない
   ========================== -->
   <section class="kb-section" id="yearly">
     <div class="kb-section-head">
       <div class="kb-head-left">
         <form method="get" class="kb-filter kb-filter-inline" id="kb-filter-year">
-          <!-- 月選択を維持 -->
           <input type="hidden" name="month" value="{{ selected_month }}">
           {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
           <select name="year" class="kb-select" data-autosubmit="1" aria-label="年度選択">
@@ -117,7 +117,8 @@
         <div class="kb-section-title">年度収支</div>
       </div>
 
-      <div class="kb-section-side">{{ selected_year }}年</div>
+      <!-- 右側は空（白丸を出さない） -->
+      <div class="kb-section-side"></div>
     </div>
 
     <div class="kb-list">
@@ -142,8 +143,6 @@
           <span class="kb-dot kb-dot-diff"></span>
           <span class="kb-row-label">差額</span>
         </div>
-
-        <!-- ✅ 年度差額は ±で色 -->
         <div class="kb-row-val {% if year_diff >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
           ¥{{ year_diff|intcomma }}
         </div>
@@ -160,46 +159,53 @@
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       月の収支（年月セレクト：見出し行の左隣）
-       右側：未確定/確定(日時) + 確定ボタン
+       月の収支
+       - 年月セレクト：見出し行の左隣
+       - 確定ボタン：年月セレクトのすぐ下
+       - ステータス：確定ボタンのすぐ右
+       ★確定時にステータスが1行増えても「月の収支」が折り返さない
   ========================== -->
   <section class="kb-section" id="monthly">
     <div class="kb-section-head">
       <div class="kb-head-left">
-        <form method="get" class="kb-filter kb-filter-inline" id="kb-filter-month">
-          <!-- 年度選択を維持 -->
-          <input type="hidden" name="year" value="{{ selected_year }}">
-          {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
-          <select name="month" class="kb-select" data-autosubmit="1" aria-label="年月選択">
-            {% for m in month_options %}
-              <option value="{{ m.value }}" {% if m.value == selected_month %}selected{% endif %}>{{ m.label }}</option>
-            {% endfor %}
-          </select>
-        </form>
+        <div class="kb-month-head">
+          <form method="get" class="kb-filter kb-filter-inline" id="kb-filter-month">
+            <input type="hidden" name="year" value="{{ selected_year }}">
+            {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
+            <select name="month" class="kb-select" data-autosubmit="1" aria-label="年月選択">
+              {% for m in month_options %}
+                <option value="{{ m.value }}" {% if m.value == selected_month %}selected{% endif %}>{{ m.label }}</option>
+              {% endfor %}
+            </select>
+          </form>
 
-        <div class="kb-section-title">月の収支</div>
+          <div class="kb-section-title">月の収支</div>
+        </div>
+
+        <!-- ✅ 確定UI：年月セレクトの直下（ボタン左 / ステータス右） -->
+        <div class="kb-confirm-under">
+          <form method="post" class="kb-confirm-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="confirm_snapshot">
+            <input type="hidden" name="year" value="{{ selected_year }}">
+            <input type="hidden" name="month" value="{{ selected_month }}">
+            {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
+            <button type="submit" class="kb-btn-confirm-solid">確定</button>
+          </form>
+
+          {% if is_snapshot %}
+            <div class="kb-confirm-status">
+              確定{% if snapshot_locked_at %}（{{ snapshot_locked_at|date:"Y-m-d H:i" }}）{% endif %}
+            </div>
+          {% else %}
+            <div class="kb-confirm-status kb-confirm-status-muted">
+              未確定
+            </div>
+          {% endif %}
+        </div>
       </div>
 
-      <div class="kb-head-actions">
-        {% if is_snapshot %}
-          <div class="kb-confirm-badge">
-            確定{% if snapshot_locked_at %}（{{ snapshot_locked_at|date:"Y-m-d H:i" }}）{% endif %}
-          </div>
-        {% else %}
-          <div class="kb-confirm-badge kb-confirm-badge-muted">
-            未確定
-          </div>
-        {% endif %}
-
-        <form method="post" class="kb-confirm-form">
-          {% csrf_token %}
-          <input type="hidden" name="action" value="confirm_snapshot">
-          <input type="hidden" name="year" value="{{ selected_year }}">
-          <input type="hidden" name="month" value="{{ selected_month }}">
-          {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
-          <button type="submit" class="kb-btn-confirm">確定</button>
-        </form>
-      </div>
+      <div class="kb-section-side"></div>
     </div>
 
     <div class="kb-two kb-two-gap">
@@ -238,7 +244,6 @@
           <span class="kb-dot kb-dot-diff"></span>
           <span class="kb-row-label">差額</span>
         </div>
-
         <div class="kb-row-val {% if month_diff >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
           ¥{{ month_diff|intcomma }}
         </div>
