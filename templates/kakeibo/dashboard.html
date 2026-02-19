@@ -7,15 +7,10 @@
 - 家計簿トップ画面（/kakeibo/）。
 - A：枠で囲わず、余白と薄い区切り線で“静かに整理”するデザイン。
 - 年度/年月の選択（GET）で集計を切り替える。
-- ★配置ルール（指示どおり）
-  - 年セレクト：年度収支 見出し行の「タイトル左」
-  - 年度収支：右側の白丸（年表示）は出さない
-  - 月セレクト：月の収支 見出し行の「タイトル左」
-  - 確定ボタン：年月セレクトのすぐ下
-  - ステータス：確定ボタンのすぐ右（同じ行）
 - 月次Snapshotは「確定」ボタンで作成/上書きし、確定があればそれを正として表示。
-- 追加：月の先月比は +なら緑 / -なら赤
-- CSS/JS は static に分離（dashboard.css / dashboard.js）
+- ★追加：
+  - 我が家の総資産 / 楽天銀行残高 / 投資 に「先月比（% + 金額）」を表示
+  - 表示は「% と 金額だけ」／ +なら緑、-なら赤
 =========================================
 -->
 
@@ -38,6 +33,16 @@
     <div class="kb-hero-label">我が家の総資産</div>
     <div class="kb-hero-value">¥{{ kpi_total_assets|intcomma }}</div>
 
+    <!-- ✅ 先月比（% と 金額だけ / +緑 -赤） -->
+    <div class="kb-hero-delta
+      {% with s=d_total_assets|stringformat:'s' %}
+        {% if s|slice:':1' == '-' %}kb-val-neg{% elif s != '' and s != '0' %}kb-val-pos{% endif %}
+      {% endwith %}
+    ">
+      {% if dp_total_assets != None %}{{ dp_total_assets }}%{% else %}—{% endif %}
+      （{% if d_total_assets != None and d_total_assets >= 0 %}+{% endif %}{% if d_total_assets != None %}{{ d_total_assets|intcomma }}{% else %}—{% endif %}）
+    </div>
+
     {% if debug %}
     <div class="kb-debug">
       <div class="kb-debug-title">debug</div>
@@ -58,6 +63,8 @@
   ========================== -->
   <section class="kb-section">
     <div class="kb-two">
+
+      <!-- ---- 楽天銀行残高 ---- -->
       <div class="kb-metric">
         <div class="kb-metric-head">
           <span class="kb-dot kb-dot-bank"></span>
@@ -68,6 +75,16 @@
           ¥{{ kpi_rakuten_bank_actual|intcomma }}
         </div>
 
+        <!-- ✅ 先月比（% と 金額だけ / +緑 -赤） -->
+        <div class="kb-metric-delta
+          {% with s=d_rakuten_bank_actual|stringformat:'s' %}
+            {% if s|slice:':1' == '-' %}kb-val-neg{% elif s != '' and s != '0' %}kb-val-pos{% endif %}
+          {% endwith %}
+        ">
+          {% if dp_rakuten_bank_actual != None %}{{ dp_rakuten_bank_actual }}%{% else %}—{% endif %}
+          （{% if d_rakuten_bank_actual != None and d_rakuten_bank_actual >= 0 %}+{% endif %}{% if d_rakuten_bank_actual != None %}{{ d_rakuten_bank_actual|intcomma }}{% else %}—{% endif %}）
+        </div>
+
         {% if debug %}
         <div class="kb-muted">
           4,136,736 − 余力 ¥{{ rakuten_cash_free|intcomma }} − 楽天銀行(B) ¥{{ rakuten_bank_b|intcomma }}
@@ -75,12 +92,24 @@
         {% endif %}
       </div>
 
+      <!-- ---- 投資 ---- -->
       <div class="kb-metric">
         <div class="kb-metric-head">
           <span class="kb-dot kb-dot-invest"></span>
           <span class="kb-metric-label">投資</span>
         </div>
+
         <div class="kb-metric-value">¥{{ kpi_invest_total|intcomma }}</div>
+
+        <!-- ✅ 先月比（% と 金額だけ / +緑 -赤） -->
+        <div class="kb-metric-delta
+          {% with s=d_invest_total|stringformat:'s' %}
+            {% if s|slice:':1' == '-' %}kb-val-neg{% elif s != '' and s != '0' %}kb-val-pos{% endif %}
+          {% endwith %}
+        ">
+          {% if dp_invest_total != None %}{{ dp_invest_total }}%{% else %}—{% endif %}
+          （{% if d_invest_total != None and d_invest_total >= 0 %}+{% endif %}{% if d_invest_total != None %}{{ d_invest_total|intcomma }}{% else %}—{% endif %}）
+        </div>
 
         <div class="kb-subrows">
           <div class="kb-subrow">
@@ -93,6 +122,7 @@
           </div>
         </div>
       </div>
+
     </div>
   </section>
 
@@ -100,7 +130,6 @@
 
   <!-- =========================
        年度収支（年セレクト：タイトル左）
-       ★右側の白丸は出さない
   ========================== -->
   <section class="kb-section" id="yearly">
     <div class="kb-section-head">
@@ -160,8 +189,6 @@
 
   <!-- =========================
        月の収支（年月セレクト：タイトル左）
-       - 確定ボタン：年月セレクトのすぐ下
-       - ステータス：確定ボタンのすぐ右
   ========================== -->
   <section class="kb-section" id="monthly">
     <div class="kb-section-head">
@@ -212,8 +239,6 @@
           <span class="kb-mini-label">収入</span>
         </div>
         <div class="kb-mini-val kb-val-income">¥{{ total_income|intcomma }}</div>
-
-        <!-- ✅ 先月比：+なら緑 / -なら赤 -->
         <div class="kb-mini-sub {% if d_income > 0 %}kb-val-pos{% elif d_income < 0 %}kb-val-neg{% endif %}">
           先月（{{ prev_month_label }}）比：
           {% if dp_income is not None %}{{ dp_income }}%{% else %}—{% endif %}
@@ -227,8 +252,6 @@
           <span class="kb-mini-label">支出</span>
         </div>
         <div class="kb-mini-val kb-val-expense">¥{{ total_expense|intcomma }}</div>
-
-        <!-- ✅ 先月比：+なら緑 / -なら赤 -->
         <div class="kb-mini-sub {% if d_expense > 0 %}kb-val-pos{% elif d_expense < 0 %}kb-val-neg{% endif %}">
           先月（{{ prev_month_label }}）比：
           {% if dp_expense is not None %}{{ dp_expense }}%{% else %}—{% endif %}
