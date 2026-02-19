@@ -9,12 +9,12 @@
 # - 月（選択可）の収入・支出・差額＋固定/変動内訳 + 先月比
 # - 可視化（支出率バー、固定/変動比バー）※月選択に連動
 #
-# ★今回の修正ポイント（確定方針どおり）
-# 1) MonthlySnapshot（確定値）を導入：POST「この月を確定」で作成/上書き
-# 2) 固定費は「確定ボタン押下時点のテンプレ合計」を snapshot.fixed に保存
-# 3) 画面表示：選択月に snapshot があれば snapshot を正として表示（再計算ブレ防止）
-# 4) 年度収支：その年度の snapshot 合計（snapshotが無い年度は従来計算にフォールバック）
-# 5) 月の可視化：選択月（snapshot or 動的計算）に完全連動
+# ★今回の修正ポイント（あなたの指示どおり）
+# 1) KPI（総資産 / 楽天銀行残高 / 投資）にも「先月比（% と 金額）」を追加
+#    - +なら緑 / -なら赤（テンプレ側で色分け）
+#    - 値が出せない場合は None を返してテンプレで "—" 表示
+# 2) 先月比の「基準(先月)」は、先月に snapshot があれば snapshot を正、
+#    無ければ動的計算（既存ロジック）で算出する
 # =========================================
 
 from decimal import Decimal
@@ -416,6 +416,35 @@ def _build_dynamic_month_values(request, today: date, m: date) -> dict:
     }
 
 
+def _build_month_values_prefer_snapshot(request, today: date, m: date) -> dict:
+    """
+    何をする？
+    - 指定月 m について、snapshot があれば snapshot を正として返す
+    - 無ければ動的計算で返す
+    - 返すキーは KPI の先月比計算に必要なものに揃える
+    """
+    snap = MonthlySnapshot.objects.filter(month=m).first()
+    if snap:
+        return {
+            "is_snapshot": True,
+            "locked_at": getattr(snap, "locked_at", None),
+
+            "kpi_total_assets": _int(getattr(snap, "kpi_total_assets", 0)),
+            "kpi_rakuten_bank_actual": _int(getattr(snap, "kpi_rakuten_bank_actual", 0)),
+            "kpi_invest_total": _int(getattr(snap, "kpi_invest_total", 0)),
+        }
+
+    dyn = _build_dynamic_month_values(request, today=today, m=m)
+    return {
+        "is_snapshot": False,
+        "locked_at": None,
+
+        "kpi_total_assets": _int(dyn.get("kpi_total_assets", 0)),
+        "kpi_rakuten_bank_actual": _int(dyn.get("kpi_rakuten_bank_actual", 0)),
+        "kpi_invest_total": _int(dyn.get("kpi_invest_total", 0)),
+    }
+
+
 @login_required
 def dashboard(request):
     if not kakeibo_access_required(request.user):
@@ -543,6 +572,25 @@ def dashboard(request):
         var_rate = dyn["var_rate"]
 
     # -----------------------
+    # KPI：先月比（総資産 / 楽天銀行残高 / 投資）
+    # - 先月に snapshot があれば snapshot を正
+    # - 無ければ動的計算で算出
+    # -----------------------
+    prev_kpi = _build_month_values_prefer_snapshot(request, today=today, m=prev_m)
+
+    prev_total_assets = _int(prev_kpi.get("kpi_total_assets", 0))
+    prev_rakuten_bank_actual = _int(prev_kpi.get("kpi_rakuten_bank_actual", 0))
+    prev_invest_total = _int(prev_kpi.get("kpi_invest_total", 0))
+
+    d_total_assets = _delta(total_assets, prev_total_assets)
+    d_rakuten_bank_actual = _delta(rakuten_bank_actual, prev_rakuten_bank_actual)
+    d_invest_total = _delta(invest_total, prev_invest_total)
+
+    dp_total_assets = _delta_pct(total_assets, prev_total_assets)
+    dp_rakuten_bank_actual = _delta_pct(rakuten_bank_actual, prev_rakuten_bank_actual)
+    dp_invest_total = _delta_pct(invest_total, prev_invest_total)
+
+    # -----------------------
     # 先月比（選択月に対して）
     # ※ snapshotがあっても先月比は「表示上の参考」なので、現行のDB（月次入力）から出す
     # -----------------------
@@ -615,6 +663,14 @@ def dashboard(request):
         "kpi_total_assets": total_assets,
         "kpi_rakuten_bank_actual": rakuten_bank_actual,
         "kpi_invest_total": invest_total,
+
+        # ✅ KPI 先月比（% と 金額）
+        "d_total_assets": d_total_assets,
+        "dp_total_assets": dp_total_assets,
+        "d_rakuten_bank_actual": d_rakuten_bank_actual,
+        "dp_rakuten_bank_actual": dp_rakuten_bank_actual,
+        "d_invest_total": d_invest_total,
+        "dp_invest_total": dp_invest_total,
 
         # 内訳
         "rakuten_cash_free": rakuten_cash_free,
