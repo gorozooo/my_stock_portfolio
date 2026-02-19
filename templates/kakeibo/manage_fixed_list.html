@@ -21,9 +21,9 @@
       <label>所有者</label>
       <select name="owner">
         <option value="" {% if not owner %}selected{% endif %}>全部</option>
-        <option value="HOUSE" {% if owner == "HOUSE" %}selected{% endif %}>家計</option>
-        <option value="B" {% if owner == "B" %}selected{% endif %}>B（夫）</option>
-        <option value="G" {% if owner == "G" %}selected{% endif %}>G（妻）</option>
+        <option value="HOUSE" {% if owner == "HOUSE" %}selected{% endif %}>家</option>
+        <option value="B" {% if owner == "B" %}selected{% endif %}>ぼーや</option>
+        <option value="G" {% if owner == "G" %}selected{% endif %}>ごろ</option>
       </select>
 
       <button class="kb-btn kb-btn-primary" type="submit" style="margin-top:12px;">絞り込み</button>
