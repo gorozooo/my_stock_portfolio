@@ -6,10 +6,9 @@
 - kakeibo/dashboard.html 専用スタイル
 - A：枠で囲わず、余白＋薄い区切りで整理。
 - select（年度/年月）と、±色（pos/neg）。
-- 変更：
-  - 年度収支：年セレクトを「タイトル左」に横並び固定（kb-head-left-year）
-  - 月の収支：確定UIは年月セレクト直下（ボタン左/ステータス右）
-  - 月の先月比：+なら緑 / -なら赤（テンプレ側で kb-val-pos/neg を付与）
+- 追加：
+  - ヒーロー先月比（kb-hero-delta）
+  - メトリクス先月比（kb-metric-delta）
 ========================================= */
 
 .kb-dash{
@@ -33,6 +32,14 @@
   letter-spacing: .6px;
   margin-top: 6px;
   line-height: 1.05;
+}
+
+/* ✅ ヒーロー先月比（% と 金額だけ） */
+.kb-hero-delta{
+  margin-top: 10px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.58);
+  line-height: 1.35;
 }
 
 /* ---------- divider ---------- */
@@ -84,7 +91,6 @@
   min-width: 0;
 }
 
-/* ✅ 年度収支：横並び（年セレクト左＋タイトル右） */
 .kb-head-left-year{
   display:flex;
   align-items: baseline;
@@ -92,7 +98,6 @@
   min-width: 0;
 }
 
-/* 月の見出し：select + title を横並び */
 .kb-month-head{
   display:flex;
   align-items: baseline;
@@ -197,6 +202,14 @@
   font-weight: 880;
   margin-top: 10px;
   letter-spacing: .2px;
+}
+
+/* ✅ メトリクス先月比（% と 金額だけ） */
+.kb-metric-delta{
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.58);
+  line-height: 1.35;
 }
 
 .kb-subrows{
