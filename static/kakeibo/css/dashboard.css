@@ -6,9 +6,13 @@
 - kakeibo/dashboard.html 専用スタイル
 - A：枠で囲わず、余白＋薄い区切りで整理。
 - select（年度/年月）と、±色（pos/neg）。
-- 追加：
-  - ヒーロー先月比（kb-hero-delta）
-  - メトリクス先月比（kb-metric-delta）
+- 月次Snapshotの「確定」ボタン＆確定バッジ（kb-confirm-*）
+- フィルタをセクション前に集約（kb-filterbar）
+- 月の収支ヘッダ右側に「ステータス＋確定」（kb-head-actions）
+
+★今回の追加
+- KPI（総資産/楽天銀行残高/投資）に「先月比（¥と%）」の表示用スタイル
+  - kb-hero-sub / kb-metric-sub / kb-muted-inline
 ========================================= */
 
 .kb-dash{
@@ -34,12 +38,18 @@
   line-height: 1.05;
 }
 
-/* ✅ ヒーロー先月比（% と 金額だけ） */
-.kb-hero-delta{
-  margin-top: 10px;
+/* ✅ hero 先月比 */
+.kb-hero-sub{
+  margin-top: 8px;
   font-size: 12px;
-  color: rgba(255,255,255,0.58);
+  color: rgba(255,255,255,0.62);
+  letter-spacing: .1px;
   line-height: 1.35;
+}
+
+.kb-muted-inline{
+  color: rgba(255,255,255,0.45);
+  margin: 0 6px;
 }
 
 /* ---------- divider ---------- */
@@ -75,33 +85,11 @@
   font-size: 22px;
   font-weight: 850;
   letter-spacing: .2px;
-  white-space: nowrap;
 }
 
 .kb-section-side{
   font-size: 12px;
   color: rgba(255,255,255,0.58);
-}
-
-/* ---------- head left group ---------- */
-.kb-head-left{
-  display:flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-
-.kb-head-left-year{
-  display:flex;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
-}
-
-.kb-month-head{
-  display:flex;
-  align-items: baseline;
-  gap: 10px;
 }
 
 /* ---------- filter (select) ---------- */
@@ -110,10 +98,6 @@
   align-items:center;
   gap: 8px;
   position: relative;
-}
-
-.kb-filter-inline{
-  margin: 0;
 }
 
 .kb-select{
@@ -139,6 +123,32 @@
   pointer-events: none;
 }
 
+/* ---------- ✅ filter bar ---------- */
+.kb-filterbar{
+  padding-top: 0;
+}
+
+.kb-filterbar-inner{
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.kb-filterbar-title{
+  font-size: 12px;
+  color: rgba(255,255,255,0.55);
+  letter-spacing: .2px;
+}
+
+.kb-filterbar-ctrls{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 /* ---------- layout ---------- */
 .kb-two{
   display:grid;
@@ -153,9 +163,6 @@
 @media (max-width: 360px){
   .kb-hero-value{ font-size: 38px; }
   .kb-two{ gap: 12px; }
-  .kb-month-head{ gap: 8px; }
-  .kb-head-left-year{ gap: 8px; }
-  .kb-section-title{ font-size: 21px; }
 }
 
 /* ---------- dots ---------- */
@@ -181,6 +188,7 @@
 .kb-val-income{ color: rgba(73, 209, 141, 0.95); }
 .kb-val-expense{ color: rgba(244, 162, 97, 0.95); }
 
+/* ✅ 差額/残高/先月比：±で色 */
 .kb-val-pos{ color: rgba(73, 209, 141, 0.95) !important; }
 .kb-val-neg{ color: rgba(244, 90, 90, 0.95) !important; }
 
@@ -204,11 +212,12 @@
   letter-spacing: .2px;
 }
 
-/* ✅ メトリクス先月比（% と 金額だけ） */
-.kb-metric-delta{
-  margin-top: 8px;
+/* ✅ metric 先月比 */
+.kb-metric-sub{
+  margin-top: 6px;
   font-size: 12px;
-  color: rgba(255,255,255,0.58);
+  color: rgba(255,255,255,0.60);
+  letter-spacing: .1px;
   line-height: 1.35;
 }
 
@@ -403,52 +412,53 @@
 }
 
 /* =========================================
-   ✅ 月の収支：確定UI（年月セレクト直下）
+   Snapshot 確定UI（ヘッダ右側に配置）
 ========================================= */
 
-.kb-confirm-under{
+.kb-head-actions{
   display:flex;
   align-items:center;
   gap: 10px;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .kb-confirm-form{
   margin: 0;
 }
 
-.kb-btn-confirm-solid{
+.kb-btn-confirm{
   appearance:none;
   -webkit-appearance: none;
-  border: 1px solid rgba(255,255,255,0.14);
-  background: rgba(108, 207, 246, 0.22);
-  color: rgba(255,255,255,0.92);
-  padding: 10px 14px;
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 900;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.82);
+  padding: 8px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 850;
   letter-spacing: .12px;
   line-height: 1;
   outline: none;
   white-space: nowrap;
 }
 
-.kb-btn-confirm-solid:active{
+.kb-btn-confirm:active{
   transform: translateY(1px);
 }
 
-.kb-confirm-status{
+.kb-confirm-badge{
   font-size: 12px;
-  color: rgba(255,255,255,0.70);
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.10);
+  color: rgba(255,255,255,0.60);
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.08);
   background: rgba(255,255,255,0.03);
   white-space: nowrap;
 }
 
-.kb-confirm-status-muted{
-  color: rgba(255,255,255,0.55);
+.kb-confirm-badge-muted{
+  color: rgba(255,255,255,0.52);
   background: rgba(255,255,255,0.02);
 }
 
