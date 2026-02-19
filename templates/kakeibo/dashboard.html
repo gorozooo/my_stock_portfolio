@@ -6,7 +6,7 @@
 このファイルは何？
 - 家計簿トップ画面（/kakeibo/）。
 - A：枠で囲わず、余白と薄い区切り線で“静かに整理”するデザイン。
-- 年度/年月の選択（GET）で集計を切り替える（セレクトは上部に集約）。
+- ✅ 年度/年月の選択（GET）は「年度収支/月の収支」の各ヘッダ左に配置。
 - 月次Snapshotは「確定」ボタンで作成/上書きし、確定があればそれを正として表示。
 - 「確定ステータス（未確定/確定日時）」と「確定ボタン」は月の収支ヘッダ右側に配置。
 - 色は「意味のある数値」だけ（収入=緑 / 支出=橙 / 差額=±で緑赤 / 銀行残高=±で緑赤）。
@@ -95,17 +95,13 @@
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       ✅ フィルタ（年 / 年月）をここに集約
-       - 年度収支 / 月の収支 の「前」に置く
-       - それぞれ独立してGET送信（他方の選択はhiddenで維持）
+       年度収支（年selectは左）
   ========================== -->
-  <section class="kb-section kb-filterbar" id="filters">
-    <div class="kb-filterbar-inner">
-      <div class="kb-filterbar-title">表示期間</div>
-
-      <div class="kb-filterbar-ctrls">
-        <!-- 年度 -->
-        <form method="get" class="kb-filter" id="kb-filter-year">
+  <section class="kb-section" id="yearly">
+    <div class="kb-section-head">
+      <div class="kb-head-left">
+        <form method="get" class="kb-filter kb-filter-inline" id="kb-filter-year">
+          <!-- 月選択を維持 -->
           <input type="hidden" name="month" value="{{ selected_month }}">
           {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
           <select name="year" class="kb-select" data-autosubmit="1" aria-label="年度選択">
@@ -115,29 +111,8 @@
           </select>
         </form>
 
-        <!-- 年月 -->
-        <form method="get" class="kb-filter" id="kb-filter-month">
-          <input type="hidden" name="year" value="{{ selected_year }}">
-          {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
-          <select name="month" class="kb-select" data-autosubmit="1" aria-label="年月選択">
-            {% for m in month_options %}
-              <option value="{{ m.value }}" {% if m.value == selected_month %}selected{% endif %}>{{ m.label }}</option>
-            {% endfor %}
-          </select>
-        </form>
+        <div class="kb-section-title">年度収支</div>
       </div>
-    </div>
-  </section>
-
-  <div class="kb-divider kb-divider-lg"></div>
-
-  <!-- =========================
-       年度収支（年度選択は上部フィルタに移動済）
-  ========================== -->
-  <section class="kb-section" id="yearly">
-    <div class="kb-section-head">
-      <div class="kb-section-title">年度収支</div>
-      <div class="kb-section-side">{{ selected_year }}年</div>
     </div>
 
     <div class="kb-list">
@@ -180,13 +155,24 @@
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       月の収支（年月選択は上部フィルタに移動済）
-       - 右側：未確定/確定(日時) ＋ 確定ボタン（確定だけ）
-       - 位置：元々年月selectがあった場所（ヘッダ右側）
+       月の収支（年月selectは左 / 右にステータス＋確定）
   ========================== -->
   <section class="kb-section" id="monthly">
     <div class="kb-section-head">
-      <div class="kb-section-title">月の収支</div>
+      <div class="kb-head-left">
+        <form method="get" class="kb-filter kb-filter-inline" id="kb-filter-month">
+          <!-- 年度選択を維持 -->
+          <input type="hidden" name="year" value="{{ selected_year }}">
+          {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
+          <select name="month" class="kb-select" data-autosubmit="1" aria-label="年月選択">
+            {% for m in month_options %}
+              <option value="{{ m.value }}" {% if m.value == selected_month %}selected{% endif %}>{{ m.label }}</option>
+            {% endfor %}
+          </select>
+        </form>
+
+        <div class="kb-section-title">月の収支</div>
+      </div>
 
       <div class="kb-head-actions">
         {% if is_snapshot %}
@@ -199,7 +185,6 @@
           </div>
         {% endif %}
 
-        <!-- ✅ 確定ボタン（上書きOK） -->
         <form method="post" class="kb-confirm-form">
           {% csrf_token %}
           <input type="hidden" name="action" value="confirm_snapshot">
@@ -272,7 +257,6 @@
     </div>
 
     <div class="kb-two kb-foot">
-      <!-- ✅ +は緑 / -は赤 / 0は無色 -->
       <div class="kb-foot-item {% if d_fixed > 0 %}kb-val-pos{% elif d_fixed < 0 %}kb-val-neg{% endif %}">
         固定費 先月比：{% if dp_fixed is not None %}{{ dp_fixed }}%{% else %}—{% endif %}（{% if d_fixed >= 0 %}+{% endif %}{{ d_fixed|intcomma }}）
       </div>
