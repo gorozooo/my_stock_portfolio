@@ -114,7 +114,7 @@ def expense_fixed(request):
     rows = FixedExpenseTemplate.objects.order_by("-is_active", "id")
 
     return render(request, "kakeibo/manage_list.html", {
-        "title": "固定費（毎月）",
+        "title": "固定費",
         "form": form,
         "rows": rows,
         "edit_mode": edit_mode,
@@ -207,7 +207,7 @@ def expense_variable(request):
     rows = MonthlyVariableExpense.objects.order_by("-month", "-id")[:200]
 
     return render(request, "kakeibo/manage_list.html", {
-        "title": "変動費（月次：カード/立替）",
+        "title": "変動費",
         "form": form,
         "rows": rows,
         "edit_mode": edit_mode,
