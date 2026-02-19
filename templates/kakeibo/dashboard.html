@@ -6,9 +6,12 @@
 このファイルは何？
 - 家計簿トップ画面（/kakeibo/）。
 - A：枠で囲わず、余白と薄い区切り線で“静かに整理”するデザイン。
-- ✅ 年度/年月の選択（GET）は「年度収支/月の収支」の各ヘッダ左に配置。
+- 年度/年月の選択（GET）で集計を切り替える。
+- ★配置ルール（指示どおり）
+  - 年セレクト：年度収支見出し行の「左側（タイトルの左隣）」
+  - 月セレクト：月の収支見出し行の「左側（タイトルの左隣）」
+  - 月の右側：未確定/確定(日時) + 確定ボタン
 - 月次Snapshotは「確定」ボタンで作成/上書きし、確定があればそれを正として表示。
-- 「確定ステータス（未確定/確定日時）」と「確定ボタン」は月の収支ヘッダ右側に配置。
 - 色は「意味のある数値」だけ（収入=緑 / 支出=橙 / 差額=±で緑赤 / 銀行残高=±で緑赤）。
 - CSS/JS は static に分離（dashboard.css / dashboard.js）
 =========================================
@@ -95,7 +98,7 @@
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       年度収支（年selectは左）
+       年度収支（年セレクト：見出し行の左隣）
   ========================== -->
   <section class="kb-section" id="yearly">
     <div class="kb-section-head">
@@ -113,6 +116,8 @@
 
         <div class="kb-section-title">年度収支</div>
       </div>
+
+      <div class="kb-section-side">{{ selected_year }}年</div>
     </div>
 
     <div class="kb-list">
@@ -155,7 +160,8 @@
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       月の収支（年月selectは左 / 右にステータス＋確定）
+       月の収支（年月セレクト：見出し行の左隣）
+       右側：未確定/確定(日時) + 確定ボタン
   ========================== -->
   <section class="kb-section" id="monthly">
     <div class="kb-section-head">
@@ -233,7 +239,6 @@
           <span class="kb-row-label">差額</span>
         </div>
 
-        <!-- ✅ 月差額は ±で色 -->
         <div class="kb-row-val {% if month_diff >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
           ¥{{ month_diff|intcomma }}
         </div>
