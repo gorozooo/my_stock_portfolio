@@ -6,6 +6,7 @@
 - kakeibo/dashboard.html 専用スタイル
 - A：枠で囲わず、余白＋薄い区切りで整理。
 - 追加：select（年度/年月）と、±色（pos/neg）。
+- 追加：月次Snapshotの「この月を確定」ボタン＆確定バッジ（kb-confirm-*）
 ========================================= */
 
 .kb-dash{
@@ -352,3 +353,58 @@
   color: rgba(255,255,255,0.60);
   line-height: 1.45;
 }
+
+/* =========================================
+   ✅ Snapshot 確定UI（追加）
+   - 月の収支セクション内の「この月を確定」ボタンと状態表示
+   - 既存のAデザインを壊さないよう、薄い境界＋ピル形状
+========================================= */
+
+.kb-confirm-row{
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 8px 0 12px;
+}
+
+.kb-confirm-form{
+  margin: 0;
+}
+
+.kb-btn-confirm{
+  appearance:none;
+  -webkit-appearance: none;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.88);
+  padding: 9px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .15px;
+  line-height: 1;
+  outline: none;
+}
+
+.kb-btn-confirm:active{
+  transform: translateY(1px);
+}
+
+.kb-confirm-badge{
+  font-size: 12px;
+  color: rgba(255,255,255,0.70);
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  white-space: nowrap;
+}
+
+.kb-confirm-badge-muted{
+  color: rgba(255,255,255,0.55);
+  background: rgba(255,255,255,0.03);
+}
+
+/* ちょいユーティリティ */
+.kb-mt-10{ margin-top: 10px; }
