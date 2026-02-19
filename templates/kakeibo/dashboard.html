@@ -1,20 +1,18 @@
-{# =========================================
+<!--
+=========================================
 [FILE] dashboard.html
 [PATH] templates/kakeibo/dashboard.html
 
 このファイルは何？
 - 家計簿トップ画面（/kakeibo/）。
 - A：枠で囲わず、余白と薄い区切り線で“静かに整理”するデザイン。
-- 年度/年月の選択（GET）で集計を切り替える（セレクトは上部に集約）。
+- 年度/年月の選択（GET）で集計を切り替える。
 - 月次Snapshotは「確定」ボタンで作成/上書きし、確定があればそれを正として表示。
-- 「確定ステータス（未確定/確定日時）」と「確定ボタン」は月の収支ヘッダ付近に配置。
-- 色は「意味のある数値」だけ（収入=緑 / 支出=橙 / 差額=±で緑赤 / 銀行残高=±で緑赤）。
-- CSS/JS は static に分離（dashboard.css / dashboard.js）
-
-★今回の追加
-- KPI（総資産/楽天銀行残高/投資）に先月比（¥と%）を表示
-- 月の収支の最後に「お小遣い（自動）」を追加（allowance_rows）
-========================================= #}
+- ★追加：
+  - 我が家の総資産 / 楽天銀行残高 / 投資 に「先月比（% + 金額）」を表示
+  - 表示は「% と 金額だけ」／ +なら緑、-なら赤
+=========================================
+-->
 
 {% extends "kakeibo/base_kakeibo.html" %}
 {% load static humanize %}
@@ -35,15 +33,14 @@
     <div class="kb-hero-label">我が家の総資産</div>
     <div class="kb-hero-value">¥{{ kpi_total_assets|intcomma }}</div>
 
-    <!-- ✅ 先月比（¥と%だけ） -->
-    <div class="kb-hero-sub">
-      <span class="{% if d_kpi_total_assets > 0 %}kb-val-pos{% elif d_kpi_total_assets < 0 %}kb-val-neg{% endif %}">
-        {% if d_kpi_total_assets >= 0 %}+{% endif %}¥{{ d_kpi_total_assets|intcomma }}
-      </span>
-      <span class="kb-muted-inline"> / </span>
-      <span class="{% if d_kpi_total_assets > 0 %}kb-val-pos{% elif d_kpi_total_assets < 0 %}kb-val-neg{% endif %}">
-        {% if dp_kpi_total_assets is not None %}{{ dp_kpi_total_assets }}%{% else %}—{% endif %}
-      </span>
+    <!-- ✅ 先月比（% と 金額だけ / +緑 -赤） -->
+    <div class="kb-hero-delta
+      {% with s=d_total_assets|stringformat:'s' %}
+        {% if s|slice:':1' == '-' %}kb-val-neg{% elif s != '' and s != '0' %}kb-val-pos{% endif %}
+      {% endwith %}
+    ">
+      {% if dp_total_assets != None %}{{ dp_total_assets }}%{% else %}—{% endif %}
+      （{% if d_total_assets != None and d_total_assets >= 0 %}+{% endif %}{% if d_total_assets != None %}{{ d_total_assets|intcomma }}{% else %}—{% endif %}）
     </div>
 
     {% if debug %}
@@ -66,26 +63,26 @@
   ========================== -->
   <section class="kb-section">
     <div class="kb-two">
+
+      <!-- ---- 楽天銀行残高 ---- -->
       <div class="kb-metric">
         <div class="kb-metric-head">
           <span class="kb-dot kb-dot-bank"></span>
           <span class="kb-metric-label">楽天銀行残高</span>
         </div>
 
-        <!-- ✅ ±で色 -->
         <div class="kb-metric-value {% if kpi_rakuten_bank_actual >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
           ¥{{ kpi_rakuten_bank_actual|intcomma }}
         </div>
 
-        <!-- ✅ 先月比（¥と%だけ） -->
-        <div class="kb-metric-sub">
-          <span class="{% if d_kpi_rakuten_bank_actual > 0 %}kb-val-pos{% elif d_kpi_rakuten_bank_actual < 0 %}kb-val-neg{% endif %}">
-            {% if d_kpi_rakuten_bank_actual >= 0 %}+{% endif %}¥{{ d_kpi_rakuten_bank_actual|intcomma }}
-          </span>
-          <span class="kb-muted-inline"> / </span>
-          <span class="{% if d_kpi_rakuten_bank_actual > 0 %}kb-val-pos{% elif d_kpi_rakuten_bank_actual < 0 %}kb-val-neg{% endif %}">
-            {% if dp_kpi_rakuten_bank_actual is not None %}{{ dp_kpi_rakuten_bank_actual }}%{% else %}—{% endif %}
-          </span>
+        <!-- ✅ 先月比（% と 金額だけ / +緑 -赤） -->
+        <div class="kb-metric-delta
+          {% with s=d_rakuten_bank_actual|stringformat:'s' %}
+            {% if s|slice:':1' == '-' %}kb-val-neg{% elif s != '' and s != '0' %}kb-val-pos{% endif %}
+          {% endwith %}
+        ">
+          {% if dp_rakuten_bank_actual != None %}{{ dp_rakuten_bank_actual }}%{% else %}—{% endif %}
+          （{% if d_rakuten_bank_actual != None and d_rakuten_bank_actual >= 0 %}+{% endif %}{% if d_rakuten_bank_actual != None %}{{ d_rakuten_bank_actual|intcomma }}{% else %}—{% endif %}）
         </div>
 
         {% if debug %}
@@ -95,22 +92,23 @@
         {% endif %}
       </div>
 
+      <!-- ---- 投資 ---- -->
       <div class="kb-metric">
         <div class="kb-metric-head">
           <span class="kb-dot kb-dot-invest"></span>
           <span class="kb-metric-label">投資</span>
         </div>
+
         <div class="kb-metric-value">¥{{ kpi_invest_total|intcomma }}</div>
 
-        <!-- ✅ 先月比（¥と%だけ） -->
-        <div class="kb-metric-sub">
-          <span class="{% if d_kpi_invest_total > 0 %}kb-val-pos{% elif d_kpi_invest_total < 0 %}kb-val-neg{% endif %}">
-            {% if d_kpi_invest_total >= 0 %}+{% endif %}¥{{ d_kpi_invest_total|intcomma }}
-          </span>
-          <span class="kb-muted-inline"> / </span>
-          <span class="{% if d_kpi_invest_total > 0 %}kb-val-pos{% elif d_kpi_invest_total < 0 %}kb-val-neg{% endif %}">
-            {% if dp_kpi_invest_total is not None %}{{ dp_kpi_invest_total }}%{% else %}—{% endif %}
-          </span>
+        <!-- ✅ 先月比（% と 金額だけ / +緑 -赤） -->
+        <div class="kb-metric-delta
+          {% with s=d_invest_total|stringformat:'s' %}
+            {% if s|slice:':1' == '-' %}kb-val-neg{% elif s != '' and s != '0' %}kb-val-pos{% endif %}
+          {% endwith %}
+        ">
+          {% if dp_invest_total != None %}{{ dp_invest_total }}%{% else %}—{% endif %}
+          （{% if d_invest_total != None and d_invest_total >= 0 %}+{% endif %}{% if d_invest_total != None %}{{ d_invest_total|intcomma }}{% else %}—{% endif %}）
         </div>
 
         <div class="kb-subrows">
@@ -124,21 +122,19 @@
           </div>
         </div>
       </div>
+
     </div>
   </section>
 
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       ✅ フィルタ（年 / 年月）をここに集約
+       年度収支（年セレクト：タイトル左）
   ========================== -->
-  <section class="kb-section kb-filterbar" id="filters">
-    <div class="kb-filterbar-inner">
-      <div class="kb-filterbar-title">表示期間</div>
-
-      <div class="kb-filterbar-ctrls">
-        <!-- 年度 -->
-        <form method="get" class="kb-filter" id="kb-filter-year">
+  <section class="kb-section" id="yearly">
+    <div class="kb-section-head">
+      <div class="kb-head-left-year">
+        <form method="get" class="kb-filter kb-filter-inline" id="kb-filter-year">
           <input type="hidden" name="month" value="{{ selected_month }}">
           {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
           <select name="year" class="kb-select" data-autosubmit="1" aria-label="年度選択">
@@ -148,29 +144,10 @@
           </select>
         </form>
 
-        <!-- 年月 -->
-        <form method="get" class="kb-filter" id="kb-filter-month">
-          <input type="hidden" name="year" value="{{ selected_year }}">
-          {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
-          <select name="month" class="kb-select" data-autosubmit="1" aria-label="年月選択">
-            {% for m in month_options %}
-              <option value="{{ m.value }}" {% if m.value == selected_month %}selected{% endif %}>{{ m.label }}</option>
-            {% endfor %}
-          </select>
-        </form>
+        <div class="kb-section-title">年度収支</div>
       </div>
-    </div>
-  </section>
 
-  <div class="kb-divider kb-divider-lg"></div>
-
-  <!-- =========================
-       年度収支
-  ========================== -->
-  <section class="kb-section" id="yearly">
-    <div class="kb-section-head">
-      <div class="kb-section-title">年度収支</div>
-      <div class="kb-section-side">{{ selected_year }}年</div>
+      <div class="kb-section-side"></div>
     </div>
 
     <div class="kb-list">
@@ -195,7 +172,6 @@
           <span class="kb-dot kb-dot-diff"></span>
           <span class="kb-row-label">差額</span>
         </div>
-
         <div class="kb-row-val {% if year_diff >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
           ¥{{ year_diff|intcomma }}
         </div>
@@ -212,32 +188,49 @@
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       月の収支
+       月の収支（年月セレクト：タイトル左）
   ========================== -->
   <section class="kb-section" id="monthly">
     <div class="kb-section-head">
-      <div class="kb-section-title">月の収支</div>
+      <div class="kb-head-left">
+        <div class="kb-month-head">
+          <form method="get" class="kb-filter kb-filter-inline" id="kb-filter-month">
+            <input type="hidden" name="year" value="{{ selected_year }}">
+            {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
+            <select name="month" class="kb-select" data-autosubmit="1" aria-label="年月選択">
+              {% for m in month_options %}
+                <option value="{{ m.value }}" {% if m.value == selected_month %}selected{% endif %}>{{ m.label }}</option>
+              {% endfor %}
+            </select>
+          </form>
 
-      <div class="kb-head-actions">
-        {% if is_snapshot %}
-          <div class="kb-confirm-badge">
-            確定{% if snapshot_locked_at %}（{{ snapshot_locked_at|date:"Y-m-d H:i" }}）{% endif %}
-          </div>
-        {% else %}
-          <div class="kb-confirm-badge kb-confirm-badge-muted">
-            未確定
-          </div>
-        {% endif %}
+          <div class="kb-section-title">月の収支</div>
+        </div>
 
-        <form method="post" class="kb-confirm-form">
-          {% csrf_token %}
-          <input type="hidden" name="action" value="confirm_snapshot">
-          <input type="hidden" name="year" value="{{ selected_year }}">
-          <input type="hidden" name="month" value="{{ selected_month }}">
-          {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
-          <button type="submit" class="kb-btn-confirm">確定</button>
-        </form>
+        <!-- ✅ 年月セレクト直下：確定ボタン（左）＋ステータス（右） -->
+        <div class="kb-confirm-under">
+          <form method="post" class="kb-confirm-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="confirm_snapshot">
+            <input type="hidden" name="year" value="{{ selected_year }}">
+            <input type="hidden" name="month" value="{{ selected_month }}">
+            {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
+            <button type="submit" class="kb-btn-confirm-solid">確定</button>
+          </form>
+
+          {% if is_snapshot %}
+            <div class="kb-confirm-status">
+              確定{% if snapshot_locked_at %}（{{ snapshot_locked_at|date:"Y-m-d H:i" }}）{% endif %}
+            </div>
+          {% else %}
+            <div class="kb-confirm-status kb-confirm-status-muted">
+              未確定
+            </div>
+          {% endif %}
+        </div>
       </div>
+
+      <div class="kb-section-side"></div>
     </div>
 
     <div class="kb-two kb-two-gap">
@@ -247,12 +240,10 @@
           <span class="kb-mini-label">収入</span>
         </div>
         <div class="kb-mini-val kb-val-income">¥{{ total_income|intcomma }}</div>
-        <div class="kb-mini-sub">
+        <div class="kb-mini-sub {% if d_income > 0 %}kb-val-pos{% elif d_income < 0 %}kb-val-neg{% endif %}">
           先月（{{ prev_month_label }}）比：
-          <span class="{% if d_income > 0 %}kb-val-pos{% elif d_income < 0 %}kb-val-neg{% endif %}">
-            {% if dp_income is not None %}{{ dp_income }}%{% else %}—{% endif %}
-            （{% if d_income >= 0 %}+{% endif %}¥{{ d_income|intcomma }}）
-          </span>
+          {% if dp_income is not None %}{{ dp_income }}%{% else %}—{% endif %}
+          （{% if d_income >= 0 %}+{% endif %}{{ d_income|intcomma }}）
         </div>
       </div>
 
@@ -262,12 +253,10 @@
           <span class="kb-mini-label">支出</span>
         </div>
         <div class="kb-mini-val kb-val-expense">¥{{ total_expense|intcomma }}</div>
-        <div class="kb-mini-sub">
+        <div class="kb-mini-sub {% if d_expense > 0 %}kb-val-pos{% elif d_expense < 0 %}kb-val-neg{% endif %}">
           先月（{{ prev_month_label }}）比：
-          <span class="{% if d_expense > 0 %}kb-val-pos{% elif d_expense < 0 %}kb-val-neg{% endif %}">
-            {% if dp_expense is not None %}{{ dp_expense }}%{% else %}—{% endif %}
-            （{% if d_expense >= 0 %}+{% endif %}¥{{ d_expense|intcomma }}）
-          </span>
+          {% if dp_expense is not None %}{{ dp_expense }}%{% else %}—{% endif %}
+          （{% if d_expense >= 0 %}+{% endif %}{{ d_expense|intcomma }}）
         </div>
       </div>
     </div>
@@ -280,7 +269,6 @@
           <span class="kb-dot kb-dot-diff"></span>
           <span class="kb-row-label">差額</span>
         </div>
-
         <div class="kb-row-val {% if month_diff >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
           ¥{{ month_diff|intcomma }}
         </div>
@@ -305,47 +293,19 @@
 
     <div class="kb-two kb-foot">
       <div class="kb-foot-item {% if d_fixed > 0 %}kb-val-pos{% elif d_fixed < 0 %}kb-val-neg{% endif %}">
-        固定費 先月比：{% if dp_fixed is not None %}{{ dp_fixed }}%{% else %}—{% endif %}
-        （{% if d_fixed >= 0 %}+{% endif %}¥{{ d_fixed|intcomma }}）
+        固定費 先月比：{% if dp_fixed is not None %}{{ dp_fixed }}%{% else %}—{% endif %}（{% if d_fixed >= 0 %}+{% endif %}{{ d_fixed|intcomma }}）
       </div>
 
       <div class="kb-foot-item {% if d_var > 0 %}kb-val-pos{% elif d_var < 0 %}kb-val-neg{% endif %}">
-        変動費 先月比：{% if dp_var is not None %}{{ dp_var }}%{% else %}—{% endif %}
-        （{% if d_var >= 0 %}+{% endif %}¥{{ d_var|intcomma }}）
+        変動費 先月比：{% if dp_var is not None %}{{ dp_var }}%{% else %}—{% endif %}（{% if d_var >= 0 %}+{% endif %}{{ d_var|intcomma }}）
       </div>
     </div>
-
-    <!-- ✅ 月の収支の「一番最後」：お小遣い（自動） -->
-    <div class="kb-divider kb-divider-thin"></div>
-
-    <div class="kb-list">
-      <div class="kb-row">
-        <div class="kb-row-left">
-          <span class="kb-dot kb-dot-muted"></span>
-          <span class="kb-row-label">お小遣い（自動）</span>
-        </div>
-        <div class="kb-row-val"></div>
-      </div>
-
-      {% for a in allowance_rows %}
-        <div class="kb-row">
-          <div class="kb-row-left">
-            <span class="kb-dot kb-dot-muted"></span>
-            <span class="kb-row-label">{{ a.label }}</span>
-          </div>
-          <div class="kb-row-val {% if a.auto_allowance >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
-            ¥{{ a.auto_allowance|intcomma }}
-          </div>
-        </div>
-      {% endfor %}
-    </div>
-
   </section>
 
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       可視化（バー）※月の収支と同じ month に連動
+       可視化（バー）
   ========================== -->
   <section class="kb-section" id="viz">
     <div class="kb-section-head">
