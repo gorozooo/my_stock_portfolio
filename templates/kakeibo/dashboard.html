@@ -8,12 +8,13 @@
 - A：枠で囲わず、余白と薄い区切り線で“静かに整理”するデザイン。
 - 年度/年月の選択（GET）で集計を切り替える。
 - ★配置ルール（指示どおり）
-  - 年セレクト：年度収支見出し行の「タイトル左隣」
+  - 年セレクト：年度収支 見出し行の「タイトル左」
   - 年度収支：右側の白丸（年表示）は出さない
-  - 月セレクト：月の収支見出し行の「タイトル左隣」
+  - 月セレクト：月の収支 見出し行の「タイトル左」
   - 確定ボタン：年月セレクトのすぐ下
   - ステータス：確定ボタンのすぐ右（同じ行）
 - 月次Snapshotは「確定」ボタンで作成/上書きし、確定があればそれを正として表示。
+- 追加：月の先月比は +なら緑 / -なら赤
 - CSS/JS は static に分離（dashboard.css / dashboard.js）
 =========================================
 -->
@@ -98,12 +99,12 @@
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       年度収支（年セレクト：見出し行の左隣）
-       ★右側の白丸（年表示）は出さない
+       年度収支（年セレクト：タイトル左）
+       ★右側の白丸は出さない
   ========================== -->
   <section class="kb-section" id="yearly">
     <div class="kb-section-head">
-      <div class="kb-head-left">
+      <div class="kb-head-left-year">
         <form method="get" class="kb-filter kb-filter-inline" id="kb-filter-year">
           <input type="hidden" name="month" value="{{ selected_month }}">
           {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
@@ -117,7 +118,6 @@
         <div class="kb-section-title">年度収支</div>
       </div>
 
-      <!-- 右側は空（白丸を出さない） -->
       <div class="kb-section-side"></div>
     </div>
 
@@ -159,11 +159,9 @@
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       月の収支
-       - 年月セレクト：見出し行の左隣
+       月の収支（年月セレクト：タイトル左）
        - 確定ボタン：年月セレクトのすぐ下
        - ステータス：確定ボタンのすぐ右
-       ★確定時にステータスが1行増えても「月の収支」が折り返さない
   ========================== -->
   <section class="kb-section" id="monthly">
     <div class="kb-section-head">
@@ -182,7 +180,6 @@
           <div class="kb-section-title">月の収支</div>
         </div>
 
-        <!-- ✅ 確定UI：年月セレクトの直下（ボタン左 / ステータス右） -->
         <div class="kb-confirm-under">
           <form method="post" class="kb-confirm-form">
             {% csrf_token %}
@@ -215,7 +212,9 @@
           <span class="kb-mini-label">収入</span>
         </div>
         <div class="kb-mini-val kb-val-income">¥{{ total_income|intcomma }}</div>
-        <div class="kb-mini-sub">
+
+        <!-- ✅ 先月比：+なら緑 / -なら赤 -->
+        <div class="kb-mini-sub {% if d_income > 0 %}kb-val-pos{% elif d_income < 0 %}kb-val-neg{% endif %}">
           先月（{{ prev_month_label }}）比：
           {% if dp_income is not None %}{{ dp_income }}%{% else %}—{% endif %}
           （{% if d_income >= 0 %}+{% endif %}{{ d_income|intcomma }}）
@@ -228,7 +227,9 @@
           <span class="kb-mini-label">支出</span>
         </div>
         <div class="kb-mini-val kb-val-expense">¥{{ total_expense|intcomma }}</div>
-        <div class="kb-mini-sub">
+
+        <!-- ✅ 先月比：+なら緑 / -なら赤 -->
+        <div class="kb-mini-sub {% if d_expense > 0 %}kb-val-pos{% elif d_expense < 0 %}kb-val-neg{% endif %}">
           先月（{{ prev_month_label }}）比：
           {% if dp_expense is not None %}{{ dp_expense }}%{% else %}—{% endif %}
           （{% if d_expense >= 0 %}+{% endif %}{{ d_expense|intcomma }}）
@@ -280,7 +281,7 @@
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       可視化（バー）※月の収支と同じ month に連動
+       可視化（バー）
   ========================== -->
   <section class="kb-section" id="viz">
     <div class="kb-section-head">
