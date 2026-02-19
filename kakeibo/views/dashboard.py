@@ -9,12 +9,18 @@
 # - 月（選択可）の収入・支出・差額＋固定/変動内訳 + 先月比
 # - 可視化（支出率バー、固定/変動比バー）※月選択に連動
 #
-# ★今回の修正ポイント（あなたの指示どおり）
-# 1) KPI（総資産 / 楽天銀行残高 / 投資）にも「先月比（% と 金額）」を追加
-#    - +なら緑 / -なら赤（テンプレ側で色分け）
-#    - 値が出せない場合は None を返してテンプレで "—" 表示
-# 2) 先月比の「基準(先月)」は、先月に snapshot があれば snapshot を正、
-#    無ければ動的計算（既存ロジック）で算出する
+# ★今回の修正ポイント（あなたの最新指示どおり）
+# 0) 立替（ADVANCE）は支出に含める（固定費の立替 / 変動費の立替どちらも）
+# 1) 個人カード（B/G の var_type=CARD）は「支出（変動費）」に含めない（二重計算防止）
+# 2) お小遣い（自動計算）を追加（B/Gそれぞれ）し、テンプレ側で「月の収支の最後」に表示できるよう context に渡す
+#    個人ごとに：
+#      カード合計請求額（B/G の CARD） − 立替費（固定ADVANCE + 変動ADVANCE） − 固定費の「お小遣い」 = 自動お小遣い
+# 3) KPI（総資産/楽天銀行残高/投資）にも先月比（¥と%）を追加できるよう context に渡す
+#
+# ★注意（識別ルール）
+# - 固定費「立替」：category.code == "ADVANCE" を優先。加えて memo に「立替」が入っていれば立替扱い。
+# - 固定費「お小遣い」：memo に「お小遣い」が入っている固定費を owner 別に集計。
+#   → memo が空なら、その固定費テンプレの memo に「お小遣い」を入れてください。
 # =========================================
 
 from decimal import Decimal
@@ -339,13 +345,78 @@ def _month_options(today: date, months_back: int = 24) -> list[dict]:
     return out
 
 
+def _sum_variable_expense_effective(month: date) -> int:
+    """
+    何をする？
+    - 変動費の合計（支出に含める分）を返す
+
+    ルール（あなたの指示どおり）
+    - 立替（ADVANCE）は支出に含める（全owner）
+    - 個人カード（B/G の CARD）だけ支出に含めない
+    - 家のカード（HOUSE の CARD）は支出に含める
+    """
+    qs = MonthlyVariableExpense.objects.filter(month=month)
+
+    total = 0
+    for r in qs.values("owner", "var_type").annotate(s=Sum("amount")):
+        owner = (r.get("owner") or "").strip()
+        var_type = (r.get("var_type") or "").strip()
+        amt = _int(r.get("s", 0))
+
+        if var_type == "CARD" and owner in ("B", "G"):
+            # ✅ 個人カードだけ除外
+            continue
+
+        total += amt
+
+    return _int(total)
+
+
+def _sum_variable_expense(month: date, owner: str, var_type: str) -> int:
+    """
+    何をする？
+    - 変動費（月次）を owner + var_type で合計する（カード請求額や立替合計に使う）
+    """
+    return _sum_qs(
+        MonthlyVariableExpense.objects.filter(month=month, owner=owner, var_type=var_type),
+        "amount"
+    )
+
+
+def _sum_fixed_by_memo_contains(owner: str, needle: str) -> int:
+    """
+    何をする？
+    - 固定費テンプレ（有効）を memo の部分一致で合計する
+    """
+    return _sum_qs(
+        FixedExpenseTemplate.objects.filter(is_active=True, owner=owner, memo__icontains=needle),
+        "amount"
+    )
+
+
+def _sum_fixed_advance(owner: str) -> int:
+    """
+    何をする？
+    - 固定費の「立替」合計（owner別）
+    - 優先：category.code == "ADVANCE"
+    - 補助：memo に「立替」が含まれていれば立替扱い
+    - code と memo の二重計上はしない（pk集合で union）
+    """
+    qs = FixedExpenseTemplate.objects.filter(is_active=True, owner=owner)
+
+    pks = set(qs.filter(category__code="ADVANCE").values_list("pk", flat=True))
+    pks |= set(qs.filter(memo__icontains="立替").values_list("pk", flat=True))
+    if not pks:
+        return 0
+    return _sum_qs(qs.filter(pk__in=list(pks)), "amount")
+
+
 def _build_dynamic_month_values(request, today: date, m: date) -> dict:
     """
     何をする？
     - snapshot が無いときに使う「動的計算」一式をまとめて作る
     - ここで作った値を snapshot 保存にも流用する（確定時に同じ値が保存される）
     """
-    # kakeibo：選択月
     total_income = _sum_qs(MonthlyIncome.objects.filter(month=m), "amount")
 
     fixed_sum = _sum_qs(
@@ -353,10 +424,8 @@ def _build_dynamic_month_values(request, today: date, m: date) -> dict:
         "amount"
     )
 
-    var_sum = _sum_qs(
-        MonthlyVariableExpense.objects.filter(month=m),
-        "amount"
-    )
+    # ✅ 変動費（支出に含める分）：個人カードだけ除外、立替は含める
+    var_sum = _sum_variable_expense_effective(m)
 
     total_expense = _int(fixed_sum + var_sum)
     month_diff = _int(total_income - total_expense)
@@ -416,32 +485,24 @@ def _build_dynamic_month_values(request, today: date, m: date) -> dict:
     }
 
 
-def _build_month_values_prefer_snapshot(request, today: date, m: date) -> dict:
+def _display_month_values_for_kpi(request, today: date, m: date) -> dict:
     """
     何をする？
-    - 指定月 m について、snapshot があれば snapshot を正として返す
-    - 無ければ動的計算で返す
-    - 返すキーは KPI の先月比計算に必要なものに揃える
+    - KPIの先月比計算用に、ある月の「表示上のKPI値」を返す
+    - snapshotがあれば snapshot を採用、無ければ動的計算
     """
     snap = MonthlySnapshot.objects.filter(month=m).first()
     if snap:
         return {
-            "is_snapshot": True,
-            "locked_at": getattr(snap, "locked_at", None),
-
-            "kpi_total_assets": _int(getattr(snap, "kpi_total_assets", 0)),
-            "kpi_rakuten_bank_actual": _int(getattr(snap, "kpi_rakuten_bank_actual", 0)),
-            "kpi_invest_total": _int(getattr(snap, "kpi_invest_total", 0)),
+            "kpi_total_assets": _int(snap.kpi_total_assets),
+            "kpi_rakuten_bank_actual": _int(snap.kpi_rakuten_bank_actual),
+            "kpi_invest_total": _int(snap.kpi_invest_total),
         }
-
     dyn = _build_dynamic_month_values(request, today=today, m=m)
     return {
-        "is_snapshot": False,
-        "locked_at": None,
-
-        "kpi_total_assets": _int(dyn.get("kpi_total_assets", 0)),
-        "kpi_rakuten_bank_actual": _int(dyn.get("kpi_rakuten_bank_actual", 0)),
-        "kpi_invest_total": _int(dyn.get("kpi_invest_total", 0)),
+        "kpi_total_assets": _int(dyn["kpi_total_assets"]),
+        "kpi_rakuten_bank_actual": _int(dyn["kpi_rakuten_bank_actual"]),
+        "kpi_invest_total": _int(dyn["kpi_invest_total"]),
     }
 
 
@@ -482,13 +543,12 @@ def dashboard(request):
     if request.method == "POST" and (request.POST.get("action") or "").strip() == "confirm_snapshot":
         dyn = _build_dynamic_month_values(request, today=today, m=m)
 
-        # 確定値として保存（上書きOK）
         MonthlySnapshot.objects.update_or_create(
             month=m,
             defaults={
                 "income": _int(dyn["total_income"]),
                 "fixed": _int(dyn["fixed_sum"]),
-                "variable": _int(dyn["var_sum"]),
+                "variable": _int(dyn["var_sum"]),               # ✅ 個人カード除外済み
                 "expense_total": _int(dyn["total_expense"]),
                 "diff": _int(dyn["month_diff"]),
 
@@ -505,7 +565,6 @@ def dashboard(request):
             }
         )
 
-        # GETへ戻す（選択を維持）
         q = f"?year={selected_year}&month={selected_month}"
         if debug:
             q += "&debug=1"
@@ -518,10 +577,9 @@ def dashboard(request):
     is_snapshot = bool(snap)
 
     if snap:
-        # snapshot優先（これが“正”）
         total_income = _int(snap.income)
         fixed_sum = _int(snap.fixed)
-        var_sum = _int(snap.variable)
+        var_sum = _int(snap.variable)          # ✅ 個人カード除外済み
         total_expense = _int(snap.expense_total)
         month_diff = _int(snap.diff)
 
@@ -534,13 +592,11 @@ def dashboard(request):
         rakuten_bank_b = _int(snap.rakuten_bank_b)
         aeon_bank_house = _int(snap.aeon_bank_house)
 
-        # snapshot表示の時は、fallback月表示は意味薄いので None にする
         rakuten_bank_month_used = None
         rakuten_bank_account_name_used = None
         aeon_bank_month_used = None
         aeon_bank_account_name_used = None
 
-        # vizはsnapshotの収支で計算（選択月に連動）
         expense_rate = _pct(total_expense, total_income)
         fixed_rate = _pct(fixed_sum, total_expense)
         var_rate = _pct(var_sum, total_expense)
@@ -549,7 +605,7 @@ def dashboard(request):
 
         total_income = dyn["total_income"]
         fixed_sum = dyn["fixed_sum"]
-        var_sum = dyn["var_sum"]
+        var_sum = dyn["var_sum"]               # ✅ 個人カード除外済み
         total_expense = dyn["total_expense"]
         month_diff = dyn["month_diff"]
 
@@ -572,51 +628,44 @@ def dashboard(request):
         var_rate = dyn["var_rate"]
 
     # -----------------------
-    # KPI：先月比（総資産 / 楽天銀行残高 / 投資）
-    # - 先月に snapshot があれば snapshot を正
-    # - 無ければ動的計算で算出
+    # KPI 先月比（総資産/楽天銀行残高/投資）
     # -----------------------
-    prev_kpi = _build_month_values_prefer_snapshot(request, today=today, m=prev_m)
+    prev_kpi = _display_month_values_for_kpi(request, today=today, m=prev_m)
 
-    prev_total_assets = _int(prev_kpi.get("kpi_total_assets", 0))
-    prev_rakuten_bank_actual = _int(prev_kpi.get("kpi_rakuten_bank_actual", 0))
-    prev_invest_total = _int(prev_kpi.get("kpi_invest_total", 0))
+    d_kpi_total_assets = _delta(total_assets, prev_kpi["kpi_total_assets"])
+    dp_kpi_total_assets = _delta_pct(total_assets, prev_kpi["kpi_total_assets"])
 
-    d_total_assets = _delta(total_assets, prev_total_assets)
-    d_rakuten_bank_actual = _delta(rakuten_bank_actual, prev_rakuten_bank_actual)
-    d_invest_total = _delta(invest_total, prev_invest_total)
+    d_kpi_rakuten_bank_actual = _delta(rakuten_bank_actual, prev_kpi["kpi_rakuten_bank_actual"])
+    dp_kpi_rakuten_bank_actual = _delta_pct(rakuten_bank_actual, prev_kpi["kpi_rakuten_bank_actual"])
 
-    dp_total_assets = _delta_pct(total_assets, prev_total_assets)
-    dp_rakuten_bank_actual = _delta_pct(rakuten_bank_actual, prev_rakuten_bank_actual)
-    dp_invest_total = _delta_pct(invest_total, prev_invest_total)
+    d_kpi_invest_total = _delta(invest_total, prev_kpi["kpi_invest_total"])
+    dp_kpi_invest_total = _delta_pct(invest_total, prev_kpi["kpi_invest_total"])
 
     # -----------------------
-    # 先月比（選択月に対して）
-    # ※ snapshotがあっても先月比は「表示上の参考」なので、現行のDB（月次入力）から出す
+    # 先月比（選択月に対して：月の収支側）
     # -----------------------
     prev_income = _sum_qs(MonthlyIncome.objects.filter(month=prev_m), "amount")
-    prev_var = _sum_qs(MonthlyVariableExpense.objects.filter(month=prev_m), "amount")
 
-    # 固定費はテンプレ合計で比較（確定値がある月でも“比較ロジック”は現状維持）
-    # 将来：固定費の月次明細が入ったらここも snapshot/明細ベースに置き換え可能
+    prev_var_effective = _sum_variable_expense_effective(prev_m)
+
     template_fixed_now = _sum_qs(FixedExpenseTemplate.objects.filter(is_active=True), "amount")
     prev_fixed = template_fixed_now
-    prev_expense = _int(prev_fixed + prev_var)
+    prev_expense = _int(prev_fixed + prev_var_effective)
 
     d_income = _delta(total_income, prev_income)
     d_expense = _delta(total_expense, prev_expense)
     d_fixed = _delta(fixed_sum, prev_fixed)
-    d_var = _delta(var_sum, prev_var)
+    d_var = _delta(var_sum, prev_var_effective)
 
     dp_income = _delta_pct(total_income, prev_income)
     dp_expense = _delta_pct(total_expense, prev_expense)
     dp_fixed = _delta_pct(fixed_sum, prev_fixed)
-    dp_var = _delta_pct(var_sum, prev_var)
+    dp_var = _delta_pct(var_sum, prev_var_effective)
 
     # -----------------------
     # 年度（選択year）
     # - snapshotがある年度は snapshot合計を正
-    # - snapshotが無い年度は従来計算にフォールバック
+    # - snapshotが無い年度はフォールバック（変動費は個人カード除外を反映）
     # -----------------------
     snaps_year = list(MonthlySnapshot.objects.filter(month__year=selected_year))
     if snaps_year:
@@ -625,37 +674,73 @@ def dashboard(request):
         year_diff = _int(sum(_int(s.diff) for s in snaps_year))
         year_is_snapshot = True
     else:
-        # フォールバック（従来）
         year_income = _int(
             MonthlyIncome.objects
             .filter(month__year=selected_year)
             .aggregate(s=Sum("amount"))["s"] or 0
         )
-        year_var = _int(
+
+        months_in_year = (
             MonthlyVariableExpense.objects
             .filter(month__year=selected_year)
-            .aggregate(s=Sum("amount"))["s"] or 0
+            .values_list("month", flat=True)
+            .distinct()
         )
-        # ここは従来どおり “1ヶ月分だけ足す” で暫定
-        year_expense = _int(year_var + template_fixed_now)
+        year_var_effective = 0
+        for mm in months_in_year:
+            try:
+                year_var_effective += _sum_variable_expense_effective(month_first(mm))
+            except Exception:
+                continue
+
+        year_expense = _int(year_var_effective + template_fixed_now)
         year_diff = _int(year_income - year_expense)
         year_is_snapshot = False
+
+    # -----------------------
+    # ✅ お小遣い（自動計算）
+    # -----------------------
+    owner_labels = {"B": "ぼーや", "G": "ごろ"}
+    allowance_rows = []
+
+    for o in ("B", "G"):
+        # カード請求総額（支出には入れないが、ここでは“請求額”として使う）
+        card_total = _sum_variable_expense(m, owner=o, var_type="CARD")
+
+        # 立替（変動）
+        advance_var = _sum_variable_expense(m, owner=o, var_type="ADVANCE")
+
+        # 立替（固定）
+        advance_fixed = _sum_fixed_advance(owner=o)
+
+        reimburse_total = _int(advance_var + advance_fixed)
+
+        # 固定お小遣い（memoに「お小遣い」）
+        fixed_allowance = _sum_fixed_by_memo_contains(owner=o, needle="お小遣い")
+
+        auto_allowance = _int(card_total - reimburse_total - fixed_allowance)
+
+        allowance_rows.append({
+            "owner": o,
+            "label": owner_labels.get(o, o),
+            "card_total": card_total,
+            "reimburse_total": reimburse_total,
+            "fixed_allowance": fixed_allowance,
+            "auto_allowance": auto_allowance,
+        })
 
     context = {
         "title": "家計簿",
         "debug": debug,
 
-        # snapshot表示フラグ
         "is_snapshot": is_snapshot,
         "snapshot_locked_at": getattr(snap, "locked_at", None),
 
-        # 選択UI
         "year_options": year_options,
         "selected_year": selected_year,
         "month_options": month_options,
         "selected_month": selected_month,
 
-        # 表示用ラベル（選択月）
         "month_label": f"{m.year}-{m.month:02d}",
         "prev_month_label": f"{prev_m.year}-{prev_m.month:02d}",
 
@@ -664,13 +749,13 @@ def dashboard(request):
         "kpi_rakuten_bank_actual": rakuten_bank_actual,
         "kpi_invest_total": invest_total,
 
-        # ✅ KPI 先月比（% と 金額）
-        "d_total_assets": d_total_assets,
-        "dp_total_assets": dp_total_assets,
-        "d_rakuten_bank_actual": d_rakuten_bank_actual,
-        "dp_rakuten_bank_actual": dp_rakuten_bank_actual,
-        "d_invest_total": d_invest_total,
-        "dp_invest_total": dp_invest_total,
+        # KPI先月比
+        "d_kpi_total_assets": d_kpi_total_assets,
+        "dp_kpi_total_assets": dp_kpi_total_assets,
+        "d_kpi_rakuten_bank_actual": d_kpi_rakuten_bank_actual,
+        "dp_kpi_rakuten_bank_actual": dp_kpi_rakuten_bank_actual,
+        "d_kpi_invest_total": d_kpi_invest_total,
+        "dp_kpi_invest_total": dp_kpi_invest_total,
 
         # 内訳
         "rakuten_cash_free": rakuten_cash_free,
@@ -711,5 +796,8 @@ def dashboard(request):
         "expense_rate": expense_rate,
         "fixed_rate": fixed_rate,
         "var_rate": var_rate,
+
+        # ✅ お小遣い（自動計算）
+        "allowance_rows": allowance_rows,
     }
     return render(request, "kakeibo/dashboard.html", context)
