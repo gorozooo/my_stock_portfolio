@@ -7,7 +7,9 @@
 - A：枠で囲わず、余白＋薄い区切りで整理。
 - select（年度/年月）と、±色（pos/neg）。
 - 月次Snapshotの「確定」ボタン＆確定バッジ（kb-confirm-*）
-- ✅ 年select/年月selectは各セクションヘッダ左（kb-head-left）に配置
+- ✅ 重要：年/年月セレクトは「各セクション見出しの左」に固定
+  - 左（セレクト＋タイトル）は絶対に横並び（折り返し禁止）
+  - 狭い端末では右側（ステータス＋確定ボタン）だけが下段に回り込む
 ========================================= */
 
 .kb-dash{
@@ -54,32 +56,38 @@
   padding: 6px 14px;
 }
 
+/* セクションヘッダ：基本は横並び。狭い時だけ右側が下に落ちる想定 */
 .kb-section-head{
   display:flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 10px;
+  flex-wrap: wrap; /* ✅ 右側（actions）だけを落とすために wrap は許可 */
 }
 
+/* 左側（セレクト＋タイトル）を“絶対に横並び”に固定 */
+.kb-head-left{
+  display:flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: nowrap;     /* ✅ ここが最重要：縦積み禁止 */
+  min-width: 0;
+}
+
+/* タイトルは基本折り返さない（タイトルが下に落ちるのを防ぐ） */
 .kb-section-title{
   font-size: 22px;
   font-weight: 850;
   letter-spacing: .2px;
-  line-height: 1.1;
+  white-space: nowrap;
 }
 
+/* 右側（年表示など） */
 .kb-section-side{
   font-size: 12px;
   color: rgba(255,255,255,0.58);
-}
-
-/* ---------- header left group ---------- */
-.kb-head-left{
-  display:flex;
-  align-items:center;
-  gap: 10px;
-  min-width: 0;
+  white-space: nowrap;
 }
 
 /* ---------- filter (select) ---------- */
@@ -88,10 +96,8 @@
   align-items:center;
   gap: 8px;
   position: relative;
-}
-
-.kb-filter-inline{
   margin: 0;
+  flex: 0 0 auto;
 }
 
 .kb-select{
@@ -100,20 +106,24 @@
   border: 1px solid rgba(255,255,255,0.10);
   background: rgba(255,255,255,0.06);
   color: rgba(255,255,255,0.86);
-  padding: 8px 34px 8px 12px;
+  padding: 8px 32px 8px 12px;
   border-radius: 999px;
   font-size: 12px;
   line-height: 1;
   outline: none;
   position: relative;
+  white-space: nowrap;
 }
 
+/* 矢印はフォーム内の右寄せに固定（margin hackを排除） */
 .kb-filter::after{
   content: "▾";
   font-size: 12px;
   color: rgba(255,255,255,0.55);
   position: absolute;
   right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
   pointer-events: none;
 }
 
@@ -131,7 +141,6 @@
 @media (max-width: 360px){
   .kb-hero-value{ font-size: 38px; }
   .kb-two{ gap: 12px; }
-  .kb-section-title{ font-size: 20px; }
 }
 
 /* ---------- dots ---------- */
@@ -373,14 +382,16 @@
 
 /* =========================================
    ✅ Snapshot 確定UI（ヘッダ右側）
+   - 狭い時はこのブロックだけが下段に落ちる
 ========================================= */
 
 .kb-head-actions{
   display:flex;
   align-items:center;
   gap: 10px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
+  white-space: nowrap;
 }
 
 .kb-confirm-form{
@@ -424,3 +435,24 @@
 
 /* ちょいユーティリティ */
 .kb-mt-10{ margin-top: 10px; }
+
+/* =========================================
+   ✅ モバイル最適化：狭い時は右側だけ2段目へ
+   - 左（セレクト＋タイトル）は絶対に維持
+========================================= */
+@media (max-width: 420px){
+  .kb-section-title{
+    font-size: 21px;
+  }
+  .kb-select{
+    padding: 7px 30px 7px 10px;
+    font-size: 11px;
+  }
+
+  /* 右側アクションを下段に落とす（左は固定） */
+  .kb-head-actions{
+    width: 100%;
+    justify-content: flex-end;
+    margin-top: 6px;
+  }
+}
