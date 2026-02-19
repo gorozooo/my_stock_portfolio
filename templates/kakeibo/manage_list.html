@@ -35,7 +35,7 @@
 
   <!-- フォーム（入力のみ） -->
   <section class="kb-card">
-    <div class="kb-title">{% if edit_mode %}編集{% else %}追加{% endif %}</div>
+    <div class="kb-title">{% if edit_mode %}編集{% else %}新規登録{% endif %}</div>
 
     {% if edit_mode %}
       <div class="kb-muted" style="margin-bottom:10px;">編集中：保存すると上書きされます。</div>
@@ -52,7 +52,7 @@
       {{ form.as_p }}
 
       <button class="kb-btn kb-btn-primary" type="submit">
-        {% if edit_mode %}更新{% else %}追加{% endif %}
+        {% if edit_mode %}更新{% else %}登録{% endif %}
       </button>
 
       {% if edit_mode %}
