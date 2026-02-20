@@ -36,7 +36,7 @@
 
     <!-- ✅ 先月比（% と 金額だけ / +緑 -赤） -->
     <div class="kb-hero-delta
-      先月比:{% with s=d_total_assets|stringformat:'s' %}
+      {% with s=d_total_assets|stringformat:'s' %}
         {% if s|slice:':1' == '-' %}kb-val-neg{% elif s != '' and s != '0' %}kb-val-pos{% endif %}
       {% endwith %}
     ">
