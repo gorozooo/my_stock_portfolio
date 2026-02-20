@@ -356,9 +356,6 @@
     <div class="kb-divider kb-divider-thin"></div>
     <div class="kb-section-head">
       <div class="kb-section-title" style="font-size: 16px;">家</div>
-      <div class="kb-section-side">
-        合計：¥{{ bank_totals.HOUSE|default:0|intcomma }}
-      </div>
     </div>
 
     <div class="kb-list">
@@ -372,7 +369,6 @@
             ¥{{ row.balance|intcomma }}
           </div>
         </div>
-        
       {% empty %}
         <div class="kb-muted kb-mt-10">口座がありません。</div>
       {% endfor %}
@@ -382,9 +378,6 @@
     <div class="kb-divider kb-divider-thin"></div>
     <div class="kb-section-head">
       <div class="kb-section-title" style="font-size: 16px;">ぼーや</div>
-      <div class="kb-section-side">
-        合計：¥{{ bank_totals.B|default:0|intcomma }}
-      </div>
     </div>
 
     <div class="kb-list">
@@ -398,11 +391,6 @@
             ¥{{ row.balance|intcomma }}
           </div>
         </div>
-        {% if row.month %}
-          <div class="kb-muted" style="margin-top:-6px; margin-bottom:8px;">
-            参照：{{ row.month }}
-          </div>
-        {% endif %}
       {% empty %}
         <div class="kb-muted kb-mt-10">口座がありません。</div>
       {% endfor %}
@@ -412,9 +400,6 @@
     <div class="kb-divider kb-divider-thin"></div>
     <div class="kb-section-head">
       <div class="kb-section-title" style="font-size: 16px;">ごろ</div>
-      <div class="kb-section-side">
-        合計：¥{{ bank_totals.G|default:0|intcomma }}
-      </div>
     </div>
 
     <div class="kb-list">
@@ -428,10 +413,6 @@
             ¥{{ row.balance|intcomma }}
           </div>
         </div>
-        {% if row.month %}
-          <div class="kb-muted" style="margin-top:-6px; margin-bottom:8px;">
-            参照：{{ row.month }}
-          </div>
         {% endif %}
       {% empty %}
         <div class="kb-muted kb-mt-10">口座がありません。</div>
