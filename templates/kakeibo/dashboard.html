@@ -245,7 +245,7 @@
         </div>
         <div class="kb-mini-val kb-val-income">¥{{ total_income|intcomma }}</div>
         <div class="kb-mini-sub {% if d_income > 0 %}kb-val-pos{% elif d_income < 0 %}kb-val-neg{% endif %}">
-          先月（{{ prev_month_label }}）比：
+          先月比：
           {% if dp_income is not None %}{{ dp_income }}%{% else %}—{% endif %}
           （{% if d_income >= 0 %}+{% endif %}{{ d_income|intcomma }}）
         </div>
