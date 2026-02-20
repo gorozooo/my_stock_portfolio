@@ -283,12 +283,11 @@
           <span class="kb-dot kb-dot-muted"></span>
           <span class="kb-row-label">固定費</span>
         </div>
-        <div class="kb-row-val">¥{{ fixed_sum|intcomma }}</div>
-          <div class="kb-two kb-foot">
-          <div class="kb-foot-item {% if d_fixed > 0 %}kb-val-pos{% elif d_fixed < 0 %}kb-val-neg{% endif %}">
-            固定費 先月比：{% if dp_fixed is not None %}{{ dp_fixed }}%{% else %}—{% endif %}（{% if d_fixed >= 0 %}+{% endif %}{{ d_fixed|intcomma }}）
-          </div>
+        
+        <div class="kb-foot-item {% if d_fixed > 0 %}kb-val-pos{% elif d_fixed < 0 %}kb-val-neg{% endif %}">
+          固定費 先月比：{% if dp_fixed is not None %}{{ dp_fixed }}%{% else %}—{% endif %}（{% if d_fixed >= 0 %}+{% endif %}{{ d_fixed|intcomma }}）
         </div>
+        
       </div>
 
       <div class="kb-row">
