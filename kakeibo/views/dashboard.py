@@ -13,9 +13,11 @@
 # 0) 立替（ADVANCE）は「支出に含める」：従来どおり支出に集計する
 # 1) 個人カード（B/G の var_type=CARD）は「登録はするが支出に含めない」
 #    - 家のカード（HOUSE の var_type=CARD）は支出に含める
-# 2) お小遣い（自動計算）を追加：
-#    - ぼーや：カード合計請求額(BのCARD) − 立替(BのADVANCE + Bの固定費(立替)) − 固定費(Bのお小遣い)
-#    - ごろ  ：カード合計請求額(GのCARD) − 立替(GのADVANCE + Gの固定費(立替)) − 固定費(Gのお小遣い)
+# 2) お小遣い（自動計算）を追加（★式を更新）：
+#    - ぼーや： (固定費お小遣い) + (立替合計) - (カード請求合計)
+#    - ごろ  ： (固定費お小遣い) + (立替合計) - (カード請求合計)
+#      立替合計 = 変動ADVANCE + 固定(立替)
+#      カード請求合計 = 変動CARD（owner=B or G）
 #    - 表示用：okodukai_b / okodukai_g / okodukai_total を context に追加
 # 3) 月次Snapshot（確定）：
 #    - 確定ボタン押下時点で保存する「変動費」は(1)のルールを反映（個人カード除外）
@@ -424,13 +426,16 @@ def _advance_fixed_sum(owner: str) -> int:
 def _calc_okodukai(month: date, owner: str) -> int:
     """
     何をする？
-    - お小遣い（自動計算）を返す
-      カード合計請求額 − 立替(変動ADVANCE + 固定立替) − 固定お小遣い
+    - お小遣い（自動計算）を返す（★最新式）
+      （固定費お小遣い）＋（立替合計）−（カード請求合計）
+
+      立替合計 = 変動ADVANCE + 固定(立替)
+      カード請求合計 = 変動CARD
     """
-    bill = _card_bill_sum(month, owner)
-    adv = _int(_advance_var_sum(month, owner) + _advance_fixed_sum(owner))
     fixed_allow = _allowance_fixed_sum(owner)
-    return _int(bill - adv - fixed_allow)
+    adv_total = _int(_advance_var_sum(month, owner) + _advance_fixed_sum(owner))
+    bill = _card_bill_sum(month, owner)
+    return _int(fixed_allow + adv_total - bill)
 
 
 def _build_dynamic_month_values(request, today: date, m: date) -> dict:
