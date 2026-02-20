@@ -3,25 +3,20 @@
 # [PATH] kakeibo/views/dashboard.py
 #
 # このファイルは何？
-# 家計簿トップ画面（/kakeibo/）。
+# 家計簿トップ画面（/kakeibo/）のビュー。
 # - KPI：総資産 / 楽天銀行(B)の実残高 / 投資（評価額＋現金余力）
 # - 年度（選択可）の収支
 # - 月（選択可）の収入・支出・差額＋固定/変動内訳 + 先月比
-# - 可視化（支出率バー、固定/変動比バー）※月選択に連動
+# - ✅ 銀行残高：登録済み口座を全部（HOUSE / B / G）で表示
+#   - 当月が無い口座は「最新月（選択月以前）」で表示
+#   - Bの楽天銀行はトップで見えてるので、銀行残高セクションから除外
 #
-# ★今回の修正ポイント（あなたの最新仕様に対応）
-# 0) 立替（ADVANCE）は「支出に含める」：従来どおり支出に集計する
-# 1) 個人カード（B/G の var_type=CARD）は「登録はするが支出に含めない」
-#    - 家のカード（HOUSE の var_type=CARD）は支出に含める
-# 2) お小遣い（自動計算）を追加（★式を更新）：
-#    - ぼーや： (固定費お小遣い) + (立替合計) - (カード請求合計)
-#    - ごろ  ： (固定費お小遣い) + (立替合計) - (カード請求合計)
-#      立替合計 = 変動ADVANCE + 固定(立替)
-#      カード請求合計 = 変動CARD（owner=B or G）
-#    - 表示用：okodukai_b / okodukai_g / okodukai_total を context に追加
-# 3) 月次Snapshot（確定）：
-#    - 確定ボタン押下時点で保存する「変動費」は(1)のルールを反映（個人カード除外）
-#    - 既存snapshotが古いルールで保存されている場合は、同月で再度「確定」すれば上書きされる
+# ★今回の修正ポイント（あなたの最新HTMLに対応）
+# 1) 「月の可視化（バー）」は削除された前提なので、view側もその値を出さない
+# 2) 「銀行残高」セクション用に、bank_groups / bank_totals を context に追加
+# 3) bank_groups は Account(kind="ACCOUNT") を owner(HOUSE/B/G) ごとにまとめる
+#    - ただし owner="B" かつ nameに「楽天銀行」を含む口座は bank_groups から除外
+# 4) 既存のKPI/収支/先月比/お小遣いロジックは維持（テンプレ側の表示に合わせる）
 # =========================================
 
 from decimal import Decimal
@@ -71,17 +66,6 @@ def _sum_qs(qs, field: str):
     return _int(qs.aggregate(s=Sum(field))["s"])
 
 
-def _pct(num: int, den: int):
-    den = _int(den)
-    num = _int(num)
-    if den <= 0:
-        return None
-    try:
-        return round((num / den) * 100.0, 1)
-    except Exception:
-        return None
-
-
 def _delta(a: int, b: int) -> int:
     return _int(a) - _int(b)
 
@@ -122,6 +106,7 @@ def _bank_balance_fallback(month, owner: str, name_contains: str) -> dict:
     """
     何をする？
     - 家計簿の銀行残高(BankBalance)を「当月が無ければ最新月」で拾う。
+    - 主にKPI用（楽天銀行B / イオン家）で利用。
     """
     accs = (
         Account.objects
@@ -148,6 +133,66 @@ def _bank_balance_fallback(month, owner: str, name_contains: str) -> dict:
         "month": month_label,
         "account_name": getattr(getattr(obj, "account", None), "name", None),
     }
+
+
+def _bank_groups_all_accounts(month: date) -> tuple[dict, dict]:
+    """
+    何をする？
+    - 銀行残高セクション用に、登録済み口座を owner(HOUSE/B/G) ごとにまとめる。
+    - 各口座は「選択月が無ければ、選択月以前の最新月」で残高を表示。
+    - Bの楽天銀行はトップで見えてるため、このリストから除外する（name に '楽天銀行' を含む）。
+    戻り値：
+      - bank_groups: {"HOUSE":[{name,balance,month},...], "B":[...], "G":[...]}
+      - bank_totals: {"HOUSE":合計, "B":合計, "G":合計}
+    """
+    owners = ["HOUSE", "B", "G"]
+
+    acc_qs = (
+        Account.objects
+        .filter(kind="ACCOUNT", owner__in=owners)
+        .order_by("owner", "id")
+    )
+
+    bank_groups: dict[str, list[dict]] = {"HOUSE": [], "B": [], "G": []}
+    bank_totals: dict[str, int] = {"HOUSE": 0, "B": 0, "G": 0}
+
+    for acc in acc_qs:
+        try:
+            owner = (acc.owner or "").strip()
+            name = (acc.name or "").strip()
+
+            # ✅ Bの楽天銀行はトップで見えてるので除外
+            if owner == "B" and "楽天銀行" in name:
+                continue
+
+            bb = (
+                BankBalance.objects
+                .filter(account=acc, month__lte=month)
+                .order_by("-month", "-id")
+                .first()
+            )
+
+            if bb:
+                bal = _int(getattr(bb, "balance", 0))
+                mm = getattr(bb, "month", None)
+                mm_label = f"{mm.year}-{mm.month:02d}" if mm else None
+            else:
+                bal = 0
+                mm_label = None
+
+            row = {"name": name, "balance": bal, "month": mm_label}
+
+            if owner not in bank_groups:
+                # 想定外ownerは捨てる（安全側）
+                continue
+
+            bank_groups[owner].append(row)
+            bank_totals[owner] = _int(bank_totals.get(owner, 0) + bal)
+
+        except Exception:
+            continue
+
+    return bank_groups, bank_totals
 
 
 def _portfolio_rakuten_available_from_cash_dashboard(today) -> int:
@@ -458,7 +503,7 @@ def _build_dynamic_month_values(request, today: date, m: date) -> dict:
     total_expense = _int(fixed_sum + var_sum)
     month_diff = _int(total_income - total_expense)
 
-    # 銀行（家計簿）：選択月が無ければ最新月で拾う
+    # 銀行（家計簿）：選択月が無ければ最新月で拾う（KPI用）
     rakuten_bank = _bank_balance_fallback(m, owner="B", name_contains="楽天銀行")
     aeon_bank = _bank_balance_fallback(m, owner="HOUSE", name_contains="イオン銀行")
 
@@ -480,11 +525,6 @@ def _build_dynamic_month_values(request, today: date, m: date) -> dict:
     okodukai_b = _calc_okodukai(m, "B")
     okodukai_g = _calc_okodukai(m, "G")
     okodukai_total = _int(okodukai_b + okodukai_g)
-
-    # 可視化用（%）
-    expense_rate = _pct(total_expense, total_income)
-    fixed_rate = _pct(fixed_sum, total_expense)
-    var_rate = _pct(var_sum, total_expense)
 
     return {
         # 月収支
@@ -510,16 +550,11 @@ def _build_dynamic_month_values(request, today: date, m: date) -> dict:
         "okodukai_g": okodukai_g,
         "okodukai_total": okodukai_total,
 
-        # debug用
+        # debug用（どの月の残高を拾ったか）
         "rakuten_bank_month_used": rakuten_bank.get("month"),
         "rakuten_bank_account_name_used": rakuten_bank.get("account_name"),
         "aeon_bank_month_used": aeon_bank.get("month"),
         "aeon_bank_account_name_used": aeon_bank.get("account_name"),
-
-        # viz
-        "expense_rate": expense_rate,
-        "fixed_rate": fixed_rate,
-        "var_rate": var_rate,
     }
 
 
@@ -560,7 +595,6 @@ def dashboard(request):
     if request.method == "POST" and (request.POST.get("action") or "").strip() == "confirm_snapshot":
         dyn = _build_dynamic_month_values(request, today=today, m=m)
 
-        # 確定値として保存（上書きOK）
         MonthlySnapshot.objects.update_or_create(
             month=m,
             defaults={
@@ -583,7 +617,6 @@ def dashboard(request):
             }
         )
 
-        # GETへ戻す（選択を維持）
         q = f"?year={selected_year}&month={selected_month}"
         if debug:
             q += "&debug=1"
@@ -596,7 +629,6 @@ def dashboard(request):
     is_snapshot = bool(snap)
 
     if snap:
-        # snapshot優先（これが“正”）
         total_income = _int(snap.income)
         fixed_sum = _int(snap.fixed)
         var_sum = _int(snap.variable)
@@ -612,18 +644,11 @@ def dashboard(request):
         rakuten_bank_b = _int(snap.rakuten_bank_b)
         aeon_bank_house = _int(snap.aeon_bank_house)
 
-        # snapshot表示の時は、fallback月表示は意味薄いので None にする
         rakuten_bank_month_used = None
         rakuten_bank_account_name_used = None
         aeon_bank_month_used = None
         aeon_bank_account_name_used = None
 
-        # vizはsnapshotの収支で計算（選択月に連動）
-        expense_rate = _pct(total_expense, total_income)
-        fixed_rate = _pct(fixed_sum, total_expense)
-        var_rate = _pct(var_sum, total_expense)
-
-        # ✅ お小遣い（snapshotに保存しない：計算は現行DBで出す）
         okodukai_b = _calc_okodukai(m, "B")
         okodukai_g = _calc_okodukai(m, "G")
         okodukai_total = _int(okodukai_b + okodukai_g)
@@ -654,20 +679,19 @@ def dashboard(request):
         aeon_bank_month_used = dyn["aeon_bank_month_used"]
         aeon_bank_account_name_used = dyn["aeon_bank_account_name_used"]
 
-        expense_rate = dyn["expense_rate"]
-        fixed_rate = dyn["fixed_rate"]
-        var_rate = dyn["var_rate"]
+    # -----------------------
+    # ✅ 銀行残高（登録済み口座を全部 / HOUSE・B・G）
+    # - 当月が無い口座は「最新月（選択月以前）」で拾う
+    # - Bの楽天銀行はトップ表示があるため除外
+    # -----------------------
+    bank_groups, bank_totals = _bank_groups_all_accounts(month=m)
 
     # -----------------------
     # 先月比（選択月に対して）
-    # ※ snapshotがあっても先月比は「表示上の参考」なので、現行のDB（月次入力）から出す
     # -----------------------
     prev_income = _sum_qs(MonthlyIncome.objects.filter(month=prev_m), "amount")
-
-    # ✅ 先月の変動費（支出に含める分）：個人カード除外
     prev_var = _var_sum_for_expense(prev_m)
 
-    # 固定費はテンプレ合計で比較（確定値がある月でも“比較ロジック”は現状維持）
     template_fixed_now = _sum_qs(FixedExpenseTemplate.objects.filter(is_active=True), "amount")
     prev_fixed = template_fixed_now
     prev_expense = _int(prev_fixed + prev_var)
@@ -684,7 +708,6 @@ def dashboard(request):
 
     # -----------------------
     # ✅ KPI 先月比（総資産 / 楽天銀行残高 / 投資）
-    # - 表示上の先月比。先月のsnapshotがあればそれを使い、無ければ動的計算でフォールバック
     # -----------------------
     prev_snap = MonthlySnapshot.objects.filter(month=prev_m).first()
     if prev_snap:
@@ -707,8 +730,6 @@ def dashboard(request):
 
     # -----------------------
     # 年度（選択year）
-    # - snapshotがある年度は snapshot合計を正
-    # - snapshotが無い年度は従来計算にフォールバック
     # -----------------------
     snaps_year = list(MonthlySnapshot.objects.filter(month__year=selected_year))
     if snaps_year:
@@ -717,14 +738,12 @@ def dashboard(request):
         year_diff = _int(sum(_int(s.diff) for s in snaps_year))
         year_is_snapshot = True
     else:
-        # フォールバック（従来）
         year_income = _int(
             MonthlyIncome.objects
             .filter(month__year=selected_year)
             .aggregate(s=Sum("amount"))["s"] or 0
         )
 
-        # ✅ 年度の変動費（支出に含める分）：個人カード除外
         year_var = _int(
             MonthlyVariableExpense.objects
             .filter(month__year=selected_year)
@@ -732,7 +751,6 @@ def dashboard(request):
             .aggregate(s=Sum("amount"))["s"] or 0
         )
 
-        # ここは従来どおり “1ヶ月分だけ足す” で暫定
         year_expense = _int(year_var + template_fixed_now)
         year_diff = _int(year_income - year_expense)
         year_is_snapshot = False
@@ -741,17 +759,14 @@ def dashboard(request):
         "title": "家計簿",
         "debug": debug,
 
-        # snapshot表示フラグ
         "is_snapshot": is_snapshot,
         "snapshot_locked_at": getattr(snap, "locked_at", None),
 
-        # 選択UI
         "year_options": year_options,
         "selected_year": selected_year,
         "month_options": month_options,
         "selected_month": selected_month,
 
-        # 表示用ラベル（選択月）
         "month_label": f"{m.year}-{m.month:02d}",
         "prev_month_label": f"{prev_m.year}-{prev_m.month:02d}",
 
@@ -768,7 +783,7 @@ def dashboard(request):
         "d_invest_total": d_invest_total,
         "dp_invest_total": dp_invest_total,
 
-        # 内訳
+        # 内訳（debugにも使う）
         "rakuten_cash_free": rakuten_cash_free,
         "rakuten_eval": rakuten_eval,
         "rakuten_bank_b": rakuten_bank_b,
@@ -803,14 +818,14 @@ def dashboard(request):
         "dp_fixed": dp_fixed,
         "dp_var": dp_var,
 
-        # ✅ お小遣い（月の収支の最後で表示する用）
+        # お小遣い
         "okodukai_b": okodukai_b,
         "okodukai_g": okodukai_g,
         "okodukai_total": okodukai_total,
 
-        # 可視化（選択月に連動）
-        "expense_rate": expense_rate,
-        "fixed_rate": fixed_rate,
-        "var_rate": var_rate,
+        # ✅ 銀行残高（新セクション用）
+        "bank_groups": bank_groups,
+        "bank_totals": bank_totals,
     }
+
     return render(request, "kakeibo/dashboard.html", context)
