@@ -132,125 +132,7 @@
 
   <div class="kb-divider kb-divider-lg"></div>
 
-  <!-- =========================
-       ✅ 銀行残高（登録済み口座を全部 / HOUSE・B・G）
-       ※ Bの楽天銀行はトップで見えてるのでここでは除外する想定
-  ========================== -->
-  <section class="kb-section" id="banks">
-    <div class="kb-section-head">
-      <div class="kb-section-title">銀行残高</div>
-      <div class="kb-section-side">{{ month_label }}</div>
-    </div>
-
-    <div class="kb-muted">
-      登録済みの口座残高を、所有者ごとにまとめて表示（HOUSE / B / G）。
-      当月が無い口座は「最新月」を表示します。
-    </div>
-
-    <!-- HOUSE -->
-    <div class="kb-divider kb-divider-thin"></div>
-    <div class="kb-section-head">
-      <div class="kb-section-title" style="font-size: 16px;">HOUSE</div>
-      <div class="kb-section-side">
-        合計：¥{{ bank_totals.HOUSE|default:0|intcomma }}
-      </div>
-    </div>
-
-    <div class="kb-list">
-      {% for row in bank_groups.HOUSE %}
-        <div class="kb-row">
-          <div class="kb-row-left">
-            <span class="kb-dot kb-dot-bank"></span>
-            <span class="kb-row-label">{{ row.name }}</span>
-          </div>
-          <div class="kb-row-val {% if row.balance >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
-            ¥{{ row.balance|intcomma }}
-          </div>
-        </div>
-        {% if row.month %}
-          <div class="kb-muted" style="margin-top:-6px; margin-bottom:8px;">
-            参照：{{ row.month }}
-          </div>
-        {% endif %}
-      {% empty %}
-        <div class="kb-muted kb-mt-10">口座がありません。</div>
-      {% endfor %}
-    </div>
-
-    <!-- B -->
-    <div class="kb-divider kb-divider-thin"></div>
-    <div class="kb-section-head">
-      <div class="kb-section-title" style="font-size: 16px;">B</div>
-      <div class="kb-section-side">
-        合計：¥{{ bank_totals.B|default:0|intcomma }}
-      </div>
-    </div>
-
-    <div class="kb-list">
-      {% for row in bank_groups.B %}
-        <div class="kb-row">
-          <div class="kb-row-left">
-            <span class="kb-dot kb-dot-bank"></span>
-            <span class="kb-row-label">{{ row.name }}</span>
-          </div>
-          <div class="kb-row-val {% if row.balance >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
-            ¥{{ row.balance|intcomma }}
-          </div>
-        </div>
-        {% if row.month %}
-          <div class="kb-muted" style="margin-top:-6px; margin-bottom:8px;">
-            参照：{{ row.month }}
-          </div>
-        {% endif %}
-      {% empty %}
-        <div class="kb-muted kb-mt-10">口座がありません。</div>
-      {% endfor %}
-    </div>
-
-    <!-- G -->
-    <div class="kb-divider kb-divider-thin"></div>
-    <div class="kb-section-head">
-      <div class="kb-section-title" style="font-size: 16px;">G</div>
-      <div class="kb-section-side">
-        合計：¥{{ bank_totals.G|default:0|intcomma }}
-      </div>
-    </div>
-
-    <div class="kb-list">
-      {% for row in bank_groups.G %}
-        <div class="kb-row">
-          <div class="kb-row-left">
-            <span class="kb-dot kb-dot-bank"></span>
-            <span class="kb-row-label">{{ row.name }}</span>
-          </div>
-          <div class="kb-row-val {% if row.balance >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
-            ¥{{ row.balance|intcomma }}
-          </div>
-        </div>
-        {% if row.month %}
-          <div class="kb-muted" style="margin-top:-6px; margin-bottom:8px;">
-            参照：{{ row.month }}
-          </div>
-        {% endif %}
-      {% empty %}
-        <div class="kb-muted kb-mt-10">口座がありません。</div>
-      {% endfor %}
-    </div>
-
-    <!-- ALL TOTAL -->
-    <div class="kb-divider kb-divider-thin"></div>
-    <div class="kb-list">
-      <div class="kb-row kb-row-strong">
-        <div class="kb-row-left">
-          <span class="kb-dot kb-dot-diff"></span>
-          <span class="kb-row-label">銀行残高（合計）</span>
-        </div>
-        <div class="kb-row-val">
-          ¥{{ bank_total_all|default:0|intcomma }}
-        </div>
-      </div>
-    </div>
-  </section>
+  
 
   <div class="kb-divider kb-divider-lg"></div>
 
@@ -459,7 +341,112 @@
   </section>
 
   <div class="kb-divider kb-divider-lg"></div>
+　
+　<!-- =========================
+       ✅ 銀行残高（登録済み口座を全部 / HOUSE・B・G）
+       ※ Bの楽天銀行はトップで見えてるのでここでは除外する想定
+  ========================== -->
+  <section class="kb-section" id="banks">
+    <div class="kb-section-head">
+      <div class="kb-section-title">銀行残高</div>
+    </div>
 
+    <div class="kb-muted">
+      登録済みの口座残高を、所有者ごとにまとめて表示。<br>
+      当月が無い口座は「最新月」を表示します。
+    </div>
+
+    <!-- HOUSE -->
+    <div class="kb-divider kb-divider-thin"></div>
+    <div class="kb-section-head">
+      <div class="kb-section-title" style="font-size: 16px;">家</div>
+      <div class="kb-section-side">
+        合計：¥{{ bank_totals.HOUSE|default:0|intcomma }}
+      </div>
+    </div>
+
+    <div class="kb-list">
+      {% for row in bank_groups.HOUSE %}
+        <div class="kb-row">
+          <div class="kb-row-left">
+            <span class="kb-dot kb-dot-bank"></span>
+            <span class="kb-row-label">{{ row.name }}</span>
+          </div>
+          <div class="kb-row-val {% if row.balance >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
+            ¥{{ row.balance|intcomma }}
+          </div>
+        </div>
+        {% if row.month %}
+          <div class="kb-muted" style="margin-top:-6px; margin-bottom:8px;">
+            参照：{{ row.month }}
+          </div>
+        {% endif %}
+      {% empty %}
+        <div class="kb-muted kb-mt-10">口座がありません。</div>
+      {% endfor %}
+    </div>
+
+    <!-- B -->
+    <div class="kb-divider kb-divider-thin"></div>
+    <div class="kb-section-head">
+      <div class="kb-section-title" style="font-size: 16px;">ぼーや</div>
+      <div class="kb-section-side">
+        合計：¥{{ bank_totals.B|default:0|intcomma }}
+      </div>
+    </div>
+
+    <div class="kb-list">
+      {% for row in bank_groups.B %}
+        <div class="kb-row">
+          <div class="kb-row-left">
+            <span class="kb-dot kb-dot-bank"></span>
+            <span class="kb-row-label">{{ row.name }}</span>
+          </div>
+          <div class="kb-row-val {% if row.balance >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
+            ¥{{ row.balance|intcomma }}
+          </div>
+        </div>
+        {% if row.month %}
+          <div class="kb-muted" style="margin-top:-6px; margin-bottom:8px;">
+            参照：{{ row.month }}
+          </div>
+        {% endif %}
+      {% empty %}
+        <div class="kb-muted kb-mt-10">口座がありません。</div>
+      {% endfor %}
+    </div>
+
+    <!-- G -->
+    <div class="kb-divider kb-divider-thin"></div>
+    <div class="kb-section-head">
+      <div class="kb-section-title" style="font-size: 16px;">ごろ</div>
+      <div class="kb-section-side">
+        合計：¥{{ bank_totals.G|default:0|intcomma }}
+      </div>
+    </div>
+
+    <div class="kb-list">
+      {% for row in bank_groups.G %}
+        <div class="kb-row">
+          <div class="kb-row-left">
+            <span class="kb-dot kb-dot-bank"></span>
+            <span class="kb-row-label">{{ row.name }}</span>
+          </div>
+          <div class="kb-row-val {% if row.balance >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
+            ¥{{ row.balance|intcomma }}
+          </div>
+        </div>
+        {% if row.month %}
+          <div class="kb-muted" style="margin-top:-6px; margin-bottom:8px;">
+            参照：{{ row.month }}
+          </div>
+        {% endif %}
+      {% empty %}
+        <div class="kb-muted kb-mt-10">口座がありません。</div>
+      {% endfor %}
+    </div>
+  </section>
+　
   <!-- =========================
        将来：資金移動
   ========================== -->
