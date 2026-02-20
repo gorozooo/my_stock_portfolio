@@ -40,10 +40,10 @@
     <!-- ✅ 先月比（% と 金額だけ / +緑 -赤） -->
     <div class="kb-hero-delta
       {% with s=d_total_assets|stringformat:'s' %}
-        先月比:{% if s|slice:':1' == '-' %}kb-val-neg{% elif s != '' and s != '0' %}kb-val-pos{% endif %}
+        {% if s|slice:':1' == '-' %}kb-val-neg{% elif s != '' and s != '0' %}kb-val-pos{% endif %}
       {% endwith %}
     ">
-      {% if dp_total_assets != None %}{{ dp_total_assets }}%{% else %}—{% endif %}
+      先月比:{% if dp_total_assets != None %}{{ dp_total_assets }}%{% else %}—{% endif %}
       （{% if d_total_assets != None and d_total_assets >= 0 %}+{% endif %}{% if d_total_assets != None %}{{ d_total_assets|intcomma }}{% else %}—{% endif %}）
     </div>
 
