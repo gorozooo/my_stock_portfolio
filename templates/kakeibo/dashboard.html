@@ -32,11 +32,11 @@
   ========================== -->
   <header class="kb-hero">
     <div class="kb-hero-label">我が家の総資産</div>
-    <div class="kb-hero-value">先月比:¥{{ kpi_total_assets|intcomma }}</div>
+    <div class="kb-hero-value">¥{{ kpi_total_assets|intcomma }}</div>
 
     <!-- ✅ 先月比（% と 金額だけ / +緑 -赤） -->
     <div class="kb-hero-delta
-      {% with s=d_total_assets|stringformat:'s' %}
+      先月比:{% with s=d_total_assets|stringformat:'s' %}
         {% if s|slice:':1' == '-' %}kb-val-neg{% elif s != '' and s != '0' %}kb-val-pos{% endif %}
       {% endwith %}
     ">
