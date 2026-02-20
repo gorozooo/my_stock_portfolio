@@ -258,7 +258,7 @@
         </div>
         <div class="kb-mini-val kb-val-expense">¥{{ total_expense|intcomma }}</div>
         <div class="kb-mini-sub {% if d_expense > 0 %}kb-val-pos{% elif d_expense < 0 %}kb-val-neg{% endif %}">
-          先月（{{ prev_month_label }}）比：
+          先月比：
           {% if dp_expense is not None %}{{ dp_expense }}%{% else %}—{% endif %}
           （{% if d_expense >= 0 %}+{% endif %}{{ d_expense|intcomma }}）
         </div>
@@ -284,6 +284,11 @@
           <span class="kb-row-label">固定費</span>
         </div>
         <div class="kb-row-val">¥{{ fixed_sum|intcomma }}</div>
+          <div class="kb-two kb-foot">
+          <div class="kb-foot-item {% if d_fixed > 0 %}kb-val-pos{% elif d_fixed < 0 %}kb-val-neg{% endif %}">
+            固定費 先月比：{% if dp_fixed is not None %}{{ dp_fixed }}%{% else %}—{% endif %}（{% if d_fixed >= 0 %}+{% endif %}{{ d_fixed|intcomma }}）
+          </div>
+        </div>
       </div>
 
       <div class="kb-row">
