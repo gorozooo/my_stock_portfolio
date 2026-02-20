@@ -85,7 +85,7 @@
             {% if s|slice:':1' == '-' %}kb-val-neg{% elif s != '' and s != '0' %}kb-val-pos{% endif %}
           {% endwith %}
         ">
-          {% if dp_rakuten_bank_actual != None %}{{ dp_rakuten_bank_actual }}%{% else %}—{% endif %}
+          先月比:{% if dp_rakuten_bank_actual != None %}{{ dp_rakuten_bank_actual }}%{% else %}—{% endif %}
           （{% if d_rakuten_bank_actual != None and d_rakuten_bank_actual >= 0 %}+{% endif %}{% if d_rakuten_bank_actual != None %}{{ d_rakuten_bank_actual|intcomma }}{% else %}—{% endif %}）
         </div>
 
@@ -111,7 +111,7 @@
             {% if s|slice:':1' == '-' %}kb-val-neg{% elif s != '' and s != '0' %}kb-val-pos{% endif %}
           {% endwith %}
         ">
-          {% if dp_invest_total != None %}{{ dp_invest_total }}%{% else %}—{% endif %}
+          先月比:{% if dp_invest_total != None %}{{ dp_invest_total }}%{% else %}—{% endif %}
           （{% if d_invest_total != None and d_invest_total >= 0 %}+{% endif %}{% if d_invest_total != None %}{{ d_invest_total|intcomma }}{% else %}—{% endif %}）
         </div>
 
