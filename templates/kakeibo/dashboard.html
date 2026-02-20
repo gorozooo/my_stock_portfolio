@@ -11,7 +11,10 @@
 - ★追加：
   - 我が家の総資産 / 楽天銀行残高 / 投資 に「先月比（% + 金額）」を表示
   - 表示は「% と 金額だけ」／ +なら緑、-なら赤
-  - 月の収支の一番最後に「お小遣い（自動計算）」を表示（ぼーや / ごろ / 合計）
+  - 月の収支の一番最後に「お小遣い（自動計算）」を表示（ぼーや / ごろ）
+  - ✅ 月の可視化（バー）は削除
+  - ✅ 代わりに「銀行残高（登録済み口座を全部）」を追加（HOUSE / B / G）
+    ※Bの楽天銀行はトップで見えてるので、このセクションでは除外する想定
 =========================================
 -->
 
@@ -124,6 +127,128 @@
         </div>
       </div>
 
+    </div>
+  </section>
+
+  <div class="kb-divider kb-divider-lg"></div>
+
+  <!-- =========================
+       ✅ 銀行残高（登録済み口座を全部 / HOUSE・B・G）
+       ※ Bの楽天銀行はトップで見えてるのでここでは除外する想定
+  ========================== -->
+  <section class="kb-section" id="banks">
+    <div class="kb-section-head">
+      <div class="kb-section-title">銀行残高</div>
+      <div class="kb-section-side">{{ month_label }}</div>
+    </div>
+
+    <div class="kb-muted">
+      登録済みの口座残高を、所有者ごとにまとめて表示（HOUSE / B / G）。
+      当月が無い口座は「最新月」を表示します。
+    </div>
+
+    <!-- HOUSE -->
+    <div class="kb-divider kb-divider-thin"></div>
+    <div class="kb-section-head">
+      <div class="kb-section-title" style="font-size: 16px;">HOUSE</div>
+      <div class="kb-section-side">
+        合計：¥{{ bank_totals.HOUSE|default:0|intcomma }}
+      </div>
+    </div>
+
+    <div class="kb-list">
+      {% for row in bank_groups.HOUSE %}
+        <div class="kb-row">
+          <div class="kb-row-left">
+            <span class="kb-dot kb-dot-bank"></span>
+            <span class="kb-row-label">{{ row.name }}</span>
+          </div>
+          <div class="kb-row-val {% if row.balance >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
+            ¥{{ row.balance|intcomma }}
+          </div>
+        </div>
+        {% if row.month %}
+          <div class="kb-muted" style="margin-top:-6px; margin-bottom:8px;">
+            参照：{{ row.month }}
+          </div>
+        {% endif %}
+      {% empty %}
+        <div class="kb-muted kb-mt-10">口座がありません。</div>
+      {% endfor %}
+    </div>
+
+    <!-- B -->
+    <div class="kb-divider kb-divider-thin"></div>
+    <div class="kb-section-head">
+      <div class="kb-section-title" style="font-size: 16px;">B</div>
+      <div class="kb-section-side">
+        合計：¥{{ bank_totals.B|default:0|intcomma }}
+      </div>
+    </div>
+
+    <div class="kb-list">
+      {% for row in bank_groups.B %}
+        <div class="kb-row">
+          <div class="kb-row-left">
+            <span class="kb-dot kb-dot-bank"></span>
+            <span class="kb-row-label">{{ row.name }}</span>
+          </div>
+          <div class="kb-row-val {% if row.balance >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
+            ¥{{ row.balance|intcomma }}
+          </div>
+        </div>
+        {% if row.month %}
+          <div class="kb-muted" style="margin-top:-6px; margin-bottom:8px;">
+            参照：{{ row.month }}
+          </div>
+        {% endif %}
+      {% empty %}
+        <div class="kb-muted kb-mt-10">口座がありません。</div>
+      {% endfor %}
+    </div>
+
+    <!-- G -->
+    <div class="kb-divider kb-divider-thin"></div>
+    <div class="kb-section-head">
+      <div class="kb-section-title" style="font-size: 16px;">G</div>
+      <div class="kb-section-side">
+        合計：¥{{ bank_totals.G|default:0|intcomma }}
+      </div>
+    </div>
+
+    <div class="kb-list">
+      {% for row in bank_groups.G %}
+        <div class="kb-row">
+          <div class="kb-row-left">
+            <span class="kb-dot kb-dot-bank"></span>
+            <span class="kb-row-label">{{ row.name }}</span>
+          </div>
+          <div class="kb-row-val {% if row.balance >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
+            ¥{{ row.balance|intcomma }}
+          </div>
+        </div>
+        {% if row.month %}
+          <div class="kb-muted" style="margin-top:-6px; margin-bottom:8px;">
+            参照：{{ row.month }}
+          </div>
+        {% endif %}
+      {% empty %}
+        <div class="kb-muted kb-mt-10">口座がありません。</div>
+      {% endfor %}
+    </div>
+
+    <!-- ALL TOTAL -->
+    <div class="kb-divider kb-divider-thin"></div>
+    <div class="kb-list">
+      <div class="kb-row kb-row-strong">
+        <div class="kb-row-left">
+          <span class="kb-dot kb-dot-diff"></span>
+          <span class="kb-row-label">銀行残高（合計）</span>
+        </div>
+        <div class="kb-row-val">
+          ¥{{ bank_total_all|default:0|intcomma }}
+        </div>
+      </div>
     </div>
   </section>
 
@@ -304,7 +429,7 @@
 
     <!-- =========================
          ✅ お小遣い（自動計算） ※月の収支の一番最後
-         - ぼーや / ごろ / 合計
+         - ぼーや / ごろ
          - ±で色
     ========================== -->
     <div class="kb-divider kb-divider-thin"></div>
@@ -329,49 +454,8 @@
           ¥{{ okodukai_g|intcomma }}
         </div>
       </div>
-
     </div>
 
-  </section>
-
-  <div class="kb-divider kb-divider-lg"></div>
-
-  <!-- =========================
-       可視化（バー）
-  ========================== -->
-  <section class="kb-section" id="viz">
-    <div class="kb-section-head">
-      <div class="kb-section-title">月の可視化</div>
-      <div class="kb-section-side">{{ month_label }}</div>
-    </div>
-
-    <div class="kb-muted">
-      収入に対して支出がどれくらいか、支出内訳（固定/変動）がどうなっているかを“1秒で”見える化。
-    </div>
-
-    <div class="kb-viz">
-      <div class="kb-viz-block">
-        <div class="kb-viz-head">支出率（支出 ÷ 収入）</div>
-        <div class="kb-viz-sub">
-          {% if expense_rate is not None %}{{ expense_rate }}%{% else %}—（収入が0のため計算不可）{% endif %}
-        </div>
-        <div class="kb-bar" aria-label="支出率バー">
-          <i data-bar="expense" data-pct="{% if expense_rate is not None %}{{ expense_rate }}{% else %}0{% endif %}"></i>
-        </div>
-      </div>
-
-      <div class="kb-viz-block">
-        <div class="kb-viz-head">支出内訳（固定 vs 変動）</div>
-        <div class="kb-viz-sub">
-          固定 {% if fixed_rate is not None %}{{ fixed_rate }}%{% else %}—{% endif %}
-          / 変動 {% if var_rate is not None %}{{ var_rate }}%{% else %}—{% endif %}
-        </div>
-        <div class="kb-bar-2" aria-label="固定変動内訳バー">
-          <i class="kb-bar-fixed" data-bar="fixed" data-pct="{% if fixed_rate is not None %}{{ fixed_rate }}{% else %}0{% endif %}"></i>
-          <i class="kb-bar-var" data-bar="var" data-pct="{% if var_rate is not None %}{{ var_rate }}{% else %}0{% endif %}"></i>
-        </div>
-      </div>
-    </div>
   </section>
 
   <div class="kb-divider kb-divider-lg"></div>
