@@ -489,21 +489,7 @@
           <div class="kb-row-val kb-val-neg">¥{{ smbc_b_need|intcomma }}</div>
         </div>
   
-        <div class="kb-row kb-row-strong">
-          <div class="kb-row-left">
-            <span class="kb-dot kb-dot-diff"></span>
-            <span class="kb-row-label">不足/余剰</span>
-          </div>
-          <div class="kb-row-val {% if smbc_b_delta >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
-            {% if smbc_b_delta >= 0 %}+{% endif %}¥{{ smbc_b_delta|intcomma }}
-          </div>
-        </div>
-  
-        {% if smbc_b_month %}
-          <div class="kb-muted" style="margin-top:-6px; margin-bottom:8px;">
-            参照：{{ smbc_b_month }}
-          </div>
-        {% endif %}
+        
       </div>
   
       <!-- ③ 楽天(G)：必要額（お小遣い＋立替−楽天カード確定請求） -->
