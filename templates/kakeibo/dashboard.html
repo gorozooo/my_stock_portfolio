@@ -422,23 +422,17 @@
 　<div class="kb-divider kb-divider-lg"></div>
 
     <!-- =========================
-         資金移動（Excel式そのまま）
+         資金移動
     ========================== -->
     <section class="kb-section" id="funds">
       <div class="kb-section-head">
         <div class="kb-section-title">資金移動</div>
-        <div class="kb-section-side">{{ month_label }}</div>
-      </div>
-  
-      <div class="kb-muted">
-        Excelの計算式そのまま：千葉は千円単位で限界まで引き出す／Bは「お小遣い＋立替」／Gは「お小遣い＋立替−楽天カード確定請求」。
       </div>
   
       <!-- ① 千葉銀行：引き出し上限 -->
       <div class="kb-divider kb-divider-thin"></div>
       <div class="kb-section-head">
         <div class="kb-section-title" style="font-size: 16px;">千葉銀行（給与口座）</div>
-        <div class="kb-section-side">引き出し</div>
       </div>
   
       <div class="kb-list">
@@ -466,12 +460,6 @@
             </div>
             <div class="kb-row-val">¥{{ row.remain|intcomma }}</div>
           </div>
-  
-          {% if row.month %}
-            <div class="kb-muted" style="margin-top:-6px; margin-bottom:8px;">
-              参照：{{ row.month }}
-            </div>
-          {% endif %}
   
           <div class="kb-divider kb-divider-thin"></div>
         {% empty %}
