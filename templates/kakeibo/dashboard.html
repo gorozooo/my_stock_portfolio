@@ -421,20 +421,147 @@
 　
 　<div class="kb-divider kb-divider-lg"></div>
 
-  <!-- =========================
-       将来：資金移動
-  ========================== -->
-  <section class="kb-section">
-    <div class="kb-section-head">
-      <div class="kb-section-title">資金移動</div>
-      <div class="kb-section-side">将来</div>
-    </div>
-
-    <div class="kb-muted">
-      将来的に：給与口座→支払い口座、各口座の不足/余剰が「見ただけで」わかるフロー画面をここに追加。<br>
-      今は枠だけ。データが揃ったら “入れるべき金額/引き出せる金額” を自動計算。
-    </div>
-  </section>
+    <!-- =========================
+         資金移動（Excel式そのまま）
+    ========================== -->
+    <section class="kb-section" id="funds">
+      <div class="kb-section-head">
+        <div class="kb-section-title">資金移動</div>
+        <div class="kb-section-side">{{ month_label }}</div>
+      </div>
+  
+      <div class="kb-muted">
+        Excelの計算式そのまま：千葉は千円単位で限界まで引き出す／Bは「お小遣い＋立替」／Gは「お小遣い＋立替−楽天カード確定請求」。
+      </div>
+  
+      <!-- ① 千葉銀行：引き出し上限 -->
+      <div class="kb-divider kb-divider-thin"></div>
+      <div class="kb-section-head">
+        <div class="kb-section-title" style="font-size: 16px;">千葉銀行（給与口座）</div>
+        <div class="kb-section-side">引き出し</div>
+      </div>
+  
+      <div class="kb-list">
+        {% for row in chiba_withdraw_rows %}
+          <div class="kb-row">
+            <div class="kb-row-left">
+              <span class="kb-dot kb-dot-bank"></span>
+              <span class="kb-row-label">{{ row.owner_label }}：{{ row.name }}</span>
+            </div>
+            <div class="kb-row-val">¥{{ row.balance|intcomma }}</div>
+          </div>
+  
+          <div class="kb-row">
+            <div class="kb-row-left">
+              <span class="kb-dot kb-dot-muted"></span>
+              <span class="kb-row-label">引き出せる上限（千円単位）</span>
+            </div>
+            <div class="kb-row-val kb-val-neg">¥{{ row.withdrawable|intcomma }}</div>
+          </div>
+  
+          <div class="kb-row">
+            <div class="kb-row-left">
+              <span class="kb-dot kb-dot-muted"></span>
+              <span class="kb-row-label">残る端数</span>
+            </div>
+            <div class="kb-row-val">¥{{ row.remain|intcomma }}</div>
+          </div>
+  
+          {% if row.month %}
+            <div class="kb-muted" style="margin-top:-6px; margin-bottom:8px;">
+              参照：{{ row.month }}
+            </div>
+          {% endif %}
+  
+          <div class="kb-divider kb-divider-thin"></div>
+        {% empty %}
+          <div class="kb-muted kb-mt-10">千葉銀行の口座がありません。</div>
+        {% endfor %}
+      </div>
+  
+      <!-- ② 三井住友(B)：必要額（お小遣い＋立替） -->
+      <div class="kb-divider kb-divider-thin"></div>
+      <div class="kb-section-head">
+        <div class="kb-section-title" style="font-size: 16px;">三井住友銀行（ぼーや）</div>
+        <div class="kb-section-side">補填</div>
+      </div>
+  
+      <div class="kb-list">
+        <div class="kb-row">
+          <div class="kb-row-left">
+            <span class="kb-dot kb-dot-bank"></span>
+            <span class="kb-row-label">現在残高</span>
+          </div>
+          <div class="kb-row-val">¥{{ smbc_b_balance|intcomma }}</div>
+        </div>
+  
+        <div class="kb-row">
+          <div class="kb-row-left">
+            <span class="kb-dot kb-dot-muted"></span>
+            <span class="kb-row-label">必要額（お小遣い＋立替）</span>
+          </div>
+          <div class="kb-row-val">¥{{ smbc_b_need|intcomma }}</div>
+        </div>
+  
+        <div class="kb-row kb-row-strong">
+          <div class="kb-row-left">
+            <span class="kb-dot kb-dot-diff"></span>
+            <span class="kb-row-label">不足/余剰</span>
+          </div>
+          <div class="kb-row-val {% if smbc_b_delta >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
+            {% if smbc_b_delta >= 0 %}+{% endif %}¥{{ smbc_b_delta|intcomma }}
+          </div>
+        </div>
+  
+        {% if smbc_b_month %}
+          <div class="kb-muted" style="margin-top:-6px; margin-bottom:8px;">
+            参照：{{ smbc_b_month }}
+          </div>
+        {% endif %}
+      </div>
+  
+      <!-- ③ 楽天(G)：必要額（お小遣い＋立替−楽天カード確定請求） -->
+      <div class="kb-divider kb-divider-thin"></div>
+      <div class="kb-section-head">
+        <div class="kb-section-title" style="font-size: 16px;">楽天銀行（ごろ）</div>
+        <div class="kb-section-side">補填</div>
+      </div>
+  
+      <div class="kb-list">
+        <div class="kb-row">
+          <div class="kb-row-left">
+            <span class="kb-dot kb-dot-bank"></span>
+            <span class="kb-row-label">現在残高</span>
+          </div>
+          <div class="kb-row-val">¥{{ rakuten_g_balance|intcomma }}</div>
+        </div>
+  
+        <div class="kb-row">
+          <div class="kb-row-left">
+            <span class="kb-dot kb-dot-muted"></span>
+            <span class="kb-row-label">必要額（お小遣い＋立替−カード確定請求）</span>
+          </div>
+          <div class="kb-row-val">¥{{ rakuten_g_need|intcomma }}</div>
+        </div>
+  
+        <div class="kb-row kb-row-strong">
+          <div class="kb-row-left">
+            <span class="kb-dot kb-dot-diff"></span>
+            <span class="kb-row-label">不足/余剰</span>
+          </div>
+          <div class="kb-row-val {% if rakuten_g_delta >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
+            {% if rakuten_g_delta >= 0 %}+{% endif %}¥{{ rakuten_g_delta|intcomma }}
+          </div>
+        </div>
+  
+        {% if rakuten_g_month %}
+          <div class="kb-muted" style="margin-top:-6px; margin-bottom:8px;">
+            参照：{{ rakuten_g_month }}
+          </div>
+        {% endif %}
+      </div>
+  
+    </section>
 
 </div>
 
