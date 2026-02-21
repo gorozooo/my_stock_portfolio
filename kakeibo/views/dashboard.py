@@ -11,12 +11,15 @@
 #   - 当月が無い口座は「最新月（選択月以前）」で表示
 #   - Bの楽天銀行はトップで見えてるので、銀行残高セクションから除外
 #
-# ★今回の修正ポイント（あなたの最新HTMLに対応）
-# 1) 「月の可視化（バー）」は削除された前提なので、view側もその値を出さない
-# 2) 「銀行残高」セクション用に、bank_groups / bank_totals を context に追加
-# 3) bank_groups は Account(kind="ACCOUNT") を owner(HOUSE/B/G) ごとにまとめる
-#    - ただし owner="B" かつ nameに「楽天銀行」を含む口座は bank_groups から除外
-# 4) 既存のKPI/収支/先月比/お小遣いロジックは維持（テンプレ側の表示に合わせる）
+# ✅ 今回追加（資金移動の表示に必要な計算）
+# ① 千葉銀行（給与口座）：ローン後残高から「ATMで引き落とせる千円単位の上限」まで引き出す
+#    - withdrawable = floor(balance/1000)*1000
+#    - remain = balance - withdrawable
+# ② 三井住友銀行(B)：Bのお小遣い＋立替（カード請求は考慮しない）
+#    - need_b = 固定費お小遣い(B) + 変動ADVANCE(B) + 固定(立替)(B)
+# ③ 楽天銀行(G)：Gのお小遣い＋立替−楽天カード(G)請求（確定分のみ）
+#    - need_g = okodukai_g（現行の _calc_okodukai がその式）
+# それぞれ「不足/余剰」も出す（delta = need - balance）
 # =========================================
 
 from decimal import Decimal
@@ -135,6 +138,43 @@ def _bank_balance_fallback(month, owner: str, name_contains: str) -> dict:
     }
 
 
+def _account_balance_fallback_for_account(month: date, acc: Account) -> dict:
+    """
+    何をする？
+    - 特定の口座(Account)について、選択月が無ければ選択月以前の最新月で BankBalance を拾う
+    """
+    try:
+        bb = (
+            BankBalance.objects
+            .filter(account=acc, month__lte=month)
+            .order_by("-month", "-id")
+            .first()
+        )
+        if not bb:
+            return {"balance": 0, "month": None, "account_name": (acc.name or "").strip()}
+
+        mm = getattr(bb, "month", None)
+        month_label = f"{mm.year}-{mm.month:02d}" if mm else None
+        return {
+            "balance": _int(getattr(bb, "balance", 0)),
+            "month": month_label,
+            "account_name": (acc.name or "").strip(),
+        }
+    except Exception:
+        return {"balance": 0, "month": None, "account_name": (acc.name or "").strip()}
+
+
+def _owner_label(owner: str) -> str:
+    o = (owner or "").strip().upper()
+    if o == "HOUSE":
+        return "家"
+    if o == "B":
+        return "ぼーや"
+    if o == "G":
+        return "ごろ"
+    return o or "—"
+
+
 def _bank_groups_all_accounts(month: date) -> tuple[dict, dict]:
     """
     何をする？
@@ -183,7 +223,6 @@ def _bank_groups_all_accounts(month: date) -> tuple[dict, dict]:
             row = {"name": name, "balance": bal, "month": mm_label}
 
             if owner not in bank_groups:
-                # 想定外ownerは捨てる（安全側）
                 continue
 
             bank_groups[owner].append(row)
@@ -687,6 +726,89 @@ def dashboard(request):
     bank_groups, bank_totals = _bank_groups_all_accounts(month=m)
 
     # -----------------------
+    # ✅ 資金移動（Excel式そのまま）
+    # -----------------------
+
+    # ① 千葉銀行（給与口座）：複数あれば全部出す（HOUSE/B/G）
+    chiba_withdraw_rows: list[dict] = []
+    try:
+        chiba_accs = (
+            Account.objects
+            .filter(kind="ACCOUNT", name__icontains="千葉")
+            .order_by("owner", "id")
+        )
+        for acc in chiba_accs:
+            owner = (acc.owner or "").strip()
+            if owner not in ["HOUSE", "B", "G"]:
+                continue
+
+            info = _account_balance_fallback_for_account(month=m, acc=acc)
+            bal = _int(info["balance"])
+
+            withdrawable = (bal // 1000) * 1000  # 千円単位で引き出し上限
+            remain = _int(bal - withdrawable)
+
+            chiba_withdraw_rows.append({
+                "owner": owner,
+                "owner_label": _owner_label(owner),
+                "name": info.get("account_name") or (acc.name or "").strip(),
+                "balance": bal,
+                "withdrawable": _int(withdrawable),
+                "remain": remain,
+                "month": info.get("month"),
+            })
+    except Exception:
+        chiba_withdraw_rows = []
+
+    # ② 三井住友銀行(B)：need = 固定お小遣い(B) + 立替(変動ADVANCE + 固定立替)
+    smbc_b_balance = 0
+    smbc_b_month = None
+    try:
+        smbc_acc_b = (
+            Account.objects
+            .filter(kind="ACCOUNT", owner="B")
+            .filter(name__icontains="三井住友")
+            .order_by("id")
+            .first()
+        )
+        if smbc_acc_b:
+            info = _account_balance_fallback_for_account(month=m, acc=smbc_acc_b)
+            smbc_b_balance = _int(info.get("balance"))
+            smbc_b_month = info.get("month")
+    except Exception:
+        smbc_b_balance = 0
+        smbc_b_month = None
+
+    smbc_b_need = _int(
+        _allowance_fixed_sum("B")
+        + _advance_var_sum(m, "B")
+        + _advance_fixed_sum("B")
+    )
+    smbc_b_delta = _int(smbc_b_need - smbc_b_balance)  # +なら不足（入れる必要）
+
+    # ③ 楽天銀行(G)：need = okodukai_g（= お小遣い+立替-楽天カード確定請求）
+    rakuten_g_balance = 0
+    rakuten_g_month = None
+    try:
+        rakuten_acc_g = (
+            Account.objects
+            .filter(kind="ACCOUNT", owner="G")
+            .filter(name__icontains="楽天銀行")
+            .order_by("id")
+            .first()
+        )
+        if rakuten_acc_g:
+            info = _account_balance_fallback_for_account(month=m, acc=rakuten_acc_g)
+            rakuten_g_balance = _int(info.get("balance"))
+            rakuten_g_month = info.get("month")
+    except Exception:
+        rakuten_g_balance = 0
+        rakuten_g_month = None
+
+    rakuten_g_need = _int(_calc_okodukai(m, "G"))
+    rakuten_g_delta = _int(rakuten_g_need - rakuten_g_balance)  # +なら不足（入れる必要）
+
+    # -----------------------
     # 先月比（選択月に対して）
     # -----------------------
     prev_income = _sum_qs(MonthlyIncome.objects.filter(month=prev_m), "amount")
@@ -826,6 +948,19 @@ def dashboard(request):
         # ✅ 銀行残高（新セクション用）
         "bank_groups": bank_groups,
         "bank_totals": bank_totals,
+
+        # ✅ 資金移動（テンプレで表示する用）
+        "chiba_withdraw_rows": chiba_withdraw_rows,
+
+        "smbc_b_balance": smbc_b_balance,
+        "smbc_b_month": smbc_b_month,
+        "smbc_b_need": smbc_b_need,
+        "smbc_b_delta": smbc_b_delta,
+
+        "rakuten_g_balance": rakuten_g_balance,
+        "rakuten_g_month": rakuten_g_month,
+        "rakuten_g_need": rakuten_g_need,
+        "rakuten_g_delta": rakuten_g_delta,
     }
 
     return render(request, "kakeibo/dashboard.html", context)
