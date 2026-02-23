@@ -440,13 +440,6 @@
   
       <div class="kb-list">
         {% for row in chiba_withdraw_rows %}
-          <div class="kb-row">
-            <div class="kb-row-left">
-              <span class="kb-dot kb-dot-bank"></span>
-              <span class="kb-row-label">{{ row.owner_label }}</span>
-            </div>
-            <div class="kb-row-val">¥{{ row.balance|intcomma }}</div>
-          </div>
   
           <div class="kb-row">
             <div class="kb-row-left">
@@ -456,13 +449,7 @@
             <div class="kb-row-val kb-val-neg">¥{{ row.withdrawable|intcomma }}</div>
           </div>
   
-          <div class="kb-row">
-            <div class="kb-row-left">
-              <span class="kb-dot kb-dot-muted"></span>
-              <span class="kb-row-label">残る端数</span>
-            </div>
-            <div class="kb-row-val">¥{{ row.remain|intcomma }}</div>
-          </div>
+          
   
         {% empty %}
           <div class="kb-muted kb-mt-10">千葉銀行の口座がありません。</div>
