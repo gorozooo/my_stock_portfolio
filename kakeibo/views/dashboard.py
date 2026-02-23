@@ -11,7 +11,7 @@
 #   - 当月が無い口座は「最新月（選択月以前）」で表示
 #   - Bの楽天銀行はトップで見えてるので、銀行残高セクションから除外
 #
-# ✅ 今回追加（資金移動の表示に必要な計算）
+# ✅ 資金移動（表示用の計算）
 # ① 千葉銀行（給与口座）：ローン後残高から「ATMで引き落とせる千円単位の上限」まで引き出す
 #    - withdrawable = floor(balance/1000)*1000
 #    - remain = balance - withdrawable
@@ -19,7 +19,9 @@
 #    - need_b = 固定費お小遣い(B) + 変動ADVANCE(B) + 固定(立替)(B)
 # ③ 楽天銀行(G)：Gのお小遣い＋立替−楽天カード(G)請求（確定分のみ）
 #    - need_g = okodukai_g（現行の _calc_okodukai がその式）
-# それぞれ「不足/余剰」も出す（delta = need - balance）
+# ④ イオン銀行(HOUSE)：最低残高をカード請求＋年金・保険として置き、差分を出す
+#    - required_min = エポス(HOUSE) + イオンカード(HOUSE) + ヨドバシ(HOUSE) + 年金・保険
+#    - delta = required_min - balance  （+なら不足 / -なら余剰）
 # =========================================
 
 from decimal import Decimal
@@ -181,9 +183,6 @@ def _bank_groups_all_accounts(month: date) -> tuple[dict, dict]:
     - 銀行残高セクション用に、登録済み口座を owner(HOUSE/B/G) ごとにまとめる。
     - 各口座は「選択月が無ければ、選択月以前の最新月」で残高を表示。
     - Bの楽天銀行はトップで見えてるため、このリストから除外する（name に '楽天銀行' を含む）。
-    戻り値：
-      - bank_groups: {"HOUSE":[{name,balance,month},...], "B":[...], "G":[...]}
-      - bank_totals: {"HOUSE":合計, "B":合計, "G":合計}
     """
     owners = ["HOUSE", "B", "G"]
 
@@ -439,7 +438,7 @@ def _var_sum_for_expense(month: date) -> int:
     - 支出に含める「変動費合計」を返す
     - ルール：B/G の CARD は除外（登録はするが支出に含めない）
              HOUSE の CARD は含める
-             ADVANCE は含める（あなたの指定）
+             ADVANCE は含める
     """
     qs = MonthlyVariableExpense.objects.filter(month=month)
     qs = qs.exclude(var_type="CARD", owner__in=["B", "G"])
@@ -449,7 +448,7 @@ def _var_sum_for_expense(month: date) -> int:
 def _card_bill_sum(month: date, owner: str) -> int:
     """
     何をする？
-    - owner(B/G/HOUSE) の「カード合計請求額」を返す（CARD は支出含む/含まないとは別）
+    - owner(B/G/HOUSE) の「カード合計請求額」を返す
     """
     qs = MonthlyVariableExpense.objects.filter(month=month, owner=owner, var_type="CARD")
     return _sum_qs(qs, "amount")
@@ -468,7 +467,6 @@ def _fixed_sum_category_contains(owner: str, contains: str) -> int:
     """
     何をする？
     - 固定費テンプレから、category名に contains を含むものを合計
-    - category.name が前提（あなたの画面上の分類名に合わせる）
     """
     qs = FixedExpenseTemplate.objects.filter(is_active=True, owner=owner, category__name__icontains=contains)
     return _sum_qs(qs, "amount")
@@ -477,7 +475,7 @@ def _fixed_sum_category_contains(owner: str, contains: str) -> int:
 def _fixed_sum_memo_contains(owner: str, contains: str) -> int:
     """
     何をする？
-    - 固定費テンプレから、memo に contains を含むものを合計（保険として）
+    - 固定費テンプレから、memo に contains を含むものを合計
     """
     qs = FixedExpenseTemplate.objects.filter(is_active=True, owner=owner, memo__icontains=contains)
     return _sum_qs(qs, "amount")
@@ -487,8 +485,6 @@ def _allowance_fixed_sum(owner: str) -> int:
     """
     何をする？
     - 「固定費で登録したそれぞれのお小遣い」合計
-    - 優先：分類名に「お小遣い」
-    - 予備：memoに「お小遣い」
     """
     s = _fixed_sum_category_contains(owner, "お小遣い")
     if s:
@@ -499,7 +495,7 @@ def _allowance_fixed_sum(owner: str) -> int:
 def _advance_fixed_sum(owner: str) -> int:
     """
     何をする？
-    - 固定費側の「立替」合計（分類名が「立替」）
+    - 固定費側の「立替」合計
     """
     s = _fixed_sum_category_contains(owner, "立替")
     if s:
@@ -510,11 +506,8 @@ def _advance_fixed_sum(owner: str) -> int:
 def _calc_okodukai(month: date, owner: str) -> int:
     """
     何をする？
-    - お小遣い（自動計算）を返す（★最新式）
+    - お小遣い（自動計算）
       （固定費お小遣い）＋（立替合計）−（カード請求合計）
-
-      立替合計 = 変動ADVANCE + 固定(立替)
-      カード請求合計 = 変動CARD
     """
     fixed_allow = _allowance_fixed_sum(owner)
     adv_total = _int(_advance_var_sum(month, owner) + _advance_fixed_sum(owner))
@@ -522,13 +515,55 @@ def _calc_okodukai(month: date, owner: str) -> int:
     return _int(fixed_allow + adv_total - bill)
 
 
+def _house_card_bill_sum_by_keyword(month: date, keyword: str) -> int:
+    """
+    何をする？
+    - HOUSE のカード請求（var_type=CARD）から、keyword（例：エポス）に一致する分を合計
+    - memo か category.name のどちらかに入っていれば拾う（Excel的な運用の移植）
+    """
+    kw = (keyword or "").strip()
+    if not kw:
+        return 0
+
+    qs = MonthlyVariableExpense.objects.filter(month=month, owner="HOUSE", var_type="CARD")
+
+    # category が無いモデルでも落ちないように try で分ける
+    try:
+        qs = qs.filter(
+            memo__icontains=kw
+        ) | MonthlyVariableExpense.objects.filter(
+            month=month, owner="HOUSE", var_type="CARD", category__name__icontains=kw
+        )
+        return _sum_qs(qs, "amount")
+    except Exception:
+        qs = MonthlyVariableExpense.objects.filter(month=month, owner="HOUSE", var_type="CARD", memo__icontains=kw)
+        return _sum_qs(qs, "amount")
+
+
+def _house_pension_insurance_fixed_sum() -> int:
+    """
+    何をする？
+    - HOUSE の固定費テンプレから「年金」「保険」っぽいものを合算
+    - category.name 優先、なければ memo でも拾う
+    """
+    s = 0
+    s += _fixed_sum_category_contains("HOUSE", "年金")
+    s += _fixed_sum_category_contains("HOUSE", "保険")
+    if s:
+        return _int(s)
+
+    # categoryで拾えない場合の保険
+    s2 = 0
+    s2 += _fixed_sum_memo_contains("HOUSE", "年金")
+    s2 += _fixed_sum_memo_contains("HOUSE", "保険")
+    return _int(s2)
+
+
 def _build_dynamic_month_values(request, today: date, m: date) -> dict:
     """
     何をする？
     - snapshot が無いときに使う「動的計算」一式をまとめて作る
-    - ここで作った値を snapshot 保存にも流用する（確定時に同じ値が保存される）
     """
-    # kakeibo：選択月
     total_income = _sum_qs(MonthlyIncome.objects.filter(month=m), "amount")
 
     fixed_sum = _sum_qs(
@@ -536,60 +571,49 @@ def _build_dynamic_month_values(request, today: date, m: date) -> dict:
         "amount"
     )
 
-    # ✅ 変動費（支出に含める分）：個人カード(B/GのCARD)は除外
     var_sum = _var_sum_for_expense(m)
 
     total_expense = _int(fixed_sum + var_sum)
     month_diff = _int(total_income - total_expense)
 
-    # 銀行（家計簿）：選択月が無ければ最新月で拾う（KPI用）
     rakuten_bank = _bank_balance_fallback(m, owner="B", name_contains="楽天銀行")
     aeon_bank = _bank_balance_fallback(m, owner="HOUSE", name_contains="イオン銀行")
 
     rakuten_bank_b = _int(rakuten_bank["balance"])
     aeon_bank_house = _int(aeon_bank["balance"])
 
-    # portfolio（楽天：投資） ※「確定時点の画面値」を保存したいので today ベース
     rakuten_cash_free = _portfolio_rakuten_available_from_cash_dashboard(today)
     rakuten_eval = _portfolio_rakuten_eval_like_rakuten(request.user)
     invest_total = _int(rakuten_cash_free + rakuten_eval)
 
-    # KPI
     total_assets = _int(rakuten_bank_b + aeon_bank_house + invest_total)
 
-    # あなたのルール：実残高 = 4,136,736 - 余力 - 楽天銀行(B)
     rakuten_bank_actual = _int(4_136_736 - rakuten_cash_free - rakuten_bank_b)
 
-    # ✅ お小遣い（B/G）
     okodukai_b = _calc_okodukai(m, "B")
     okodukai_g = _calc_okodukai(m, "G")
     okodukai_total = _int(okodukai_b + okodukai_g)
 
     return {
-        # 月収支
         "total_income": total_income,
         "fixed_sum": fixed_sum,
         "var_sum": var_sum,
         "total_expense": total_expense,
         "month_diff": month_diff,
 
-        # KPI
         "kpi_total_assets": total_assets,
         "kpi_rakuten_bank_actual": rakuten_bank_actual,
         "kpi_invest_total": invest_total,
 
-        # 内訳
         "rakuten_eval": rakuten_eval,
         "rakuten_cash_free": rakuten_cash_free,
         "rakuten_bank_b": rakuten_bank_b,
         "aeon_bank_house": aeon_bank_house,
 
-        # お小遣い
         "okodukai_b": okodukai_b,
         "okodukai_g": okodukai_g,
         "okodukai_total": okodukai_total,
 
-        # debug用（どの月の残高を拾ったか）
         "rakuten_bank_month_used": rakuten_bank.get("month"),
         "rakuten_bank_account_name_used": rakuten_bank.get("account_name"),
         "aeon_bank_month_used": aeon_bank.get("month"),
@@ -605,12 +629,8 @@ def dashboard(request):
     today = timezone.localdate()
     debug = (request.GET.get("debug") or "").strip() == "1"
 
-    # -----------------------
-    # 選択（GET / POST）
-    # -----------------------
     year_options = _year_options()
 
-    # year
     req_year = request.GET.get("year") or request.POST.get("year")
     try:
         selected_year = int(req_year) if req_year else today.year
@@ -619,7 +639,6 @@ def dashboard(request):
     if selected_year not in year_options:
         year_options = sorted(list(set(year_options + [selected_year])), reverse=True)
 
-    # month
     req_month = request.GET.get("month") or request.POST.get("month")
     selected_month_date = _parse_month_yyyy_mm(req_month) or month_first(today)
     m = month_first(selected_month_date)
@@ -628,9 +647,7 @@ def dashboard(request):
 
     month_options = _month_options(today=today, months_back=24)
 
-    # -----------------------
-    # POST：この月を確定（作成/上書き）
-    # -----------------------
+    # POST：確定
     if request.method == "POST" and (request.POST.get("action") or "").strip() == "confirm_snapshot":
         dyn = _build_dynamic_month_values(request, today=today, m=m)
 
@@ -661,9 +678,7 @@ def dashboard(request):
             q += "&debug=1"
         return redirect(request.path + q)
 
-    # -----------------------
-    # 表示（選択月）：snapshot があればそれを正にする
-    # -----------------------
+    # 表示：snapshot優先
     snap = MonthlySnapshot.objects.filter(month=m).first()
     is_snapshot = bool(snap)
 
@@ -718,18 +733,14 @@ def dashboard(request):
         aeon_bank_month_used = dyn["aeon_bank_month_used"]
         aeon_bank_account_name_used = dyn["aeon_bank_account_name_used"]
 
-    # -----------------------
-    # ✅ 銀行残高（登録済み口座を全部 / HOUSE・B・G）
-    # - 当月が無い口座は「最新月（選択月以前）」で拾う
-    # - Bの楽天銀行はトップ表示があるため除外
-    # -----------------------
+    # 銀行残高（全口座）
     bank_groups, bank_totals = _bank_groups_all_accounts(month=m)
 
     # -----------------------
-    # ✅ 資金移動（Excel式そのまま）
+    # ✅ 資金移動（Excel式）
     # -----------------------
 
-    # ① 千葉銀行（給与口座）：複数あれば全部出す（HOUSE/B/G）
+    # ① 千葉銀行（給与口座）
     chiba_withdraw_rows: list[dict] = []
     try:
         chiba_accs = (
@@ -745,7 +756,7 @@ def dashboard(request):
             info = _account_balance_fallback_for_account(month=m, acc=acc)
             bal = _int(info["balance"])
 
-            withdrawable = (bal // 1000) * 1000  # 千円単位で引き出し上限
+            withdrawable = (bal // 1000) * 1000
             remain = _int(bal - withdrawable)
 
             chiba_withdraw_rows.append({
@@ -760,7 +771,7 @@ def dashboard(request):
     except Exception:
         chiba_withdraw_rows = []
 
-    # ② 三井住友銀行(B)：need = 固定お小遣い(B) + 立替(変動ADVANCE + 固定立替)
+    # ② 三井住友銀行(B)
     smbc_b_balance = 0
     smbc_b_month = None
     try:
@@ -784,9 +795,9 @@ def dashboard(request):
         + _advance_var_sum(m, "B")
         + _advance_fixed_sum("B")
     )
-    smbc_b_delta = _int(smbc_b_need - smbc_b_balance)  # +なら不足（入れる必要）
+    smbc_b_delta = _int(smbc_b_need - smbc_b_balance)
 
-    # ③ 楽天銀行(G)：need = okodukai_g（= お小遣い+立替-楽天カード確定請求）
+    # ③ 楽天銀行(G)
     rakuten_g_balance = 0
     rakuten_g_month = None
     try:
@@ -806,10 +817,43 @@ def dashboard(request):
         rakuten_g_month = None
 
     rakuten_g_need = _int(_calc_okodukai(m, "G"))
-    rakuten_g_delta = _int(rakuten_g_need - rakuten_g_balance)  # +なら不足（入れる必要）
+    rakuten_g_delta = _int(rakuten_g_need - rakuten_g_balance)
+
+    # ④ イオン銀行(HOUSE)
+    # - balance は既に KPI で aeon_bank_house を持っているが、
+    #   資金移動表示用に「参照月」も持たせたいので同じ定義で取り直す
+    aeon_house_balance = 0
+    aeon_house_month = None
+    aeon_house_account_name = None
+    try:
+        aeon_info = _bank_balance_fallback(m, owner="HOUSE", name_contains="イオン銀行")
+        aeon_house_balance = _int(aeon_info.get("balance"))
+        aeon_house_month = aeon_info.get("month")
+        aeon_house_account_name = aeon_info.get("account_name")
+    except Exception:
+        aeon_house_balance = _int(aeon_bank_house)
+        aeon_house_month = None
+        aeon_house_account_name = None
+
+    # カード請求（HOUSE）：エポス + イオン + ヨドバシ
+    house_bill_epos = _house_card_bill_sum_by_keyword(m, "エポス")
+    house_bill_aeon = _house_card_bill_sum_by_keyword(m, "イオン")
+    house_bill_yodobashi = _house_card_bill_sum_by_keyword(m, "ヨドバシ")
+
+    # 年金・保険（HOUSE）：固定費テンプレから
+    house_pension_insurance = _house_pension_insurance_fixed_sum()
+
+    # 必要最低残高 & 差分（あなたの式と同じ）
+    aeon_house_required_min = _int(
+        house_bill_epos
+        + house_bill_aeon
+        + house_bill_yodobashi
+        + house_pension_insurance
+    )
+    aeon_house_delta = _int(aeon_house_required_min - aeon_house_balance)  # +不足 / -余剰
 
     # -----------------------
-    # 先月比（選択月に対して）
+    # 先月比
     # -----------------------
     prev_income = _sum_qs(MonthlyIncome.objects.filter(month=prev_m), "amount")
     prev_var = _var_sum_for_expense(prev_m)
@@ -828,9 +872,7 @@ def dashboard(request):
     dp_fixed = _delta_pct(fixed_sum, prev_fixed)
     dp_var = _delta_pct(var_sum, prev_var)
 
-    # -----------------------
-    # ✅ KPI 先月比（総資産 / 楽天銀行残高 / 投資）
-    # -----------------------
+    # KPI 先月比
     prev_snap = MonthlySnapshot.objects.filter(month=prev_m).first()
     if prev_snap:
         prev_total_assets = _int(prev_snap.kpi_total_assets)
@@ -850,9 +892,7 @@ def dashboard(request):
     dp_rakuten_bank_actual = _delta_pct(rakuten_bank_actual, prev_rakuten_bank_actual)
     dp_invest_total = _delta_pct(invest_total, prev_invest_total)
 
-    # -----------------------
-    # 年度（選択year）
-    # -----------------------
+    # 年度
     snaps_year = list(MonthlySnapshot.objects.filter(month__year=selected_year))
     if snaps_year:
         year_income = _int(sum(_int(s.income) for s in snaps_year))
@@ -897,7 +937,7 @@ def dashboard(request):
         "kpi_rakuten_bank_actual": rakuten_bank_actual,
         "kpi_invest_total": invest_total,
 
-        # ✅ KPI 先月比
+        # KPI 先月比
         "d_total_assets": d_total_assets,
         "dp_total_assets": dp_total_assets,
         "d_rakuten_bank_actual": d_rakuten_bank_actual,
@@ -905,7 +945,7 @@ def dashboard(request):
         "d_invest_total": d_invest_total,
         "dp_invest_total": dp_invest_total,
 
-        # 内訳（debugにも使う）
+        # 内訳
         "rakuten_cash_free": rakuten_cash_free,
         "rakuten_eval": rakuten_eval,
         "rakuten_bank_b": rakuten_bank_b,
@@ -916,21 +956,21 @@ def dashboard(request):
         "aeon_bank_month_used": aeon_bank_month_used,
         "aeon_bank_account_name_used": aeon_bank_account_name_used,
 
-        # 年度（選択）
+        # 年度
         "year_label": f"{selected_year}",
         "year_income": year_income,
         "year_expense": year_expense,
         "year_diff": year_diff,
         "year_is_snapshot": year_is_snapshot,
 
-        # 月（選択）
+        # 月
         "total_income": total_income,
         "total_expense": total_expense,
         "month_diff": month_diff,
         "fixed_sum": fixed_sum,
         "var_sum": var_sum,
 
-        # 先月比（選択月に対して）
+        # 先月比
         "d_income": d_income,
         "d_expense": d_expense,
         "d_fixed": d_fixed,
@@ -945,11 +985,11 @@ def dashboard(request):
         "okodukai_g": okodukai_g,
         "okodukai_total": okodukai_total,
 
-        # ✅ 銀行残高（新セクション用）
+        # 銀行残高（新セクション用）
         "bank_groups": bank_groups,
         "bank_totals": bank_totals,
 
-        # ✅ 資金移動（テンプレで表示する用）
+        # 資金移動
         "chiba_withdraw_rows": chiba_withdraw_rows,
 
         "smbc_b_balance": smbc_b_balance,
@@ -961,6 +1001,19 @@ def dashboard(request):
         "rakuten_g_month": rakuten_g_month,
         "rakuten_g_need": rakuten_g_need,
         "rakuten_g_delta": rakuten_g_delta,
+
+        # ✅ 追加：イオン銀行(HOUSE)
+        "aeon_house_balance": aeon_house_balance,
+        "aeon_house_month": aeon_house_month,
+        "aeon_house_account_name": aeon_house_account_name,
+
+        "house_bill_epos": house_bill_epos,
+        "house_bill_aeon": house_bill_aeon,
+        "house_bill_yodobashi": house_bill_yodobashi,
+        "house_pension_insurance": house_pension_insurance,
+
+        "aeon_house_required_min": aeon_house_required_min,
+        "aeon_house_delta": aeon_house_delta,
     }
 
     return render(request, "kakeibo/dashboard.html", context)
