@@ -427,7 +427,11 @@
       <div class="kb-section-head">
         <div class="kb-section-title">資金移動</div>
       </div>
-  
+      
+      <div class="kb-muted">
+        赤(−)の場合は引出し/緑(＋)の場合は振込み
+      </div>
+
       <!-- ① 千葉銀行：引き出し上限 -->
       <div class="kb-divider kb-divider-thin"></div>
       <div class="kb-section-head">
@@ -482,7 +486,7 @@
   
         <div class="kb-row">
           <div class="kb-row-left">
-            <span class="kb-dot kb-dot-muted"></span>
+            <span class="kb-dot kb-dot-bank"></span>
             <span class="kb-row-label">必要額</span>
           </div>
           <div class="kb-row-val {% if smbc_b_need >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
