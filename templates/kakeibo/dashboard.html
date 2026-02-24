@@ -433,7 +433,7 @@
     </div>
   
     <!-- =========================
-         家（HOUSE）
+       家（HOUSE）
     ========================== -->
     <div class="kb-divider kb-divider-thin"></div>
     <div class="kb-section-head">
@@ -447,7 +447,7 @@
           <span class="kb-row-label">イオン銀行</span>
         </div>
         <div class="kb-row-val {% if aeon_house_delta >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
-          {% if aeon_house_delta >= 0 %}+{% endif %}¥{{ aeon_house_delta|intcomma }}
+          ¥{{ aeon_house_delta|intcomma }}
         </div>
       </div>
     </div>
@@ -461,33 +461,29 @@
     </div>
   
     <div class="kb-list">
-      <!-- 千葉銀行（B）：引出し上限（必ずマイナス表示） -->
-      {% with found_b=0 %}
-        {% for row in chiba_withdraw_rows %}
-          {% if row.owner == "B" %}
-            {% with found_b=1 %}
-            <div class="kb-row">
-              <div class="kb-row-left">
-                <span class="kb-dot kb-dot-bank"></span>
-                <span class="kb-row-label">千葉銀行</span>
-              </div>
-              <div class="kb-row-val kb-val-neg">
-                -¥{{ row.withdrawable|intcomma }}
-              </div>
-            </div>
-            {% endwith %}
-          {% endif %}
-        {% endfor %}
-      {% endwith %}
+      <!-- 千葉銀行（B） -->
+      {% for row in chiba_withdraw_rows %}
+        {% if row.owner == "B" %}
+        <div class="kb-row">
+          <div class="kb-row-left">
+            <span class="kb-dot kb-dot-bank"></span>
+            <span class="kb-row-label">千葉銀行</span>
+          </div>
+          <div class="kb-row-val kb-val-neg">
+            ¥{{ row.withdrawable|intcomma }}
+          </div>
+        </div>
+        {% endif %}
+      {% endfor %}
   
-      <!-- 三井住友銀行（B）：移動額（お小遣い＋立替） -->
+      <!-- 三井住友銀行（B） -->
       <div class="kb-row">
         <div class="kb-row-left">
           <span class="kb-dot kb-dot-bank"></span>
           <span class="kb-row-label">三井住友銀行</span>
         </div>
         <div class="kb-row-val {% if smbc_b_need >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
-          {% if smbc_b_need >= 0 %}+{% endif %}¥{{ smbc_b_need|intcomma }}
+          ¥{{ smbc_b_need|intcomma }}
         </div>
       </div>
     </div>
@@ -501,33 +497,29 @@
     </div>
   
     <div class="kb-list">
-      <!-- 千葉銀行（G）：引出し上限（必ずマイナス表示） -->
-      {% with found_g=0 %}
-        {% for row in chiba_withdraw_rows %}
-          {% if row.owner == "G" %}
-            {% with found_g=1 %}
-            <div class="kb-row">
-              <div class="kb-row-left">
-                <span class="kb-dot kb-dot-bank"></span>
-                <span class="kb-row-label">千葉銀行</span>
-              </div>
-              <div class="kb-row-val kb-val-neg">
-                -¥{{ row.withdrawable|intcomma }}
-              </div>
-            </div>
-            {% endwith %}
-          {% endif %}
-        {% endfor %}
-      {% endwith %}
+      <!-- 千葉銀行（G） -->
+      {% for row in chiba_withdraw_rows %}
+        {% if row.owner == "G" %}
+        <div class="kb-row">
+          <div class="kb-row-left">
+            <span class="kb-dot kb-dot-bank"></span>
+            <span class="kb-row-label">千葉銀行</span>
+          </div>
+          <div class="kb-row-val kb-val-neg">
+            ¥{{ row.withdrawable|intcomma }}
+          </div>
+        </div>
+        {% endif %}
+      {% endfor %}
   
-      <!-- 楽天銀行（G）：移動額（お小遣い＋立替−楽天カード確定請求） -->
+      <!-- 楽天銀行（G） -->
       <div class="kb-row">
         <div class="kb-row-left">
           <span class="kb-dot kb-dot-bank"></span>
           <span class="kb-row-label">楽天銀行</span>
         </div>
         <div class="kb-row-val {% if rakuten_g_need >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
-          {% if rakuten_g_need >= 0 %}+{% endif %}¥{{ rakuten_g_need|intcomma }}
+          ¥{{ rakuten_g_need|intcomma }}
         </div>
       </div>
     </div>
