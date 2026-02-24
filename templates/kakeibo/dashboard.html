@@ -425,150 +425,124 @@
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       資金移動（HOUSE / B / G で大枠、各グループ内は横並び）
+     資金移動（移動額だけ表示 / HOUSE・B・Gで銀行残高と同じ並び）
   ========================== -->
   <section class="kb-section" id="funds">
     <div class="kb-section-head">
       <div class="kb-section-title">資金移動</div>
     </div>
-
+  
     <div class="kb-muted">
       赤(−)の場合は引出し／緑(＋)の場合は振込み。<br>
       （ここでの「移動額」は、口座間の調整に使う差分の目安）
     </div>
-
+  
     <!-- =========================
-         HOUSE（家）
+         家（HOUSE）
     ========================== -->
     <div class="kb-divider kb-divider-thin"></div>
     <div class="kb-section-head">
       <div class="kb-section-title" style="font-size: 16px;">家</div>
     </div>
-
-    <div class="kb-two kb-two-gap">
-      <!-- イオン銀行（HOUSE） -->
-      <div class="kb-mini">
-        <div class="kb-mini-head">
+  
+    <div class="kb-list">
+      <div class="kb-row">
+        <div class="kb-row-left">
           <span class="kb-dot kb-dot-bank"></span>
-          <span class="kb-mini-label">イオン銀行</span>
+          <span class="kb-row-label">イオン銀行</span>
         </div>
-
-        <div class="kb-mini-val">
-          ¥{{ aeon_house_balance|intcomma }}
-        </div>
-
-        <div class="kb-mini-sub {% if aeon_house_delta >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
-          移動額：
+        <div class="kb-row-val {% if aeon_house_delta >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
           {% if aeon_house_delta >= 0 %}+{% endif %}¥{{ aeon_house_delta|intcomma }}
         </div>
-
-        {% if debug %}
-        <div class="kb-muted kb-mt-10">
-          最低残高：¥{{ aeon_house_required_min|intcomma }}<br>
-          内訳：エポス ¥{{ house_bill_epos|intcomma }} / イオン ¥{{ house_bill_aeon|intcomma }} / ヨドバシ ¥{{ house_bill_yodobashi|intcomma }} / 年金・保険 ¥{{ house_pension_insurance|intcomma }}<br>
-          参照：{{ aeon_house_account_name }} / {{ aeon_house_month }}
-        </div>
-        {% endif %}
       </div>
     </div>
-
+  
     <!-- =========================
-         B（ぼーや）
+         ぼーや（B）
     ========================== -->
     <div class="kb-divider kb-divider-thin"></div>
     <div class="kb-section-head">
       <div class="kb-section-title" style="font-size: 16px;">ぼーや</div>
     </div>
-
-    <div class="kb-two kb-two-gap">
-
-      <!-- 千葉銀行（給与口座）：引出し上限（マイナス扱い） -->
-      <div class="kb-mini">
-        <div class="kb-mini-head">
-          <span class="kb-dot kb-dot-bank"></span>
-          <span class="kb-mini-label">千葉銀行</span>
-        </div>
-
-        {% if chiba_withdraw_rows %}
-          {% for row in chiba_withdraw_rows %}
-            {% if row.owner == "B" %}
-              <div class="kb-mini-val">
-                ¥{{ row.balance|intcomma }}
+  
+    <div class="kb-list">
+      <!-- 千葉銀行（B）：引出し上限（必ずマイナス表示） -->
+      {% with found_b=0 %}
+        {% for row in chiba_withdraw_rows %}
+          {% if row.owner == "B" %}
+            {% with found_b=1 %}
+            <div class="kb-row">
+              <div class="kb-row-left">
+                <span class="kb-dot kb-dot-bank"></span>
+                <span class="kb-row-label">千葉銀行</span>
               </div>
-              <div class="kb-mini-sub kb-val-neg">
-                引出し額：-¥{{ row.withdrawable|intcomma }}
+              <div class="kb-row-val kb-val-neg">
+                -¥{{ row.withdrawable|intcomma }}
               </div>
-              {% if debug %}
-              <div class="kb-muted kb-mt-10">
-                参照：{{ row.name }} / {{ row.month }}
-              </div>
-              {% endif %}
-            {% endif %}
-          {% endfor %}
-        {% else %}
-          <div class="kb-mini-val">—</div>
-          <div class="kb-mini-sub kb-val-neg">引出し額：—</div>
+            </div>
+            {% endwith %}
+          {% endif %}
+        {% endfor %}
+        {% if found_b == 0 %}
+          <div class="kb-muted kb-mt-10">千葉銀行（ぼーや）のデータがありません。</div>
         {% endif %}
-      </div>
-
-      <!-- 三井住友銀行（B）：必要額（お小遣い＋立替） -->
-      <div class="kb-mini">
-        <div class="kb-mini-head">
+      {% endwith %}
+  
+      <!-- 三井住友銀行（B）：移動額（お小遣い＋立替） -->
+      <div class="kb-row">
+        <div class="kb-row-left">
           <span class="kb-dot kb-dot-bank"></span>
-          <span class="kb-mini-label">三井住友銀行</span>
+          <span class="kb-row-label">三井住友銀行</span>
         </div>
-
-        <div class="kb-mini-val">
-          {% if smbc_b_balance != None %}¥{{ smbc_b_balance|intcomma }}{% else %}—{% endif %}
-        </div>
-
-        <div class="kb-mini-sub {% if smbc_b_need >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
-          移動額：
+        <div class="kb-row-val {% if smbc_b_need >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
           {% if smbc_b_need >= 0 %}+{% endif %}¥{{ smbc_b_need|intcomma }}
         </div>
-
-        {% if debug %}
-        <div class="kb-muted kb-mt-10">
-          参照：{{ smbc_b_month }}
-        </div>
-        {% endif %}
       </div>
-
     </div>
-
+  
     <!-- =========================
-         G（ごろ）
+         ごろ（G）
     ========================== -->
     <div class="kb-divider kb-divider-thin"></div>
     <div class="kb-section-head">
       <div class="kb-section-title" style="font-size: 16px;">ごろ</div>
     </div>
-
-    <div class="kb-two kb-two-gap">
-      <!-- 楽天銀行（G）：必要額（お小遣い＋立替−楽天カード確定請求） -->
-      <div class="kb-mini">
-        <div class="kb-mini-head">
+  
+    <div class="kb-list">
+      <!-- 千葉銀行（G）：引出し上限（必ずマイナス表示） -->
+      {% with found_g=0 %}
+        {% for row in chiba_withdraw_rows %}
+          {% if row.owner == "G" %}
+            {% with found_g=1 %}
+            <div class="kb-row">
+              <div class="kb-row-left">
+                <span class="kb-dot kb-dot-bank"></span>
+                <span class="kb-row-label">千葉銀行</span>
+              </div>
+              <div class="kb-row-val kb-val-neg">
+                -¥{{ row.withdrawable|intcomma }}
+              </div>
+            </div>
+            {% endwith %}
+          {% endif %}
+        {% endfor %}
+        {% if found_g == 0 %}
+          <div class="kb-muted kb-mt-10">千葉銀行（ごろ）のデータがありません。</div>
+        {% endif %}
+      {% endwith %}
+  
+      <!-- 楽天銀行（G）：移動額（お小遣い＋立替−楽天カード確定請求） -->
+      <div class="kb-row">
+        <div class="kb-row-left">
           <span class="kb-dot kb-dot-bank"></span>
-          <span class="kb-mini-label">楽天銀行</span>
+          <span class="kb-row-label">楽天銀行</span>
         </div>
-
-        <div class="kb-mini-val">
-          {% if rakuten_g_balance != None %}¥{{ rakuten_g_balance|intcomma }}{% else %}—{% endif %}
-        </div>
-
-        <div class="kb-mini-sub {% if rakuten_g_need >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
-          移動額：
+        <div class="kb-row-val {% if rakuten_g_need >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
           {% if rakuten_g_need >= 0 %}+{% endif %}¥{{ rakuten_g_need|intcomma }}
         </div>
-
-        {% if debug %}
-        <div class="kb-muted kb-mt-10">
-          参照：{{ rakuten_g_month }}
-        </div>
-        {% endif %}
       </div>
     </div>
-
+  
   </section>
 
 </div>
