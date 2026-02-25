@@ -8,13 +8,19 @@
 - 下タブ：ホーム / 支出 / 収入 / 銀行 / 設定
 - 設定タブは「設定メニュー」へ飛ばす
 - Django messages を拾って「トースト表示」する
+
+✅ 追加（共通UI品質）
+- 全画面で拡大/縮小（ピンチズーム/ダブルタップ）を禁止
+  ※iPhoneアプリ風の固定UIのため
 -->
 {% load static %}
 <!doctype html>
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- ✅ Zoom禁止（iOS/Android） -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+
   <title>{% block title %}家計簿{% endblock %}</title>
 
   <link rel="stylesheet" href="{% static 'kakeibo/css/kakeibo.css' %}?v=4">
