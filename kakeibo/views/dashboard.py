@@ -24,10 +24,12 @@
 #    - delta = required_min - balance  （+なら不足 / -なら余剰）
 #
 # ★修正（バグ修正）
-# - owner が "HOUSE" ではなく "家" 等の日本語で保存されていても集計できるように両対応する。
-#   (HOUSE <-> 家 / B <-> ぼーや / G <-> ごろ)
 # - 「年金/保険」のような分類名が "年金" と "保険" の両方にヒットして二重計上される問題を修正。
 #   → OR条件で1回だけ集計する（Qでまとめて合算）。
+#
+# ★修正（バグ修正：今回）
+# - HOUSEのカード請求のキーワード集計で、memo/categoryでは拾えず card フィールド側に入っているため0になる問題を修正。
+#   → memo / category.name / card(文字 or FK) のどれでも拾う。
 # =========================================
 
 from decimal import Decimal
@@ -92,25 +94,6 @@ def _delta_pct(now: int, prev: int):
         return None
 
 
-def _owner_keys(owner: str) -> list[str]:
-    """
-    何をする？
-    - owner を DB 検索用に「英語/日本語の両方」で返す
-      HOUSE <-> 家
-      B <-> ぼーや
-      G <-> ごろ
-    """
-    o = (owner or "").strip()
-    u = o.upper()
-    if u == "HOUSE" or o == "家":
-        return ["HOUSE", "家"]
-    if u == "B" or o == "ぼーや":
-        return ["B", "ぼーや"]
-    if u == "G" or o == "ごろ":
-        return ["G", "ごろ"]
-    return [o] if o else []
-
-
 def _parse_month_yyyy_mm(s: str | None) -> date | None:
     """
     何をする？
@@ -138,13 +121,9 @@ def _bank_balance_fallback(month, owner: str, name_contains: str) -> dict:
     - 家計簿の銀行残高(BankBalance)を「当月が無ければ最新月」で拾う。
     - 主にKPI用（楽天銀行B / イオン家）で利用。
     """
-    owner_list = _owner_keys(owner)
-    if not owner_list:
-        return {"balance": 0, "month": None, "account_name": None}
-
     accs = (
         Account.objects
-        .filter(kind="ACCOUNT", owner__in=owner_list, name__icontains=name_contains)
+        .filter(kind="ACCOUNT", owner=owner, name__icontains=name_contains)
         .order_by("id")
     )
     if not accs.exists():
@@ -203,7 +182,7 @@ def _owner_label(owner: str) -> str:
         return "ぼーや"
     if o == "G":
         return "ごろ"
-    return (owner or "—").strip() or "—"
+    return o or "—"
 
 
 def _bank_groups_all_accounts(month: date) -> tuple[dict, dict]:
@@ -213,7 +192,7 @@ def _bank_groups_all_accounts(month: date) -> tuple[dict, dict]:
     - 各口座は「選択月が無ければ、選択月以前の最新月」で残高を表示。
     - Bの楽天銀行はトップで見えてるため、このリストから除外する（name に '楽天銀行' を含む）。
     """
-    owners = ["HOUSE", "B", "G", "家", "ぼーや", "ごろ"]
+    owners = ["HOUSE", "B", "G"]
 
     acc_qs = (
         Account.objects
@@ -226,18 +205,8 @@ def _bank_groups_all_accounts(month: date) -> tuple[dict, dict]:
 
     for acc in acc_qs:
         try:
-            owner_raw = (acc.owner or "").strip()
+            owner = (acc.owner or "").strip()
             name = (acc.name or "").strip()
-
-            # owner を "HOUSE/B/G" の正規化キーに寄せる
-            if owner_raw in ["HOUSE", "家"]:
-                owner = "HOUSE"
-            elif owner_raw in ["B", "ぼーや"]:
-                owner = "B"
-            elif owner_raw in ["G", "ごろ"]:
-                owner = "G"
-            else:
-                continue
 
             # ✅ Bの楽天銀行はトップで見えてるので除外
             if owner == "B" and "楽天銀行" in name:
@@ -259,6 +228,9 @@ def _bank_groups_all_accounts(month: date) -> tuple[dict, dict]:
                 mm_label = None
 
             row = {"name": name, "balance": bal, "month": mm_label}
+
+            if owner not in bank_groups:
+                continue
 
             bank_groups[owner].append(row)
             bank_totals[owner] = _int(bank_totals.get(owner, 0) + bal)
@@ -477,7 +449,7 @@ def _var_sum_for_expense(month: date) -> int:
              ADVANCE は含める
     """
     qs = MonthlyVariableExpense.objects.filter(month=month)
-    qs = qs.exclude(var_type="CARD", owner__in=(_owner_keys("B") + _owner_keys("G")))
+    qs = qs.exclude(var_type="CARD", owner__in=["B", "G"])
     return _sum_qs(qs, "amount")
 
 
@@ -486,10 +458,7 @@ def _card_bill_sum(month: date, owner: str) -> int:
     何をする？
     - owner(B/G/HOUSE) の「カード合計請求額」を返す
     """
-    owners = _owner_keys(owner)
-    if not owners:
-        return 0
-    qs = MonthlyVariableExpense.objects.filter(month=month, owner__in=owners, var_type="CARD")
+    qs = MonthlyVariableExpense.objects.filter(month=month, owner=owner, var_type="CARD")
     return _sum_qs(qs, "amount")
 
 
@@ -498,10 +467,7 @@ def _advance_var_sum(month: date, owner: str) -> int:
     何をする？
     - owner(B/G) の「変動費：立替（ADVANCE）」合計
     """
-    owners = _owner_keys(owner)
-    if not owners:
-        return 0
-    qs = MonthlyVariableExpense.objects.filter(month=month, owner__in=owners, var_type="ADVANCE")
+    qs = MonthlyVariableExpense.objects.filter(month=month, owner=owner, var_type="ADVANCE")
     return _sum_qs(qs, "amount")
 
 
@@ -510,10 +476,7 @@ def _fixed_sum_category_contains(owner: str, contains: str) -> int:
     何をする？
     - 固定費テンプレから、category名に contains を含むものを合計
     """
-    owners = _owner_keys(owner)
-    if not owners:
-        return 0
-    qs = FixedExpenseTemplate.objects.filter(is_active=True, owner__in=owners, category__name__icontains=contains)
+    qs = FixedExpenseTemplate.objects.filter(is_active=True, owner=owner, category__name__icontains=contains)
     return _sum_qs(qs, "amount")
 
 
@@ -522,10 +485,7 @@ def _fixed_sum_memo_contains(owner: str, contains: str) -> int:
     何をする？
     - 固定費テンプレから、memo に contains を含むものを合計
     """
-    owners = _owner_keys(owner)
-    if not owners:
-        return 0
-    qs = FixedExpenseTemplate.objects.filter(is_active=True, owner__in=owners, memo__icontains=contains)
+    qs = FixedExpenseTemplate.objects.filter(is_active=True, owner=owner, memo__icontains=contains)
     return _sum_qs(qs, "amount")
 
 
@@ -567,22 +527,31 @@ def _house_card_bill_sum_by_keyword(month: date, keyword: str) -> int:
     """
     何をする？
     - HOUSE のカード請求（var_type=CARD）から、keyword（例：エポス）に一致する分を合計
-    - memo か category.name のどちらかに入っていれば拾う
+    - memo / category.name / card（FK or 文字） のどれかに入っていれば拾う
     """
     kw = (keyword or "").strip()
     if not kw:
         return 0
 
-    owners = _owner_keys("HOUSE")
-    qs = MonthlyVariableExpense.objects.filter(month=month, owner__in=owners, var_type="CARD")
+    qs = MonthlyVariableExpense.objects.filter(month=month, owner="HOUSE", var_type="CARD")
 
-    # category が無い場合も落ちないように Q の評価順を安全にする
+    # card が FK の場合（card__name）と、文字の場合（card）両対応
+    q_card = Q()
     try:
-        qs = qs.filter(Q(memo__icontains=kw) | Q(category__name__icontains=kw))
+        q_card = Q(card__name__icontains=kw) | Q(card__icontains=kw)
     except Exception:
-        qs = qs.filter(memo__icontains=kw)
+        # card が FK でない/フィールドが違う場合でも落とさない
+        try:
+            q_card = Q(card__icontains=kw)
+        except Exception:
+            q_card = Q()
 
-    return _sum_qs(qs, "amount")
+    q = (
+        Q(memo__icontains=kw)
+        | Q(category__name__icontains=kw)
+        | q_card
+    )
+    return _sum_qs(qs.filter(q), "amount")
 
 
 def _house_pension_insurance_fixed_sum() -> int:
@@ -592,8 +561,7 @@ def _house_pension_insurance_fixed_sum() -> int:
     - 「年金/保険」など複合名でも、OR条件で1回だけ拾う
     - category.name / memo のどちらでも拾う
     """
-    owners = _owner_keys("HOUSE")
-    qs = FixedExpenseTemplate.objects.filter(is_active=True, owner__in=owners).filter(
+    qs = FixedExpenseTemplate.objects.filter(is_active=True, owner="HOUSE").filter(
         Q(category__name__icontains="年金") |
         Q(category__name__icontains="保険") |
         Q(memo__icontains="年金") |
@@ -792,14 +760,8 @@ def dashboard(request):
             .order_by("owner", "id")
         )
         for acc in chiba_accs:
-            owner_raw = (acc.owner or "").strip()
-            if owner_raw in ["HOUSE", "家"]:
-                owner = "HOUSE"
-            elif owner_raw in ["B", "ぼーや"]:
-                owner = "B"
-            elif owner_raw in ["G", "ごろ"]:
-                owner = "G"
-            else:
+            owner = (acc.owner or "").strip()
+            if owner not in ["HOUSE", "B", "G"]:
                 continue
 
             info = _account_balance_fallback_for_account(month=m, acc=acc)
@@ -826,7 +788,7 @@ def dashboard(request):
     try:
         smbc_acc_b = (
             Account.objects
-            .filter(kind="ACCOUNT", owner__in=_owner_keys("B"))
+            .filter(kind="ACCOUNT", owner="B")
             .filter(name__icontains="三井住友")
             .order_by("id")
             .first()
@@ -852,7 +814,7 @@ def dashboard(request):
     try:
         rakuten_acc_g = (
             Account.objects
-            .filter(kind="ACCOUNT", owner__in=_owner_keys("G"))
+            .filter(kind="ACCOUNT", owner="G")
             .filter(name__icontains="楽天銀行")
             .order_by("id")
             .first()
@@ -955,7 +917,7 @@ def dashboard(request):
         year_var = _int(
             MonthlyVariableExpense.objects
             .filter(month__year=selected_year)
-            .exclude(var_type="CARD", owner__in=(_owner_keys("B") + _owner_keys("G")))
+            .exclude(var_type="CARD", owner__in=["B", "G"])
             .aggregate(s=Sum("amount"))["s"] or 0
         )
 
