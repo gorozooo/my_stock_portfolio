@@ -22,6 +22,10 @@
 # ④ イオン銀行(HOUSE)：最低残高をカード請求＋年金・保険として置き、差分を出す
 #    - required_min = エポス(HOUSE) + イオンカード(HOUSE) + ヨドバシ(HOUSE) + 年金・保険
 #    - delta = required_min - balance  （+なら不足 / -なら余剰）
+#
+# ★修正（バグ修正）
+# - 「年金/保険」のような分類名が "年金" と "保険" の両方にヒットして二重計上される問題を修正。
+#   → OR条件で1回だけ集計する（Qでまとめて合算）。
 # =========================================
 
 from decimal import Decimal
@@ -29,7 +33,7 @@ from datetime import date
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db.models import Sum
+from django.db.models import Sum, Q
 from django.shortcuts import render, redirect
 from django.utils import timezone
 
@@ -529,9 +533,7 @@ def _house_card_bill_sum_by_keyword(month: date, keyword: str) -> int:
 
     # category が無いモデルでも落ちないように try で分ける
     try:
-        qs = qs.filter(
-            memo__icontains=kw
-        ) | MonthlyVariableExpense.objects.filter(
+        qs = qs.filter(memo__icontains=kw) | MonthlyVariableExpense.objects.filter(
             month=month, owner="HOUSE", var_type="CARD", category__name__icontains=kw
         )
         return _sum_qs(qs, "amount")
@@ -543,20 +545,17 @@ def _house_card_bill_sum_by_keyword(month: date, keyword: str) -> int:
 def _house_pension_insurance_fixed_sum() -> int:
     """
     何をする？
-    - HOUSE の固定費テンプレから「年金」「保険」っぽいものを合算
-    - category.name 優先、なければ memo でも拾う
+    - HOUSE の固定費テンプレから「年金」「保険」っぽいものを合算（★二重計上しない）
+    - 「年金/保険」など複合名でも、OR条件で1回だけ拾う
+    - category.name / memo のどちらでも拾う
     """
-    s = 0
-    s += _fixed_sum_category_contains("HOUSE", "年金")
-    s += _fixed_sum_category_contains("HOUSE", "保険")
-    if s:
-        return _int(s)
-
-    # categoryで拾えない場合の保険
-    s2 = 0
-    s2 += _fixed_sum_memo_contains("HOUSE", "年金")
-    s2 += _fixed_sum_memo_contains("HOUSE", "保険")
-    return _int(s2)
+    qs = FixedExpenseTemplate.objects.filter(is_active=True, owner="HOUSE").filter(
+        Q(category__name__icontains="年金") |
+        Q(category__name__icontains="保険") |
+        Q(memo__icontains="年金") |
+        Q(memo__icontains="保険")
+    )
+    return _sum_qs(qs, "amount")
 
 
 def _build_dynamic_month_values(request, today: date, m: date) -> dict:
@@ -820,8 +819,6 @@ def dashboard(request):
     rakuten_g_delta = _int(rakuten_g_need - rakuten_g_balance)
 
     # ④ イオン銀行(HOUSE)
-    # - balance は既に KPI で aeon_bank_house を持っているが、
-    #   資金移動表示用に「参照月」も持たせたいので同じ定義で取り直す
     aeon_house_balance = 0
     aeon_house_month = None
     aeon_house_account_name = None
@@ -840,17 +837,16 @@ def dashboard(request):
     house_bill_aeon = _house_card_bill_sum_by_keyword(m, "イオン")
     house_bill_yodobashi = _house_card_bill_sum_by_keyword(m, "ヨドバシ")
 
-    # 年金・保険（HOUSE）：固定費テンプレから
+    # 年金・保険（HOUSE）：固定費テンプレから（★二重計上しない版）
     house_pension_insurance = _house_pension_insurance_fixed_sum()
 
-    # 必要最低残高 & 差分（あなたの式と同じ）
     aeon_house_required_min = _int(
         house_bill_epos
         + house_bill_aeon
         + house_bill_yodobashi
         + house_pension_insurance
     )
-    aeon_house_delta = _int(aeon_house_required_min - aeon_house_balance)  # +不足 / -余剰
+    aeon_house_delta = _int(aeon_house_required_min - aeon_house_balance)
 
     # -----------------------
     # 先月比
@@ -1002,7 +998,7 @@ def dashboard(request):
         "rakuten_g_need": rakuten_g_need,
         "rakuten_g_delta": rakuten_g_delta,
 
-        # ✅ 追加：イオン銀行(HOUSE)
+        # イオン銀行(HOUSE)
         "aeon_house_balance": aeon_house_balance,
         "aeon_house_month": aeon_house_month,
         "aeon_house_account_name": aeon_house_account_name,
