@@ -535,22 +535,43 @@ def _house_card_bill_sum_by_keyword(month: date, keyword: str) -> int:
 
     qs = MonthlyVariableExpense.objects.filter(month=month, owner="HOUSE", var_type="CARD")
 
-    # card が FK の場合（card__name）と、文字の場合（card）両対応
-    q_card = Q()
-    try:
-        q_card = Q(card__name__icontains=kw) | Q(card__icontains=kw)
-    except Exception:
-        # card が FK でない/フィールドが違う場合でも落とさない
-        try:
-            q_card = Q(card__icontains=kw)
-        except Exception:
-            q_card = Q()
+    # まず memo/category は共通で検索
+    q = Q(memo__icontains=kw) | Q(category__name__icontains=kw)
 
-    q = (
-        Q(memo__icontains=kw)
-        | Q(category__name__icontains=kw)
-        | q_card
-    )
+    # card フィールドが「FK」か「文字」かを実行時に判定して、安全に検索する
+    try:
+        card_field = MonthlyVariableExpense._meta.get_field("card")
+
+        # FKっぽい（relation）なら related model の文字フィールドを探して検索
+        if getattr(card_field, "is_relation", False) and getattr(card_field, "many_to_one", False):
+            rel_model = getattr(getattr(card_field, "remote_field", None), "model", None)
+
+            # よくある名前候補を優先して、存在するやつだけ OR
+            candidates = ["name", "title", "label", "memo", "display_name"]
+            rel_field_names = set()
+            if rel_model is not None:
+                try:
+                    rel_field_names = set(f.name for f in rel_model._meta.fields)
+                except Exception:
+                    rel_field_names = set()
+
+            q_card = Q()
+            for fname in candidates:
+                if fname in rel_field_names:
+                    q_card |= Q(**{f"card__{fname}__icontains": kw})
+
+            # もし候補が1つも無い（= 検索できない）なら何もしない
+            if q_card:
+                q |= q_card
+
+        else:
+            # 文字フィールドならそのまま icontains
+            q |= Q(card__icontains=kw)
+
+    except Exception:
+        # 何があっても落とさない（最悪 memo/category だけで動く）
+        pass
+
     return _sum_qs(qs.filter(q), "amount")
 
 
