@@ -5,6 +5,10 @@
 このファイルは何？
 - 家計簿アプリ専用CSS。
 - 株アプリのUIとは完全分離。
+
+✅ 追加（共通UI品質）
+- すべての入力枠がカード（大枠）からはみ出さないようにする
+- iPhoneの入力フォーカス時の勝手ズームを抑止（font-size:16px）
 */
 
 :root{
@@ -23,6 +27,11 @@
   --seg-active-bg: rgba(86,204,242,0.18);
   --seg-active-border: rgba(86,204,242,0.45);
   --seg-active-glow: rgba(86,204,242,0.22);
+}
+
+/* ✅ はみ出し根絶：幅計算を安定化 */
+*, *::before, *::after{
+  box-sizing: border-box;
 }
 
 body{
@@ -57,6 +66,9 @@ body{
   border-radius:16px;
   padding:14px;
   margin:12px 0;
+
+  /* ✅ 角丸カードから中身が飛び出す事故を止める */
+  overflow:hidden;
 }
 
 .kb-title{font-weight:900;margin-bottom:10px}
@@ -97,16 +109,34 @@ body{
   color:var(--muted);
 }
 
+/* ✅ フォーム：はみ出し根絶 + iOSズーム対策 */
 .kb-form p{margin:10px 0}
-.kb-form input,.kb-form select{
+.kb-form label{display:block;margin-bottom:6px;color:var(--muted);font-size:13px}
+
+.kb-form input,
+.kb-form select,
+.kb-form textarea{
   width:100%;
+  max-width:100%;
+  display:block;
+
   padding:10px 10px;
   border-radius:12px;
   border:1px solid var(--border);
   background:rgba(255,255,255,0.06);
   color:var(--text);
+
+  /* ✅ iOS Safariがフォーカスで勝手に拡大するのを防ぐ */
+  font-size:16px;
+
+  /* ✅ 余計なはみ出し抑制 */
+  min-width:0;
 }
-.kb-form label{display:block;margin-bottom:6px;color:var(--muted);font-size:13px}
+
+.kb-form textarea{
+  resize: vertical;
+  min-height: 96px;
+}
 
 /* =========================================================
    設定画面：iOSセグメント（収入 / 支出 / 口座 / カード）
