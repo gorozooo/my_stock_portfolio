@@ -5,10 +5,6 @@
 このファイルは何？
 - 家計簿アプリ専用CSS。
 - 株アプリのUIとは完全分離。
-
-✅ 追加（共通UI品質）
-- すべての入力枠がカード（大枠）からはみ出さないようにする
-- iPhoneの入力フォーカス時の勝手ズームを抑止（font-size:16px）
 */
 
 :root{
@@ -109,16 +105,30 @@ body{
   color:var(--muted);
 }
 
-/* ✅ フォーム：はみ出し根絶 + iOSズーム対策 */
-.kb-form p{margin:10px 0}
-.kb-form label{display:block;margin-bottom:6px;color:var(--muted);font-size:13px}
+/* =========================================================
+   ✅ フォーム：全画面共通で “はみ出しゼロ” にする
+   - .kb-form の有無に依存させない（対象月だけ暴れる問題の根本対策）
+   ========================================================= */
 
-.kb-form input,
-.kb-form select,
-.kb-form textarea{
+.kb-wrap form{
+  max-width: 100%;
+}
+
+.kb-wrap input,
+.kb-wrap select,
+.kb-wrap textarea,
+.kb-wrap button{
+  box-sizing: border-box;
+}
+
+/* ✅ 全フォーム部品を確実に枠内へ */
+.kb-wrap input,
+.kb-wrap select,
+.kb-wrap textarea{
   width:100%;
   max-width:100%;
   display:block;
+  min-width:0;
 
   padding:10px 10px;
   border-radius:12px;
@@ -128,10 +138,19 @@ body{
 
   /* ✅ iOS Safariがフォーカスで勝手に拡大するのを防ぐ */
   font-size:16px;
-
-  /* ✅ 余計なはみ出し抑制 */
-  min-width:0;
 }
+
+/* ✅ iOSで暴れがちな日付/月系を安定化 */
+.kb-wrap input[type="date"],
+.kb-wrap input[type="month"],
+.kb-wrap input[type="datetime-local"]{
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* 既存：.kb-form の個別スタイル（残してOK） */
+.kb-form p{margin:10px 0}
+.kb-form label{display:block;margin-bottom:6px;color:var(--muted);font-size:13px}
 
 .kb-form textarea{
   resize: vertical;
