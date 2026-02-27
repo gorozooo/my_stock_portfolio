@@ -7,12 +7,9 @@
 - 一覧・新規・編集・アーカイブ・検証実行・結果表示・再検証（同条件/ picks更新）
 - さらに CANDIDATE / ACTIVE昇格 / ロールバック（監査ログ付き）までを担当します。
 
-今回のポイント（UI改善）：
-- tuning_result（結果ページ）用の data を “読みやすさ重視” で整形して返します。
-  1) 理由（日本語＋数字＋円）はテンプレ側で折りたたみ（viewは gate を供給）
-  2) どのチューニングで検証したかを header にまとめる（tune / windows / picks）
-  3) 結果ページから “その場で再検証” できる（同条件 / picks更新）
-  4) ACTIVE比 / 直前比 の差分（Δ）を数値で作る
+今回の変更：
+- BREAKOUTに「日足フィルタ（OFF/SMA）」「SMA日数」「方向制限」を追加し、
+  スクショの編集画面から保存できるようにする。
 """
 
 from __future__ import annotations
@@ -66,6 +63,11 @@ def _default_params() -> Dict[str, Any]:
             "rr": 2.0,
             "lookback_bars": 6,
             "max_hold_min": 30,
+
+            # ★ 追加：日足フィルタ
+            "daily_filter": "OFF",       # OFF / SMA
+            "sma_days": 20,              # 例: 20
+            "direction": "TREND_ONLY",   # TREND_ONLY / BOTH
         },
     }
 
@@ -82,6 +84,13 @@ def _to_int(v: Any, default: int = 0) -> int:
         return int(float(str(v).strip()))
     except Exception:
         return int(default)
+
+
+def _to_choice_str(v: Any, default: str, *, upper: bool = True) -> str:
+    s = (str(v).strip() if v is not None else "").strip()
+    if not s:
+        s = str(default)
+    return s.upper() if upper else s
 
 
 def _get_current_active_snapshot(user):
@@ -315,6 +324,17 @@ def tuning_new(request: HttpRequest):
         b_lb = _to_int(request.POST.get("breakout_lookback_bars"), 6)
         b_hold = _to_int(request.POST.get("breakout_max_hold_min"), 30)
 
+        # ★ 追加：日足フィルタ
+        b_daily_filter = _to_choice_str(request.POST.get("breakout_daily_filter"), "OFF")
+        if b_daily_filter not in ["OFF", "SMA"]:
+            b_daily_filter = "OFF"
+        b_sma_days = _to_int(request.POST.get("breakout_sma_days"), 20)
+        if b_sma_days <= 0:
+            b_sma_days = 20
+        b_direction = _to_choice_str(request.POST.get("breakout_direction"), "TREND_ONLY")
+        if b_direction not in ["TREND_ONLY", "BOTH"]:
+            b_direction = "TREND_ONLY"
+
         params = {
             "VWAP": {
                 "stop_pct": float(v_stop),
@@ -327,6 +347,10 @@ def tuning_new(request: HttpRequest):
                 "rr": float(b_rr),
                 "lookback_bars": int(b_lb),
                 "max_hold_min": int(b_hold),
+
+                "daily_filter": str(b_daily_filter),
+                "sma_days": int(b_sma_days),
+                "direction": str(b_direction),
             },
         }
 
@@ -354,6 +378,17 @@ def tuning_edit(request: HttpRequest, pk: int):
 
     params = profile.params if isinstance(profile.params, dict) else _default_params()
 
+    # params欠損対策（古いプロファイルでも新項目が表示されるように）
+    if "BREAKOUT" not in params or not isinstance(params.get("BREAKOUT"), dict):
+        params["BREAKOUT"] = {}
+    bo = params["BREAKOUT"]
+    if "daily_filter" not in bo:
+        bo["daily_filter"] = "OFF"
+    if "sma_days" not in bo:
+        bo["sma_days"] = 20
+    if "direction" not in bo:
+        bo["direction"] = "TREND_ONLY"
+
     if request.method == "POST":
         name = (request.POST.get("name") or "").strip() or profile.name
 
@@ -367,6 +402,19 @@ def tuning_edit(request: HttpRequest, pk: int):
         b_lb = _to_int(request.POST.get("breakout_lookback_bars"), (params.get("BREAKOUT") or {}).get("lookback_bars", 6))
         b_hold = _to_int(request.POST.get("breakout_max_hold_min"), (params.get("BREAKOUT") or {}).get("max_hold_min", 30))
 
+        # ★ 追加：日足フィルタ
+        b_daily_filter = _to_choice_str(request.POST.get("breakout_daily_filter"), (params.get("BREAKOUT") or {}).get("daily_filter", "OFF"))
+        if b_daily_filter not in ["OFF", "SMA"]:
+            b_daily_filter = "OFF"
+
+        b_sma_days = _to_int(request.POST.get("breakout_sma_days"), (params.get("BREAKOUT") or {}).get("sma_days", 20))
+        if b_sma_days <= 0:
+            b_sma_days = 20
+
+        b_direction = _to_choice_str(request.POST.get("breakout_direction"), (params.get("BREAKOUT") or {}).get("direction", "TREND_ONLY"))
+        if b_direction not in ["TREND_ONLY", "BOTH"]:
+            b_direction = "TREND_ONLY"
+
         new_params = {
             "VWAP": {
                 "stop_pct": float(v_stop),
@@ -379,6 +427,10 @@ def tuning_edit(request: HttpRequest, pk: int):
                 "rr": float(b_rr),
                 "lookback_bars": int(b_lb),
                 "max_hold_min": int(b_hold),
+
+                "daily_filter": str(b_daily_filter),
+                "sma_days": int(b_sma_days),
+                "direction": str(b_direction),
             },
         }
 
@@ -396,6 +448,8 @@ def tuning_edit(request: HttpRequest, pk: int):
     }
     return render(request, "autotrade/tuning_edit.html", ctx)
 
+# --- 以下、あなたのファイルの残りは変更なし ---
+# （ここから下は、あなたが貼ってくれた既存コードをそのまま維持しています）
 
 @login_required
 @require_POST
