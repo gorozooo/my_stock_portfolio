@@ -6,6 +6,13 @@
 - 戦略①（レンジブレイク）の「詳細バックテスト」エンジンです。
 - 1トレード=1件の辞書ログとして返します（DB保存は runner 側の役割）。
 
+今回の変更（チューニング用）：
+- 日足フィルタ（SMAトレンド）を追加しました。
+  - breakout_daily_filter="OFF"（デフォルト）なら今まで通り。
+  - breakout_daily_filter="SMA" で ON。
+  - trendが上ならLONG優先、下ならSHORT優先にできます。
+- これにより「同じスナップショットでも、相場環境で結果が変わる」ようになります。
+
 初心者ポイント：
 - ここは「ルール通りに売買を再現するだけ」。
 - DB保存や判定（🟢🟡🔴）は別ファイルが担当します。
@@ -13,12 +20,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 from django.conf import settings
 from django.utils import timezone
 
-from .data_fetcher import fetch_5m
+from .data_fetcher import fetch_5m, fetch_daily
 
 
 def _ensure_aware(dt):
@@ -28,6 +35,96 @@ def _ensure_aware(dt):
         return dt
     # dfのindexがnaiveな場合は「プロジェクトTZ」として扱う（JST想定）
     return timezone.make_aware(dt, timezone.get_current_timezone())
+
+
+def _safe_float(v: Any, default: float = 0.0) -> float:
+    try:
+        return float(v)
+    except Exception:
+        return float(default)
+
+
+def _safe_int(v: Any, default: int = 0) -> int:
+    try:
+        return int(v)
+    except Exception:
+        return int(default)
+
+
+def _decide_daily_trend_filter(
+    *,
+    snapshot_dict: Dict[str, Any],
+    ticker: str,
+    end_at,
+) -> Dict[str, bool]:
+    """
+    日足トレンドでBREAKOUTの方向を制限する。
+    返り値: {"allow_long": bool, "allow_short": bool, "mode": str}
+
+    snapshot_dict のキー（今回追加）:
+    - breakout_daily_filter: "OFF" | "SMA"
+      - OFF: フィルタなし（従来通り）
+      - SMA: SMAでトレンド判定して方向を絞る
+    - breakout_daily_sma_days: int (default 20)
+    - breakout_daily_bias: "BOTH" | "TREND_ONLY"
+      - BOTH: トレンドでも逆方向も許す（弱め）
+      - TREND_ONLY: トレンド方向だけ許す（強め）
+    """
+    mode = str(snapshot_dict.get("breakout_daily_filter") or "OFF").upper().strip()
+    if mode not in ["OFF", "SMA"]:
+        mode = "OFF"
+
+    # デフォルトは従来互換（OFF）
+    if mode == "OFF":
+        return {"allow_long": True, "allow_short": True, "mode": "OFF"}
+
+    sma_days = _safe_int(snapshot_dict.get("breakout_daily_sma_days"), 20)
+    sma_days = max(5, min(sma_days, 60))
+
+    bias = str(snapshot_dict.get("breakout_daily_bias") or "TREND_ONLY").upper().strip()
+    if bias not in ["BOTH", "TREND_ONLY"]:
+        bias = "TREND_ONLY"
+
+    prefer_period = "180d" if sma_days <= 60 else "360d"
+    dfd = fetch_daily(ticker, prefer_period=prefer_period)
+    if dfd is None or getattr(dfd, "empty", True):
+        # 日足が取れないなら安全に両方向OK
+        return {"allow_long": True, "allow_short": True, "mode": "SMA_NO_DAILY"}
+
+    # end_at までに絞る（5分足の終端に合わせる）
+    try:
+        if end_at is not None:
+            dfd = dfd.loc[: end_at.date()].copy()
+    except Exception:
+        pass
+
+    if len(dfd) < sma_days + 5:
+        return {"allow_long": True, "allow_short": True, "mode": "SMA_TOO_SHORT"}
+
+    close = dfd["close"].astype(float)
+    sma = close.rolling(sma_days).mean()
+
+    last_close = float(close.iloc[-1])
+    last_sma = float(sma.iloc[-1]) if sma.iloc[-1] == sma.iloc[-1] else None  # NaN対策
+
+    if last_sma is None or last_sma <= 0:
+        return {"allow_long": True, "allow_short": True, "mode": "SMA_BAD"}
+
+    # トレンド判定（超シンプル：終値がSMAより上/下）
+    uptrend = last_close >= last_sma
+    downtrend = last_close < last_sma
+
+    if bias == "BOTH":
+        # 弱め：トレンド方向を「優先」したいなら、ここは runner 側で重み付けに使うのが本筋。
+        # ここでは安全に両方向OKのまま返す（将来拡張用）。
+        return {"allow_long": True, "allow_short": True, "mode": "SMA_BOTH"}
+
+    # 強め：トレンド方向だけ許可
+    return {
+        "allow_long": bool(uptrend),
+        "allow_short": bool(downtrend),
+        "mode": "SMA_TREND_ONLY_UP" if uptrend else "SMA_TREND_ONLY_DOWN",
+    }
 
 
 def run_breakout_detail(
@@ -84,6 +181,11 @@ def run_breakout_detail(
     start_at = _ensure_aware(idx[0].to_pydatetime() if hasattr(idx[0], "to_pydatetime") else idx[0])
     end_at = _ensure_aware(idx[-1].to_pydatetime() if hasattr(idx[-1], "to_pydatetime") else idx[-1])
 
+    # ★ 追加：日足フィルタで方向制限
+    filt = _decide_daily_trend_filter(snapshot_dict=snapshot_dict, ticker=ticker, end_at=end_at)
+    allow_long = bool(filt.get("allow_long", True))
+    allow_short = bool(filt.get("allow_short", True))
+
     opens = df["open"].values
     highs = df["high"].values
     lows = df["low"].values
@@ -115,6 +217,10 @@ def run_breakout_detail(
 
         # ---------- ロング（ブレイク上） ----------
         if price > hh:
+            # ★ 追加：日足フィルタでロング禁止ならスキップ
+            if not allow_long:
+                continue
+
             entry = nxt_open * (1.0 + slip)
             stop = entry * (1.0 - stop_pct)
             take = entry * (1.0 + stop_pct * rr)
@@ -190,6 +296,10 @@ def run_breakout_detail(
 
         # ---------- ショート（ブレイク下） ----------
         elif price < ll:
+            # ★ 追加：日足フィルタでショート禁止ならスキップ
+            if not allow_short:
+                continue
+
             entry = nxt_open * (1.0 - slip)
             stop = entry * (1.0 + stop_pct)
             take = entry * (1.0 - stop_pct * rr)
