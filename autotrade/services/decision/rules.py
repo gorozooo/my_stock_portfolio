@@ -6,9 +6,8 @@
 - iPhone 1画面に表示する「今日の運用ルール要約」を作る部品です。
 - gate_level（FULL/LIGHT/STOP）によって、運用の強さを変えます。
 
-初心者ポイント：
-- 画面に出す文言をここで作っておくと、あとで直すのが楽です。
-- 数字が増えても jobs や views を汚さずに済みます。
+BREAKOUT一本運用：
+- strategy が "VWAP" で来ても、表示・文言は BREAKOUT に寄せる（互換・一貫性）
 """
 
 from __future__ import annotations
@@ -25,19 +24,6 @@ def build_rules_for_today(
 ) -> Dict[str, Any]:
     """
     今日のルール要約を作る（DB保存・画面表示用）
-
-    gate_level:
-      "FULL" / "LIGHT" / "STOP"
-
-    返り値（例）:
-      {
-        "capital": {...},
-        "risk": {...},
-        "limits": {...},
-        "time": {...},
-        "mode": {...},
-        "notes": [...]
-      }
     """
 
     base_equity = int(equity_yen or getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000))
@@ -52,9 +38,6 @@ def build_rules_for_today(
     force_close = str(getattr(settings, "AUTOTRADE_FORCE_CLOSE", "15:00"))
 
     # gate による運用強度（初心者向けに分かりやすく）
-    # FULL  : 通常
-    # LIGHT : 半分運用（保守的）
-    # STOP  : 取引しない
     if gate_level == "FULL":
         lot_multiplier = 1.0
         pos_limit = max_positions
@@ -84,13 +67,15 @@ def build_rules_for_today(
         "15:00 に必ず全決済します（持ち越し禁止）。",
     ]
 
-    if strategy:
-        if strategy == "BREAKOUT":
-            notes.append("今日の戦略は『レンジブレイク』です（勢いに乗る）。")
-        elif strategy == "VWAP":
-            notes.append("今日の戦略は『VWAP押し目』です（行き過ぎの戻り）。")
-        else:
-            notes.append(f"今日の戦略は『{strategy}』です。")
+    # ---------------------------------------------
+    # BREAKOUT一本運用：strategy 表示は必ず BREAKOUT へ寄せる
+    # ---------------------------------------------
+    s = (str(strategy).upper() if strategy is not None else "")
+    if s and s != "BREAKOUT":
+        # 互換で "VWAP" 等が来ても、運用はBREAKOUT一本という説明に統一
+        notes.append("（互換）strategy が別名で渡されましたが、現在は BREAKOUT 一本運用です。")
+
+    notes.append("今日の戦略は『BREAKOUT（レンジブレイク）』です（勢いに乗る）。")
 
     return {
         "mode": {
