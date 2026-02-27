@@ -4,7 +4,6 @@
 
 このファイルは何？
 - AutoTrade のダッシュボード表示（iPhone 1画面）用の View と整形関数です。
-- ★ BREAKOUT一本運用に固定（VWAP関連の整形・初期タブを完全撤去）
 - runner が state.backtest に詰めた結果（meta/by_window/gate）を “再計算せず” 表示用に整形します。
 """
 
