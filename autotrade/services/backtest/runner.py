@@ -2,21 +2,14 @@
 [FILE] autotrade/services/backtest/runner.py
 [PATH] <project_root>/autotrade/services/backtest/runner.py
 
-詳細バックテストの司令塔。
-
-役割：
-- Snapshot（固定設定）を入力として
-- Execution（事実ログ）を生成
-- Execution を集計
-- gate 判定（FULL / LIGHT / STOP）
-- DailyState を更新
+このファイルは何？
+- 詳細バックテストの司令塔（Executionを生成→集計→gate判定→DailyState更新）
+- ★ BREAKOUT一本運用に固定（VWAP関連を完全撤去）
 
 重要：
 - 集計値は保存しない
 - 事実（Execution）だけが真実
-
-今回の変更ポイント：
-- run_detail の検索キーを executed_at__date から trade_date に変更（UTC/JST混線を根絶）
+- trade_date基準（UTC/JST混線を根絶）
 """
 
 from __future__ import annotations
@@ -38,82 +31,56 @@ from autotrade.services.backtest.execution_metrics import summarize_executions
 from autotrade.services.backtest.gate import judge_multi_window
 from autotrade.services.common.guards import is_emergency_stopped
 
-# エンジン（Execution を吐く / 互換で旧集計も返せる）
+# エンジン（Execution を吐く）
 from autotrade.services.backtest.engine_breakout import run_breakout
-from autotrade.services.backtest.engine_vwap import run_vwap
 
 
 DEFAULT_BACKTEST_WINDOWS: Tuple[int, int, int] = (20, 60, 120)
-STRATEGIES: Tuple[str, str] = ("BREAKOUT", "VWAP")
+STRATEGIES: Tuple[str, ...] = ("BREAKOUT",)
 
 
-def _merge_gate_results(
+def _finalize_gate_breakout_only(
     *,
-    gate_vwap: Dict[str, Any],
     gate_breakout: Dict[str, Any],
     rr_breakout: float,
-    rr_vwap: float,
     windows: Tuple[int, ...],
 ) -> Dict[str, Any]:
     """
-    戦略別ゲートを統合して、最終の gate_level / 理由 / 稼働戦略 を決める。
-
-    ルール（おすすめ・確定）：
-    - VWAPがSTOPなら最終STOP（安全第一）
-    - VWAPがLIGHT/FULLで、BREAKOUTがFULLなら最終FULL（両方OK）
-    - それ以外は最終LIGHT（VWAPのみ稼働）
-
-    重要：
-    - “理由文の中身（数字/円など）”は gate.py に一本化する。
-      runner.py は見出し（構造）だけ足す。
+    BREAKOUT一本の最終判定を作る。
+    - gate.pyの理由文（数字/円）は gate_breakout["reasons"] に入っている想定
+    - runnerは見出し（構造）だけ足す
     """
-    lv_v = str((gate_vwap or {}).get("gate_level") or "STOP")
     lv_b = str((gate_breakout or {}).get("gate_level") or "STOP")
 
-    active: List[str] = []
-    disabled: List[str] = []
-
-    if lv_v == "STOP":
+    if lv_b == "STOP":
         final = "STOP"
-        disabled = ["VWAP", "BREAKOUT"]
+        active: List[str] = []
+        disabled: List[str] = ["BREAKOUT"]
+        header = "【最終判定】STOP（安全のため稼働しない）"
+    elif lv_b == "LIGHT":
+        final = "LIGHT"
+        active = ["BREAKOUT"]
+        disabled = []
+        header = "【最終判定】LIGHT（BREAKOUT 慎重運用）"
     else:
-        active.append("VWAP")
-        if lv_b == "FULL":
-            final = "FULL"
-            active.append("BREAKOUT")
-        else:
-            final = "LIGHT"
-            disabled.append("BREAKOUT")
+        final = "FULL"
+        active = ["BREAKOUT"]
+        disabled = []
+        header = "【最終判定】FULL（BREAKOUT 稼働）"
 
-    reasons: List[str] = []
+    reasons: List[str] = [header]
+    reasons.append(f"【設定】windows={list(windows)} / RR(BREAKOUT)={rr_breakout:.2f}")
 
-    if final == "FULL":
-        reasons.append("【最終判定】FULL（VWAP + BREAKOUT 稼働）")
-    elif final == "LIGHT":
-        reasons.append("【最終判定】LIGHT（VWAP のみ稼働）")
-    else:
-        reasons.append("【最終判定】STOP（安全のため稼働しない）")
-
-    reasons.append(f"【設定】windows={list(windows)} / RR(BREAKOUT)={rr_breakout:.2f} / RR(VWAP)={rr_vwap:.2f}")
-
-    if gate_vwap:
-        rs = gate_vwap.get("reasons") or []
-        if rs:
-            reasons.append("【VWAP判定】")
-            reasons.extend([str(x) for x in rs if str(x).strip()])
-
-    if gate_breakout:
-        rs = gate_breakout.get("reasons") or []
-        if rs:
-            reasons.append("【BREAKOUT判定】")
-            reasons.extend([str(x) for x in rs if str(x).strip()])
+    rs = (gate_breakout or {}).get("reasons") or []
+    if rs:
+        reasons.append("【BREAKOUT判定】")
+        reasons.extend([str(x) for x in rs if str(x).strip()])
 
     return {
         "gate_level": final,
         "reasons": reasons,
         "active_strategies": active,
         "disabled_strategies": disabled,
-        "gate_vwap": gate_vwap,
         "gate_breakout": gate_breakout,
     }
 
@@ -129,17 +96,16 @@ def run_detailed_backtests_for_universe(
     target_date: Optional[dt_date] = None,
     windows: Optional[Tuple[int, ...]] = None,
     rr_breakout: Optional[float] = None,
-    rr_vwap: Optional[float] = None,
     base_equity_yen: Optional[int] = None,
     force: bool = False,
 ) -> Dict[str, Any]:
     """
-    詳細バックテストを実行し、DailyState を更新する。
+    詳細バックテストを実行し、DailyState を更新する（BREAKOUT一本）。
 
     - snapshot: ACTIVE Snapshot（必須）
     - picks: 今日の銘柄リスト
     - windows: 実行期間（例: (20,60,120)）
-    - rr_breakout / rr_vwap: RR（設定値）
+    - rr_breakout: RR（設定値）
     - base_equity_yen: 基準資産（Snapshot優先、なければsettings）
     - force: True の場合、既存 Execution を削除して再実行
     """
@@ -164,7 +130,6 @@ def run_detailed_backtests_for_universe(
     picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
     bt_windows = tuple(int(x) for x in (windows or tuple(getattr(settings, "AUTOTRADE_BT_WINDOWS", DEFAULT_BACKTEST_WINDOWS))))
     rr_b = float(rr_breakout if rr_breakout is not None else getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0))
-    rr_v = float(rr_vwap if rr_vwap is not None else getattr(settings, "AUTOTRADE_RR_VWAP", 1.5))
 
     snap_dict = snapshot.snapshot if isinstance(snapshot.snapshot, dict) else {}
     if base_equity_yen is not None:
@@ -194,7 +159,7 @@ def run_detailed_backtests_for_universe(
         state.strategy_decision = {
             "mode": "STOP",
             "active": [],
-            "disabled": ["VWAP", "BREAKOUT"],
+            "disabled": ["BREAKOUT"],
             "note": "no_picks",
         }
         state.backtest = {
@@ -209,80 +174,66 @@ def run_detailed_backtests_for_universe(
     metrics_by_window_strategy: Dict[int, Dict[str, Dict[str, Any]]] = {}
 
     for window in bt_windows:
-        metrics_by_window_strategy[int(window)] = {}
+        w = int(window)
+        metrics_by_window_strategy[w] = {}
 
-        for strategy in STRATEGIES:
-            # -------------------------------------------------
-            # 既存 run_detail を再利用（同日再実行で暴増殖を防ぐ）
-            # -------------------------------------------------
-            run_detail = AutoTradeBacktestRunDetail.objects.filter(
+        # -------------------------------------------------
+        # 既存 run_detail を再利用（同日再実行で暴増殖を防ぐ）
+        # -------------------------------------------------
+        run_detail = AutoTradeBacktestRunDetail.objects.filter(
+            snapshot=snapshot,
+            strategy="BREAKOUT",
+            window_days=w,
+            trade_date=target_date,
+        ).order_by("-id").first()
+
+        if (run_detail is None) or force:
+            run_detail = AutoTradeBacktestRunDetail.objects.create(
+                user=user,
                 snapshot=snapshot,
-                strategy=str(strategy),
-                window_days=int(window),
+                strategy="BREAKOUT",
+                window_days=w,
                 trade_date=target_date,
-            ).order_by("-id").first()
+                start_date=target_date,
+                end_date=target_date,
+            )
 
-            if (run_detail is None) or force:
-                run_detail = AutoTradeBacktestRunDetail.objects.create(
-                    user=user,
+        # -------------------------------------------------
+        # 既に Execution があるなら（force=False）再生成しない
+        # -------------------------------------------------
+        exists_exec = AutoTradeExecution.objects.filter(run_detail=run_detail).exists()
+        if (not exists_exec) or force:
+            if force and exists_exec:
+                AutoTradeExecution.objects.filter(run_detail=run_detail).delete()
+
+            for ticker in picks:
+                run_breakout(
+                    ticker=ticker,
+                    window_days=w,
+                    rr=rr_b,
                     snapshot=snapshot,
-                    strategy=str(strategy),
-                    window_days=int(window),
-                    trade_date=target_date,
-                    start_date=target_date,
-                    end_date=target_date,
+                    mode="BACKTEST",
+                    run_meta=run_detail,
+                    target_date=target_date,
                 )
 
-            # -------------------------------------------------
-            # 既に Execution があるなら（force=False）再生成しない
-            # -------------------------------------------------
-            exists_exec = AutoTradeExecution.objects.filter(run_detail=run_detail).exists()
-            if (not exists_exec) or force:
-                if force and exists_exec:
-                    AutoTradeExecution.objects.filter(run_detail=run_detail).delete()
+        qs = AutoTradeExecution.objects.filter(run_detail=run_detail).order_by("exit_at")
+        metrics = summarize_executions(qs=qs, base_equity=base_equity)
+        metrics_by_window_strategy[w]["BREAKOUT"] = metrics
 
-                for ticker in picks:
-                    if strategy == "BREAKOUT":
-                        run_breakout(
-                            ticker=ticker,
-                            window_days=int(window),
-                            rr=rr_b,
-                            snapshot=snapshot,
-                            mode="BACKTEST",
-                            run_meta=run_detail,
-                            target_date=target_date,
-                        )
-                    else:
-                        run_vwap(
-                            ticker=ticker,
-                            window_days=int(window),
-                            rr=rr_v,
-                            snapshot=snapshot,
-                            mode="BACKTEST",
-                            run_meta=run_detail,
-                            target_date=target_date,
-                        )
-
-            qs = AutoTradeExecution.objects.filter(run_detail=run_detail).order_by("exit_at")
-            metrics = summarize_executions(qs=qs, base_equity=base_equity)
-            metrics_by_window_strategy[int(window)][str(strategy)] = metrics
-
-    metrics_vwap: Dict[int, Dict[str, Any]] = {}
+    # -----------------------------------------------------
+    # gate 判定（BREAKOUTのみ）
+    # -----------------------------------------------------
     metrics_breakout: Dict[int, Dict[str, Any]] = {}
-
     for w in bt_windows:
         w = int(w)
-        metrics_vwap[w] = (metrics_by_window_strategy.get(w) or {}).get("VWAP") or {}
         metrics_breakout[w] = (metrics_by_window_strategy.get(w) or {}).get("BREAKOUT") or {}
 
-    gate_vwap = judge_multi_window(metrics_vwap)
     gate_breakout = judge_multi_window(metrics_breakout)
 
-    merged = _merge_gate_results(
-        gate_vwap=gate_vwap,
+    merged = _finalize_gate_breakout_only(
         gate_breakout=gate_breakout,
         rr_breakout=rr_b,
-        rr_vwap=rr_v,
         windows=bt_windows,
     )
 
@@ -290,13 +241,7 @@ def run_detailed_backtests_for_universe(
     active = list(merged.get("active_strategies") or [])
     disabled = list(merged.get("disabled_strategies") or [])
 
-    if final_level == "FULL":
-        state.strategy = "MIXED"
-    elif final_level == "LIGHT":
-        state.strategy = "VWAP"
-    else:
-        state.strategy = ""
-
+    state.strategy = "BREAKOUT" if final_level in ("FULL", "LIGHT") else ""
     state.gate_level = final_level
     state.gate_reason = "\n".join([str(x) for x in (merged.get("reasons") or []) if str(x).strip()])
     state.strategy_decided_at = timezone.now()
@@ -304,7 +249,7 @@ def run_detailed_backtests_for_universe(
         "mode": final_level,
         "active": active,
         "disabled": disabled,
-        "rr": {"BREAKOUT": rr_b, "VWAP": rr_v},
+        "rr": {"BREAKOUT": rr_b},
         "windows": list(bt_windows),
     }
 
@@ -313,12 +258,10 @@ def run_detailed_backtests_for_universe(
             "date": str(target_date),
             "base_equity_yen": int(base_equity),
             "rr_breakout": float(rr_b),
-            "rr_vwap": float(rr_v),
         },
         "by_window": metrics_by_window_strategy,
         "gate": {
             "final": {"gate_level": final_level, "active": active, "disabled": disabled},
-            "VWAP": gate_vwap,
             "BREAKOUT": gate_breakout,
         },
     }
@@ -330,7 +273,6 @@ def run_detailed_backtests_for_universe(
         "ok": True,
         "gate": {
             "final": final_level,
-            "vwap": gate_vwap,
             "breakout": gate_breakout,
             "active": active,
             "disabled": disabled,
