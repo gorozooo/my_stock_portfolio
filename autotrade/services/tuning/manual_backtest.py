@@ -12,11 +12,15 @@
 - UIは自由操作。安全は「ACTIVE昇格しない」「ロールバックで戻せる」で担保。
 - この段階（UI優先）では Execution/RunDetail のDB保存は“必須ではない”扱いにして、
   まず「検証→結果カード」までを確実に通す。
+
+今回の変更：
+- BREAKOUT の日足フィルタ（SMA）用キーを snapshot_dict に流し込む。
+  engine_breakout_detail.py が参照して方向制限をかけられるようにする。
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from datetime import date as dt_date
 
 from django.conf import settings
@@ -57,6 +61,14 @@ def _safe_int(x: Any, default: int = 0) -> int:
         return int(default)
 
 
+def _safe_str(x: Any, default: str = "") -> str:
+    try:
+        s = str(x)
+        return s
+    except Exception:
+        return str(default)
+
+
 def _build_snapshot_dict_from_profile(profile: AutoTradeTuningProfile) -> Dict[str, Any]:
     """
     profile.params（自由）を、エンジンが読む snapshot dict に落とす。
@@ -80,12 +92,34 @@ def _build_snapshot_dict_from_profile(profile: AutoTradeTuningProfile) -> Dict[s
     max_hold_v = _safe_int(v.get("max_hold_min"), 30)
     max_hold_b = _safe_int(b.get("max_hold_min"), 30)
 
+    # ★ 追加：BREAKOUT 日足フィルタ（SMA）
+    # profile.params["BREAKOUT"] に以下を入れると効く
+    # - daily_filter: "OFF" or "SMA"
+    # - daily_sma_days: 20 など
+    # - daily_bias: "TREND_ONLY" or "BOTH"
+    daily_filter = _safe_str(b.get("daily_filter"), "OFF").upper().strip()
+    if daily_filter not in ["OFF", "SMA"]:
+        daily_filter = "OFF"
+
+    daily_sma_days = _safe_int(b.get("daily_sma_days"), 20)
+    if daily_sma_days <= 0:
+        daily_sma_days = 20
+
+    daily_bias = _safe_str(b.get("daily_bias"), "TREND_ONLY").upper().strip()
+    if daily_bias not in ["TREND_ONLY", "BOTH"]:
+        daily_bias = "TREND_ONLY"
+
     snap = {
         "base_equity_yen": int(getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)),
 
         # detailエンジンが読むキー
         "vwap_stop_pct": float(v_stop),
         "breakout_stop_pct": float(b_stop),
+
+        # ★ 追加：engine_breakout_detail.py が読むキー（日足フィルタ）
+        "breakout_daily_filter": str(daily_filter),
+        "breakout_daily_sma_days": int(daily_sma_days),
+        "breakout_daily_bias": str(daily_bias),
 
         # detailエンジン側の max_hold_bars（5分足換算）に一応入れておく（既存はbars参照）
         # 30分なら 5分足×6本。少し余裕で +1。
@@ -105,6 +139,11 @@ def _build_snapshot_dict_from_profile(profile: AutoTradeTuningProfile) -> Dict[s
                 "rr": float(rr_b),
                 "lookback_bars": int(lookback_bars),
                 "max_hold_min": int(max_hold_b),
+
+                # ★ 表示用（どのフィルタで回したか）
+                "daily_filter": str(daily_filter),
+                "daily_sma_days": int(daily_sma_days),
+                "daily_bias": str(daily_bias),
             },
         },
     }
