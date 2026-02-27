@@ -4,11 +4,7 @@
 
 このファイルは何？
 - AutoTrade の iPhone 1画面ダッシュボードのテンプレです。
-- DailyState（今日の状態）と、バックテスト結果（VWAP/BREAKOUT両方）を表示します。
-
-今回のポイント：
-- 新フォーマット（backtest.meta/by_window/gate）に追従した表示。
-- VWAP / BREAKOUT タブで結果を切り替え。
+- ★ BREAKOUT一本運用に固定（VWAP表示・タブを完全撤去）
 - gate.py の reasons（日本語＋数値＋円）をそのまま見せる（判断UI化）。
 -->
 {% extends "base.html" %}
@@ -96,25 +92,6 @@
       <div class="autotrade-gate-grid autotrade-mt10">
         <div class="autotrade-gate-box">
           <div class="autotrade-gate-head">
-            <div class="autotrade-h">VWAP</div>
-            <div class="autotrade-pill {% if gate.VWAP.gate_level == 'FULL' %}is-ok{% elif gate.VWAP.gate_level == 'LIGHT' %}is-warn{% else %}is-bad{% endif %}">
-              {{ gate.VWAP.gate_level }}
-            </div>
-          </div>
-
-          {% if gate.VWAP.reasons %}
-            <div class="autotrade-reason-list autotrade-mono">
-              {% for x in gate.VWAP.reasons %}
-                <div class="autotrade-reason-row">• {{ x }}</div>
-              {% endfor %}
-            </div>
-          {% else %}
-            <div class="autotrade-muted">（理由なし / 未評価）</div>
-          {% endif %}
-        </div>
-
-        <div class="autotrade-gate-box">
-          <div class="autotrade-gate-head">
             <div class="autotrade-h">BREAKOUT</div>
             <div class="autotrade-pill {% if gate.BREAKOUT.gate_level == 'FULL' %}is-ok{% elif gate.BREAKOUT.gate_level == 'LIGHT' %}is-warn{% else %}is-bad{% endif %}">
               {{ gate.BREAKOUT.gate_level }}
@@ -134,36 +111,19 @@
       </div>
     </section>
 
-    <!-- Backtest (tabs) -->
+    <!-- Backtest (BREAKOUT only) -->
     <section class="autotrade-card">
       <div class="autotrade-row">
-        <div class="autotrade-h">バックテスト（戦略別）</div>
+        <div class="autotrade-h">バックテスト（BREAKOUT）</div>
         <div class="autotrade-muted">PF/DD/N/損益を表示（集計は保存しない）</div>
       </div>
 
-      <div class="autotrade-tabs autotrade-mt10" data-initial="{{ initial_tab }}">
-        <button class="autotrade-tab" type="button" data-tab="VWAP">VWAP</button>
+      <!-- 互換のため tabs 構造は残す（中身はBREAKOUTのみ） -->
+      <div class="autotrade-tabs autotrade-mt10" data-initial="BREAKOUT">
         <button class="autotrade-tab" type="button" data-tab="BREAKOUT">BREAKOUT</button>
       </div>
 
       <div class="autotrade-tabpanes autotrade-mt10">
-        <!-- VWAP -->
-        <div class="autotrade-pane" data-pane="VWAP">
-          <div class="autotrade-chips">
-            {% for r in bt_rows_by_strategy.VWAP %}
-              <div class="autotrade-chip autotrade-mono">
-                {{ r.window }}日:
-                N {{ r.trades|default:"-" }} /
-                勝率 {{ r.win_rate|default:"-" }} /
-                PF {{ r.pf|default:"-" }} /
-                DD {{ r.dd_pct|default:"-" }} ({{ r.dd_yen|default:"-"|intcomma }}円) /
-                損益 {{ r.pnl|default:"-"|intcomma }}円
-              </div>
-            {% endfor %}
-          </div>
-        </div>
-
-        <!-- BREAKOUT -->
         <div class="autotrade-pane" data-pane="BREAKOUT">
           <div class="autotrade-chips">
             {% for r in bt_rows_by_strategy.BREAKOUT %}
