@@ -4,7 +4,6 @@
 
 このファイルは何？
 - 「実験室（TuningProfile）」の検証（BACKTEST）を実行するサービスです。
-- ★ BREAKOUT一本運用に固定（VWAP関連を完全撤去）
 - ACTIVEは触らず、DRAFT Snapshot を作って、BREAKOUT の詳細バックテストを回します。
 - detailエンジン（engine_*_detail.py）は「DB保存しない」設計なので、
   返ってくる trades を集計して metrics を作り、gate判定・UI表示用の evidence を snapshot に焼き付けます。
