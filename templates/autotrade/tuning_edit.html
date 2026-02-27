@@ -85,6 +85,44 @@
       </div>
     </div>
 
+    <!-- ★ 追加：日足フィルタ（BREAKOUT） -->
+    <div class="lab-section lab-mt12">BREAKOUT（日足フィルタ）</div>
+
+    <div class="lab-grid">
+      <div class="lab-field">
+        <div class="lab-label">日足フィルタ</div>
+        <select class="lab-input" name="breakout_daily_filter">
+          {% with v=params.BREAKOUT.daily_filter %}
+            <option value="OFF" {% if v == "OFF" %}selected{% endif %}>OFF（無効）</option>
+            <option value="SMA" {% if v == "SMA" %}selected{% endif %}>SMA（日足）</option>
+          {% endwith %}
+        </select>
+        <div class="lab-muted">まずはSMAがおすすめ（トレンド方向のみ打つ）</div>
+      </div>
+
+      <div class="lab-field">
+        <div class="lab-label">SMA日数</div>
+        <input class="lab-input" type="number" step="1" name="breakout_sma_days" value="{{ params.BREAKOUT.sma_days }}">
+        <div class="lab-muted">例：20（10/20/50で比較しやすい）</div>
+      </div>
+
+      <div class="lab-field">
+        <div class="lab-label">方向制限</div>
+        <select class="lab-input" name="breakout_direction">
+          {% with d=params.BREAKOUT.direction %}
+            <option value="TREND_ONLY" {% if d == "TREND_ONLY" %}selected{% endif %}>TREND_ONLY（推奨：上ならLONG/下ならSHORT）</option>
+            <option value="BOTH" {% if d == "BOTH" %}selected{% endif %}>BOTH（両方向を許す）</option>
+          {% endwith %}
+        </select>
+        <div class="lab-muted">TREND_ONLYが「事故りにくい」</div>
+      </div>
+
+      <div class="lab-field">
+        <div class="lab-label">メモ</div>
+        <div class="lab-muted">日足SMAは「その日」に対応する方向制限として使います（5分足のエントリー直前）。</div>
+      </div>
+    </div>
+
     <div class="lab-row lab-mt12">
       <!-- 保存（通常のPOST） -->
       <button type="submit" class="lab-btn lab-btn-primary">保存</button>
