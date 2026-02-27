@@ -6,6 +6,10 @@
 - 実験室（TuningProfile）の一覧画面（入口）です。
 - ここから「編集」「検証（BACKTEST）」「アーカイブ」へ行けます。
 - 検証は POST で /lab/<pk>/backtest/ に投げ、結果ページへリダイレクトします。
+
+変更内容（BREAKOUT一本運用）：
+- VWAP枠を完全撤去
+- BREAKOUT枠に「日足フィルタ（OFF/SMA）」「SMA日数」「方向制限」を表示
 -->
 {% extends "base.html" %}
 {% load static %}
@@ -38,19 +42,15 @@
 
           <div class="lab-grid">
             <div class="lab-box">
-              <div class="lab-box-h">VWAP</div>
-              <div class="lab-kv lab-mono">損切り(%)：{{ p.params.VWAP.stop_pct|default:"-" }}</div>
-              <div class="lab-kv lab-mono">RR：{{ p.params.VWAP.rr|default:"-" }}</div>
-              <div class="lab-kv lab-mono">乖離(%)：{{ p.params.VWAP.pullback_pct|default:"-" }}</div>
-              <div class="lab-kv lab-mono">最大保有(分)：{{ p.params.VWAP.max_hold_min|default:"-" }}</div>
-            </div>
-
-            <div class="lab-box">
               <div class="lab-box-h">BREAKOUT</div>
               <div class="lab-kv lab-mono">損切り(%)：{{ p.params.BREAKOUT.stop_pct|default:"-" }}</div>
               <div class="lab-kv lab-mono">RR：{{ p.params.BREAKOUT.rr|default:"-" }}</div>
               <div class="lab-kv lab-mono">本数：{{ p.params.BREAKOUT.lookback_bars|default:"-" }}</div>
               <div class="lab-kv lab-mono">最大保有(分)：{{ p.params.BREAKOUT.max_hold_min|default:"-" }}</div>
+
+              <div class="lab-kv lab-mono">日足：{{ p.params.BREAKOUT.daily_filter|default:"OFF" }}</div>
+              <div class="lab-kv lab-mono">SMA：{{ p.params.BREAKOUT.sma_days|default:"-" }}</div>
+              <div class="lab-kv lab-mono">方向：{{ p.params.BREAKOUT.direction|default:"TREND_ONLY" }}</div>
             </div>
           </div>
 
