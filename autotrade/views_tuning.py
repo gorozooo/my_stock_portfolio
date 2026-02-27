@@ -8,14 +8,15 @@
 - さらに CANDIDATE / ACTIVE昇格 / ロールバック（監査ログ付き）までを担当します。
 
 今回の変更：
-- BREAKOUTに「日足フィルタ（OFF/SMA）」「SMA日数」「方向制限」を追加し、
-  スクショの編集画面から保存できるようにする。
+- BREAKOUT一本運用に固定（VWAP関連を完全撤去）
+- BREAKOUTに「日足フィルタ（OFF/SMA）」「SMA日数」「方向制限（TREND_ONLY/BOTH）」を追加し、
+  編集画面から保存できるようにする。
 """
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
@@ -50,14 +51,9 @@ def _default_params() -> Dict[str, Any]:
     """
     実験室の初期パラメータ（自由入力の土台）
     - UIは「%」表記（例: 0.25 = 0.25%）
+    - ★ BREAKOUTのみ
     """
     return {
-        "VWAP": {
-            "stop_pct": 0.25,
-            "rr": 1.5,
-            "pullback_pct": 0.05,
-            "max_hold_min": 30,
-        },
         "BREAKOUT": {
             "stop_pct": 0.30,
             "rr": 2.0,
@@ -135,7 +131,7 @@ def _collect_evidence_for_snapshot(
     windows: List[int],
 ) -> Dict[str, Any]:
     """
-    既に作られている Execution を読み取り、window×strategyの metrics と gate を作る。
+    既に作られている Execution を読み取り、window×BREAKOUT の metrics と gate を作る。
     （再計算ではなく “事実(Execution)” を読む）
     """
     by_window: Dict[int, Dict[str, Dict[str, Any]]] = {}
@@ -143,48 +139,34 @@ def _collect_evidence_for_snapshot(
     snap_dict = snapshot.snapshot if isinstance(snapshot.snapshot, dict) else {}
     base_equity = int(snap_dict.get("base_equity_yen", 1_000_000))
 
-    strategies: Tuple[str, str] = ("VWAP", "BREAKOUT")
-
     for w in windows:
         w = int(w)
         by_window[w] = {}
-        for strat in strategies:
-            rd = (
-                AutoTradeBacktestRunDetail.objects
-                .filter(snapshot=snapshot, strategy=str(strat), window_days=w, trade_date=target_date)
-                .order_by("-id")
-                .first()
-            )
-            if not rd:
-                by_window[w][strat] = {"trades": 0}
-                continue
 
-            qs = AutoTradeExecution.objects.filter(run_detail=rd).order_by("exit_at")
-            m = summarize_executions(qs=qs, base_equity=base_equity)
-            by_window[w][strat] = m
+        rd = (
+            AutoTradeBacktestRunDetail.objects
+            .filter(snapshot=snapshot, strategy="BREAKOUT", window_days=w, trade_date=target_date)
+            .order_by("-id")
+            .first()
+        )
+        if not rd:
+            by_window[w]["BREAKOUT"] = {"trades": 0}
+            continue
 
-    metrics_vwap = {int(w): (by_window[int(w)].get("VWAP") or {}) for w in windows}
+        qs = AutoTradeExecution.objects.filter(run_detail=rd).order_by("exit_at")
+        m = summarize_executions(qs=qs, base_equity=base_equity)
+        by_window[w]["BREAKOUT"] = m
+
     metrics_breakout = {int(w): (by_window[int(w)].get("BREAKOUT") or {}) for w in windows}
-
-    gate_vwap = judge_multi_window(metrics_vwap)
     gate_breakout = judge_multi_window(metrics_breakout)
 
-    lv_v = str((gate_vwap or {}).get("gate_level") or "STOP")
-    lv_b = str((gate_breakout or {}).get("gate_level") or "STOP")
-
-    if lv_v == "STOP":
-        final = "STOP"
-        active = []
-        disabled = ["VWAP", "BREAKOUT"]
+    final = str((gate_breakout or {}).get("gate_level") or "STOP")
+    if final in ["FULL", "LIGHT"]:
+        active = ["BREAKOUT"]
+        disabled: List[str] = []
     else:
-        active = ["VWAP"]
-        if lv_b == "FULL":
-            final = "FULL"
-            active.append("BREAKOUT")
-            disabled = []
-        else:
-            final = "LIGHT"
-            disabled = ["BREAKOUT"]
+        active = []
+        disabled = ["BREAKOUT"]
 
     return {
         "date": str(target_date),
@@ -195,7 +177,6 @@ def _collect_evidence_for_snapshot(
             "gate_level": final,
             "active": active,
             "disabled": disabled,
-            "gate_vwap": gate_vwap,
             "gate_breakout": gate_breakout,
         },
     }
@@ -204,6 +185,7 @@ def _collect_evidence_for_snapshot(
 def _aggregate_score(metrics_by_window: Dict[int, Dict[str, Dict[str, Any]]], *, windows: List[int]) -> Dict[str, Any]:
     """
     UI比較用の “ざっくりスコア”（数値のヘッダ表示用）
+    - ★ BREAKOUTのみ
     """
     def _safe_int(x: Any, default: int = 0) -> int:
         try:
@@ -223,7 +205,7 @@ def _aggregate_score(metrics_by_window: Dict[int, Dict[str, Dict[str, Any]]], *,
     trades = 0
 
     for w in windows:
-        m = ((metrics_by_window.get(int(w)) or {}).get("VWAP") or {})
+        m = ((metrics_by_window.get(int(w)) or {}).get("BREAKOUT") or {})
         pnl += _safe_int(m.get("total_pnl"), 0)
         dd_pct = max(dd_pct, _safe_float(m.get("max_drawdown_pct"), 0.0))
         pf_sum += _safe_float(m.get("profit_factor"), 0.0)
@@ -246,41 +228,40 @@ def _build_diff_rows(
     windows: List[int],
 ) -> List[Dict[str, Any]]:
     """
-    戦略×期間の差分（Δ）を作る。UIでそのまま出せる形。
+    期間の差分（Δ）を作る。UIでそのまま出せる形。
+    - ★ BREAKOUTのみ
     """
     rows: List[Dict[str, Any]] = []
-    strategies = ["VWAP", "BREAKOUT"]
 
-    for strat in strategies:
-        for w in windows:
-            b = ((base_by_window.get(int(w)) or {}).get(strat) or {})
-            c = ((cand_by_window.get(int(w)) or {}).get(strat) or {})
+    for w in windows:
+        b = ((base_by_window.get(int(w)) or {}).get("BREAKOUT") or {})
+        c = ((cand_by_window.get(int(w)) or {}).get("BREAKOUT") or {})
 
-            rows.append({
-                "strategy": strat,
-                "window": str(w),
-                "base": {
-                    "pnl": b.get("total_pnl"),
-                    "pf": b.get("profit_factor"),
-                    "dd_yen": b.get("max_drawdown_yen"),
-                    "dd_pct": b.get("max_drawdown_pct"),
-                    "trades": b.get("trades"),
-                },
-                "cand": {
-                    "pnl": c.get("total_pnl"),
-                    "pf": c.get("profit_factor"),
-                    "dd_yen": c.get("max_drawdown_yen"),
-                    "dd_pct": c.get("max_drawdown_pct"),
-                    "trades": c.get("trades"),
-                },
-                "delta": {
-                    "pnl": delta_int(c.get("total_pnl"), b.get("total_pnl")),
-                    "pf": delta_float(c.get("profit_factor"), b.get("profit_factor")),
-                    "dd_yen": delta_int(c.get("max_drawdown_yen"), b.get("max_drawdown_yen")),
-                    "dd_pct": delta_float(c.get("max_drawdown_pct"), b.get("max_drawdown_pct")),
-                    "trades": delta_int(c.get("trades"), b.get("trades")),
-                }
-            })
+        rows.append({
+            "strategy": "BREAKOUT",
+            "window": str(w),
+            "base": {
+                "pnl": b.get("total_pnl"),
+                "pf": b.get("profit_factor"),
+                "dd_yen": b.get("max_drawdown_yen"),
+                "dd_pct": b.get("max_drawdown_pct"),
+                "trades": b.get("trades"),
+            },
+            "cand": {
+                "pnl": c.get("total_pnl"),
+                "pf": c.get("profit_factor"),
+                "dd_yen": c.get("max_drawdown_yen"),
+                "dd_pct": c.get("max_drawdown_pct"),
+                "trades": c.get("trades"),
+            },
+            "delta": {
+                "pnl": delta_int(c.get("total_pnl"), b.get("total_pnl")),
+                "pf": delta_float(c.get("profit_factor"), b.get("profit_factor")),
+                "dd_yen": delta_int(c.get("max_drawdown_yen"), b.get("max_drawdown_yen")),
+                "dd_pct": delta_float(c.get("max_drawdown_pct"), b.get("max_drawdown_pct")),
+                "trades": delta_int(c.get("trades"), b.get("trades")),
+            }
+        })
 
     return rows
 
@@ -310,14 +291,10 @@ def tuning_list(request: HttpRequest):
 def tuning_new(request: HttpRequest):
     """
     新規作成（自由入力）
+    - ★ BREAKOUTのみ
     """
     if request.method == "POST":
         name = (request.POST.get("name") or "").strip() or "New Tuning"
-
-        v_stop = _to_float(request.POST.get("vwap_stop_pct"), 0.25)
-        v_rr = _to_float(request.POST.get("vwap_rr"), 1.5)
-        v_pull = _to_float(request.POST.get("vwap_pullback_pct"), 0.05)
-        v_hold = _to_int(request.POST.get("vwap_max_hold_min"), 30)
 
         b_stop = _to_float(request.POST.get("breakout_stop_pct"), 0.30)
         b_rr = _to_float(request.POST.get("breakout_rr"), 2.0)
@@ -328,20 +305,16 @@ def tuning_new(request: HttpRequest):
         b_daily_filter = _to_choice_str(request.POST.get("breakout_daily_filter"), "OFF")
         if b_daily_filter not in ["OFF", "SMA"]:
             b_daily_filter = "OFF"
+
         b_sma_days = _to_int(request.POST.get("breakout_sma_days"), 20)
         if b_sma_days <= 0:
             b_sma_days = 20
+
         b_direction = _to_choice_str(request.POST.get("breakout_direction"), "TREND_ONLY")
         if b_direction not in ["TREND_ONLY", "BOTH"]:
             b_direction = "TREND_ONLY"
 
         params = {
-            "VWAP": {
-                "stop_pct": float(v_stop),
-                "rr": float(v_rr),
-                "pullback_pct": float(v_pull),
-                "max_hold_min": int(v_hold),
-            },
             "BREAKOUT": {
                 "stop_pct": float(b_stop),
                 "rr": float(b_rr),
@@ -373,6 +346,7 @@ def tuning_new(request: HttpRequest):
 def tuning_edit(request: HttpRequest, pk: int):
     """
     編集（自由入力）
+    - ★ BREAKOUTのみ
     """
     profile = get_object_or_404(AutoTradeTuningProfile, pk=pk, user=request.user)
 
@@ -388,14 +362,17 @@ def tuning_edit(request: HttpRequest, pk: int):
         bo["sma_days"] = 20
     if "direction" not in bo:
         bo["direction"] = "TREND_ONLY"
+    if "lookback_bars" not in bo:
+        bo["lookback_bars"] = 6
+    if "max_hold_min" not in bo:
+        bo["max_hold_min"] = 30
+    if "stop_pct" not in bo:
+        bo["stop_pct"] = 0.30
+    if "rr" not in bo:
+        bo["rr"] = 2.0
 
     if request.method == "POST":
         name = (request.POST.get("name") or "").strip() or profile.name
-
-        v_stop = _to_float(request.POST.get("vwap_stop_pct"), (params.get("VWAP") or {}).get("stop_pct", 0.25))
-        v_rr = _to_float(request.POST.get("vwap_rr"), (params.get("VWAP") or {}).get("rr", 1.5))
-        v_pull = _to_float(request.POST.get("vwap_pullback_pct"), (params.get("VWAP") or {}).get("pullback_pct", 0.05))
-        v_hold = _to_int(request.POST.get("vwap_max_hold_min"), (params.get("VWAP") or {}).get("max_hold_min", 30))
 
         b_stop = _to_float(request.POST.get("breakout_stop_pct"), (params.get("BREAKOUT") or {}).get("stop_pct", 0.30))
         b_rr = _to_float(request.POST.get("breakout_rr"), (params.get("BREAKOUT") or {}).get("rr", 2.0))
@@ -416,12 +393,6 @@ def tuning_edit(request: HttpRequest, pk: int):
             b_direction = "TREND_ONLY"
 
         new_params = {
-            "VWAP": {
-                "stop_pct": float(v_stop),
-                "rr": float(v_rr),
-                "pullback_pct": float(v_pull),
-                "max_hold_min": int(v_hold),
-            },
             "BREAKOUT": {
                 "stop_pct": float(b_stop),
                 "rr": float(b_rr),
@@ -448,8 +419,6 @@ def tuning_edit(request: HttpRequest, pk: int):
     }
     return render(request, "autotrade/tuning_edit.html", ctx)
 
-# --- 以下、あなたのファイルの残りは変更なし ---
-# （ここから下は、あなたが貼ってくれた既存コードをそのまま維持しています）
 
 @login_required
 @require_POST
@@ -470,6 +439,7 @@ def tuning_run_backtest(request: HttpRequest, pk: int):
     """
     TuningProfile の params を使って「検証用DRAFT Snapshot」を作り、
     詳細バックテストを回して evidence を焼き付け、結果ページへ遷移する。
+    - ★ BREAKOUTのみ
     """
     profile = get_object_or_404(AutoTradeTuningProfile, pk=pk, user=request.user)
 
@@ -506,6 +476,7 @@ def tuning_rerun_snapshot_force(request: HttpRequest, snapshot_id: int):
     結果ページから：
     - “同条件（picksは今日のpicks）” で snapshot の検証をやり直す
     - Executionは force=True で作り直す（増殖防止）
+    - ★ BREAKOUTのみ
     """
     snap = get_object_or_404(AutoTradeSettingSnapshot, pk=snapshot_id, user=request.user)
 
@@ -521,7 +492,6 @@ def tuning_rerun_snapshot_force(request: HttpRequest, snapshot_id: int):
     tune = sdict.get("tune") if isinstance(sdict.get("tune"), dict) else {}
 
     rr_b = tune.get("rr_breakout", None)
-    rr_v = tune.get("rr_vwap", None)
 
     run_detailed_backtests_for_universe(
         snapshot=snap,
@@ -529,7 +499,6 @@ def tuning_rerun_snapshot_force(request: HttpRequest, snapshot_id: int):
         target_date=today,
         windows=tuple(int(x) for x in windows),
         rr_breakout=float(rr_b) if rr_b is not None else None,
-        rr_vwap=float(rr_v) if rr_v is not None else None,
         base_equity_yen=None,
         force=True,
     )
@@ -544,6 +513,7 @@ def tuning_rerun_snapshot_refresh_picks(request: HttpRequest, snapshot_id: int):
     結果ページから：
     - picksを作り直して（universe再生成）
     - その上で snapshot の検証をやり直す
+    - ★ BREAKOUTのみ
     """
     snap = get_object_or_404(AutoTradeSettingSnapshot, pk=snapshot_id, user=request.user)
 
@@ -567,7 +537,6 @@ def tuning_rerun_snapshot_refresh_picks(request: HttpRequest, snapshot_id: int):
     tune = sdict.get("tune") if isinstance(sdict.get("tune"), dict) else {}
 
     rr_b = tune.get("rr_breakout", None)
-    rr_v = tune.get("rr_vwap", None)
 
     run_detailed_backtests_for_universe(
         snapshot=snap,
@@ -575,7 +544,6 @@ def tuning_rerun_snapshot_refresh_picks(request: HttpRequest, snapshot_id: int):
         target_date=today,
         windows=tuple(int(x) for x in windows),
         rr_breakout=float(rr_b) if rr_b is not None else None,
-        rr_vwap=float(rr_v) if rr_v is not None else None,
         base_equity_yen=None,
         force=True,
     )
@@ -592,6 +560,7 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
     - 追加：どのtuningかが分かるヘッダ用の summary 情報
     - 追加：ACTIVE比 / 直前比 の差分（Δ）
     - 追加：その場で再検証ボタン用の情報
+    - ★ BREAKOUTのみ
     """
     snap = get_object_or_404(AutoTradeSettingSnapshot, pk=snapshot_id, user=request.user)
 
@@ -601,7 +570,7 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
     by_window = evidence.get("by_window") if isinstance(evidence.get("by_window"), dict) else {}
 
     windows = [20, 60]
-    strategies = ["VWAP", "BREAKOUT"]
+    strategies = ["BREAKOUT"]
 
     cards = []
     for strat in strategies:
@@ -653,8 +622,6 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
             "knob": tune.get("knob"),
             "delta": tune.get("delta"),
             "rr_breakout": tune.get("rr_breakout"),
-            "rr_vwap": tune.get("rr_vwap"),
-            "stop_pct_vwap": tune.get("stop_pct_vwap"),
             "based_on_active_id": tune.get("based_on_active_id"),
             "target_date": tune.get("target_date"),
         } if tune else None,
@@ -673,7 +640,6 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
             d = by_window.get(int(w)) if isinstance(by_window.get(int(w)), dict) else by_window.get(str(int(w)))
             d = d if isinstance(d, dict) else {}
             cand_by_window[int(w)] = {
-                "VWAP": d.get("VWAP") if isinstance(d.get("VWAP"), dict) else {},
                 "BREAKOUT": d.get("BREAKOUT") if isinstance(d.get("BREAKOUT"), dict) else {},
             }
 
@@ -714,14 +680,12 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
                 pd = prev_bw.get(int(w)) if isinstance(prev_bw.get(int(w)), dict) else prev_bw.get(str(int(w)))
                 pd = pd if isinstance(pd, dict) else {}
                 prev_by_window[int(w)] = {
-                    "VWAP": pd.get("VWAP") if isinstance(pd.get("VWAP"), dict) else {},
                     "BREAKOUT": pd.get("BREAKOUT") if isinstance(pd.get("BREAKOUT"), dict) else {},
                 }
 
                 cd = by_window.get(int(w)) if isinstance(by_window.get(int(w)), dict) else by_window.get(str(int(w)))
                 cd = cd if isinstance(cd, dict) else {}
                 cand_by_window[int(w)] = {
-                    "VWAP": cd.get("VWAP") if isinstance(cd.get("VWAP"), dict) else {},
                     "BREAKOUT": cd.get("BREAKOUT") if isinstance(cd.get("BREAKOUT"), dict) else {},
                 }
 
