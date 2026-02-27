@@ -6,19 +6,13 @@
 - UI や API から渡された数値が「安全かどうか」をチェックする番人です。
 - 危険な値が1つでもあれば、バックテストは実行されません。
 
-なぜ必要？
-- 数値を自由に触れる＝事故も起きやすい
-- 検証する前に「これはダメ」と止めることで、
-  ・意味のないバックテスト
-  ・本番での破綻
-  を防ぎます。
-
-初心者ポイント：
-- ここは自分で修正しなくてOK
-- エラーメッセージは、そのまま画面に表示できます
+BREAKOUT一本運用（互換方針）：
+- PARAM_SCHEMA に存在しないカテゴリ（例: vwap）が params に混ざっていてもエラーにしない。
+  （過去データ/古いUI/古いsnapshotが混ざっても死なないため）
+- 検証対象は「schemaに定義されたカテゴリだけ」。
 """
 
-from typing import Dict, List
+from typing import Dict, List, Any
 
 from .schema import PARAM_SCHEMA
 
@@ -32,7 +26,12 @@ class ParamValidationError(Exception):
     pass
 
 
-def validate_params(params: Dict[str, Dict[str, float]]) -> None:
+# 互換許可カテゴリ（schema外でも“エラーにしない”）
+# 例：BREAKOUT一本へ移行する過程で残る vwap
+_ALLOWED_UNKNOWN_CATEGORIES = {"vwap", "VWAP"}
+
+
+def validate_params(params: Dict[str, Dict[str, Any]]) -> None:
     """
     パラメータ全体を検証するメイン関数
 
@@ -41,7 +40,7 @@ def validate_params(params: Dict[str, Dict[str, float]]) -> None:
             {
               "common": {...},
               "breakout": {...},
-              "vwap": {...}
+              （互換で "vwap": {...} が来てもOK：無視する）
             }
 
     戻り値:
@@ -51,31 +50,36 @@ def validate_params(params: Dict[str, Dict[str, float]]) -> None:
         ParamValidationError を投げる
     """
 
+    if not isinstance(params, dict):
+        raise ParamValidationError("params の形式が不正です（dictが必要）。")
+
     errors: List[str] = []
 
     # =====================================================
     # 大枠チェック：知らないカテゴリがないか
+    #   - ただし vwap は互換として許可
     # =====================================================
     for category in params.keys():
-        if category not in PARAM_SCHEMA:
-            errors.append(
-                f"未知のカテゴリ '{category}' が含まれています。"
-            )
+        if category in PARAM_SCHEMA:
+            continue
+        if str(category) in _ALLOWED_UNKNOWN_CATEGORIES:
+            continue
+        errors.append(f"未知のカテゴリ '{category}' が含まれています。")
 
     # =====================================================
-    # 各カテゴリ・各パラメータをチェック
+    # 各カテゴリ・各パラメータをチェック（schemaにあるものだけ）
     # =====================================================
     for category, schema_items in PARAM_SCHEMA.items():
         category_params = params.get(category, {})
+        if not isinstance(category_params, dict):
+            category_params = {}
 
         for key, rule in schema_items.items():
             # -----------------------------
             # 値が存在するか
             # -----------------------------
             if key not in category_params:
-                errors.append(
-                    f"[{category}] '{rule['label']}' が設定されていません。"
-                )
+                errors.append(f"[{category}] '{rule['label']}' が設定されていません。")
                 continue
 
             value = category_params[key]
@@ -113,26 +117,29 @@ def validate_params(params: Dict[str, Dict[str, float]]) -> None:
     # エラーが1つでもあれば即中断
     # =====================================================
     if errors:
-        # 複数エラーをまとめて表示
         raise ParamValidationError("\n".join(errors))
 
 
-def fill_defaults(params: Dict[str, Dict[str, float]]) -> Dict[str, Dict[str, float]]:
+def fill_defaults(params: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """
     足りないパラメータを default 値で埋めるユーティリティ
 
-    UI が部分送信してきても、
-    ・schema に従って
-    ・必ず完全な形にする
-    ために使います。
+    BREAKOUT一本運用：
+    - schema にあるカテゴリだけを「完全な形」にする。
+    - schema外（例: vwap）は無視する（混ざっててもOK・返さない）。
     """
 
-    filled: Dict[str, Dict[str, float]] = {}
+    if not isinstance(params, dict):
+        params = {}
+
+    filled: Dict[str, Dict[str, Any]] = {}
 
     for category, schema_items in PARAM_SCHEMA.items():
         filled[category] = {}
 
         category_params = params.get(category, {})
+        if not isinstance(category_params, dict):
+            category_params = {}
 
         for key, rule in schema_items.items():
             if key in category_params:
