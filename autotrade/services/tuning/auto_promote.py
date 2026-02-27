@@ -12,8 +12,9 @@
 - 昇格の根拠（evidence）を snapshot JSON に焼き付ける（再現性・説明責任）
 - emergency_stop の日は昇格しない（安全弁）
 
-今回の変更ポイント：
-- run_detail 検索キーを executed_at__date から trade_date に変更（UTC/JST混線を根絶）
+今回の変更（BREAKOUT一本運用）：
+- BREAKOUT のみで gate 判定 → FULLなら昇格
+- run_detail 検索キーは trade_date（UTC/JST混線回避）は維持
 """
 
 from __future__ import annotations
@@ -31,40 +32,30 @@ from autotrade.services.backtest.execution_metrics import summarize_executions
 from autotrade.services.backtest.gate import judge_multi_window
 
 
-STRATEGIES: Tuple[str, str] = ("VWAP", "BREAKOUT")
+STRATEGIES: Tuple[str, ...] = ("BREAKOUT",)
 
 
-def _merge_gate_results(*, gate_vwap: Dict[str, Any], gate_breakout: Dict[str, Any]) -> Dict[str, Any]:
+def _merge_gate_results(*, gate_breakout: Dict[str, Any]) -> Dict[str, Any]:
     """
-    runner.py の統合ルールと同じ思想で最終判定を作る（本番の意思決定と揃える）
-
-    FULL条件（あなたの方針：最初からFULL狙い）
-    - VWAP が STOP ではない（LIGHT/FULL）
-    - かつ BREAKOUT が FULL
+    BREAKOUT一本運用の最終判定。
+    - gate_level は BREAKOUT の判定をそのまま採用
+    - STOPなら active空、FULL/LIGHTならBREAKOUTをactive
     """
-    lv_v = str((gate_vwap or {}).get("gate_level") or "STOP")
     lv_b = str((gate_breakout or {}).get("gate_level") or "STOP")
 
     active: List[str] = []
     disabled: List[str] = []
 
-    if lv_v == "STOP":
+    if lv_b == "STOP":
         final = "STOP"
-        disabled = ["VWAP", "BREAKOUT"]
     else:
-        active.append("VWAP")
-        if lv_b == "FULL":
-            final = "FULL"
-            active.append("BREAKOUT")
-        else:
-            final = "LIGHT"
-            disabled.append("BREAKOUT")
+        final = lv_b
+        active.append("BREAKOUT")
 
     return {
         "gate_level": final,
         "active": active,
         "disabled": disabled,
-        "gate_vwap": gate_vwap,
         "gate_breakout": gate_breakout,
     }
 
@@ -102,12 +93,10 @@ def _collect_metrics_for_snapshot(
             m = summarize_executions(qs=qs, base_equity=base_equity)
             by_window[w][strat] = m
 
-    metrics_vwap = {int(w): (by_window[int(w)].get("VWAP") or {}) for w in windows}
     metrics_breakout = {int(w): (by_window[int(w)].get("BREAKOUT") or {}) for w in windows}
 
-    gate_vwap = judge_multi_window(metrics_vwap)
     gate_breakout = judge_multi_window(metrics_breakout)
-    merged = _merge_gate_results(gate_vwap=gate_vwap, gate_breakout=gate_breakout)
+    merged = _merge_gate_results(gate_breakout=gate_breakout)
 
     return {
         "base_equity_yen": base_equity,
