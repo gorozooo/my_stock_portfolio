@@ -16,7 +16,6 @@
 - 数値を変えたいときは UI から行います。
 
 BREAKOUT一本運用：
-- VWAP_PARAMS と vwap schema を完全撤去
 """
 
 from typing import Dict
