@@ -8,7 +8,6 @@
 - さらに CANDIDATE / ACTIVE昇格 / ロールバック（監査ログ付き）までを担当します。
 
 今回の変更：
-- BREAKOUT一本運用に固定（VWAP関連を完全撤去）
 - BREAKOUTに「日足フィルタ（OFF/SMA）」「SMA日数」「方向制限（TREND_ONLY/BOTH）」を追加し、
   編集画面から保存できるようにする。
 """
