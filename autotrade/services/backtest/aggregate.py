@@ -8,10 +8,13 @@
 
 初心者ポイント：
 - エンジン（戦略ごとの計算）と、集計（合算/平均/最大）は分けると肥大化しません。
+
+BREAKOUT一本運用：
+- 集計は BREAKOUT のみ
+- 互換のため戻り値に "VWAP": {} を残す（古い呼び出し/表示が KeyError で死なない安全弁）
 """
 
 from .engine_breakout import run_breakout
-from .engine_vwap import run_vwap
 
 
 def _agg_results(xs):
@@ -25,28 +28,25 @@ def _agg_results(xs):
     return {"trades": int(trades), "pf": float(pf), "max_dd": float(max_dd), "pnl": float(pnl)}
 
 
-def run_backtests_for_universe(picks, windows, rr_breakout: float, rr_vwap: float):
+def run_backtests_for_universe(picks, windows, rr_breakout: float, rr_vwap=None):
     """
-    戻り値:
+    BREAKOUT一本運用。
+
+    戻り値（互換あり）:
     {
       "BREAKOUT": {"20": {...}, "60": {...}, "120": {...}},
-      "VWAP":     {"20": {...}, "60": {...}, "120": {...}},
+      "VWAP":     {},   # ★互換のため空で残す（参照側を順次撤去するまでの安全弁）
     }
     """
     bt = {"BREAKOUT": {}, "VWAP": {}}
 
     for w in windows:
         res_b = []
-        res_v = []
         for t in picks:
             r1 = run_breakout(t, w, rr_breakout)
-            r2 = run_vwap(t, w, rr_vwap)
             if r1:
                 res_b.append(r1)
-            if r2:
-                res_v.append(r2)
 
         bt["BREAKOUT"][str(w)] = _agg_results(res_b)
-        bt["VWAP"][str(w)] = _agg_results(res_v)
 
     return bt
