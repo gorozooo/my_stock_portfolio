@@ -10,6 +10,10 @@
   3) ACTIVE比 / 直前比 の差分（Δ）を数値で見える化（viewで生成した diff_vs_* を表示）
   4) 再検証（戻らずにワンタップ）：同条件でやり直し / picks更新してやり直し
 - 「理由（日本語＋数字＋円）」は初期非表示（detailsで折りたたみ）
+
+変更内容（BREAKOUT一本運用）：
+- VWAP関連の表示（パラメータ・理由）を完全撤去
+- 最終判定の理由は BREAKOUT のみ表示
 -->
 
 {% extends "base.html" %}
@@ -96,23 +100,21 @@
       </div>
     </div>
 
-    <!-- ★ 追加：作業台の中身（数値）を見せる -->
+    <!-- ★ 追加：作業台の中身（数値）を見せる（BREAKOUTのみ） -->
     {% if profile and profile.params %}
       <details class="lab-details lab-mt12">
         <summary class="lab-summary">作業台のパラメータ（タップで開く）</summary>
 
         <div class="lab-mt10 lab-mono lab-kv">
-          <div class="lab-subtitle">VWAP</div>
-          <div>stop_pct：<span class="lab-strong">{{ profile.params.VWAP.stop_pct|default:"-" }}</span>%</div>
-          <div>rr：<span class="lab-strong">{{ profile.params.VWAP.rr|default:"-" }}</span></div>
-          <div>pullback_pct：<span class="lab-strong">{{ profile.params.VWAP.pullback_pct|default:"-" }}</span>%</div>
-          <div>max_hold_min：<span class="lab-strong">{{ profile.params.VWAP.max_hold_min|default:"-" }}</span>分</div>
-
-          <div class="lab-subtitle lab-mt12">BREAKOUT</div>
+          <div class="lab-subtitle">BREAKOUT</div>
           <div>stop_pct：<span class="lab-strong">{{ profile.params.BREAKOUT.stop_pct|default:"-" }}</span>%</div>
           <div>rr：<span class="lab-strong">{{ profile.params.BREAKOUT.rr|default:"-" }}</span></div>
           <div>lookback_bars：<span class="lab-strong">{{ profile.params.BREAKOUT.lookback_bars|default:"-" }}</span></div>
           <div>max_hold_min：<span class="lab-strong">{{ profile.params.BREAKOUT.max_hold_min|default:"-" }}</span>分</div>
+
+          <div class="lab-mt10">daily_filter：<span class="lab-strong">{{ profile.params.BREAKOUT.daily_filter|default:"OFF" }}</span></div>
+          <div>sma_days：<span class="lab-strong">{{ profile.params.BREAKOUT.sma_days|default:"-" }}</span></div>
+          <div>direction：<span class="lab-strong">{{ profile.params.BREAKOUT.direction|default:"TREND_ONLY" }}</span></div>
         </div>
       </details>
     {% endif %}
@@ -400,19 +402,8 @@
     <details class="lab-details lab-mt12">
       <summary class="lab-summary">理由（日本語＋数字＋円）を表示</summary>
 
-      {% with gv=gate.gate_vwap gb=gate.gate_breakout %}
+      {% with gb=gate.gate_breakout %}
         <div class="lab-mt10">
-          <div class="lab-subtitle">VWAP</div>
-          <div class="lab-reasons">
-            {% for r in gv.reasons %}
-              <div class="lab-reason-line">{{ r }}</div>
-            {% empty %}
-              <div class="lab-muted">理由なし</div>
-            {% endfor %}
-          </div>
-        </div>
-
-        <div class="lab-mt12">
           <div class="lab-subtitle">BREAKOUT</div>
           <div class="lab-reasons">
             {% for r in gb.reasons %}
