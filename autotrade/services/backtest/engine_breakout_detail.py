@@ -6,16 +6,14 @@
 - 戦略①（レンジブレイク）の「詳細バックテスト」エンジンです。
 - 1トレード=1件の辞書ログとして返します（DB保存は runner 側の役割）。
 
-今回の変更（チューニング用）：
-- 日足フィルタ（SMAトレンド）を追加しました。
-  - breakout_daily_filter="OFF"（デフォルト）なら今まで通り。
-  - breakout_daily_filter="SMA" で ON。
-  - trendが上ならLONG優先、下ならSHORT優先にできます。
-- これにより「同じスナップショットでも、相場環境で結果が変わる」ようになります。
-
-初心者ポイント：
-- ここは「ルール通りに売買を再現するだけ」。
-- DB保存や判定（🟢🟡🔴）は別ファイルが担当します。
+今回の変更：
+- profileから設定した
+  - breakout_lookback_bars（ブレイク判定本数）
+  - breakout_max_hold_bars（最大保有）
+  - breakout_daily_filter（OFF/SMA）
+  - breakout_sma_days
+  - breakout_direction（TREND_ONLY/BOTH）
+  を反映できるようにする。
 """
 
 from __future__ import annotations
@@ -25,7 +23,7 @@ from typing import Any, Dict, List
 from django.conf import settings
 from django.utils import timezone
 
-from .data_fetcher import fetch_5m, fetch_daily
+from .data_fetcher import fetch_5m, fetch_1d
 
 
 def _ensure_aware(dt):
@@ -33,98 +31,55 @@ def _ensure_aware(dt):
         return None
     if timezone.is_aware(dt):
         return dt
-    # dfのindexがnaiveな場合は「プロジェクトTZ」として扱う（JST想定）
     return timezone.make_aware(dt, timezone.get_current_timezone())
 
 
-def _safe_float(v: Any, default: float = 0.0) -> float:
-    try:
-        return float(v)
-    except Exception:
-        return float(default)
-
-
-def _safe_int(v: Any, default: int = 0) -> int:
-    try:
-        return int(v)
-    except Exception:
-        return int(default)
-
-
-def _decide_daily_trend_filter(
-    *,
-    snapshot_dict: Dict[str, Any],
-    ticker: str,
-    end_at,
-) -> Dict[str, bool]:
+def _build_daily_trend_map(*, ticker: str, sma_days: int) -> Dict[str, str]:
     """
-    日足トレンドでBREAKOUTの方向を制限する。
-    返り値: {"allow_long": bool, "allow_short": bool, "mode": str}
-
-    snapshot_dict のキー（今回追加）:
-    - breakout_daily_filter: "OFF" | "SMA"
-      - OFF: フィルタなし（従来通り）
-      - SMA: SMAでトレンド判定して方向を絞る
-    - breakout_daily_sma_days: int (default 20)
-    - breakout_daily_bias: "BOTH" | "TREND_ONLY"
-      - BOTH: トレンドでも逆方向も許す（弱め）
-      - TREND_ONLY: トレンド方向だけ許す（強め）
+    日足の終値とSMAから、日付 -> "UP"/"DOWN" の辞書を作る。
+    keyは "YYYY-MM-DD"。
     """
-    mode = str(snapshot_dict.get("breakout_daily_filter") or "OFF").upper().strip()
-    if mode not in ["OFF", "SMA"]:
-        mode = "OFF"
+    sma_days = int(sma_days) if int(sma_days) > 0 else 20
 
-    # デフォルトは従来互換（OFF）
-    if mode == "OFF":
-        return {"allow_long": True, "allow_short": True, "mode": "OFF"}
+    df = fetch_1d(ticker, prefer_period="1y")
+    if df is None or getattr(df, "empty", True):
+        return {}
 
-    sma_days = _safe_int(snapshot_dict.get("breakout_daily_sma_days"), 20)
-    sma_days = max(5, min(sma_days, 60))
-
-    bias = str(snapshot_dict.get("breakout_daily_bias") or "TREND_ONLY").upper().strip()
-    if bias not in ["BOTH", "TREND_ONLY"]:
-        bias = "TREND_ONLY"
-
-    prefer_period = "180d" if sma_days <= 60 else "360d"
-    dfd = fetch_daily(ticker, prefer_period=prefer_period)
-    if dfd is None or getattr(dfd, "empty", True):
-        # 日足が取れないなら安全に両方向OK
-        return {"allow_long": True, "allow_short": True, "mode": "SMA_NO_DAILY"}
-
-    # end_at までに絞る（5分足の終端に合わせる）
+    # SMA計算
     try:
-        if end_at is not None:
-            dfd = dfd.loc[: end_at.date()].copy()
+        close = df["close"]
+        sma = close.rolling(window=sma_days).mean()
     except Exception:
-        pass
+        return {}
 
-    if len(dfd) < sma_days + 5:
-        return {"allow_long": True, "allow_short": True, "mode": "SMA_TOO_SHORT"}
+    out: Dict[str, str] = {}
+    idx = df.index
 
-    close = dfd["close"].astype(float)
-    sma = close.rolling(sma_days).mean()
+    for i in range(len(df)):
+        try:
+            c = float(close.iloc[i])
+            s = float(sma.iloc[i])
+        except Exception:
+            continue
+        if s != s:  # NaN
+            continue
 
-    last_close = float(close.iloc[-1])
-    last_sma = float(sma.iloc[-1]) if sma.iloc[-1] == sma.iloc[-1] else None  # NaN対策
+        dt = idx[i]
+        d = None
+        try:
+            d = dt.date().isoformat()
+        except Exception:
+            try:
+                d = str(dt)[:10]
+            except Exception:
+                d = None
 
-    if last_sma is None or last_sma <= 0:
-        return {"allow_long": True, "allow_short": True, "mode": "SMA_BAD"}
+        if not d:
+            continue
 
-    # トレンド判定（超シンプル：終値がSMAより上/下）
-    uptrend = last_close >= last_sma
-    downtrend = last_close < last_sma
+        out[d] = "UP" if c >= s else "DOWN"
 
-    if bias == "BOTH":
-        # 弱め：トレンド方向を「優先」したいなら、ここは runner 側で重み付けに使うのが本筋。
-        # ここでは安全に両方向OKのまま返す（将来拡張用）。
-        return {"allow_long": True, "allow_short": True, "mode": "SMA_BOTH"}
-
-    # 強め：トレンド方向だけ許可
-    return {
-        "allow_long": bool(uptrend),
-        "allow_short": bool(downtrend),
-        "mode": "SMA_TREND_ONLY_UP" if uptrend else "SMA_TREND_ONLY_DOWN",
-    }
+    return out
 
 
 def run_breakout_detail(
@@ -144,27 +99,42 @@ def run_breakout_detail(
         "start_at": datetime,
         "end_at": datetime,
       }
-
-    execution_dict（runnerがそのままAutoTradeExecutionへ流し込める形）:
-      {
-        "ticker": "...",
-        "side": "LONG" or "SHORT",
-        "entry_at": datetime,
-        "entry_price": float,
-        "exit_at": datetime,
-        "exit_price": float,
-        "exit_reason": "TP/SL/TIME/EOD",
-        "size": int,
-        "pnl_yen": int,
-        "rr": float,
-        "holding_minutes": int,
-      }
     """
 
-    # v1は既存簡易版と同じ固定値（現実寄り）
+    # 主要パラメータ
     stop_pct = float(snapshot_dict.get("breakout_stop_pct") or 0.003)  # 0.3%
     slip = float(getattr(settings, "AUTOTRADE_SLIPPAGE_PCT", 0.0))
     risk_trade_pct = float(getattr(settings, "AUTOTRADE_RISK_TRADE_PCT", 0.0015))
+
+    # ★ 追加：ブレイク判定本数（5分足）
+    lookback_bars = int(snapshot_dict.get("breakout_lookback_bars") or 6)
+    if lookback_bars < 2:
+        lookback_bars = 2
+    if lookback_bars > 60:
+        lookback_bars = 60
+
+    # ★ 追加：最大保有（bars）
+    max_hold_bars = int(snapshot_dict.get("breakout_max_hold_bars") or snapshot_dict.get("max_hold_bars") or 20)
+    if max_hold_bars < 1:
+        max_hold_bars = 1
+    if max_hold_bars > 200:
+        max_hold_bars = 200
+
+    # ★ 追加：日足フィルタ
+    daily_filter = str(snapshot_dict.get("breakout_daily_filter") or "OFF").upper()
+    sma_days = int(snapshot_dict.get("breakout_sma_days") or 20)
+    direction = str(snapshot_dict.get("breakout_direction") or "TREND_ONLY").upper()
+
+    if daily_filter not in ["OFF", "SMA"]:
+        daily_filter = "OFF"
+    if sma_days <= 0:
+        sma_days = 20
+    if direction not in ["TREND_ONLY", "BOTH"]:
+        direction = "TREND_ONLY"
+
+    trend_map: Dict[str, str] = {}
+    if daily_filter == "SMA":
+        trend_map = _build_daily_trend_map(ticker=ticker, sma_days=sma_days)
 
     prefer_period = "60d" if window_days > 20 else "20d"
     df = fetch_5m(ticker, prefer_period=prefer_period)
@@ -176,15 +146,9 @@ def run_breakout_detail(
     if len(df) < 200:
         return {"trades": [], "pnls": [], "equity_curve": [float(base_equity_yen)], "start_at": None, "end_at": None}
 
-    # indexがdatetime前提
     idx = df.index
     start_at = _ensure_aware(idx[0].to_pydatetime() if hasattr(idx[0], "to_pydatetime") else idx[0])
     end_at = _ensure_aware(idx[-1].to_pydatetime() if hasattr(idx[-1], "to_pydatetime") else idx[-1])
-
-    # ★ 追加：日足フィルタで方向制限
-    filt = _decide_daily_trend_filter(snapshot_dict=snapshot_dict, ticker=ticker, end_at=end_at)
-    allow_long = bool(filt.get("allow_long", True))
-    allow_short = bool(filt.get("allow_short", True))
 
     opens = df["open"].values
     highs = df["high"].values
@@ -196,14 +160,40 @@ def run_breakout_detail(
     pnls: List[int] = []
     trades_out: List[Dict[str, Any]] = []
 
-    # 最大保有（5分足20本=約100分）※既存簡易版踏襲
-    max_hold_bars = int(snapshot_dict.get("max_hold_bars") or 20)
+    def _allowed_side(entry_dt_aware, side: str) -> bool:
+        """
+        日足SMAフィルタ（TREND_ONLY）を適用。
+        - OFFなら常にOK
+        - SMA + TREND_ONLY：UP→LONGのみ / DOWN→SHORTのみ
+        - SMA + BOTH：両方向OK（trend_mapは作るが制限しない）
+        """
+        if daily_filter != "SMA":
+            return True
+        if direction == "BOTH":
+            return True
+
+        if not entry_dt_aware:
+            return True
+
+        d = timezone.localtime(entry_dt_aware).date().isoformat()
+        tr = trend_map.get(d)
+        if tr not in ["UP", "DOWN"]:
+            # SMAが出てない日は安全側で “見送り”
+            return False
+
+        if tr == "UP" and side == "LONG":
+            return True
+        if tr == "DOWN" and side == "SHORT":
+            return True
+        return False
 
     # i: 現在バー、エントリーは次バーopen
-    for i in range(10, len(df) - 2):
-        # 直近30分（6本）の高値/安値
-        hh = float(max(highs[i - 6 : i]))
-        ll = float(min(lows[i - 6 : i]))
+    start_i = max(lookback_bars + 1, 10)
+
+    for i in range(start_i, len(df) - 2):
+        # 直近lookback_bars本の高値/安値
+        hh = float(max(highs[i - lookback_bars : i]))
+        ll = float(min(lows[i - lookback_bars : i]))
 
         price = float(closes[i])
         nxt_open = float(opens[i + 1])
@@ -215,24 +205,25 @@ def run_breakout_detail(
         if shares < 100:
             continue
 
+        # 次バーの時刻（entry_at）
+        entry_at = _ensure_aware(idx[i + 1].to_pydatetime() if hasattr(idx[i + 1], "to_pydatetime") else idx[i + 1])
+
         # ---------- ロング（ブレイク上） ----------
         if price > hh:
-            # ★ 追加：日足フィルタでロング禁止ならスキップ
-            if not allow_long:
+            if not _allowed_side(entry_at, "LONG"):
                 continue
 
             entry = nxt_open * (1.0 + slip)
             stop = entry * (1.0 - stop_pct)
             take = entry * (1.0 + stop_pct * rr)
-            entry_at = _ensure_aware(idx[i + 1].to_pydatetime() if hasattr(idx[i + 1], "to_pydatetime") else idx[i + 1])
 
             exited = False
             j_end = min(i + 1 + max_hold_bars, len(df) - 1)
+
             for j in range(i + 1, j_end + 1):
                 h = float(highs[j])
                 l = float(lows[j])
 
-                # SL優先（事故防止）
                 if l <= stop:
                     exitp = stop * (1.0 - slip)
                     exit_reason = "SL"
@@ -269,7 +260,6 @@ def run_breakout_detail(
                 break
 
             if not exited:
-                # TIME（保有上限）でクローズ
                 exit_at = _ensure_aware(idx[j_end].to_pydatetime() if hasattr(idx[j_end], "to_pydatetime") else idx[j_end])
                 exitp = float(closes[j_end]) * (1.0 - slip)
                 pnl = int(round((exitp - entry) * shares))
@@ -296,17 +286,16 @@ def run_breakout_detail(
 
         # ---------- ショート（ブレイク下） ----------
         elif price < ll:
-            # ★ 追加：日足フィルタでショート禁止ならスキップ
-            if not allow_short:
+            if not _allowed_side(entry_at, "SHORT"):
                 continue
 
             entry = nxt_open * (1.0 - slip)
             stop = entry * (1.0 + stop_pct)
             take = entry * (1.0 - stop_pct * rr)
-            entry_at = _ensure_aware(idx[i + 1].to_pydatetime() if hasattr(idx[i + 1], "to_pydatetime") else idx[i + 1])
 
             exited = False
             j_end = min(i + 1 + max_hold_bars, len(df) - 1)
+
             for j in range(i + 1, j_end + 1):
                 h = float(highs[j])
                 l = float(lows[j])
