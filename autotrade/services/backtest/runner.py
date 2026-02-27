@@ -3,13 +3,13 @@
 [PATH] <project_root>/autotrade/services/backtest/runner.py
 
 このファイルは何？
-- 詳細バックテストの司令塔（Executionを生成→集計→gate判定→DailyState更新）
+- 詳細バックテストの司令塔（Execution基準）。
+- Snapshot（固定設定）を入力として Execution（事実ログ）を生成し、集計して gate 判定する。
 - ★ BREAKOUT一本運用に固定（VWAP関連を完全撤去）
 
 重要：
-- 集計値は保存しない
+- 集計値は保存しない（その場で作る）
 - 事実（Execution）だけが真実
-- trade_date基準（UTC/JST混線を根絶）
 """
 
 from __future__ import annotations
@@ -39,36 +39,35 @@ DEFAULT_BACKTEST_WINDOWS: Tuple[int, int, int] = (20, 60, 120)
 STRATEGIES: Tuple[str, ...] = ("BREAKOUT",)
 
 
-def _finalize_gate_breakout_only(
+def _build_final_gate(
     *,
     gate_breakout: Dict[str, Any],
     rr_breakout: float,
     windows: Tuple[int, ...],
 ) -> Dict[str, Any]:
     """
-    BREAKOUT一本の最終判定を作る。
-    - gate.pyの理由文（数字/円）は gate_breakout["reasons"] に入っている想定
-    - runnerは見出し（構造）だけ足す
+    BREAKOUT一本運用の最終ゲートを組み立てる。
+    - gate.py の reasons（日本語＋数値＋円）を尊重し、そのまま返す。
     """
-    lv_b = str((gate_breakout or {}).get("gate_level") or "STOP")
+    lv = str((gate_breakout or {}).get("gate_level") or "STOP")
 
-    if lv_b == "STOP":
-        final = "STOP"
-        active: List[str] = []
-        disabled: List[str] = ["BREAKOUT"]
-        header = "【最終判定】STOP（安全のため稼働しない）"
-    elif lv_b == "LIGHT":
+    if lv == "FULL":
+        final = "FULL"
+        active = ["BREAKOUT"]
+        disabled: List[str] = []
+        head = "【最終判定】FULL（BREAKOUT 稼働）"
+    elif lv == "LIGHT":
         final = "LIGHT"
         active = ["BREAKOUT"]
         disabled = []
-        header = "【最終判定】LIGHT（BREAKOUT 慎重運用）"
+        head = "【最終判定】LIGHT（BREAKOUT 軽稼働）"
     else:
-        final = "FULL"
-        active = ["BREAKOUT"]
-        disabled = []
-        header = "【最終判定】FULL（BREAKOUT 稼働）"
+        final = "STOP"
+        active = []
+        disabled = ["BREAKOUT"]
+        head = "【最終判定】STOP（安全のため稼働しない）"
 
-    reasons: List[str] = [header]
+    reasons: List[str] = [head]
     reasons.append(f"【設定】windows={list(windows)} / RR(BREAKOUT)={rr_breakout:.2f}")
 
     rs = (gate_breakout or {}).get("reasons") or []
@@ -100,7 +99,7 @@ def run_detailed_backtests_for_universe(
     force: bool = False,
 ) -> Dict[str, Any]:
     """
-    詳細バックテストを実行し、DailyState を更新する（BREAKOUT一本）。
+    詳細バックテストを実行し、DailyState を更新する（BREAKOUTのみ）。
 
     - snapshot: ACTIVE Snapshot（必須）
     - picks: 今日の銘柄リスト
@@ -174,8 +173,7 @@ def run_detailed_backtests_for_universe(
     metrics_by_window_strategy: Dict[int, Dict[str, Dict[str, Any]]] = {}
 
     for window in bt_windows:
-        w = int(window)
-        metrics_by_window_strategy[w] = {}
+        metrics_by_window_strategy[int(window)] = {}
 
         # -------------------------------------------------
         # 既存 run_detail を再利用（同日再実行で暴増殖を防ぐ）
@@ -183,7 +181,7 @@ def run_detailed_backtests_for_universe(
         run_detail = AutoTradeBacktestRunDetail.objects.filter(
             snapshot=snapshot,
             strategy="BREAKOUT",
-            window_days=w,
+            window_days=int(window),
             trade_date=target_date,
         ).order_by("-id").first()
 
@@ -192,7 +190,7 @@ def run_detailed_backtests_for_universe(
                 user=user,
                 snapshot=snapshot,
                 strategy="BREAKOUT",
-                window_days=w,
+                window_days=int(window),
                 trade_date=target_date,
                 start_date=target_date,
                 end_date=target_date,
@@ -209,7 +207,7 @@ def run_detailed_backtests_for_universe(
             for ticker in picks:
                 run_breakout(
                     ticker=ticker,
-                    window_days=w,
+                    window_days=int(window),
                     rr=rr_b,
                     snapshot=snapshot,
                     mode="BACKTEST",
@@ -219,19 +217,12 @@ def run_detailed_backtests_for_universe(
 
         qs = AutoTradeExecution.objects.filter(run_detail=run_detail).order_by("exit_at")
         metrics = summarize_executions(qs=qs, base_equity=base_equity)
-        metrics_by_window_strategy[w]["BREAKOUT"] = metrics
+        metrics_by_window_strategy[int(window)]["BREAKOUT"] = metrics
 
-    # -----------------------------------------------------
-    # gate 判定（BREAKOUTのみ）
-    # -----------------------------------------------------
-    metrics_breakout: Dict[int, Dict[str, Any]] = {}
-    for w in bt_windows:
-        w = int(w)
-        metrics_breakout[w] = (metrics_by_window_strategy.get(w) or {}).get("BREAKOUT") or {}
-
+    metrics_breakout: Dict[int, Dict[str, Any]] = {int(w): (metrics_by_window_strategy.get(int(w)) or {}).get("BREAKOUT") or {} for w in bt_windows}
     gate_breakout = judge_multi_window(metrics_breakout)
 
-    merged = _finalize_gate_breakout_only(
+    merged = _build_final_gate(
         gate_breakout=gate_breakout,
         rr_breakout=rr_b,
         windows=bt_windows,
@@ -241,7 +232,12 @@ def run_detailed_backtests_for_universe(
     active = list(merged.get("active_strategies") or [])
     disabled = list(merged.get("disabled_strategies") or [])
 
-    state.strategy = "BREAKOUT" if final_level in ("FULL", "LIGHT") else ""
+    # strategy表示はBREAKOUT固定（停止時は空でOK）
+    if final_level in ["FULL", "LIGHT"]:
+        state.strategy = "BREAKOUT"
+    else:
+        state.strategy = ""
+
     state.gate_level = final_level
     state.gate_reason = "\n".join([str(x) for x in (merged.get("reasons") or []) if str(x).strip()])
     state.strategy_decided_at = timezone.now()
