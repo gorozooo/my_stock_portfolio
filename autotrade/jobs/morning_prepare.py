@@ -14,7 +14,7 @@
 重要な設計ルール：
 - 非常停止（emergency_stop）が有効な日は、一切の状態更新を行わない
 - gate判定は runner で確定。9:30 job は gate を再計算しない
-- BREAKOUT一本運用：VWAP関連の引数（rr_vwap等）は一切渡さない
+- BREAKOUT一本運用
 """
 
 from datetime import date
