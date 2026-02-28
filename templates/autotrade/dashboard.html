@@ -4,14 +4,14 @@
 
 このファイルは何？
 - AutoTrade の iPhone 1画面ダッシュボードのテンプレです。
-- “今日動かしていいか” を、初心者でも「読むだけ」で分かるようにします。
+- “初心者が迷わない” ために、必要な情報だけを上から順に出します。
 
-今回の変更
-- 当日の戦略（BREAKOUT固定なので不要）を削除
-- 最終判定（まとめ）とバックテスト表示を削除（判定理由と重複のため）
-- 判定理由を「読みやすい文章の行」で表示（/区切りはgate.py側で撤去済み）
-- 新設：合格ライン（判定基準） / 現在の動いている数値（今日の設定）
-- 判定理由の “白丸BREAKOUT” を削除（見出しのみ）
+今回の変更点（初心者UI向け）：
+- 「当日の戦略」ボックス削除（BREAKOUT一本なので不要）
+- 「最終判定（まとめ）」削除（判定理由と重複するため）
+- 「バックテスト（BREAKOUT）」削除（判定理由に噛み砕いて出すため）
+- 「判定理由」は “/区切り” をやめ、期間別の箇条書きをそのまま表示
+- 「合格ライン」「今日の設定」は “文章＋箇条書き” にして専門用語感を下げる
 -->
 {% extends "base.html" %}
 {% load humanize %}
@@ -19,7 +19,7 @@
 {% block title %}AutoTrade Dashboard{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'autotrade/dashboard.css' %}?v=3">
+<link rel="stylesheet" href="{% static 'autotrade/dashboard.css' %}?v=2">
 {% endblock %}
 
 {% block content %}
@@ -70,11 +70,11 @@
       </div>
     </section>
 
-    <!-- Gate reasons (Numbers + Yen + Japanese) -->
+    <!-- Gate reasons (Beginner-friendly) -->
     <section class="autotrade-card">
       <div class="autotrade-row">
-        <div class="autotrade-h">判定理由（BREAKOUT）</div>
-        <div class="autotrade-muted">結論・理由・数字がここに全部あります</div>
+        <div class="autotrade-h">判定理由（ここだけ見ればOK）</div>
+        <div class="autotrade-muted">結論・理由・数字を “期間ごと” に整理して表示します</div>
       </div>
 
       <div class="autotrade-mt10">
@@ -86,13 +86,17 @@
         </div>
 
         {% if gate.BREAKOUT.reasons %}
-          <div class="autotrade-reason-list autotrade-mono">
+          <div class="autotrade-reason-list autotrade-mono autotrade-mt10">
             {% for x in gate.BREAKOUT.reasons %}
-              <div class="autotrade-reason-row">• {{ x }}</div>
+              {% if x %}
+                <div class="autotrade-reason-row">• {{ x }}</div>
+              {% else %}
+                <div style="height:10px;"></div>
+              {% endif %}
             {% endfor %}
           </div>
         {% else %}
-          <div class="autotrade-muted">（理由なし / 未評価）</div>
+          <div class="autotrade-muted autotrade-mt10">（理由なし / 未評価）</div>
         {% endif %}
       </div>
     </section>
@@ -101,43 +105,42 @@
     <section class="autotrade-card">
       <div class="autotrade-row">
         <div class="autotrade-h">合格ライン（判定基準）</div>
-        <div class="autotrade-muted">ここを満たすと FULL / LIGHT になります</div>
+        <div class="autotrade-muted">これを満たすと FULL / LIGHT になります</div>
       </div>
 
-      <div class="autotrade-chips autotrade-mt10">
-        <div class="autotrade-chip autotrade-mono">
-          FULL：PF ≥ {{ thresholds.FULL.min_pf }} ／ DD ≤ {{ thresholds.FULL.max_dd_pct }} ／ 回数 ≥ {{ thresholds.FULL.min_trades }} ／ 勝率 ≥ {{ thresholds.FULL.min_win_rate }}
-        </div>
-        <div class="autotrade-chip autotrade-mono">
-          LIGHT：PF ≥ {{ thresholds.LIGHT.min_pf }} ／ DD ≤ {{ thresholds.LIGHT.max_dd_pct }} ／ 回数 ≥ {{ thresholds.LIGHT.min_trades }} ／ 勝率 ≥ {{ thresholds.LIGHT.min_win_rate }}
-        </div>
-      </div>
+      <div class="autotrade-mt10 autotrade-mono">
+        <div class="autotrade-reason-list">
+          <div class="autotrade-reason-row">• FULL（通常稼働）</div>
+          {% for line in thresholds.FULL %}
+            <div class="autotrade-reason-row">  - {{ line }}</div>
+          {% endfor %}
 
-      <div class="autotrade-muted autotrade-mt10">
-        PF=勝ち合計÷負け合計 ／ DD=最大落ち込み（%） ／ 回数=取引回数
+          <div style="height:10px;"></div>
+
+          <div class="autotrade-reason-row">• LIGHT（軽稼働）</div>
+          {% for line in thresholds.LIGHT %}
+            <div class="autotrade-reason-row">  - {{ line }}</div>
+          {% endfor %}
+        </div>
+
+        <div class="autotrade-muted autotrade-mt10">
+          ※PF=勝ち合計÷負け合計 / DD=最大落ち込み / 取引回数=実際の回数
+        </div>
       </div>
     </section>
 
-    <!-- Current active params -->
+    <!-- Current Active Settings -->
     <section class="autotrade-card">
       <div class="autotrade-row">
         <div class="autotrade-h">現在の動いている数値（今日の設定）</div>
         <div class="autotrade-muted">ACTIVE Snapshot（実運用パラメータ）</div>
       </div>
 
-      {% if active_params %}
-        <div class="autotrade-chips autotrade-mt10">
-          <div class="autotrade-chip autotrade-mono">監視期間：{{ active_params.windows }}</div>
-          <div class="autotrade-chip autotrade-mono">利確RR：{{ active_params.rr_breakout }}</div>
-          <div class="autotrade-chip autotrade-mono">損切り幅：{{ active_params.stop_pct }}</div>
-          <div class="autotrade-chip autotrade-mono">ブレイク判定本数：{{ active_params.lookback_bars }}</div>
-          <div class="autotrade-chip autotrade-mono">最大保有：{{ active_params.max_hold }}</div>
-          <div class="autotrade-chip autotrade-mono">日足フィルタ：{{ active_params.daily_filter }}</div>
-          <div class="autotrade-chip autotrade-mono">active_snapshot_id：{{ active_params.active_snapshot_id }}</div>
-        </div>
-      {% else %}
-        <div class="autotrade-muted autotrade-mt10">ACTIVE Snapshot が見つかりません（未設定）</div>
-      {% endif %}
+      <div class="autotrade-chips autotrade-mt10 autotrade-mono">
+        {% for c in active_settings %}
+          <div class="autotrade-chip">{{ c }}</div>
+        {% endfor %}
+      </div>
     </section>
 
     <!-- Universe -->
