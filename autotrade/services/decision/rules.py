@@ -7,7 +7,6 @@
 - gate_level（FULL/LIGHT/STOP）によって、運用の強さを変えます。
 
 BREAKOUT一本運用：
-- strategy が "VWAP" で来ても、表示・文言は BREAKOUT に寄せる（互換・一貫性）
 """
 
 from __future__ import annotations
