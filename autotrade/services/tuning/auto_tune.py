@@ -5,18 +5,15 @@
 このファイルは何？
 - 自動チューニング（最小構成）の本体です。
 - 毎朝1ノブだけ動かし、候補Snapshot（CANDIDATE）を作って同日Executionで検証します。
-- 改善した候補だけ残し、悪化は即RETIREDにします（暴走防止）。
 
-BREAKOUT一本運用の方針：
-- VWAP前提（rr_vwap / stop_pct_vwap 等）は一切使わない
-- ノブは rr_breakout のみ
-- 評価も gate も metrics も BREAKOUT のみ
+BREAKOUT一本運用：
+- runner に rr_vwap 等のVWAP引数は渡さない
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import date as dt_date
 
 from django.conf import settings
@@ -69,6 +66,9 @@ def _get_gate_bundle_from_state(state: AutoTradeDailyState) -> Dict[str, Any]:
 
     breakout = gate.get("BREAKOUT") if isinstance(gate.get("BREAKOUT"), dict) else {}
     lv_b = str(breakout.get("gate_level") or final_level or "STOP")
+
+    active: List[str] = []
+    disabled: List[str] = []
 
     if lv_b == "STOP":
         active = []
@@ -357,7 +357,6 @@ def auto_tune_generate_candidate(
             snapshot=new_snap,
         )
 
-        # BREAKOUT一本：runnerには rr_breakout のみ渡す
         res = run_detailed_backtests_for_universe(
             snapshot=cand,
             picks=picks,
