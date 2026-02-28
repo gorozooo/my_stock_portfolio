@@ -3,14 +3,17 @@
 [PATH] <project_root>/autotrade/services/backtest/gate.py
 
 このファイルは何？
-- バックテスト結果（20/60/120）を見て、🟢🟡🔴を決める「採点基準（ゲート判定）」です。
-- ここは “設定（Snapshot）” ではなく “合否判定ルール” 側です。
-- なので、実験室でSnapshotをACTIVEにしても、ここは自動では変わりません。
+- バックテスト結果（20/60/120）を見て、🟢🟡🔴を決める判定部品です。
+- “合格ライン（GATE_THRESHOLDS）” を基準に、判定（FULL/LIGHT/STOP）と初心者向けの理由文（reasons）を生成します。
 
-今回の変更
-- 攻め型（PF重視）として min_pf / min_trades / min_win_rate を採用
-- 理由文を「/区切り」から完全撤去し、初心者が読みやすい“行”構成に変更
-- 20日/60日/120日それぞれの判定が、UIで自然に読めるように整形
+今回の変更点（初心者UI向け）：
+- reasons を「/区切り」ではなく、短い箇条書きの日本語に統一
+- 20日/60日など “期間ごと” に
+  1) ひとことで（意味）
+  2) どこが未達か（基準と比較）
+  3) 数字（PF/DD/回数/勝率/損益）
+  を並べる
+- min_win_rate（勝率基準）を閾値として正式に扱えるようにする（無い場合は無視）
 """
 
 from __future__ import annotations
@@ -18,24 +21,22 @@ from __future__ import annotations
 from typing import Dict, Any, List, Tuple
 
 
-# =========================================================
 # 攻め型（PF重視）
 # - BREAKOUTは勝率が高くなくてもPFで勝つ戦略なので、PFを強めに見る
 # - ただし「回数が少ないPF」は信用できないので min_trades を上げる
 # - DDは多少許容するが、破滅DDは止める
-# =========================================================
 GATE_THRESHOLDS = {
     "FULL": {
         "max_dd_pct": 0.03,      # 3%
-        "min_pf": 1.10,          # ★強化
-        "min_trades": 12,        # ★強化
-        "min_win_rate": 0.42,    # ★追加（42%）
+        "min_pf": 1.10,          # 強化
+        "min_trades": 12,        # 強化（薄い成績での誤判定を避ける）
+        "min_win_rate": 0.42,    # 追加（42%）
     },
     "LIGHT": {
         "max_dd_pct": 0.05,      # 5%
-        "min_pf": 1.04,          # ★少し強化
-        "min_trades": 8,         # ★少し強化
-        "min_win_rate": 0.38,    # ★追加（38%）
+        "min_pf": 1.04,          # 少し強化
+        "min_trades": 8,         # 少し強化
+        "min_win_rate": 0.38,    # 追加（38%）
     },
 }
 
@@ -47,136 +48,208 @@ def _yen(x: Any) -> str:
         return "0円"
 
 
-def _pct(x: Any) -> str:
+def _pct(x: Any, digits: int = 1) -> str:
     try:
-        return f"{float(x) * 100:.1f}%"
+        return f"{float(x) * 100:.{digits}f}%"
     except Exception:
         return "0.0%"
 
 
-def _judge_single(metrics: Dict[str, Any]) -> Tuple[str, List[str]]:
+def _safe_float(x: Any, default: float) -> float:
+    try:
+        return float(x)
+    except Exception:
+        return float(default)
+
+
+def _safe_int(x: Any, default: int) -> int:
+    try:
+        return int(x)
+    except Exception:
+        return int(default)
+
+
+def _get_threshold(level: str, key: str, default: Any = None) -> Any:
+    d = GATE_THRESHOLDS.get(level) or {}
+    return d.get(key, default)
+
+
+def _make_window_reasons(
+    *,
+    window_days: int,
+    level: str,
+    metrics: Dict[str, Any],
+    threshold_level: str,
+) -> List[str]:
     """
-    metrics には summarize_executions の戻り値（trades/PF/DD/円分解）が入る想定。
-
-    返り値:
-      (level, reasons)
-      level: "FULL" / "LIGHT" / "STOP"
-      reasons: UIでそのまま箇条書き表示できる「読みやすい行」の配列
+    期間ごとの “初心者向け” 理由文を作る。
+    - / 区切り禁止
+    - 1行が長くならないようにする
     """
-    dd = float(metrics.get("max_drawdown_pct") or 1.0)
-    pf = float(metrics.get("profit_factor") or 0.0)
-    trades = int(metrics.get("trades") or 0)
+    dd_pct = _safe_float(metrics.get("max_drawdown_pct"), 1.0)
+    pf = _safe_float(metrics.get("profit_factor"), 0.0)
+    trades = _safe_int(metrics.get("trades"), 0)
 
-    dd_yen = int(metrics.get("max_drawdown_yen") or 0)
-    sum_win = int(metrics.get("sum_win_yen") or 0)
-    sum_loss = int(metrics.get("sum_loss_yen") or 0)  # 負の値の想定
-    total_pnl = int(metrics.get("total_pnl") or 0)
-    wins = int(metrics.get("wins") or 0)
-    losses = int(metrics.get("losses") or 0)
+    dd_yen = _safe_int(metrics.get("max_drawdown_yen"), 0)
+    total_pnl = _safe_int(metrics.get("total_pnl"), 0)
 
-    # 勝率（%）: wins/trades が最も信頼できる
+    wins = _safe_int(metrics.get("wins"), 0)
+    losses = _safe_int(metrics.get("losses"), 0)
+
+    # 勝率（wins/trades優先）
     win_rate = (wins / trades) if trades > 0 else 0.0
 
-    def _base_lines() -> List[str]:
-        return [
-            f"最大落ち込み（DD）: -{_yen(dd_yen)}（-{_pct(dd)}）",
-            f"PF（勝ち合計÷負け合計）: {pf:.2f}",
-            f"取引回数: {trades}回（勝{wins} / 負{losses}）",
-            f"勝率: {_pct(win_rate)}",
-            f"純損益: {_yen(total_pnl)}",
-        ]
+    # 基準（このwindowの判定に使ったレベルの基準を表示）
+    th_pf = _safe_float(_get_threshold(threshold_level, "min_pf", 0.0), 0.0)
+    th_dd = _safe_float(_get_threshold(threshold_level, "max_dd_pct", 1.0), 1.0)
+    th_tr = _safe_int(_get_threshold(threshold_level, "min_trades", 0), 0)
+    th_wr = _get_threshold(threshold_level, "min_win_rate", None)
 
-    # 判定（FULL）
+    unmet: List[str] = []
+    if pf + 1e-12 < th_pf:
+        unmet.append(f"PFが弱い（基準：{th_pf:.2f}以上）")
+    if dd_pct - 1e-12 > th_dd:
+        unmet.append(f"最大落ち込みが大きい（基準：{_pct(th_dd)}以内）")
+    if trades < th_tr:
+        unmet.append(f"取引回数が少ない（基準：{th_tr}回以上）")
+    if th_wr is not None and win_rate + 1e-12 < float(th_wr):
+        unmet.append(f"勝率が低い（基準：{_pct(float(th_wr))}以上）")
+
+    # ひとことで（意味）
+    if level == "FULL":
+        one = "安定しているので通常稼働OKです。"
+    elif level == "LIGHT":
+        one = "悪くはないが不安要素あり。軽稼働が安全です。"
+    else:
+        # STOP
+        if total_pnl > 0 and pf >= 1.0:
+            one = "短期は悪くないが、基準未達があり停止が安全です。"
+        else:
+            one = "成績が不安定なので停止が安全です。"
+
+    lines: List[str] = []
+    lines.append(f"【{window_days}日】判定：{level}")
+    lines.append(f"ひとことで：{one}")
+
+    if unmet:
+        lines.append("未達のポイント：")
+        for u in unmet:
+            lines.append(f"  - {u}")
+    else:
+        lines.append("未達のポイント：なし（基準クリア）")
+
+    # 数字（初心者向けに意味ラベル付き）
+    lines.append(f"損益：{_yen(total_pnl)}")
+    lines.append(f"PF（勝ち合計÷負け合計）：{pf:.2f}")
+    lines.append(f"最大落ち込み（DD）：-{_yen(abs(dd_yen))}（-{_pct(dd_pct)}）")
+    if trades > 0:
+        lines.append(f"取引回数：{trades}回（勝{wins} / 負{losses}）")
+        lines.append(f"勝率：{_pct(win_rate, digits=1)}")
+    else:
+        lines.append("取引回数：0回（評価不可）")
+
+    return lines
+
+
+def _judge_single(metrics: Dict[str, Any], *, window_days: int) -> Tuple[str, List[str]]:
+    """
+    metrics には summarize_executions の戻り値（trades/PF/DD/円分解）が入る想定。
+    返り値：("FULL"/"LIGHT"/"STOP", reasons[])
+    """
+    dd = _safe_float(metrics.get("max_drawdown_pct"), 1.0)
+    pf = _safe_float(metrics.get("profit_factor"), 0.0)
+    trades = _safe_int(metrics.get("trades"), 0)
+
+    wins = _safe_int(metrics.get("wins"), 0)
+    win_rate = (wins / trades) if trades > 0 else 0.0
+
+    # FULL判定
     full = GATE_THRESHOLDS["FULL"]
-    ok_full = (
-        dd <= float(full["max_dd_pct"])
-        and pf >= float(full["min_pf"])
-        and trades >= int(full["min_trades"])
-        and win_rate >= float(full.get("min_win_rate", 0.0))
-    )
-    if ok_full:
-        reasons = ["成績が安定しています（フル稼働OK）。"] + _base_lines()
+    full_dd = _safe_float(full.get("max_dd_pct"), 1.0)
+    full_pf = _safe_float(full.get("min_pf"), 0.0)
+    full_tr = _safe_int(full.get("min_trades"), 0)
+    full_wr = full.get("min_win_rate", None)
+
+    full_ok = (dd <= full_dd) and (pf >= full_pf) and (trades >= full_tr)
+    if full_wr is not None:
+        full_ok = full_ok and (win_rate >= float(full_wr))
+
+    if full_ok:
+        reasons = _make_window_reasons(
+            window_days=window_days,
+            level="FULL",
+            metrics=metrics,
+            threshold_level="FULL",
+        )
         return "FULL", reasons
 
-    # 判定（LIGHT）
+    # LIGHT判定
     light = GATE_THRESHOLDS["LIGHT"]
-    ok_light = (
-        dd <= float(light["max_dd_pct"])
-        and pf >= float(light["min_pf"])
-        and trades >= int(light["min_trades"])
-        and win_rate >= float(light.get("min_win_rate", 0.0))
+    light_dd = _safe_float(light.get("max_dd_pct"), 1.0)
+    light_pf = _safe_float(light.get("min_pf"), 0.0)
+    light_tr = _safe_int(light.get("min_trades"), 0)
+    light_wr = light.get("min_win_rate", None)
+
+    light_ok = (dd <= light_dd) and (pf >= light_pf) and (trades >= light_tr)
+    if light_wr is not None:
+        light_ok = light_ok and (win_rate >= float(light_wr))
+
+    if light_ok:
+        reasons = _make_window_reasons(
+            window_days=window_days,
+            level="LIGHT",
+            metrics=metrics,
+            threshold_level="LIGHT",
+        )
+        return "LIGHT", reasons
+
+    # STOP
+    reasons = _make_window_reasons(
+        window_days=window_days,
+        level="STOP",
+        metrics=metrics,
+        threshold_level="LIGHT",  # STOP時も「最低合格ライン」はLIGHTを見せる
     )
-
-    # どこが足りないかを “読みやすい行” で列挙
-    rs: List[str] = []
-    rs.append("基準を満たしていない項目があります。")
-
-    # DD
-    if dd > float(light["max_dd_pct"]):
-        rs.append(f"DDが大きすぎます（基準: -{_pct(light['max_dd_pct'])}以内）")
-    # PF
-    if pf < float(light["min_pf"]):
-        rs.append(f"PFが弱いです（基準: {light['min_pf']:.2f}以上）")
-    # trades
-    if trades < int(light["min_trades"]):
-        rs.append(f"取引回数が少ないです（基準: {light['min_trades']}回以上）")
-    # win_rate
-    if win_rate < float(light.get("min_win_rate", 0.0)):
-        rs.append(f"勝率が低いです（基準: {_pct(light.get('min_win_rate', 0.0))}以上）")
-
-    rs.extend(_base_lines())
-
-    if ok_light:
-        rs.append("軽稼働（LIGHT）なら稼働できます。")
-        return "LIGHT", rs
-
-    rs.append("現時点では停止（STOP）が安全です。")
-    return "STOP", rs
+    return "STOP", reasons
 
 
 def judge_multi_window(metrics_by_window: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
     """
     20/60/120 をまとめて判定して、最終の gate_level と理由を返す
-
-    返り値:
-    {
-      "gate_level": "FULL"/"LIGHT"/"STOP",
-      "reasons": [読みやすい行...],
-      "detail": {20:"...", 60:"...", 120:"..."},
-    }
     """
     detail: Dict[int, str] = {}
     reasons: List[str] = []
 
-    per_window_lines: List[str] = []
-
     for w, m in sorted(metrics_by_window.items(), key=lambda x: x[0]):
-        level, rs = _judge_single(m)
+        level, rs = _judge_single(m, window_days=int(w))
         detail[int(w)] = level
 
-        # FULL 以外は「何がダメか」が重要なので詳細を展開
-        if level != "FULL":
-            per_window_lines.append(f"【{int(w)}日】判定: {level}")
-            for line in rs:
-                per_window_lines.append(f"  - {line}")
+        # rsは “期間ごとの箇条書き” なので、そのまま積む
+        reasons.extend(rs)
 
-    # 最終判定（あなたの元ルール踏襲）
+        # 期間ごとの区切り（読みやすさ）
+        reasons.append("")
+
+    # 末尾の空行を整理
+    while reasons and (reasons[-1] or "").strip() == "":
+        reasons.pop()
+
+    # final判定（既存思想）
     if detail.get(20) == "STOP":
         final_level = "STOP"
-        reasons.append("直近（20日）の成績が不安定です。")
-        reasons.extend(per_window_lines)
+        final_reasons = ["直近（20日）が不安定なため、停止が安全です。"]
     elif any(detail.get(w) == "STOP" for w in (60, 120)):
         final_level = "LIGHT"
-        reasons.append("中長期の成績に不安があるため、軽稼働にします。")
-        reasons.extend(per_window_lines)
+        final_reasons = ["中長期に不安があるため、軽稼働が安全です。"]
     else:
         final_level = "FULL"
-        reasons.append("すべての期間で安定しています。")
+        final_reasons = ["すべての期間で基準を満たしています。通常稼働OKです。"]
 
     return {
         "gate_level": final_level,
-        "reasons": reasons,
+        "reasons": final_reasons,
         "detail": detail,
+        "reasons_verbose": reasons,  # ★初心者UI用（期間別の箇条書き）
     }
 
 
