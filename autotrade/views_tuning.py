@@ -8,13 +8,12 @@
 - さらに CANDIDATE / ACTIVE昇格 / ロールバック（監査ログ付き）までを担当します。
 
 BREAKOUT一本運用：
-- VWAP関連の引数（rr_vwap等）は runner に渡さない（runnerはBREAKOUT専用）
 """
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
