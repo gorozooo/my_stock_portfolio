@@ -5,6 +5,13 @@
 このファイルは何？
 - 実験室（TuningProfile）の作成/編集画面です。
 - formの入れ子を避けるため、検証ボタンは同じform内で formaction を使ってPOSTします。
+
+今回の変更：
+- BREAKOUT一本運用に合わせて「日足フィルタ」入力を追加
+  * daily_filter : OFF / SMA
+  * sma_days     : 例 20 / 50
+  * direction    : TREND_ONLY / BOTH
+- views_tuning.py が保存するキーと完全一致させています。
 -->
 {% extends "base.html" %}
 {% load static %}
@@ -12,7 +19,7 @@
 {% block title %}AutoTrade / 実験室 - 編集{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'autotrade/tuning.css' %}?v=3">
+<link rel="stylesheet" href="{% static 'autotrade/tuning.css' %}?v=7">
 {% endblock %}
 
 {% block content %}
@@ -56,6 +63,47 @@
       <div class="lab-field">
         <div class="lab-label">最大保有時間（分）</div>
         <input class="lab-input" type="number" step="1" name="breakout_max_hold_min" value="{{ params.BREAKOUT.max_hold_min }}">
+      </div>
+    </div>
+
+    <div class="lab-section lab-mt12">日足フィルタ（方向を揃えてノイズを減らす）</div>
+
+    <div class="lab-grid">
+      <div class="lab-field">
+        <div class="lab-label">日足フィルタ</div>
+        <select class="lab-input" name="breakout_daily_filter">
+          {% with v=params.BREAKOUT.daily_filter|default:"OFF" %}
+            <option value="OFF" {% if v == "OFF" %}selected{% endif %}>OFF（使わない）</option>
+            <option value="SMA" {% if v == "SMA" %}selected{% endif %}>SMA（移動平均で方向判定）</option>
+          {% endwith %}
+        </select>
+        <div class="lab-muted">ONにすると、日足の方向と合わない取引を減らします。</div>
+      </div>
+
+      <div class="lab-field">
+        <div class="lab-label">SMA日数</div>
+        <input class="lab-input" type="number" step="1" min="1" name="breakout_sma_days" value="{{ params.BREAKOUT.sma_days|default:20 }}">
+        <div class="lab-muted">例：20（短め） / 50（中期）</div>
+      </div>
+
+      <div class="lab-field">
+        <div class="lab-label">方向制限</div>
+        <select class="lab-input" name="breakout_direction">
+          {% with d=params.BREAKOUT.direction|default:"TREND_ONLY" %}
+            <option value="TREND_ONLY" {% if d == "TREND_ONLY" %}selected{% endif %}>TREND_ONLY（トレンド方向だけ）</option>
+            <option value="BOTH" {% if d == "BOTH" %}selected{% endif %}>BOTH（両方向OK）</option>
+          {% endwith %}
+        </select>
+        <div class="lab-muted">基本おすすめ：TREND_ONLY（事故を減らす）。</div>
+      </div>
+
+      <div class="lab-field">
+        <div class="lab-label">メモ</div>
+        <div class="lab-muted">
+          例）<br>
+          ・SMA20 + TREND_ONLY → エントリー厳しめ / だまし減る<br>
+          ・OFF → 取引回数増えるがノイズも増えやすい
+        </div>
       </div>
     </div>
 
