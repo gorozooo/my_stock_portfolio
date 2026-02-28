@@ -8,7 +8,7 @@
 - 改善した候補だけ残し、悪化は即RETIREDにします（暴走防止）。
 
 今回の変更（BREAKOUT一本運用）：
-- VWAP前提（stop_pct_vwap 等）を撤去
+- VWAP前提（stop_pct_vwap / rr_vwap 等）を撤去（runner互換も含めて完全撤去）
 - 評価・比較・改善判定は BREAKOUT の metrics を主軸にする
 - ノブは rr_breakout のみ（±step）
 - tune_eval は合否に関係なく焼き付ける（UI可視化）
@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from datetime import date as dt_date
 
 from django.conf import settings
@@ -59,7 +59,7 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
 
 def _get_gate_bundle_from_state(state: AutoTradeDailyState) -> Dict[str, Any]:
     """
-    runner.py が作った新フォーマットの gate を読む（BREAKOUTのみ評価）
+    runner.py が作った gate を読む（BREAKOUTのみ）
     """
     bt = state.backtest if isinstance(state.backtest, dict) else {}
     gate = bt.get("gate") if isinstance(bt.get("gate"), dict) else {}
@@ -70,9 +70,6 @@ def _get_gate_bundle_from_state(state: AutoTradeDailyState) -> Dict[str, Any]:
 
     breakout = gate.get("BREAKOUT") if isinstance(gate.get("BREAKOUT"), dict) else {}
     lv_b = str(breakout.get("gate_level") or final_level or "STOP")
-
-    active: List[str] = []
-    disabled: List[str] = []
 
     if lv_b == "STOP":
         active = []
@@ -197,7 +194,6 @@ def _build_tune_eval(base: Dict[str, Any], cand: Dict[str, Any]) -> Dict[str, An
     else:
         reasons.append(f"損益が同じ：{b_pnl}円 → {c_pnl}円")
 
-    # delta も UI 用にまとめる（テンプレ側が使えるように）
     delta = {
         "pnl_sum_yen": int(c_pnl - b_pnl),
         "max_dd_pct": float(c_dd - b_dd),
@@ -207,8 +203,16 @@ def _build_tune_eval(base: Dict[str, Any], cand: Dict[str, Any]) -> Dict[str, An
 
     return {
         "evaluated_at": timezone.localtime(timezone.now()).isoformat(),
-        "base": {"gate_level": b_gate, "score": {"pnl_sum_yen": b_pnl, "max_dd_pct": b_dd, "pf_avg": b_pf, "trades_sum": b_tr}, "rr": base.get("rr") or {}},
-        "cand": {"gate_level": c_gate, "score": {"pnl_sum_yen": c_pnl, "max_dd_pct": c_dd, "pf_avg": c_pf, "trades_sum": c_tr}, "rr": cand.get("rr") or {}},
+        "base": {
+            "gate_level": b_gate,
+            "score": {"pnl_sum_yen": b_pnl, "max_dd_pct": b_dd, "pf_avg": b_pf, "trades_sum": b_tr},
+            "rr": base.get("rr") or {},
+        },
+        "cand": {
+            "gate_level": c_gate,
+            "score": {"pnl_sum_yen": c_pnl, "max_dd_pct": c_dd, "pf_avg": c_pf, "trades_sum": c_tr},
+            "rr": cand.get("rr") or {},
+        },
         "delta": delta,
         "reasons": reasons,
     }
@@ -292,6 +296,9 @@ def auto_tune_generate_candidate(
     target_date: Optional[dt_date] = None,
     windows: Optional[List[int]] = None,
 ) -> AutoTuneResult:
+    """
+    朝フローで呼ぶ入口（BREAKOUTのみ）
+    """
     if target_date is None:
         target_date = timezone.localdate()
 
@@ -300,7 +307,10 @@ def auto_tune_generate_candidate(
 
     state, _ = AutoTradeDailyState.objects.get_or_create(date=target_date)
     if is_emergency_stopped(state):
-        return AutoTuneResult(ok=True, skipped=True, reason="emergency_stop", created_candidate_id=None, knob=None, base={}, cand={})
+        return AutoTuneResult(
+            ok=True, skipped=True, reason="emergency_stop",
+            created_candidate_id=None, knob=None, base={}, cand={}
+        )
 
     active = (
         AutoTradeSettingSnapshot.objects
@@ -309,17 +319,28 @@ def auto_tune_generate_candidate(
         .first()
     )
     if not active:
-        return AutoTuneResult(ok=False, skipped=True, reason="no_active_snapshot", created_candidate_id=None, knob=None, base={}, cand={})
+        return AutoTuneResult(
+            ok=False, skipped=True, reason="no_active_snapshot",
+            created_candidate_id=None, knob=None, base={}, cand={}
+        )
 
-    exists_today_any = AutoTradeSettingSnapshot.objects.filter(snapshot__tune__target_date=str(target_date)).exists()
+    exists_today_any = AutoTradeSettingSnapshot.objects.filter(
+        snapshot__tune__target_date=str(target_date),
+    ).exists()
     if exists_today_any:
-        return AutoTuneResult(ok=True, skipped=True, reason="tune_already_exists_today", created_candidate_id=None, knob=None, base={}, cand={})
+        return AutoTuneResult(
+            ok=True, skipped=True, reason="tune_already_exists_today",
+            created_candidate_id=None, knob=None, base={}, cand={}
+        )
 
     uni = state.universe if isinstance(state.universe, dict) else {}
     picks = [x.get("ticker") for x in (uni.get("picks") or []) if isinstance(x, dict) and x.get("ticker")]
     picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
     if not picks:
-        return AutoTuneResult(ok=True, skipped=True, reason="no_picks", created_candidate_id=None, knob=None, base={}, cand={})
+        return AutoTuneResult(
+            ok=True, skipped=True, reason="no_picks",
+            created_candidate_id=None, knob=None, base={}, cand={}
+        )
 
     gate_bundle = _get_gate_bundle_from_state(state)
     base_metrics = _get_baseline_metrics_from_state(state, windows=list(windows))
@@ -334,7 +355,10 @@ def auto_tune_generate_candidate(
 
     knobs = _pick_knob_and_candidates(state)
     if not knobs:
-        return AutoTuneResult(ok=True, skipped=True, reason="no_tunable_knob_today", created_candidate_id=None, knob=None, base=base_pack, cand={})
+        return AutoTuneResult(
+            ok=True, skipped=True, reason="no_tunable_knob_today",
+            created_candidate_id=None, knob=None, base=base_pack, cand={}
+        )
 
     for k in knobs:
         knob = str(k.get("knob") or "")
@@ -362,16 +386,13 @@ def auto_tune_generate_candidate(
             snapshot=new_snap,
         )
 
-        # runner のシグネチャ互換のため rr_vwap も渡す（使われなくてもOK）
-        rr_vwap_fallback = float(getattr(settings, "AUTOTRADE_RR_VWAP", 1.5))
-
+        # ✅ BREAKOUT専用 runner に合わせる（rr_vwap は渡さない）
         res = run_detailed_backtests_for_universe(
             snapshot=cand,
             picks=picks,
             target_date=target_date,
             windows=tuple(int(x) for x in windows),
             rr_breakout=float(rr_b),
-            rr_vwap=rr_vwap_fallback,
             base_equity_yen=int(getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)),
             force=True,
         )
@@ -390,7 +411,6 @@ def auto_tune_generate_candidate(
         cand_score = _aggregate_score(norm, windows=list(windows))
 
         gate = (res.get("gate") or {}) if isinstance(res, dict) else {}
-        # 互換：gate["final"] が dict のケースもあるので防御
         final_obj = gate.get("final")
         if isinstance(final_obj, dict):
             final_level = str(final_obj.get("gate_level") or "STOP")
@@ -403,18 +423,26 @@ def auto_tune_generate_candidate(
             "rr": {"BREAKOUT": rr_b},
         }
 
+        # tune_eval は合否に関係なく必ず焼く
         snap_now = cand.snapshot if isinstance(cand.snapshot, dict) else {}
         snap_now["tune_eval"] = _build_tune_eval(base_pack, cand_pack)
         cand.snapshot = snap_now
         cand.save(update_fields=["snapshot"])
 
         if _is_improvement(base_pack, cand_pack):
-            return AutoTuneResult(ok=True, skipped=False, reason="candidate_created", created_candidate_id=int(cand.id), knob=knob, base=base_pack, cand=cand_pack)
+            return AutoTuneResult(
+                ok=True, skipped=False, reason="candidate_created",
+                created_candidate_id=int(cand.id), knob=knob, base=base_pack, cand=cand_pack
+            )
 
+        # 不合格：即RETIRED（ただし tune_eval は残る）
         cand.status = "RETIRED"
         snap_now = cand.snapshot if isinstance(cand.snapshot, dict) else {}
         snap_now["tune_rejected"] = True
         cand.snapshot = snap_now
         cand.save(update_fields=["status", "snapshot"])
 
-    return AutoTuneResult(ok=True, skipped=True, reason="no_improving_candidate", created_candidate_id=None, knob=None, base=base_pack, cand={})
+    return AutoTuneResult(
+        ok=True, skipped=True, reason="no_improving_candidate",
+        created_candidate_id=None, knob=None, base=base_pack, cand={}
+    )
