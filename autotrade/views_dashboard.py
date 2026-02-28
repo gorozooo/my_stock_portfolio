@@ -4,12 +4,12 @@
 
 このファイルは何？
 - AutoTrade のダッシュボード表示（iPhone 1画面）用の View と整形関数です。
-- runner が state.backtest に詰めた結果（meta/by_window/gate）を “再計算せず” 表示用に整形します。
+- state.backtest（runnerが保存した結果）を “再計算せず” テンプレ表示用に整形します。
 
-今回の変更点（初心者UI向け）：
-- gate.BREAKOUT.reasons は “verbose（期間別の箇条書き）” を優先して表示
-- 合格ライン（GATE_THRESHOLDS）をテンプレへ渡す（/区切り廃止）
-- 今日の設定（ACTIVE snapshotの主要パラメータ）をテンプレへ渡す
+今回の変更：
+- 「判定理由」を gate.py の文章羅列ではなく、期間ごとの “結果カード” 形式に整形して返します。
+- 合格ライン（GATE_THRESHOLDS）をテンプレで初心者向けに表示できるように渡します。
+- ACTIVE Snapshot の “今動いている数値” も、専門用語だらけにならないようチップ文にして渡します。
 """
 
 from __future__ import annotations
@@ -21,139 +21,290 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest
 from django.shortcuts import render
 
-from .models import AutoTradeDailyState, AutoTradeSettingSnapshot
+from .models import AutoTradeDailyState
 from .views_utils import get_nested_dict
 
+from autotrade.services.backtest.gate import GATE_THRESHOLDS
 
-def _safe_float(x: Any, default: float) -> float:
+
+def _safe_float(x: Any, default: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
         return float(default)
 
 
-def _safe_int(x: Any, default: int) -> int:
+def _safe_int(x: Any, default: int = 0) -> int:
     try:
         return int(x)
     except Exception:
         return int(default)
 
 
-def build_gate_bundle_for_template(state: AutoTradeDailyState):
+def _pct_100(x01: Any) -> float:
+    v = _safe_float(x01, 0.0)
+    return float(v * 100.0)
+
+
+def _level_by_thresholds(metrics: Dict[str, Any]) -> str:
     """
-    gate の日本語理由（数値＋円入り）をテンプレ向けに整形する。
-    runner.py が backtest['gate'] に入れている情報をそのまま使う（再計算しない）。
+    metrics（PF/DD/N/勝率）から FULL/LIGHT/STOP を決める。
+    ※gate.pyそのものは変更せず、表示用に “同じ基準” で判定する。
+    """
+    dd = _safe_float(metrics.get("max_drawdown_pct"), 1.0)
+    pf = _safe_float(metrics.get("profit_factor"), 0.0)
+    trades = _safe_int(metrics.get("trades"), 0)
+
+    # win_rate は 0〜1 を期待。無ければ wins/trades で作る
+    win_rate = metrics.get("win_rate")
+    if win_rate is None:
+        wins = _safe_int(metrics.get("wins"), 0)
+        win_rate = (wins / trades) if trades > 0 else 0.0
+    win_rate = _safe_float(win_rate, 0.0)
+
+    full = GATE_THRESHOLDS.get("FULL", {})
+    light = GATE_THRESHOLDS.get("LIGHT", {})
+
+    def _ok(th: Dict[str, Any]) -> bool:
+        if dd > _safe_float(th.get("max_dd_pct"), 0.0):
+            return False
+        if pf < _safe_float(th.get("min_pf"), 0.0):
+            return False
+        if trades < _safe_int(th.get("min_trades"), 0):
+            return False
+
+        # 任意項目（追加されている可能性に対応）
+        if "min_win_rate" in th and th.get("min_win_rate") is not None:
+            if win_rate < _safe_float(th.get("min_win_rate"), 0.0):
+                return False
+        return True
+
+    if _ok(full):
+        return "FULL"
+    if _ok(light):
+        return "LIGHT"
+    return "STOP"
+
+
+def _miss_points(metrics: Dict[str, Any], *, base: str = "LIGHT") -> List[str]:
+    """
+    未達ポイントを初心者向けの日本語にして返す（最大3つ）。
+    base="LIGHT" を基準にする（現実的な安全ライン）。
+    """
+    th = (GATE_THRESHOLDS.get(base) or {}).copy()
+
+    dd = _safe_float(metrics.get("max_drawdown_pct"), 1.0)
+    pf = _safe_float(metrics.get("profit_factor"), 0.0)
+    trades = _safe_int(metrics.get("trades"), 0)
+
+    win_rate = metrics.get("win_rate")
+    if win_rate is None:
+        wins = _safe_int(metrics.get("wins"), 0)
+        win_rate = (wins / trades) if trades > 0 else 0.0
+    win_rate = _safe_float(win_rate, 0.0)
+
+    out: List[str] = []
+
+    max_dd = _safe_float(th.get("max_dd_pct"), 0.0)
+    min_pf = _safe_float(th.get("min_pf"), 0.0)
+    min_trades = _safe_int(th.get("min_trades"), 0)
+
+    if pf < min_pf:
+        out.append(f"PFが弱い（基準：{min_pf:.2f}以上）")
+    if dd > max_dd:
+        out.append(f"最大落ち込み（DD）が大きい（基準：{max_dd*100:.1f}%以内）")
+    if trades < min_trades:
+        out.append(f"取引回数が少ない（基準：{min_trades}回以上）")
+
+    if "min_win_rate" in th and th.get("min_win_rate") is not None:
+        min_wr = _safe_float(th.get("min_win_rate"), 0.0)
+        if win_rate < min_wr:
+            out.append(f"勝率が低い（基準：{min_wr*100:.1f}%以上）")
+
+    return out[:3]
+
+
+def _one_liner(level: str) -> str:
+    if level == "FULL":
+        return "安定しているので、通常稼働してOKです。"
+    if level == "LIGHT":
+        return "少し不安があるので、軽稼働（守り）ならOKです。"
+    return "いまは不安定なので、停止が安全です。"
+
+
+def build_result_cards_for_template(state: AutoTradeDailyState) -> List[Dict[str, Any]]:
+    """
+    state.backtest['by_window'][window]['BREAKOUT'] の metrics から
+    期間ごとの “結果カード” を作る。
     """
     bt = state.backtest if isinstance(state.backtest, dict) else {}
-    gate = bt.get("gate") if isinstance(bt.get("gate"), dict) else {}
+    by_window = bt.get("by_window") if isinstance(bt.get("by_window"), dict) else {}
 
-    final = gate.get("final") if isinstance(gate.get("final"), dict) else {}
-    gb = gate.get("BREAKOUT") if isinstance(gate.get("BREAKOUT"), dict) else {}
+    # 監視期間（UI上は基本 [20,60]）
+    meta = bt.get("meta") if isinstance(bt.get("meta"), dict) else {}
+    windows = meta.get("windows")
+    if not isinstance(windows, list) or not windows:
+        windows = [20, 60]
 
-    # gate.py 側で "reasons_verbose" が入っていれば、それを優先
-    # （runner側がまだ未対応でも落ちない）
-    reasons = gb.get("reasons_verbose")
-    if not isinstance(reasons, list):
-        reasons = gb.get("reasons")
-    reasons = [str(x) for x in (reasons or [])]
+    out: List[Dict[str, Any]] = []
 
-    return {
-        "final": {
-            "gate_level": str(final.get("gate_level") or state.gate_level or "STOP"),
-            "active": list(final.get("active") or []),
-            "disabled": list(final.get("disabled") or []),
-        },
-        "BREAKOUT": {
-            "gate_level": str(gb.get("gate_level") or "STOP"),
-            "reasons": [str(x) for x in reasons],
-        },
-    }
+    for w in windows:
+        w = _safe_int(w, 0)
+        if w <= 0:
+            continue
 
+        m = get_nested_dict(by_window, int(w), "BREAKOUT", default={})
+        if not isinstance(m, dict):
+            m = {}
 
-def build_thresholds_for_template() -> Dict[str, List[str]]:
-    """
-    gate.py の GATE_THRESHOLDS を “初心者向けの文章” にして返す。
-    """
-    try:
-        from autotrade.services.backtest.gate import GATE_THRESHOLDS
-    except Exception:
-        GATE_THRESHOLDS = {}
+        trades = _safe_int(m.get("trades"), 0)
+        wins = _safe_int(m.get("wins"), 0)
+        losses = _safe_int(m.get("losses"), 0)
 
-    out: Dict[str, List[str]] = {"FULL": [], "LIGHT": []}
+        win_rate = m.get("win_rate")
+        if win_rate is None:
+            win_rate = (wins / trades) if trades > 0 else 0.0
+        win_rate = _safe_float(win_rate, 0.0)
 
-    for lv in ["FULL", "LIGHT"]:
-        d = (GATE_THRESHOLDS.get(lv) or {})
-        pf = _safe_float(d.get("min_pf"), 0.0)
-        dd = _safe_float(d.get("max_dd_pct"), 1.0)
-        tr = _safe_int(d.get("min_trades"), 0)
-        wr = d.get("min_win_rate", None)
+        pf = _safe_float(m.get("profit_factor"), 0.0)
+        dd_pct = _safe_float(m.get("max_drawdown_pct"), 0.0)
+        dd_yen = _safe_int(m.get("max_drawdown_yen"), 0)
+        pnl_yen = _safe_int(m.get("total_pnl"), 0)
 
-        out[lv] = [
-            f"PF：{pf:.2f} 以上（利益が負けを上回る強さ）",
-            f"最大落ち込み（DD）：{dd*100:.1f}% 以内（落ち込みが大きすぎない）",
-            f"取引回数：{tr} 回以上（サンプルが少なすぎない）",
-        ]
-        if wr is not None:
-            out[lv].append(f"勝率：{float(wr)*100:.1f}% 以上（最低限の安定感）")
+        sum_win_yen = _safe_int(m.get("sum_win_yen"), 0)
+        sum_loss_yen = _safe_int(m.get("sum_loss_yen"), 0)
+        sum_loss_abs_yen = abs(sum_loss_yen)
+
+        level = _level_by_thresholds(m)
+
+        out.append({
+            "strategy": "BREAKOUT",
+            "window": int(w),
+
+            "level": str(level),
+            "one_liner": _one_liner(str(level)),
+            "miss_points": _miss_points(m, base="LIGHT"),
+
+            "trades": int(trades),
+            "wins": int(wins),
+            "losses": int(losses),
+
+            "win_rate_pct": round(_pct_100(win_rate), 1),
+            "pf": f"{pf:.3f}" if pf else f"{pf:.2f}",
+            "dd_pct": round(_pct_100(dd_pct), 1),
+            "dd_yen": int(dd_yen),
+            "pnl_yen": int(pnl_yen),
+
+            "sum_win_yen": int(sum_win_yen),
+            "sum_loss_abs_yen": int(sum_loss_abs_yen),
+        })
 
     return out
 
 
-def build_active_settings_for_template(user) -> List[str]:
+def build_thresholds_for_template() -> Dict[str, Any]:
     """
-    ACTIVE Snapshot（実運用）の主要パラメータをチップ表示用に整形。
+    GATE_THRESHOLDS をテンプレ表示用に整形する。
+    - min_win_rate が無い/ある どちらでも表示できるようにする
     """
-    snap = (
-        AutoTradeSettingSnapshot.objects
-        .filter(user=user, status="ACTIVE")
-        .order_by("-id")
-        .first()
+    def _pack(name: str) -> Dict[str, Any]:
+        th = (GATE_THRESHOLDS.get(name) or {}).copy()
+        out: Dict[str, Any] = {
+            "max_dd_pct": _safe_float(th.get("max_dd_pct"), 0.0) * 100.0,  # %表示用
+            "min_pf": _safe_float(th.get("min_pf"), 0.0),
+            "min_trades": _safe_int(th.get("min_trades"), 0),
+            "min_win_rate": None,
+            "min_win_rate_pct": None,
+        }
+        if "min_win_rate" in th and th.get("min_win_rate") is not None:
+            out["min_win_rate"] = _safe_float(th.get("min_win_rate"), 0.0)
+            out["min_win_rate_pct"] = round(_safe_float(th.get("min_win_rate"), 0.0) * 100.0, 1)
+        return out
+
+    return {
+        "FULL": _pack("FULL"),
+        "LIGHT": _pack("LIGHT"),
+    }
+
+
+def build_active_params_chips_for_template(state: AutoTradeDailyState) -> List[str]:
+    """
+    ACTIVE Snapshot（実運用パラメータ）を、初心者向けの“短いチップ文”にする。
+    """
+    chips: List[str] = []
+
+    snap = getattr(state, "active_snapshot", None)
+    sdict = {}
+    if snap is not None:
+        try:
+            sdict = snap.snapshot if isinstance(snap.snapshot, dict) else {}
+        except Exception:
+            sdict = {}
+
+    # 監視期間・RR・損切り幅・判定本数・最大保有・日足フィルタ
+    windows = sdict.get("windows") or sdict.get("backtest_windows") or [20, 60]
+    if isinstance(windows, list):
+        chips.append(f"監視期間：{windows}")
+
+    rr = sdict.get("rr_breakout") or sdict.get("RR_BREAKOUT") or sdict.get("rr") or None
+    if rr is not None:
+        try:
+            chips.append(f"利確RR：{float(rr):.2f}")
+        except Exception:
+            chips.append(f"利確RR：{rr}")
+
+    stop_pct = (
+        sdict.get("stop_pct_breakout")
+        or sdict.get("breakout_stop_pct")
+        or get_nested_dict(sdict, "breakout", "stop_pct", default=None)
+        or get_nested_dict(sdict, "params", "breakout", "stop_pct", default=None)
+        or None
     )
-    if not snap:
-        return ["ACTIVE snapshot：未設定"]
+    if stop_pct is not None:
+        try:
+            chips.append(f"損切り幅：{float(stop_pct)*100:.2f}%")
+        except Exception:
+            chips.append(f"損切り幅：{stop_pct}")
 
-    sdict = snap.snapshot if isinstance(snap.snapshot, dict) else {}
+    lookback = (
+        sdict.get("breakout_lookback_bars")
+        or get_nested_dict(sdict, "breakout", "lookback_bars", default=None)
+        or get_nested_dict(sdict, "params", "breakout", "lookback_bars", default=None)
+        or None
+    )
+    if lookback is not None:
+        try:
+            chips.append(f"ブレイク判定本数：{int(lookback)}本（5分足）")
+        except Exception:
+            chips.append(f"ブレイク判定本数：{lookback}")
 
-    windows = sdict.get("windows")
-    if not isinstance(windows, list):
-        # settings由来や互換で持ってないケース
-        windows = [20, 60]
+    max_hold_min = (
+        sdict.get("breakout_max_hold_min")
+        or get_nested_dict(sdict, "breakout", "max_hold_min", default=None)
+        or get_nested_dict(sdict, "params", "breakout", "max_hold_min", default=None)
+        or None
+    )
+    if max_hold_min is not None:
+        try:
+            chips.append(f"最大保有：{int(max_hold_min)}分")
+        except Exception:
+            chips.append(f"最大保有：{max_hold_min}分")
 
-    rr_breakout = sdict.get("rr_breakout")
-    if rr_breakout is None:
-        # 互換（tune配下にある場合）
-        tune = sdict.get("tune") if isinstance(sdict.get("tune"), dict) else {}
-        rr_breakout = tune.get("rr_breakout")
-    rr_breakout = _safe_float(rr_breakout, 2.0)
+    daily_filter = (
+        sdict.get("breakout_daily_filter")
+        or get_nested_dict(sdict, "breakout", "daily_filter", default=None)
+        or get_nested_dict(sdict, "params", "breakout", "daily_filter", default=None)
+        or "OFF"
+    )
+    chips.append(f"日足フィルタ：{str(daily_filter).upper()}")
 
-    # breakout params（複数キー互換：engine_breakoutが拾うのと揃える）
-    stop_pct = sdict.get("breakout_stop_pct")
-    if stop_pct is None:
-        stop_pct = get_nested_dict(sdict, "BREAKOUT", "stop_pct", default=None)
-    stop_pct = _safe_float(stop_pct, 0.003)
+    if snap is not None:
+        try:
+            chips.append(f"active_snapshot_id：{snap.id}")
+        except Exception:
+            pass
 
-    lookback = sdict.get("breakout_lookback_bars")
-    if lookback is None:
-        lookback = get_nested_dict(sdict, "BREAKOUT", "lookback_bars", default=None)
-    lookback = _safe_int(lookback, 6)
-
-    max_hold_min = sdict.get("breakout_max_hold_min")
-    if max_hold_min is None:
-        max_hold_min = get_nested_dict(sdict, "BREAKOUT", "max_hold_min", default=None)
-    max_hold_min = _safe_int(max_hold_min, 30)
-
-    daily_filter = sdict.get("breakout_daily_filter") or get_nested_dict(sdict, "BREAKOUT", "daily_filter", default="OFF")
-    daily_filter = str(daily_filter or "OFF").upper()
-
-    return [
-        f"監視期間：{windows}",
-        f"利確RR：{rr_breakout:.2f}",
-        f"損切り幅：{stop_pct*100:.2f}%",
-        f"ブレイク判定本数：{lookback} 本（5分足）",
-        f"最大保有：{max_hold_min} 分",
-        f"日足フィルタ：{daily_filter}",
-        f"active_snapshot_id：{snap.id}",
-    ]
+    return chips
 
 
 @login_required
@@ -161,14 +312,10 @@ def dashboard(request: HttpRequest):
     today = date.today()
     state, _ = AutoTradeDailyState.objects.get_or_create(date=today)
 
-    gate_bundle = build_gate_bundle_for_template(state)
-    thresholds = build_thresholds_for_template()
-    active_settings = build_active_settings_for_template(request.user)
-
     ctx = {
         "state": state,
-        "gate": gate_bundle,
-        "thresholds": thresholds,
-        "active_settings": active_settings,
+        "result_cards": build_result_cards_for_template(state),
+        "thresholds": build_thresholds_for_template(),
+        "active_params_chips": build_active_params_chips_for_template(state),
     }
     return render(request, "autotrade/dashboard.html", ctx)
