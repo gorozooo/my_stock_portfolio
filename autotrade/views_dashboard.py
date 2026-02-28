@@ -7,7 +7,7 @@
 - state.backtest（runnerが保存した結果）を “再計算せず” テンプレ表示用に整形します。
 
 今回の変更：
-- 「現在の動いている数値（今日の設定）」で、ACTIVE Snapshot のパラメータを “全部” 表示する。
+- 「現在の動いている数値（今日の設定）」で、DBの ACTIVE Snapshot を必ず拾ってパラメータを “全部” 表示する。
 - snapshot をフラット化（ネストも展開）して、読みやすいチップ文字にする。
 - evidence / auto_eval など重たい情報は除外（表示が爆発するので）。
 """
@@ -15,13 +15,13 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest
 from django.shortcuts import render
 
-from .models import AutoTradeDailyState
+from .models import AutoTradeDailyState, AutoTradeSettingSnapshot
 from .views_utils import get_nested_dict
 
 from autotrade.services.backtest.gate import GATE_THRESHOLDS
@@ -141,8 +141,16 @@ def build_result_cards_for_template(state: AutoTradeDailyState) -> List[Dict[str
     by_window = bt.get("by_window") if isinstance(bt.get("by_window"), dict) else {}
 
     # 監視期間（UI上は基本 [20,60]）
-    meta = bt.get("meta") if isinstance(bt.get("meta"), dict) else {}
-    windows = meta.get("windows")
+    # ※runner の backtest.meta に windows は入ってない世代があるので、strategy_decision も見る
+    windows = None
+    try:
+        sd = state.strategy_decision if isinstance(state.strategy_decision, dict) else {}
+        w2 = sd.get("windows")
+        if isinstance(w2, list) and w2:
+            windows = w2
+    except Exception:
+        windows = None
+
     if not isinstance(windows, list) or not windows:
         windows = [20, 60]
 
@@ -269,23 +277,22 @@ def _pretty_value(v: Any) -> str:
     return s
 
 
-def build_active_params_chips_for_template(state: AutoTradeDailyState) -> List[str]:
+def build_active_params_chips_for_template(active_snapshot: AutoTradeSettingSnapshot | None) -> List[str]:
     """
-    ACTIVE Snapshot（実運用パラメータ）を “全部” 表示する（ネストも展開）。
+    DBの ACTIVE Snapshot（実運用パラメータ）を “全部” 表示する（ネストも展開）。
     ただし、重たい情報は除外する（evidence/auto_eval等）。
     """
     chips: List[str] = []
 
-    snap = getattr(state, "active_snapshot", None)
-    if snap is None:
-        return ["ACTIVE Snapshot がありません（まだ昇格していない可能性）"]
+    if active_snapshot is None:
+        return ["ACTIVE Snapshot がありません（本番採用中の設定が未指定です）"]
 
     try:
-        sdict = snap.snapshot if isinstance(snap.snapshot, dict) else {}
+        sdict = active_snapshot.snapshot if isinstance(active_snapshot.snapshot, dict) else {}
     except Exception:
         sdict = {}
 
-    # 表示が爆発する巨大キーは除外（ここは必要なら追加/調整OK）
+    # 表示が爆発する巨大キーは除外（必要なら追加/調整OK）
     exclude_prefixes = [
         "evidence",
         "auto_eval",
@@ -306,7 +313,7 @@ def build_active_params_chips_for_template(state: AutoTradeDailyState) -> List[s
             continue
         filtered.append((k0, v))
 
-    # まず見たい“重要系”を上に寄せる（それ以外は後ろに並べる）
+    # まず見たい“重要系”を上に寄せる（それ以外は後ろ）
     priority_contains = [
         "windows",
         "rr",
@@ -334,11 +341,9 @@ def build_active_params_chips_for_template(state: AutoTradeDailyState) -> List[s
     for k, v in filtered:
         chips.append(f"{k}：{_pretty_value(v)}")
 
-    # 最後にID
-    try:
-        chips.append(f"active_snapshot_id：{snap.id}")
-    except Exception:
-        pass
+    # 最後にIDとラベル（事故った時に強い）
+    chips.append(f"active_snapshot_id：{active_snapshot.id}")
+    chips.append(f"active_label：{_pretty_value(getattr(active_snapshot, 'label', '-'))}")
 
     # もし何も無ければ保険
     if not chips:
@@ -352,10 +357,18 @@ def dashboard(request: HttpRequest):
     today = date.today()
     state, _ = AutoTradeDailyState.objects.get_or_create(date=today)
 
+    # ★重要：DBからACTIVEを取る（DailyStateにフィールドは無い）
+    active_snapshot = (
+        AutoTradeSettingSnapshot.objects
+        .filter(status="ACTIVE")
+        .order_by("-id")
+        .first()
+    )
+
     ctx = {
         "state": state,
         "result_cards": build_result_cards_for_template(state),
         "thresholds": build_thresholds_for_template(),
-        "active_params_chips": build_active_params_chips_for_template(state),
+        "active_params_chips": build_active_params_chips_for_template(active_snapshot),
     }
     return render(request, "autotrade/dashboard.html", ctx)
