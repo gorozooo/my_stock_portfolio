@@ -7,15 +7,15 @@
 - state.backtest（runnerが保存した結果）を “再計算せず” テンプレ表示用に整形します。
 
 今回の変更：
-- 「判定理由」を gate.py の文章羅列ではなく、期間ごとの “結果カード” 形式に整形して返します。
-- 合格ライン（GATE_THRESHOLDS）をテンプレで初心者向けに表示できるように渡します。
-- ACTIVE Snapshot の “今動いている数値” も、専門用語だらけにならないようチップ文にして渡します。
+- 「現在の動いている数値（今日の設定）」で、ACTIVE Snapshot のパラメータを “全部” 表示する。
+- snapshot をフラット化（ネストも展開）して、読みやすいチップ文字にする。
+- evidence / auto_eval など重たい情報は除外（表示が爆発するので）。
 """
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest
@@ -227,82 +227,122 @@ def build_thresholds_for_template() -> Dict[str, Any]:
     }
 
 
+def _flatten_dict(d: Any, *, prefix: str = "", max_depth: int = 3, depth: int = 0) -> List[Tuple[str, Any]]:
+    """
+    dictをフラット化して (keypath, value) のリストにする。
+    - ネストが深すぎると読みづらいので max_depth まで
+    """
+    out: List[Tuple[str, Any]] = []
+    if not isinstance(d, dict):
+        return out
+
+    for k, v in d.items():
+        key = f"{prefix}.{k}" if prefix else str(k)
+        if isinstance(v, dict) and depth < max_depth:
+            out.extend(_flatten_dict(v, prefix=key, max_depth=max_depth, depth=depth + 1))
+        else:
+            out.append((key, v))
+    return out
+
+
+def _pretty_value(v: Any) -> str:
+    """
+    チップ用に value を短く人間向けにする
+    """
+    if v is None:
+        return "-"
+    if isinstance(v, bool):
+        return "ON" if v else "OFF"
+    if isinstance(v, (int, float)):
+        # 変に長い小数は丸める
+        if isinstance(v, float):
+            return f"{v:.6g}"
+        return str(v)
+    if isinstance(v, list):
+        # リストは短く
+        if len(v) <= 10:
+            return str(v)
+        return f"[{', '.join(map(str, v[:10]))}, ...]"
+    s = str(v)
+    if len(s) > 80:
+        return s[:80] + "…"
+    return s
+
+
 def build_active_params_chips_for_template(state: AutoTradeDailyState) -> List[str]:
     """
-    ACTIVE Snapshot（実運用パラメータ）を、初心者向けの“短いチップ文”にする。
+    ACTIVE Snapshot（実運用パラメータ）を “全部” 表示する（ネストも展開）。
+    ただし、重たい情報は除外する（evidence/auto_eval等）。
     """
     chips: List[str] = []
 
     snap = getattr(state, "active_snapshot", None)
-    sdict = {}
-    if snap is not None:
-        try:
-            sdict = snap.snapshot if isinstance(snap.snapshot, dict) else {}
-        except Exception:
-            sdict = {}
+    if snap is None:
+        return ["ACTIVE Snapshot がありません（まだ昇格していない可能性）"]
 
-    # 監視期間・RR・損切り幅・判定本数・最大保有・日足フィルタ
-    windows = sdict.get("windows") or sdict.get("backtest_windows") or [20, 60]
-    if isinstance(windows, list):
-        chips.append(f"監視期間：{windows}")
+    try:
+        sdict = snap.snapshot if isinstance(snap.snapshot, dict) else {}
+    except Exception:
+        sdict = {}
 
-    rr = sdict.get("rr_breakout") or sdict.get("RR_BREAKOUT") or sdict.get("rr") or None
-    if rr is not None:
-        try:
-            chips.append(f"利確RR：{float(rr):.2f}")
-        except Exception:
-            chips.append(f"利確RR：{rr}")
+    # 表示が爆発する巨大キーは除外（ここは必要なら追加/調整OK）
+    exclude_prefixes = [
+        "evidence",
+        "auto_eval",
+        "promote",
+        "history",
+        "debug",
+        "raw",
+        "logs",
+    ]
 
-    stop_pct = (
-        sdict.get("stop_pct_breakout")
-        or sdict.get("breakout_stop_pct")
-        or get_nested_dict(sdict, "breakout", "stop_pct", default=None)
-        or get_nested_dict(sdict, "params", "breakout", "stop_pct", default=None)
-        or None
-    )
-    if stop_pct is not None:
-        try:
-            chips.append(f"損切り幅：{float(stop_pct)*100:.2f}%")
-        except Exception:
-            chips.append(f"損切り幅：{stop_pct}")
+    flat = _flatten_dict(sdict, max_depth=4)
 
-    lookback = (
-        sdict.get("breakout_lookback_bars")
-        or get_nested_dict(sdict, "breakout", "lookback_bars", default=None)
-        or get_nested_dict(sdict, "params", "breakout", "lookback_bars", default=None)
-        or None
-    )
-    if lookback is not None:
-        try:
-            chips.append(f"ブレイク判定本数：{int(lookback)}本（5分足）")
-        except Exception:
-            chips.append(f"ブレイク判定本数：{lookback}")
+    # 除外フィルタ
+    filtered: List[Tuple[str, Any]] = []
+    for k, v in flat:
+        k0 = str(k)
+        if any(k0 == p or k0.startswith(p + ".") for p in exclude_prefixes):
+            continue
+        filtered.append((k0, v))
 
-    max_hold_min = (
-        sdict.get("breakout_max_hold_min")
-        or get_nested_dict(sdict, "breakout", "max_hold_min", default=None)
-        or get_nested_dict(sdict, "params", "breakout", "max_hold_min", default=None)
-        or None
-    )
-    if max_hold_min is not None:
-        try:
-            chips.append(f"最大保有：{int(max_hold_min)}分")
-        except Exception:
-            chips.append(f"最大保有：{max_hold_min}分")
+    # まず見たい“重要系”を上に寄せる（それ以外は後ろに並べる）
+    priority_contains = [
+        "windows",
+        "rr",
+        "stop_pct",
+        "lookback",
+        "max_hold",
+        "daily_filter",
+        "sma_days",
+        "direction",
+        "risk",
+        "slippage",
+        "base_equity",
+        "universe",
+    ]
 
-    daily_filter = (
-        sdict.get("breakout_daily_filter")
-        or get_nested_dict(sdict, "breakout", "daily_filter", default=None)
-        or get_nested_dict(sdict, "params", "breakout", "daily_filter", default=None)
-        or "OFF"
-    )
-    chips.append(f"日足フィルタ：{str(daily_filter).upper()}")
+    def _prio_key(k: str) -> Tuple[int, str]:
+        for i, token in enumerate(priority_contains):
+            if token.lower() in k.lower():
+                return (i, k)
+        return (999, k)
 
-    if snap is not None:
-        try:
-            chips.append(f"active_snapshot_id：{snap.id}")
-        except Exception:
-            pass
+    filtered.sort(key=lambda kv: _prio_key(kv[0]))
+
+    # チップ生成
+    for k, v in filtered:
+        chips.append(f"{k}：{_pretty_value(v)}")
+
+    # 最後にID
+    try:
+        chips.append(f"active_snapshot_id：{snap.id}")
+    except Exception:
+        pass
+
+    # もし何も無ければ保険
+    if not chips:
+        chips = ["ACTIVE Snapshot はありますが、表示できるキーがありません"]
 
     return chips
 
