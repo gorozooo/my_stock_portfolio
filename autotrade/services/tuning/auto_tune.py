@@ -7,13 +7,12 @@
 - 毎朝1ノブだけ動かし、候補Snapshot（CANDIDATE）を作って同日Executionで検証します。
 
 BREAKOUT一本運用：
-- runner に rr_vwap 等のVWAP引数は渡さない
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from datetime import date as dt_date
 
 from django.conf import settings
