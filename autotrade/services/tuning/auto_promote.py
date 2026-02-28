@@ -6,15 +6,10 @@
 - CANDIDATE（本番候補）のSnapshotを「今日のExecution（事実ログ）」で評価し、
   条件を満たすものがあれば自動でACTIVEへ昇格させる。
 
-重要ルール（固定）：
-- OKボタン不要で自動昇格（ユーザー要求）
-- ACTIVEは上書きしない（世代交代）：旧ACTIVEはRETIREDへ
-- 昇格の根拠（evidence）を snapshot JSON に焼き付ける（再現性・説明責任）
-- emergency_stop の日は昇格しない（安全弁）
-
-今回の変更（BREAKOUT一本運用）：
-- BREAKOUT のみで gate 判定 → FULLなら昇格
-- run_detail 検索キーは trade_date（UTC/JST混線回避）は維持
+BREAKOUT一本運用：
+- 評価対象は BREAKOUT のみ
+- evidence も BREAKOUT のみを焼く（UIもそれに合わせる）
+- run_detail 検索キーは trade_date（UTC/JST混線対策）
 """
 
 from __future__ import annotations
@@ -36,26 +31,20 @@ STRATEGIES: Tuple[str, ...] = ("BREAKOUT",)
 
 
 def _merge_gate_results(*, gate_breakout: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    BREAKOUT一本運用の最終判定。
-    - gate_level は BREAKOUT の判定をそのまま採用
-    - STOPなら active空、FULL/LIGHTならBREAKOUTをactive
-    """
     lv_b = str((gate_breakout or {}).get("gate_level") or "STOP")
 
-    active: List[str] = []
-    disabled: List[str] = []
-
     if lv_b == "STOP":
-        final = "STOP"
-    else:
-        final = lv_b
-        active.append("BREAKOUT")
+        return {
+            "gate_level": "STOP",
+            "active": [],
+            "disabled": ["BREAKOUT"],
+            "gate_breakout": gate_breakout,
+        }
 
     return {
-        "gate_level": final,
-        "active": active,
-        "disabled": disabled,
+        "gate_level": lv_b,  # LIGHT / FULL
+        "active": ["BREAKOUT"],
+        "disabled": [],
         "gate_breakout": gate_breakout,
     }
 
@@ -66,10 +55,6 @@ def _collect_metrics_for_snapshot(
     target_date: dt_date,
     windows: List[int],
 ) -> Dict[str, Any]:
-    """
-    ある snapshot について、今日の run_detail/Execution を読み取り、
-    window×strategy の metrics を作って gate 判定まで返す。
-    """
     by_window: Dict[int, Dict[str, Dict[str, Any]]] = {}
 
     snap_dict = snapshot.snapshot if isinstance(snapshot.snapshot, dict) else {}
@@ -78,23 +63,22 @@ def _collect_metrics_for_snapshot(
     for w in windows:
         w = int(w)
         by_window[w] = {}
-        for strat in STRATEGIES:
-            rd = (
-                AutoTradeBacktestRunDetail.objects
-                .filter(snapshot=snapshot, strategy=str(strat), window_days=w, trade_date=target_date)
-                .order_by("-id")
-                .first()
-            )
-            if not rd:
-                by_window[w][strat] = {"trades": 0}
-                continue
 
-            qs = AutoTradeExecution.objects.filter(run_detail=rd).order_by("exit_at")
-            m = summarize_executions(qs=qs, base_equity=base_equity)
-            by_window[w][strat] = m
+        rd = (
+            AutoTradeBacktestRunDetail.objects
+            .filter(snapshot=snapshot, strategy="BREAKOUT", window_days=w, trade_date=target_date)
+            .order_by("-id")
+            .first()
+        )
+        if not rd:
+            by_window[w]["BREAKOUT"] = {"trades": 0}
+            continue
+
+        qs = AutoTradeExecution.objects.filter(run_detail=rd).order_by("exit_at")
+        m = summarize_executions(qs=qs, base_equity=base_equity)
+        by_window[w]["BREAKOUT"] = m
 
     metrics_breakout = {int(w): (by_window[int(w)].get("BREAKOUT") or {}) for w in windows}
-
     gate_breakout = judge_multi_window(metrics_breakout)
     merged = _merge_gate_results(gate_breakout=gate_breakout)
 
@@ -113,11 +97,6 @@ def _write_candidate_evidence(
     ev: Dict[str, Any],
     note: str,
 ) -> None:
-    """
-    CANDIDATE の snapshot JSON に評価結果を焼き付ける。
-    - FULLでなくても保存する（UIで落第理由を見るため）
-    - gate.py の reasons（日本語＋円）も含まれる
-    """
     snap_dict = cand.snapshot if isinstance(cand.snapshot, dict) else {}
 
     snap_dict["auto_eval"] = {
@@ -145,9 +124,6 @@ def auto_promote_if_ready(
     target_date: Optional[dt_date] = None,
     windows: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
-    """
-    今日のCANDIDATEを評価して、FULLなら自動昇格する。
-    """
     if target_date is None:
         target_date = timezone.localdate()
 
