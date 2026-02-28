@@ -5,16 +5,10 @@
 このファイルは何？
 - 9:30 に動く「戦略決定＆ルール確定ジョブ」です。
 
-重要（修正点）：
+重要（BREAKOUT一本運用）：
 - gate判定は朝（morning_prepare/runner）でExecution基準で確定済み。
 - 9:30 job は gate を再計算しない（上書き事故を防ぐ）。
-- 9:30 は
-  1) 朝統計で戦略を選ぶ（wanted）
-  2) gateのactiveに無い戦略は起動しない
-  3) rules確定
-  だけをやる。
-
-注意：
+- 実運用の chosen は BREAKOUT 以外にならない（VWAP等は選ばない）。
 - gate_reason は朝の判定理由を尊重し、9:30で壊さない（空なら最低限だけ補完）
 """
 
@@ -70,43 +64,42 @@ def run():
         }
 
     # =========================================================
-    # 2) 戦略決定（朝統計ベース）
+    # 2) 朝統計ベースの“提案”は読む（ただし実運用の選択はBREAKOUT固定）
     # =========================================================
     decision = decide_strategy_for_state(state)
-    wanted = str(decision.strategy or "")
+    wanted_raw = str(decision.strategy or "")
 
     # =========================================================
     # 3) gate は「朝のExecution基準」を正として読む（再計算しない）
     # =========================================================
     gate_level, active, disabled = _get_gate_final_from_state(state)
 
-    # gateがSTOPなら、戦略は空（場中は動かさない）
+    # =========================================================
+    # 4) 実運用の chosen は BREAKOUT 以外にならない
+    # =========================================================
     if str(gate_level) == "STOP":
         chosen = ""
     else:
-        # gateのactiveに入ってる戦略だけ起動可
-        if wanted in active:
-            chosen = wanted
-        else:
-            # wantedが無効なら、activeの先頭へフォールバック（通常VWAP）
-            chosen = active[0] if active else ""
+        # gateのactiveにBREAKOUTがある時だけ起動
+        chosen = "BREAKOUT" if "BREAKOUT" in active else ""
 
     # =========================================================
-    # 4) state を更新（gate_reasonは壊さない）
+    # 5) state を更新（gate_reasonは壊さない）
     # =========================================================
     state.strategy = chosen
     state.strategy_decided_at = timezone.now()
 
     state.strategy_decision = {
-        "strategy_wanted": wanted,
+        "strategy_wanted": wanted_raw,
         "strategy": chosen,
-        "confidence": float(decision.confidence),
-        "reason": decision.reason,
-        "debug": decision.debug,
+        "confidence": float(getattr(decision, "confidence", 0.0)),
+        "reason": getattr(decision, "reason", ""),
+        "debug": getattr(decision, "debug", {}),
         "gate_level": gate_level,
         "gate_active": active,
         "gate_disabled": disabled,
         "created_at": timezone.localtime(timezone.now()).isoformat(),
+        "mode": "BREAKOUT_ONLY",
     }
 
     # ルール確定（gate_level と chosen を使う）
