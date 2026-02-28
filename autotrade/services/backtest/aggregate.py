@@ -28,7 +28,7 @@ def _agg_results(xs):
     return {"trades": int(trades), "pf": float(pf), "max_dd": float(max_dd), "pnl": float(pnl)}
 
 
-def run_backtests_for_universe(picks, windows, rr_breakout: float, rr_vwap=None):
+def run_backtests_for_universe(picks, windows, rr_breakout: float):
     """
     BREAKOUT一本運用。
 
