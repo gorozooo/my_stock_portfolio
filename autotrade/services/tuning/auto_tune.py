@@ -1,18 +1,22 @@
-"""
-[FILE] autotrade/services/tuning/auto_tune.py
-[PATH] <project_root>/autotrade/services/tuning/auto_tune.py
-
-このファイルは何？
-- 自動チューニング（最小構成）の本体です。
-- 毎朝1ノブだけ動かし、候補Snapshot（CANDIDATE）を作って同日Executionで検証します。
-
-BREAKOUT一本運用：
-"""
+# =========================================================
+# [FILE] autotrade/services/tuning/auto_tune.py
+# [PATH] <project_root>/autotrade/services/tuning/auto_tune.py
+#
+# このファイルは何？
+# - 自動チューニング（最小構成）の本体です。
+# - 毎朝1ノブだけ動かし、候補Snapshot（CANDIDATE）を作って同日Executionで検証します。
+#
+# 今回の変更（攻め型 / RR探索幅の再設計）：
+# - gateがSTOPほど探索幅を広げる（山を探す）
+# - LIGHTは中くらい
+# - FULLは触らない（勝ってる日は触るな）
+# - 候補の試行順は「攻め方向（RR↑）→控えめ（RR↓）」にする
+# =========================================================
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import date as dt_date
 
 from django.conf import settings
@@ -179,8 +183,8 @@ def _build_tune_eval(base: Dict[str, Any], cand: Dict[str, Any]) -> Dict[str, An
     if b_tr > 0 and c_tr < int(b_tr * 0.70):
         reasons.append(f"取引回数が減りすぎ：{b_tr} → {c_tr}（70%未満）")
 
-    if (c_dd - b_dd) > 0.003:
-        reasons.append(f"最大DDが悪化：{b_dd:.4f} → {c_dd:.4f}（+0.003超）")
+    if (c_dd - b_dd) > 0.004:
+        reasons.append(f"最大DDが悪化：{b_dd:.4f} → {c_dd:.4f}（+0.004超）")
 
     if c_pf + 1e-9 < b_pf:
         reasons.append(f"PFが悪化：{b_pf:.3f} → {c_pf:.3f}")
@@ -210,7 +214,10 @@ def _build_tune_eval(base: Dict[str, Any], cand: Dict[str, Any]) -> Dict[str, An
 
 def _is_improvement(base: Dict[str, Any], cand: Dict[str, Any]) -> bool:
     """
-    改善条件（最小・安全寄り / BREAKOUT基準）
+    改善条件（攻め型 / BREAKOUT基準）
+    - gateが上がれば即OK
+    - gate同等なら「PF or PnLが改善」優先
+    - ただし DDが極端悪化 / trades激減 はNG
     """
     b_gate = str(base.get("gate_level") or "STOP")
     c_gate = str(cand.get("gate_level") or "STOP")
@@ -238,12 +245,15 @@ def _is_improvement(base: Dict[str, Any], cand: Dict[str, Any]) -> bool:
     if b_tr > 0 and c_tr < int(b_tr * 0.70):
         return False
 
-    if (c_dd - b_dd) > 0.003:
+    # 攻め型なのでDD許容は少し広げるが、悪化しすぎはNG
+    if (c_dd - b_dd) > 0.004:
         return False
 
+    # PFが落ちるのは基本NG（攻め型の芯）
     if c_pf + 1e-9 < b_pf:
         return False
 
+    # 攻め型：PnL改善が最優先、次点PF改善
     if c_pnl > b_pnl:
         return True
 
@@ -255,18 +265,23 @@ def _is_improvement(base: Dict[str, Any], cand: Dict[str, Any]) -> bool:
 
 def _pick_knob_and_candidates(state: AutoTradeDailyState) -> List[Dict[str, Any]]:
     """
-    BREAKOUT一本運用：1日1ノブ（rr_breakout）だけ動かす。
-    - BREAKOUTがFULLでないなら rr_breakout を ±step
-    - FULLなら今日は触らない
+    攻め型：1日1ノブ（rr_breakout）だけ動かすが、探索幅を gate で変える。
+    - STOP：広め（山を探す）
+    - LIGHT：中くらい
+    - FULL：触らない
     """
     gate = _get_gate_bundle_from_state(state)
     lv_b = str((gate.get("breakout") or {}).get("gate_level") or gate.get("final_level") or "STOP")
 
     rr_b = _get_rr_from_state(state)
 
-    rr_step = float(getattr(settings, "AUTOTRADE_TUNE_RR_STEP", 0.1))
     rr_min = float(getattr(settings, "AUTOTRADE_TUNE_RR_MIN", 1.0))
-    rr_max = float(getattr(settings, "AUTOTRADE_TUNE_RR_MAX", 3.0))
+    rr_max = float(getattr(settings, "AUTOTRADE_TUNE_RR_MAX", 3.2))  # ★攻め型で上限を少し上へ
+
+    # gate別 step（デフォルト）
+    step_stop = float(getattr(settings, "AUTOTRADE_TUNE_RR_STEP_STOP", 0.20))
+    step_light = float(getattr(settings, "AUTOTRADE_TUNE_RR_STEP_LIGHT", 0.15))
+    step_full = float(getattr(settings, "AUTOTRADE_TUNE_RR_STEP_FULL", 0.05))
 
     def clamp_rr(x: float) -> float:
         return max(rr_min, min(rr_max, float(x)))
@@ -274,9 +289,17 @@ def _pick_knob_and_candidates(state: AutoTradeDailyState) -> List[Dict[str, Any]
     if lv_b == "FULL":
         return []
 
+    if lv_b == "STOP":
+        step = step_stop
+    elif lv_b == "LIGHT":
+        step = step_light
+    else:
+        step = step_full
+
+    # 試行順：攻め（RR↑）→控えめ（RR↓）
     return [
-        {"knob": "rr_breakout", "rr_breakout": clamp_rr(rr_b - rr_step), "delta": -rr_step},
-        {"knob": "rr_breakout", "rr_breakout": clamp_rr(rr_b + rr_step), "delta": +rr_step},
+        {"knob": "rr_breakout", "rr_breakout": clamp_rr(rr_b + step), "delta": +step},
+        {"knob": "rr_breakout", "rr_breakout": clamp_rr(rr_b - step), "delta": -step},
     ]
 
 
