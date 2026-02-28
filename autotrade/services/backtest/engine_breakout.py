@@ -1,21 +1,16 @@
-"""
-[FILE] autotrade/services/backtest/engine_breakout.py
-[PATH] <project_root>/autotrade/services/backtest/engine_breakout.py
-
-このファイルは何？
-- 戦略①（レンジブレイク）のバックテストを回すエンジンです。
-- 詳細モードでは Execution（事実ログ）をDBに作成します。
-- 重要：stop_pct（損切り幅）は Snapshot（固定設定）を参照できるようにして将来のノブ化に備えます。
-
-今回の変更（重要）：
-- tuning_edit.html で追加した「日足フィルタ」を、このエンジンが実際に反映するように実装
-  * breakout_daily_filter : OFF / SMA
-  * breakout_sma_days     : 例 20 / 50
-  * breakout_direction    : TREND_ONLY / BOTH
-- ついでに、snapshotから下記も拾う（UIと噛み合わせ）
-  * breakout_lookback_bars
-  * breakout_max_hold_min（または breakout_max_hold_bars / max_hold_bars 互換）
-"""
+# =========================================================
+# [FILE] autotrade/services/backtest/engine_breakout.py
+# [PATH] <project_root>/autotrade/services/backtest/engine_breakout.py
+#
+# このファイルは何？
+# - 戦略①（レンジブレイク）のバックテストを回すエンジンです。
+# - 詳細モードでは Execution（事実ログ）をDBに作成します。
+#
+# 今回の変更（攻め型の実運用安定化）：
+# - 日足SMAフィルタで「SMAが出てない日は見送り」をやめる
+#   -> データ不足で trades が激減して gate が不必要にSTOPになるのを防ぐ
+#   -> SMA不足日は “制限なし（許可）” 扱いにする
+# =========================================================
 
 from __future__ import annotations
 
@@ -121,13 +116,6 @@ def _build_daily_trend_map(*, ticker: str, sma_days: int) -> Dict[str, str]:
 def _get_stop_pct_breakout_from_snapshot(snapshot: Optional[AutoTradeSettingSnapshot]) -> float:
     """
     Snapshot（固定設定）から BREAKOUT stop_pct を拾う。
-
-    対応キー：
-    - stop_pct_breakout
-    - breakout_stop_pct
-    - breakout.stop_pct
-    - params.breakout.stop_pct
-    - BREAKOUT.stop_pct（factory.py 由来：カテゴリが大文字の可能性）
     """
     default = float(getattr(settings, "AUTOTRADE_BREAKOUT_STOP_PCT", 0.003))  # 0.30%
     if snapshot is None:
@@ -156,11 +144,6 @@ def _get_stop_pct_breakout_from_snapshot(snapshot: Optional[AutoTradeSettingSnap
 def _get_lookback_bars_from_snapshot(snapshot: Optional[AutoTradeSettingSnapshot]) -> int:
     """
     Snapshotからブレイク判定本数（5分足）を拾う。
-    対応キー（互換含む）：
-    - breakout_lookback_bars（UI保存）
-    - breakout.lookback_bars
-    - params.breakout.lookback_bars
-    - BREAKOUT.lookback_bars
     """
     default = int(getattr(settings, "AUTOTRADE_BREAKOUT_LOOKBACK_BARS", 6))
     if snapshot is None:
@@ -187,7 +170,6 @@ def _get_lookback_bars_from_snapshot(snapshot: Optional[AutoTradeSettingSnapshot
     if v is None:
         v = default
 
-    # 安全ガード
     if v < 2:
         v = 2
     if v > 60:
@@ -198,11 +180,6 @@ def _get_lookback_bars_from_snapshot(snapshot: Optional[AutoTradeSettingSnapshot
 def _get_max_hold_bars_from_snapshot(snapshot: Optional[AutoTradeSettingSnapshot]) -> int:
     """
     Snapshotから最大保有バー数を拾う。
-    対応キー（互換含む）：
-    - breakout_max_hold_bars（detail互換）
-    - max_hold_bars（互換）
-    - breakout_max_hold_min / breakout.max_hold_min / params.breakout.max_hold_min / BREAKOUT.max_hold_min（UIの分）
-      ※ 5分足前提なので bars = minutes / 5
     """
     default = int(getattr(settings, "AUTOTRADE_BREAKOUT_MAX_HOLD_BARS", 20))
     if snapshot is None:
@@ -210,7 +187,6 @@ def _get_max_hold_bars_from_snapshot(snapshot: Optional[AutoTradeSettingSnapshot
 
     sdict = snapshot.snapshot if isinstance(snapshot.snapshot, dict) else {}
 
-    # まずbars直指定があればそれを優先
     candidates_bars = [
         sdict.get("breakout_max_hold_bars"),
         sdict.get("max_hold_bars"),
@@ -225,14 +201,12 @@ def _get_max_hold_bars_from_snapshot(snapshot: Optional[AutoTradeSettingSnapshot
         v = _safe_int(x, None)
         if v is None:
             continue
-        # 安全ガード
         if v < 1:
             v = 1
         if v > 200:
             v = 200
         return int(v)
 
-    # 次に「分」指定を拾ってbarsへ変換（5分足前提）
     candidates_min = [
         sdict.get("breakout_max_hold_min"),
         _get_nested(sdict, "breakout", "max_hold_min"),
@@ -257,10 +231,6 @@ def _get_max_hold_bars_from_snapshot(snapshot: Optional[AutoTradeSettingSnapshot
 def _get_daily_filter_params_from_snapshot(snapshot: Optional[AutoTradeSettingSnapshot]) -> Dict[str, Any]:
     """
     Snapshotから日足フィルタ設定を拾う（互換込み）。
-    期待値：
-      daily_filter: "OFF" or "SMA"
-      sma_days: int
-      direction: "TREND_ONLY" or "BOTH"
     """
     out = {"daily_filter": "OFF", "sma_days": 20, "direction": "TREND_ONLY"}
     if snapshot is None:
@@ -319,13 +289,8 @@ def run_breakout(
 ):
     """
     互換性のために2モードを持つ：
-
     1) 旧：簡易集計モード（aggregate用）
-       run_breakout(ticker, window_days, rr) -> {"trades","pf","max_dd","pnl"}
-
     2) 新：詳細バックテストモード（Execution生成）
-       run_breakout(..., snapshot=..., mode="BACKTEST", target_date=...) -> DBに AutoTradeExecution を作る
-       ※戻り値は必須ではないが、簡単な件数だけ返す
     """
     slip = float(getattr(settings, "AUTOTRADE_SLIPPAGE_PCT", 0.0))
 
@@ -360,7 +325,9 @@ def run_breakout(
             日足SMAフィルタ（TREND_ONLY）を適用。
             - OFFなら常にOK
             - SMA + TREND_ONLY：UP→LONGのみ / DOWN→SHORTのみ
-            - SMA + BOTH：両方向OK（trend_mapは作るが制限しない）
+            - SMA + BOTH：両方向OK
+            - ★攻め型：SMAが出てない日は “見送り” ではなく “制限なし(許可)” にする
+              -> trades激減→gate STOP の事故を避ける
             """
             if daily_filter != "SMA":
                 return True
@@ -379,8 +346,8 @@ def run_breakout(
 
             tr = trend_map.get(d)
             if tr not in ["UP", "DOWN"]:
-                # SMAが出てない日は安全側で“見送り”
-                return False
+                # ★SMA不足日は許可（制限なし）
+                return True
 
             if tr == "UP" and side == "LONG":
                 return True
@@ -421,7 +388,6 @@ def run_breakout(
     closes = df["close"].values
     idx = df.index
 
-    # ループ開始位置（lookbackに合わせて安全に）
     i = max(lookback_bars + 1, 10)
 
     while i < len(df) - 2:
@@ -438,7 +404,6 @@ def run_breakout(
             i += 1
             continue
 
-        # entry_at（timezone aware化）
         entry_at = _ensure_aware(idx[i + 1].to_pydatetime() if hasattr(idx[i + 1], "to_pydatetime") else idx[i + 1])
 
         # ロング
@@ -532,7 +497,6 @@ def run_breakout(
                     exited = True
                     break
 
-            # TIME（最大保有で終了）
             if not exited:
                 exit_at = _ensure_aware(idx[j_end].to_pydatetime() if hasattr(idx[j_end], "to_pydatetime") else idx[j_end])
                 exitp = float(closes[j_end]) * (1 - slip)
@@ -660,7 +624,6 @@ def run_breakout(
                     exited = True
                     break
 
-            # TIME（最大保有で終了）
             if not exited:
                 exit_at = _ensure_aware(idx[j_end].to_pydatetime() if hasattr(idx[j_end], "to_pydatetime") else idx[j_end])
                 exitp = float(closes[j_end]) * (1 + slip)
