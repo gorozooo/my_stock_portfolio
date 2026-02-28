@@ -7,15 +7,16 @@
 - ここから「編集」「検証（BACKTEST）」「アーカイブ」へ行けます。
 - 検証は POST で /lab/<pk>/backtest/ に投げ、結果ページへリダイレクトします。
 
-変更内容（BREAKOUT一本運用）：
-- BREAKOUT枠に「日足フィルタ（OFF/SMA）」「SMA日数」「方向制限」を表示
+今回の変更：
+- BREAKOUT一本運用に合わせて、VWAP枠を撤去
+- BREAKOUTに追加した日足フィルタ項目（daily_filter / sma_days / direction）を一覧でも見える化
 -->
 {% extends "base.html" %}
 {% load static %}
 {% block title %}AutoTrade / 実験室{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'autotrade/tuning.css' %}?v=3">
+<link rel="stylesheet" href="{% static 'autotrade/tuning.css' %}?v=7">
 {% endblock %}
 
 {% block content %}
@@ -47,9 +48,9 @@
               <div class="lab-kv lab-mono">本数：{{ p.params.BREAKOUT.lookback_bars|default:"-" }}</div>
               <div class="lab-kv lab-mono">最大保有(分)：{{ p.params.BREAKOUT.max_hold_min|default:"-" }}</div>
 
-              <div class="lab-kv lab-mono">日足：{{ p.params.BREAKOUT.daily_filter|default:"OFF" }}</div>
-              <div class="lab-kv lab-mono">SMA：{{ p.params.BREAKOUT.sma_days|default:"-" }}</div>
-              <div class="lab-kv lab-mono">方向：{{ p.params.BREAKOUT.direction|default:"TREND_ONLY" }}</div>
+              <div class="lab-kv lab-mono lab-mt8">日足フィルタ：{{ p.params.BREAKOUT.daily_filter|default:"OFF" }}</div>
+              <div class="lab-kv lab-mono">SMA日数：{{ p.params.BREAKOUT.sma_days|default:"20" }}</div>
+              <div class="lab-kv lab-mono">方向制限：{{ p.params.BREAKOUT.direction|default:"TREND_ONLY" }}</div>
             </div>
           </div>
 
