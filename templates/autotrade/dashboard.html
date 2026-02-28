@@ -4,7 +4,15 @@
 
 このファイルは何？
 - AutoTrade の iPhone 1画面ダッシュボードのテンプレです。
-- gate.py の reasons（日本語＋数値＋円）をそのまま見せる（判断UI化）。
+- 初心者が「今日どう動くか」を迷わないように、重複情報を削除し、
+  ①判定理由（結論）②合格ライン（基準）③現在の設定（実パラメータ）を分離して表示します。
+
+今回の変更：
+- 「当日の戦略」(BREAKOUT固定のため不要) を削除
+- 「最終判定（まとめ）」(判定理由と重複) を削除
+- 「バックテスト（BREAKOUT）」(判定理由と重複) を削除
+- ★新設：合格ライン（gate.pyのGATE_THRESHOLDS）
+- ★新設：現在の動いている数値（ACTIVE Snapshot由来の実パラメータ）
 -->
 {% extends "base.html" %}
 {% load humanize %}
@@ -60,32 +68,14 @@
             {{ state.pnl_total_yen|intcomma }}
           </div>
         </div>
-
-        <div class="autotrade-box">
-          <div class="autotrade-label">当日の戦略</div>
-          <div class="autotrade-val autotrade-mono">
-            {% if state.strategy %}{{ state.strategy }}{% else %}未決定{% endif %}
-          </div>
-        </div>
-      </div>
-
-      <div class="autotrade-mt10">
-        <div class="autotrade-label">最終判定（まとめ）</div>
-        <div class="autotrade-mono autotrade-reason">
-          {% if gate.final_reason_text %}
-            {{ gate.final_reason_text|linebreaksbr }}
-          {% else %}
-            -
-          {% endif %}
-        </div>
       </div>
     </section>
 
     <!-- Gate reasons (Numbers + Yen + Japanese) -->
     <section class="autotrade-card">
       <div class="autotrade-row">
-        <div class="autotrade-h">判定理由（日本語＋数値＋円）</div>
-        <div class="autotrade-muted">gate.py の reasons をそのまま表示</div>
+        <div class="autotrade-h">判定理由（BREAKOUT）</div>
+        <div class="autotrade-muted">結論 + 理由 + 数字（ここだけ見ればOK）</div>
       </div>
 
       <div class="autotrade-gate-grid autotrade-mt10">
@@ -110,33 +100,71 @@
       </div>
     </section>
 
-    <!-- Backtest (BREAKOUT only) -->
+    <!-- ★ NEW: Thresholds (Gate 기준) -->
     <section class="autotrade-card">
       <div class="autotrade-row">
-        <div class="autotrade-h">バックテスト（BREAKOUT）</div>
-        <div class="autotrade-muted">PF/DD/N/損益を表示（集計は保存しない）</div>
+        <div class="autotrade-h">合格ライン（判定基準）</div>
+        <div class="autotrade-muted">gate.py の GATE_THRESHOLDS（ここを満たすと FULL/LIGHT）</div>
       </div>
 
-      <!-- 互換のため tabs 構造は残す（中身はBREAKOUTのみ） -->
-      <div class="autotrade-tabs autotrade-mt10" data-initial="BREAKOUT">
-        <button class="autotrade-tab" type="button" data-tab="BREAKOUT">BREAKOUT</button>
-      </div>
-
-      <div class="autotrade-tabpanes autotrade-mt10">
-        <div class="autotrade-pane" data-pane="BREAKOUT">
-          <div class="autotrade-chips">
-            {% for r in bt_rows_by_strategy.BREAKOUT %}
-              <div class="autotrade-chip autotrade-mono">
-                {{ r.window }}日:
-                N {{ r.trades|default:"-" }} /
-                勝率 {{ r.win_rate|default:"-" }} /
-                PF {{ r.pf|default:"-" }} /
-                DD {{ r.dd_pct|default:"-" }} ({{ r.dd_yen|default:"-"|intcomma }}円) /
-                損益 {{ r.pnl|default:"-"|intcomma }}円
-              </div>
-            {% endfor %}
-          </div>
+      <div class="autotrade-chips autotrade-mt10">
+        <div class="autotrade-chip autotrade-mono">
+          FULL：
+          PF ≥ {{ thresholds.FULL.min_pf|default:"-" }} /
+          DD ≤ {{ thresholds.FULL.max_dd_pct|default:"-" }} /
+          回数 ≥ {{ thresholds.FULL.min_trades|default:"-" }}
+          {% if thresholds.FULL.min_win_rate is not None %}
+            / 勝率 ≥ {{ thresholds.FULL.min_win_rate }}
+          {% endif %}
         </div>
+
+        <div class="autotrade-chip autotrade-mono">
+          LIGHT：
+          PF ≥ {{ thresholds.LIGHT.min_pf|default:"-" }} /
+          DD ≤ {{ thresholds.LIGHT.max_dd_pct|default:"-" }} /
+          回数 ≥ {{ thresholds.LIGHT.min_trades|default:"-" }}
+          {% if thresholds.LIGHT.min_win_rate is not None %}
+            / 勝率 ≥ {{ thresholds.LIGHT.min_win_rate }}
+          {% endif %}
+        </div>
+      </div>
+    </section>
+
+    <!-- ★ NEW: Current Running Params -->
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div class="autotrade-h">現在の動いている数値（今日の設定）</div>
+        <div class="autotrade-muted">ACTIVE Snapshot（実運用のパラメータ）</div>
+      </div>
+
+      <div class="autotrade-chips autotrade-mt10">
+        <div class="autotrade-chip autotrade-mono">
+          windows={{ current_params.windows|default:"-" }}
+        </div>
+        <div class="autotrade-chip autotrade-mono">
+          RR(BREAKOUT)={{ current_params.rr_breakout|default:"-" }}
+        </div>
+        <div class="autotrade-chip autotrade-mono">
+          stop_pct={{ current_params.stop_pct|default:"-" }}
+        </div>
+        <div class="autotrade-chip autotrade-mono">
+          lookback_bars={{ current_params.lookback_bars|default:"-" }}
+        </div>
+        <div class="autotrade-chip autotrade-mono">
+          max_hold_min={{ current_params.max_hold_min|default:"-" }}
+        </div>
+        <div class="autotrade-chip autotrade-mono">
+          日足フィルタ={{ current_params.daily_filter|default:"OFF" }}
+          {% if current_params.daily_filter == "SMA" %}
+            （SMA{{ current_params.sma_days|default:"20" }} / {{ current_params.direction|default:"TREND_ONLY" }}）
+          {% endif %}
+        </div>
+
+        {% if current_params.active_snapshot_id %}
+          <div class="autotrade-chip autotrade-mono">
+            active_snapshot_id={{ current_params.active_snapshot_id }}
+          </div>
+        {% endif %}
       </div>
     </section>
 
