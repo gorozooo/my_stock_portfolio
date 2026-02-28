@@ -7,9 +7,8 @@
 - 一覧・新規・編集・アーカイブ・検証実行・結果表示・再検証（同条件/ picks更新）
 - さらに CANDIDATE / ACTIVE昇格 / ロールバック（監査ログ付き）までを担当します。
 
-BREAKOUT一本運用の方針：
-- VWAP関連の引数（rr_vwap 等）は runner に渡さない（runnerはBREAKOUT専用）
-- rerun系も BREAKOUT の rr_breakout のみを使う
+BREAKOUT一本運用：
+- VWAP関連の引数（rr_vwap等）は runner に渡さない（runnerはBREAKOUT専用）
 """
 
 from __future__ import annotations
@@ -17,7 +16,6 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
-from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.http import HttpRequest
@@ -457,7 +455,7 @@ def tuning_rerun_snapshot_force(request: HttpRequest, snapshot_id: int):
         picks=picks,
         target_date=today,
         windows=tuple(int(x) for x in windows),
-        rr_breakout=float(rr_b) if rr_b is not None else float(getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0)),
+        rr_breakout=float(rr_b) if rr_b is not None else float(getattr(__import__("django.conf").conf.settings, "AUTOTRADE_RR_BREAKOUT", 2.0)),
         base_equity_yen=None,
         force=True,
     )
@@ -494,7 +492,7 @@ def tuning_rerun_snapshot_refresh_picks(request: HttpRequest, snapshot_id: int):
         picks=picks,
         target_date=today,
         windows=tuple(int(x) for x in windows),
-        rr_breakout=float(rr_b) if rr_b is not None else float(getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0)),
+        rr_breakout=float(rr_b) if rr_b is not None else float(getattr(__import__("django.conf").conf.settings, "AUTOTRADE_RR_BREAKOUT", 2.0)),
         base_equity_yen=None,
         force=True,
     )
