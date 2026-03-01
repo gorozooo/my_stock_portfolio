@@ -7,12 +7,13 @@
 - Snapshot の状態（DRAFT/CANDIDATE/ACTIVE/RETIRED）に応じて、
   「本番候補」「本番採用」「ロールバック」などの操作ボタンを表示します。
 
-今回の変更：
+今回の変更（ハイブリッド両立）：
+- 🔒 固定検証（研究室）ボタンを追加：凍結picks/日付/windowsで完全再現
+- 🧪 今日再評価（現場）ボタンを維持：picksを今日のuniverseで作り直して再実行
 - DRAFT でも「本番候補」「本番採用」ボタンを表示する（ユーザー要望）。
 - CANDIDATE でも「本番採用」を表示する。
 - ACTIVE のとき、直近PROMOTEの対象なら「ROLLBACK」を表示する。
 - 「再検証（同条件）」は廃止済みのまま維持。
-- 「再検証（picks更新）」は残す。
 -->
 
 {% extends "base.html" %}
@@ -99,6 +100,18 @@
       </div>
     </div>
 
+    <!-- 🔒 凍結情報（研究室用） -->
+    {% if header and header.frozen %}
+      <details class="lab-details lab-mt12">
+        <summary class="lab-summary">🔒 固定検証の凍結条件（タップで開く）</summary>
+        <div class="lab-mt10 lab-mono lab-kv">
+          <div>target_date：<span class="lab-strong">{{ header.frozen.target_date|default:"-" }}</span></div>
+          <div>windows：<span class="lab-strong">{{ header.frozen.windows|default:"-" }}</span></div>
+          <div>picks：<span class="lab-strong">{{ header.frozen.picks|default:"-" }}</span></div>
+        </div>
+      </details>
+    {% endif %}
+
     <!-- ★ 追加：作業台の中身（数値）を見せる（BREAKOUTのみ） -->
     {% if profile and profile.params %}
       <details class="lab-details lab-mt12">
@@ -120,10 +133,28 @@
     {% endif %}
 
     <!-- =========================
-         操作ボタン
-         - DRAFTでも候補/採用を出す（要望）
+         操作ボタン（ハイブリッド）
          ========================= -->
     <div class="lab-mt12 lab-row" style="gap:10px; flex-wrap:wrap;">
+
+      <!-- 🔒 固定検証（研究室） -->
+      <form class="lab-inline" method="post" action="{% url 'autotrade:tuning_rerun_snapshot_fixed' snapshot.id %}">
+        {% csrf_token %}
+        <button class="lab-btn" type="submit"
+                data-confirm="凍結条件（作成時のpicks/日付/windows）で固定検証します。よろしいですか？">
+          🔒 固定検証（研究室）
+        </button>
+      </form>
+
+      <!-- 🧪 今日再評価（現場） -->
+      <form class="lab-inline" method="post" action="{% url 'autotrade:tuning_rerun_snapshot_refresh_picks' snapshot.id %}">
+        {% csrf_token %}
+        <button class="lab-btn" type="submit"
+                data-rerun="1"
+                data-confirm="picksを作り直してから今日の条件で再評価します（universe再生成）。よろしいですか？">
+          🧪 今日再評価（現場）
+        </button>
+      </form>
 
       <!-- 本番候補（CANDIDATE） -->
       {% if snapshot.status != "ACTIVE" and snapshot.status != "RETIRED" %}
@@ -160,20 +191,13 @@
         {% endif %}
       {% endif %}
 
-      <!-- ★ 再検証：picks更新してやり直し（同条件は廃止） -->
-      <form class="lab-inline" method="post" action="{% url 'autotrade:tuning_rerun_snapshot_refresh_picks' snapshot.id %}">
-        {% csrf_token %}
-        <button class="lab-btn" type="submit"
-                data-rerun="1"
-                data-confirm="picksを作り直してから再検証します（universe再生成）。よろしいですか？">
-          ↻ 再検証（picks更新）
-        </button>
-      </form>
-
     </div>
 
     <div class="lab-muted lab-mt8">
-      ※ 安全のため、DRAFTでも「本番候補」「本番採用」を押せます（あなたの要望）。
+      ※ ハイブリッド運用：
+      <br>🔒固定検証＝「再現性の確認（研究室）」
+      <br>🧪今日再評価＝「現場の市場で通用するか（現場）」
+      <br>※ DRAFTでも「本番候補」「本番採用」を押せます（あなたの要望）。
       ただし「本番採用」を押すと、既存ACTIVEはRETIREDになります。
     </div>
   </div>
