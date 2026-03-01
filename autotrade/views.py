@@ -23,7 +23,6 @@ from .views_tuning import (
     tuning_edit,
     tuning_archive,
     tuning_run_backtest,
-    tuning_rerun_snapshot_force,
     tuning_rerun_snapshot_refresh_picks,
     tuning_result,
     tuning_make_candidate,
