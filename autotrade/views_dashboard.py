@@ -1,21 +1,21 @@
-# =========================================================
-# [FILE] autotrade/views_dashboard.py
-# [PATH] <project_root>/autotrade/views_dashboard.py
-#
-# このファイルは何？
-# - AutoTrade のダッシュボード表示（iPhone 1画面）用の View と整形関数です。
-# - state.backtest（runnerが保存した結果）を “再計算せず” テンプレ表示用に整形します。
-#
-# 今回の変更：
-# - dashboard() で ACTIVE Snapshot を正しく取得し、state.active_snapshot にセットする
-# - ACTIVE Snapshot の表示を「初心者向けの要約」＋「詳細（デバッグ）」の2段にする
-# - 「判定理由 / 合格ライン / 今日の対象銘柄」を折りたたみ表示できるよう、テンプレ側に渡す形は維持
-# =========================================================
+"""
+[FILE] autotrade/views_dashboard.py
+[PATH] <project_root>/autotrade/views_dashboard.py
+
+このファイルは何？
+- AutoTrade のダッシュボード表示（iPhone 1画面）用の View と整形関数です。
+
+今回の変更：
+- 「ACTIVE Snapshot のパラメータが唯一の真実」：
+  - state.active_snapshot みたいな曖昧な属性参照は廃止
+  - DBから status="ACTIVE" を毎回取得して表示する
+  - チップ表示も “初心者向け要約チップ” を上に出し、詳細キーは折りたたみで出す前提のまま維持
+"""
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest
@@ -255,10 +255,12 @@ def _pretty_value(v: Any) -> str:
     if isinstance(v, bool):
         return "ON" if v else "OFF"
     if isinstance(v, (int, float)):
+        # 変に長い小数は丸める
         if isinstance(v, float):
             return f"{v:.6g}"
         return str(v)
     if isinstance(v, list):
+        # リストは短く
         if len(v) <= 10:
             return str(v)
         return f"[{', '.join(map(str, v[:10]))}, ...]"
@@ -268,125 +270,34 @@ def _pretty_value(v: Any) -> str:
     return s
 
 
-def _fmt_pct_from_ratio(x: Any) -> str:
+def _get_active_snapshot(user) -> Optional[AutoTradeSettingSnapshot]:
     """
-    0.004 -> 0.40% のように表示
+    ★唯一の真実：ACTIVE snapshot をDBから取得する
     """
-    v = _safe_float(x, 0.0)
-    return f"{v*100.0:.2f}%"
+    return (
+        AutoTradeSettingSnapshot.objects
+        .filter(user=user, status="ACTIVE")
+        .order_by("-id")
+        .first()
+    )
 
 
-def build_active_params_for_template(state: AutoTradeDailyState) -> Dict[str, List[str]]:
+def build_active_params_chips_for_template(*, user, active_snapshot: Optional[AutoTradeSettingSnapshot]) -> List[str]:
     """
-    ACTIVE Snapshot（実運用パラメータ）を
-    - summary（初心者向け）
-    - debug（全部/デバッグ）
-    の2段で返す。
+    ACTIVE Snapshot（実運用パラメータ）を表示する。
+    重要：表示も「DBのACTIVE」を唯一の真実にする。
     """
-    snap = getattr(state, "active_snapshot", None)
-    if snap is None:
-        return {
-            "summary": ["ACTIVE Snapshot がありません（まだ昇格していない可能性）"],
-            "debug": [],
-        }
+    chips: List[str] = []
+
+    if active_snapshot is None:
+        return ["ACTIVE Snapshot がありません（まだ昇格していない可能性）"]
 
     try:
-        sdict = snap.snapshot if isinstance(snap.snapshot, dict) else {}
+        sdict = active_snapshot.snapshot if isinstance(active_snapshot.snapshot, dict) else {}
     except Exception:
         sdict = {}
 
-    # --------
-    # 初心者向け “要約”
-    # --------
-    summary: List[str] = []
-
-    # id/label
-    label = getattr(snap, "label", None) or "-"
-    summary.append(f"採用中の設定：ID {snap.id}（{label}）")
-
-    # よく出る構造に寄せて取り出す
-    manual_eval = sdict.get("manual_eval") if isinstance(sdict.get("manual_eval"), dict) else {}
-    lab = sdict.get("lab") if isinstance(sdict.get("lab"), dict) else {}
-    bo = lab.get("BREAKOUT") if isinstance(lab.get("BREAKOUT"), dict) else {}
-
-    # windows
-    windows = manual_eval.get("windows")
-    if not isinstance(windows, list) or not windows:
-        windows = sdict.get("windows") if isinstance(sdict.get("windows"), list) else None
-    if windows:
-        summary.append(f"判定に使う期間：{windows}")
-
-    # base_equity
-    base_eq = sdict.get("base_equity_yen", None)
-    if base_eq is None:
-        base_eq = manual_eval.get("base_equity_yen", None)
-    if base_eq is not None:
-        summary.append(f"基準資金：{_safe_int(base_eq, 0):,}円".replace(",", ""))  # intcommaはテンプレ側に任せないので軽く整形
-
-    # RR
-    rr = bo.get("rr", None)
-    if rr is None:
-        rr = sdict.get("rr_breakout", None)
-    if rr is None:
-        rr = manual_eval.get("rr_breakout", None)
-    if rr is not None:
-        summary.append(f"利確RR：{_safe_float(rr, 0.0):.2f}（利確幅＝損切幅×RR）")
-
-    # stop_pct
-    # 例：breakout_stop_pct: 0.004（=0.40%）
-    stop_ratio = sdict.get("breakout_stop_pct", None)
-    stop_ui = bo.get("stop_pct_ui", None)
-
-    if stop_ratio is not None:
-        summary.append(f"損切り幅：{_fmt_pct_from_ratio(stop_ratio)}")
-    elif stop_ui is not None:
-        summary.append(f"損切り幅：{_safe_float(stop_ui, 0.0):.2f}%")
-
-    # lookback_bars
-    lb = bo.get("lookback_bars", None)
-    if lb is not None:
-        summary.append(f"ブレイク判定：直近 {int(_safe_int(lb, 0))} 本（5分足）")
-
-    # max_hold_min / bars
-    mh_min = bo.get("max_hold_min", None)
-    mh_bars = sdict.get("max_hold_bars", None)
-    if mh_min is not None:
-        summary.append(f"最大保有：{int(_safe_int(mh_min, 0))} 分")
-    if mh_bars is not None:
-        summary.append(f"最大保有（本数換算）：{int(_safe_int(mh_bars, 0))} 本（5分足）")
-
-    # 日足フィルタ系（あれば）
-    daily_filter = bo.get("daily_filter", None)
-    sma_days = bo.get("sma_days", None)
-    direction = bo.get("direction", None)
-
-    if daily_filter is not None:
-        if str(daily_filter).upper() == "OFF":
-            summary.append("日足フィルタ：OFF（使わない）")
-        else:
-            summary.append(f"日足フィルタ：{daily_filter}")
-    if sma_days is not None:
-        summary.append(f"SMA日数：{int(_safe_int(sma_days, 0))} 日")
-    if direction is not None:
-        if str(direction).upper() == "TREND_ONLY":
-            summary.append("方向制限：トレンド方向だけ（TREND_ONLY）")
-        else:
-            summary.append(f"方向制限：{direction}")
-
-    # manual_eval info（あれば）
-    m_date = manual_eval.get("date", None)
-    if m_date:
-        summary.append(f"評価日：{m_date}")
-    note = manual_eval.get("note", None)
-    if note:
-        if str(note) == "manual_backtest_from_ui":
-            summary.append("評価方法：UIから手動バックテスト")
-        else:
-            summary.append(f"評価方法メモ：{note}")
-
-    # --------
-    # デバッグ用 “全部”（フラット表示）
-    # --------
+    # 表示が爆発する巨大キーは除外
     exclude_prefixes = [
         "evidence",
         "auto_eval",
@@ -396,6 +307,7 @@ def build_active_params_for_template(state: AutoTradeDailyState) -> Dict[str, Li
         "raw",
         "logs",
     ]
+
     flat = _flatten_dict(sdict, max_depth=4)
 
     filtered: List[Tuple[str, Any]] = []
@@ -406,16 +318,18 @@ def build_active_params_for_template(state: AutoTradeDailyState) -> Dict[str, Li
         filtered.append((k0, v))
 
     priority_contains = [
-        "manual_eval.windows",
-        "lab.BREAKOUT.rr",
-        "breakout_stop_pct",
-        "lab.BREAKOUT.stop_pct_ui",
-        "lab.BREAKOUT.lookback_bars",
-        "lab.BREAKOUT.max_hold_min",
-        "max_hold_bars",
-        "base_equity_yen",
-        "manual_eval.date",
-        "manual_eval.evaluated_at",
+        "windows",
+        "rr",
+        "stop_pct",
+        "lookback",
+        "max_hold",
+        "daily_filter",
+        "sma_days",
+        "direction",
+        "risk",
+        "slippage",
+        "base_equity",
+        "universe",
     ]
 
     def _prio_key(k: str) -> Tuple[int, str]:
@@ -426,45 +340,29 @@ def build_active_params_for_template(state: AutoTradeDailyState) -> Dict[str, Li
 
     filtered.sort(key=lambda kv: _prio_key(kv[0]))
 
-    debug: List[str] = []
     for k, v in filtered:
-        debug.append(f"{k}：{_pretty_value(v)}")
+        chips.append(f"{k}：{_pretty_value(v)}")
 
-    # 最後にID/label
-    debug.append(f"active_snapshot_id：{snap.id}")
-    debug.append(f"active_label：{label}")
+    chips.append(f"active_snapshot_id：{active_snapshot.id}")
+    chips.append(f"active_label：{active_snapshot.label}")
 
-    return {
-        "summary": summary[:20],  # 長くなりすぎ防止
-        "debug": debug[:200],     # iPhoneで死なない上限（必要なら増やせる）
-    }
+    if not chips:
+        chips = ["ACTIVE Snapshot はありますが、表示できるキーがありません"]
 
-
-def _get_current_active_snapshot(user) -> AutoTradeSettingSnapshot | None:
-    return (
-        AutoTradeSettingSnapshot.objects
-        .filter(user=user, status="ACTIVE")
-        .order_by("-id")
-        .first()
-    )
+    return chips
 
 
 @login_required
 def dashboard(request: HttpRequest):
-    # JSTの日付を優先（モデルの date は DateField なので localdate が安全）
     today = timezone.localdate()
     state, _ = AutoTradeDailyState.objects.get_or_create(date=today)
 
-    # ★ ここが重要：ACTIVE Snapshot を state に載せる
-    active = _get_current_active_snapshot(request.user)
-    state.active_snapshot = active  # DB保存はしない、表示用の一時属性
-
-    active_params = build_active_params_for_template(state)
+    active_snapshot = _get_active_snapshot(request.user)
 
     ctx = {
         "state": state,
         "result_cards": build_result_cards_for_template(state),
         "thresholds": build_thresholds_for_template(),
-        "active_params": active_params,  # summary/debug の2段
+        "active_params_chips": build_active_params_chips_for_template(user=request.user, active_snapshot=active_snapshot),
     }
     return render(request, "autotrade/dashboard.html", ctx)
