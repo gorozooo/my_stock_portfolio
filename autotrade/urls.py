@@ -5,9 +5,10 @@
 # このファイルは何？
 # - autotrade アプリのURLルーティング（URLとView関数の紐付け）です。
 #
-# 今回の変更：
-# - 実験室の「再検証（同条件）」を廃止するため、
-#   rerun（同条件）のURLを削除しました。
+# 今回の変更（ハイブリッド両立）：
+# - 🔒 固定検証（研究室）を追加：
+#   - Snapshot作成時に凍結した条件（target_date / picks / windows）で完全再現して再実行するURLを追加
+# - 🧪 今日再評価（現場）は既存の rerun-refresh-picks をそのまま維持
 # =========================================================
 
 from django.urls import path
@@ -33,7 +34,14 @@ urlpatterns = [
     # 検証結果（カード表示）
     path("lab/result/<int:snapshot_id>/", views.tuning_result, name="tuning_result"),
 
-    # ★ 残す：結果ページから再検証（picks更新）
+    # 🔒 追加：結果ページから固定検証（研究室）
+    path(
+        "lab/result/<int:snapshot_id>/rerun-fixed/",
+        views.tuning_rerun_snapshot_fixed,
+        name="tuning_rerun_snapshot_fixed",
+    ),
+
+    # 🧪 残す：結果ページから今日再評価（現場・picks更新）
     path(
         "lab/result/<int:snapshot_id>/rerun-refresh-picks/",
         views.tuning_rerun_snapshot_refresh_picks,
