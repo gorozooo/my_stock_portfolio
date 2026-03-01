@@ -4,9 +4,12 @@
 
 このファイルは何？
 - autotrade の View の “入口（ハブ）” です。
-- 以前は全部ここに書いていたため巨大化していました。
-- 今回、内容を views_dashboard.py / views_tuning.py / views_api.py に分割し、
-  それでも urls.py 側が壊れないように、このファイルから各Viewを再エクスポートします。
+- views_dashboard.py / views_tuning.py / views_api.py に分割した各Viewを再エクスポートします。
+- urls.py からは常にここ（autotrade.views）を参照しても壊れないようにするためのハブです。
+
+今回の変更：
+- 廃止済みの tuning_rerun_snapshot_force を __all__ からも完全削除。
+  （ImportError/混乱の温床になるので、残骸を消す）
 """
 
 from __future__ import annotations
@@ -45,7 +48,6 @@ __all__ = [
     "tuning_edit",
     "tuning_archive",
     "tuning_run_backtest",
-    "tuning_rerun_snapshot_force",
     "tuning_rerun_snapshot_refresh_picks",
     "tuning_result",
     "tuning_make_candidate",
