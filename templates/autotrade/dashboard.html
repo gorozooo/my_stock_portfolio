@@ -1,4 +1,5 @@
 <!--
+=========================================================
 [FILE] templates/autotrade/dashboard.html
 [PATH] <project_root>/templates/autotrade/dashboard.html
 
@@ -6,6 +7,14 @@
 - AutoTrade の iPhone 1画面ダッシュボードのテンプレです。
 - ここでは「判定理由」を、初心者向けの “結果カード（期間ごと）” 形式で表示します。
 - gate.py の文章をそのまま箇条書き表示せず、view側で整形した result_cards を表示します。
+
+今回の変更：
+- 判定理由 / 合格ライン / 今日の対象銘柄 を折りたたみ（details）にする
+- 「現在の動いている数値（今日の設定）」を
+  ①初心者向け要約（見出し付き）
+  ②詳細（デバッグ用に全部）
+  の2段にする
+=========================================================
 -->
 {% extends "base.html" %}
 {% load humanize %}
@@ -71,64 +80,71 @@
         <div class="autotrade-muted">結論・理由・数字を “期間ごと” に整理して表示します</div>
       </div>
 
-      <div class="autotrade-mt10">
-        {% if result_cards %}
-          {% for c in result_cards %}
-            <div class="autotrade-card autotrade-mt10" style="margin:0; padding:16px;">
-              <div class="autotrade-row" style="align-items:center;">
-                <div class="autotrade-h" style="letter-spacing:0.5px;">
-                  {{ c.strategy }} | {{ c.window }}日
-                </div>
+      <!-- ★ 折りたたみ -->
+      <details class="autotrade-mt10">
+        <summary class="autotrade-muted" style="cursor:pointer; user-select:none;">
+          ▶ 開く（期間ごとの判定理由）
+        </summary>
 
-                <div class="autotrade-pill {% if c.pnl_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
-                  {{ c.pnl_yen|intcomma }}円
-                </div>
-              </div>
-
-              <div class="autotrade-mt10 autotrade-mono">
+        <div class="autotrade-mt10">
+          {% if result_cards %}
+            {% for c in result_cards %}
+              <div class="autotrade-card autotrade-mt10" style="margin:0; padding:16px;">
                 <div class="autotrade-row" style="align-items:center;">
-                  <div class="autotrade-h">判定</div>
-                  <div class="autotrade-pill {% if c.level == 'FULL' %}is-ok{% elif c.level == 'LIGHT' %}is-warn{% else %}is-bad{% endif %}">
-                    {{ c.level }}
+                  <div class="autotrade-h" style="letter-spacing:0.5px;">
+                    {{ c.strategy }} | {{ c.window }}日
+                  </div>
+
+                  <div class="autotrade-pill {% if c.pnl_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
+                    {{ c.pnl_yen|intcomma }}円
                   </div>
                 </div>
 
-                <div class="autotrade-mt10">
-                  <div class="autotrade-muted">ひとことで</div>
-                  <div style="margin-top:6px;">{{ c.one_liner }}</div>
-                </div>
-
-                {% if c.miss_points %}
-                  <div class="autotrade-mt10">
-                    <div class="autotrade-muted">ダメだったポイント（ここが原因）</div>
-                    <div style="margin-top:6px;">
-                      {% for m in c.miss_points %}
-                        <div>・{{ m }}</div>
-                      {% endfor %}
+                <div class="autotrade-mt10 autotrade-mono">
+                  <div class="autotrade-row" style="align-items:center;">
+                    <div class="autotrade-h">判定</div>
+                    <div class="autotrade-pill {% if c.level == 'FULL' %}is-ok{% elif c.level == 'LIGHT' %}is-warn{% else %}is-bad{% endif %}">
+                      {{ c.level }}
                     </div>
                   </div>
-                {% endif %}
 
-                <div class="autotrade-mt10">
-                  <div class="autotrade-muted">数字（確認用）</div>
-                  <div style="margin-top:6px; line-height:1.75;">
-                    <div>N（取引回数）：{{ c.trades|default:"-" }}</div>
-                    <div>勝率：{{ c.win_rate_pct|default:"-" }}%</div>
-                    <div>勝/負：{{ c.wins|default:"-" }} / {{ c.losses|default:"-" }}</div>
-                    <div>利益合計：+{{ c.sum_win_yen|default:"-"|intcomma }}円</div>
-                    <div>損失合計：-{{ c.sum_loss_abs_yen|default:"-"|intcomma }}円</div>
-                    <div>PF（利益÷損失）：{{ c.pf|default:"-" }}</div>
-                    <div>最大DD（最大落ち込み）：-{{ c.dd_yen|default:"-"|intcomma }}円（-{{ c.dd_pct|default:"-" }}%）</div>
+                  <div class="autotrade-mt10">
+                    <div class="autotrade-muted">ひとことで</div>
+                    <div style="margin-top:6px;">{{ c.one_liner }}</div>
                   </div>
-                </div>
 
+                  {% if c.miss_points %}
+                    <div class="autotrade-mt10">
+                      <div class="autotrade-muted">ダメだったポイント（ここが原因）</div>
+                      <div style="margin-top:6px;">
+                        {% for m in c.miss_points %}
+                          <div>・{{ m }}</div>
+                        {% endfor %}
+                      </div>
+                    </div>
+                  {% endif %}
+
+                  <div class="autotrade-mt10">
+                    <div class="autotrade-muted">数字（確認用）</div>
+                    <div style="margin-top:6px; line-height:1.75;">
+                      <div>N（取引回数）：{{ c.trades|default:"-" }}</div>
+                      <div>勝率：{{ c.win_rate_pct|default:"-" }}%</div>
+                      <div>勝/負：{{ c.wins|default:"-" }} / {{ c.losses|default:"-" }}</div>
+                      <div>利益合計：+{{ c.sum_win_yen|default:"-"|intcomma }}円</div>
+                      <div>損失合計：-{{ c.sum_loss_abs_yen|default:"-"|intcomma }}円</div>
+                      <div>PF（利益÷損失）：{{ c.pf|default:"-" }}</div>
+                      <div>最大DD（最大落ち込み）：-{{ c.dd_yen|default:"-"|intcomma }}円（-{{ c.dd_pct|default:"-" }}%）</div>
+                    </div>
+                  </div>
+
+                </div>
               </div>
-            </div>
-          {% endfor %}
-        {% else %}
-          <div class="autotrade-muted autotrade-mt10">まだ評価がありません（朝ジョブ実行後に表示されます）</div>
-        {% endif %}
-      </div>
+            {% endfor %}
+          {% else %}
+            <div class="autotrade-muted autotrade-mt10">まだ評価がありません（朝ジョブ実行後に表示されます）</div>
+          {% endif %}
+        </div>
+      </details>
     </section>
 
     <!-- 合格ライン（判定基準） -->
@@ -138,35 +154,42 @@
         <div class="autotrade-muted">これを満たすと FULL / LIGHT になります</div>
       </div>
 
-      <div class="autotrade-mt10 autotrade-mono">
-        <div class="autotrade-mt10">
-          <div class="autotrade-h">FULL（通常稼働）</div>
-          <div style="margin-top:6px; line-height:1.75;">
-            <div>・PF：{{ thresholds.FULL.min_pf }} 以上</div>
-            <div>・最大DD：{{ thresholds.FULL.max_dd_pct|floatformat:2 }}% 以内</div>
-            <div>・取引回数：{{ thresholds.FULL.min_trades }} 回以上</div>
-            {% if thresholds.FULL.min_win_rate %}
-              <div>・勝率：{{ thresholds.FULL.min_win_rate_pct }}% 以上</div>
-            {% endif %}
+      <!-- ★ 折りたたみ -->
+      <details class="autotrade-mt10">
+        <summary class="autotrade-muted" style="cursor:pointer; user-select:none;">
+          ▶ 開く（合格ライン）
+        </summary>
+
+        <div class="autotrade-mt10 autotrade-mono">
+          <div class="autotrade-mt10">
+            <div class="autotrade-h">FULL（通常稼働）</div>
+            <div style="margin-top:6px; line-height:1.75;">
+              <div>・PF：{{ thresholds.FULL.min_pf }} 以上</div>
+              <div>・最大DD：{{ thresholds.FULL.max_dd_pct|floatformat:2 }}% 以内</div>
+              <div>・取引回数：{{ thresholds.FULL.min_trades }} 回以上</div>
+              {% if thresholds.FULL.min_win_rate %}
+                <div>・勝率：{{ thresholds.FULL.min_win_rate_pct }}% 以上</div>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="autotrade-mt10">
+            <div class="autotrade-h">LIGHT（軽稼働）</div>
+            <div style="margin-top:6px; line-height:1.75;">
+              <div>・PF：{{ thresholds.LIGHT.min_pf }} 以上</div>
+              <div>・最大DD：{{ thresholds.LIGHT.max_dd_pct|floatformat:2 }}% 以内</div>
+              <div>・取引回数：{{ thresholds.LIGHT.min_trades }} 回以上</div>
+              {% if thresholds.LIGHT.min_win_rate %}
+                <div>・勝率：{{ thresholds.LIGHT.min_win_rate_pct }}% 以上</div>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="autotrade-muted autotrade-mt10">
+            ※ PF＝利益合計÷損失合計 / DD＝最大落ち込み / N＝取引回数
           </div>
         </div>
-
-        <div class="autotrade-mt10">
-          <div class="autotrade-h">LIGHT（軽稼働）</div>
-          <div style="margin-top:6px; line-height:1.75;">
-            <div>・PF：{{ thresholds.LIGHT.min_pf }} 以上</div>
-            <div>・最大DD：{{ thresholds.LIGHT.max_dd_pct|floatformat:2 }}% 以内</div>
-            <div>・取引回数：{{ thresholds.LIGHT.min_trades }} 回以上</div>
-            {% if thresholds.LIGHT.min_win_rate %}
-              <div>・勝率：{{ thresholds.LIGHT.min_win_rate_pct }}% 以上</div>
-            {% endif %}
-          </div>
-        </div>
-
-        <div class="autotrade-muted autotrade-mt10">
-          ※ PF＝利益合計÷損失合計 / DD＝最大落ち込み / N＝取引回数
-        </div>
-      </div>
+      </details>
     </section>
 
     <!-- 現在の動いている数値 -->
@@ -176,11 +199,26 @@
         <div class="autotrade-muted">ACTIVE Snapshot（実運用パラメータ）</div>
       </div>
 
+      <!-- ★ 初心者向け 要約（常時表示） -->
       <div class="autotrade-chips autotrade-mt10">
-        {% for x in active_params_chips %}
+        {% for x in active_params.summary %}
           <div class="autotrade-chip autotrade-mono">{{ x }}</div>
         {% endfor %}
       </div>
+
+      <!-- ★ 詳細（デバッグ用）を折りたたみ -->
+      {% if active_params.debug %}
+        <details class="autotrade-mt10">
+          <summary class="autotrade-muted" style="cursor:pointer; user-select:none;">
+            ▶ 詳細（デバッグ用：キーを全部表示）
+          </summary>
+          <div class="autotrade-chips autotrade-mt10">
+            {% for x in active_params.debug %}
+              <div class="autotrade-chip autotrade-mono">{{ x }}</div>
+            {% endfor %}
+          </div>
+        </details>
+      {% endif %}
     </section>
 
     <!-- Universe -->
@@ -190,18 +228,25 @@
         <div class="autotrade-muted">毎朝自動</div>
       </div>
 
-      <div class="autotrade-list autotrade-mt10">
-        {% if state.universe.picks %}
-          {% for x in state.universe.picks %}
-            <div class="autotrade-list-row">
-              <div class="autotrade-mono autotrade-ticker">{{ x.ticker }}</div>
-              <div class="autotrade-muted">{{ x.reason }}</div>
-            </div>
-          {% endfor %}
-        {% else %}
-          <div class="autotrade-muted">まだ準備されていません（朝ジョブ待ち）</div>
-        {% endif %}
-      </div>
+      <!-- ★ 折りたたみ -->
+      <details class="autotrade-mt10">
+        <summary class="autotrade-muted" style="cursor:pointer; user-select:none;">
+          ▶ 開く（今日の対象銘柄）
+        </summary>
+
+        <div class="autotrade-list autotrade-mt10">
+          {% if state.universe.picks %}
+            {% for x in state.universe.picks %}
+              <div class="autotrade-list-row">
+                <div class="autotrade-mono autotrade-ticker">{{ x.ticker }}</div>
+                <div class="autotrade-muted">{{ x.reason }}</div>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="autotrade-muted">まだ準備されていません（朝ジョブ待ち）</div>
+          {% endif %}
+        </div>
+      </details>
     </section>
 
     <!-- Rules -->
