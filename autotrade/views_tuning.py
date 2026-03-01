@@ -1,21 +1,24 @@
-"""
-[FILE] autotrade/views_tuning.py
-[PATH] <project_root>/autotrade/views_tuning.py
-
-このファイルは何？
-- 実験室（TuningProfile）の View をまとめたファイルです。
-
-今回の変更：
-- 「再検証（同条件）」を廃止：
-  - tuning_rerun_snapshot_force を削除（URLも削除済み）
-- 再検証（picks更新）は残す
-- runner 実行のRR参照を "ACTIVE Snapshot が唯一の真実" に寄せるため、
-  rerun-refresh-picks でも rr_breakout を明示指定しない（runnerがsnapshotから取る）
-"""
+# =========================================================
+# [FILE] autotrade/views_tuning.py
+# [PATH] <project_root>/autotrade/views_tuning.py
+#
+# このファイルは何？
+# - 実験室（TuningProfile）の View をまとめたファイルです。
+#
+# 今回の変更（ハイブリッド両立）：
+# - 「固定検証（研究室）」と「今日再評価（現場）」を両方持つ
+#   1) 固定検証：Snapshot作成時の target_date / picks / windows を凍結して再実行
+#   2) 今日再評価：今日のuniverse（picks再生成）で再実行
+#
+# 既存方針は維持：
+# - 「再検証（同条件）」は廃止済みのまま（URLも削除済み）
+# - runner 実行のRR参照は "ACTIVE Snapshot が唯一の真実"
+#   rerun-refresh-picks でも rr_breakout を明示指定しない
+# =========================================================
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Dict, List, Tuple
 
 from django.contrib.auth.decorators import login_required
@@ -422,22 +425,49 @@ def tuning_run_backtest(request: HttpRequest, pk: int):
         picks = [x.get("ticker") for x in (u.get("picks") or []) if isinstance(x, dict) and x.get("ticker")]
         picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
 
+    windows = [20, 60]
+
     result = run_backtest_for_tuning_profile(
         profile=profile,
         target_date=today,
         picks=picks,
-        windows=[20, 60],
+        windows=windows,
     )
 
     snap_id = int(result.get("snapshot_id") or 0)
     if snap_id <= 0:
         return redirect("autotrade:tuning_list")
 
+    # -----------------------------------------------------
+    # 🔒 固定検証（研究室）用：凍結条件を snapshot に保存
+    #   - target_date / picks / windows を固定して再現できるようにする
+    # -----------------------------------------------------
+    try:
+        snap = AutoTradeSettingSnapshot.objects.get(pk=snap_id, user=request.user)
+        sdict = snap.snapshot if isinstance(snap.snapshot, dict) else {}
+        if "lab" not in sdict or not isinstance(sdict.get("lab"), dict):
+            sdict["lab"] = {}
+
+        lab = sdict.get("lab") if isinstance(sdict.get("lab"), dict) else {}
+        frozen = lab.get("frozen") if isinstance(lab.get("frozen"), dict) else {}
+
+        # 既に凍結があるなら上書きしない（事故防止）
+        if not frozen:
+            sdict["lab"]["frozen"] = {
+                "target_date": str(today),
+                "picks": list(picks),
+                "windows": list(windows),
+            }
+            snap.snapshot = sdict
+            snap.save(update_fields=["snapshot"])
+    except Exception:
+        pass
+
     return redirect("autotrade:tuning_result", snapshot_id=snap_id)
 
 
 # =========================================================
-# ★ 残す：再検証（picks更新）
+# 🧪 今日再評価（現場）：picks更新してやり直し
 # =========================================================
 @login_required
 @require_POST
@@ -465,6 +495,50 @@ def tuning_rerun_snapshot_refresh_picks(request: HttpRequest, snapshot_id: int):
         picks=picks,
         target_date=today,
         windows=tuple(int(x) for x in windows),
+        rr_breakout=None,
+        base_equity_yen=None,
+        force=True,
+    )
+
+    return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
+
+
+# =========================================================
+# 🔒 固定検証（研究室）：凍結条件でやり直し（完全再現）
+# =========================================================
+@login_required
+@require_POST
+def tuning_rerun_snapshot_fixed(request: HttpRequest, snapshot_id: int):
+    snap = get_object_or_404(AutoTradeSettingSnapshot, pk=snapshot_id, user=request.user)
+
+    sdict = snap.snapshot if isinstance(snap.snapshot, dict) else {}
+    lab = sdict.get("lab") if isinstance(sdict.get("lab"), dict) else {}
+    frozen = lab.get("frozen") if isinstance(lab.get("frozen"), dict) else {}
+
+    target_date_s = frozen.get("target_date")
+    picks = frozen.get("picks")
+    windows = frozen.get("windows")
+
+    if not target_date_s or not picks or not windows:
+        # 凍結がない（旧スナップショット等）
+        return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
+
+    try:
+        target_date = datetime.fromisoformat(str(target_date_s)).date()
+    except Exception:
+        try:
+            target_date = timezone.localdate()
+        except Exception:
+            target_date = None
+
+    if target_date is None:
+        return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
+
+    run_detailed_backtests_for_universe(
+        snapshot=snap,
+        picks=[str(x).strip() for x in (picks or []) if str(x).strip()],
+        target_date=target_date,
+        windows=tuple(int(x) for x in (windows or []) if str(x).strip()),
         rr_breakout=None,
         base_equity_yen=None,
         force=True,
@@ -519,6 +593,10 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
     picks_today = _get_today_picks(request.user)
     picks_head = picks_today[:3]
 
+    # 🔒 凍結情報（研究室用）
+    lab = sdict.get("lab") if isinstance(sdict.get("lab"), dict) else {}
+    frozen = lab.get("frozen") if isinstance(lab.get("frozen"), dict) else {}
+
     header = {
         "status": snap.status,
         "snapshot_id": snap.id,
@@ -528,6 +606,7 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
         "windows": evidence.get("windows") or windows,
         "picks_n": len(picks_today),
         "picks_head": picks_head,
+        "frozen": frozen if frozen else None,
         "tune": {
             "knob": tune.get("knob"),
             "delta": tune.get("delta"),
