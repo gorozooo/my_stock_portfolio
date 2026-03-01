@@ -10,6 +10,10 @@
 # - 日足SMAフィルタで「SMAが出てない日は見送り」をやめる
 #   -> データ不足で trades が激減して gate が不必要にSTOPになるのを防ぐ
 #   -> SMA不足日は “制限なし（許可）” 扱いにする
+#
+# 追加修正（FutureWarning潰し）：
+# - df["close"] が DataFrame になっても壊れないように「1列へ正規化」してから float化する
+#   -> pandas更新で TypeError になる未来の地雷を除去
 # =========================================================
 
 from __future__ import annotations
@@ -79,6 +83,14 @@ def _build_daily_trend_map(*, ticker: str, sma_days: int) -> Dict[str, str]:
 
     try:
         close = df["close"]
+
+        # ★ FutureWarning対策：
+        # df["close"] が DataFrame（同名列が複数等）になるケースがある。
+        # その場合は「先頭の1列」に正規化して Series にする。
+        if hasattr(close, "columns"):
+            # DataFrame の可能性
+            close = close.iloc[:, 0]
+
         sma = close.rolling(window=sma_days).mean()
     except Exception:
         return {}
