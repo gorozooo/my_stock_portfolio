@@ -4,11 +4,10 @@
 
 このファイルは何？
 - 詳細バックテストの司令塔（Execution基準）。
-- Snapshot（固定設定）を入力として Execution（事実ログ）を生成し、集計して gate 判定する。
 
-重要：
-- 集計値は保存しない（その場で作る）
-- 事実（Execution）だけが真実
+今回の変更（超重要）：
+- RR(BREAKOUT) は settings ではなく、ACTIVE Snapshot の中身を最優先にする
+- rr_breakout 引数は “指定があっても最後の保険” に落とす（= 事故らないため）
 """
 
 from __future__ import annotations
@@ -36,6 +35,39 @@ from autotrade.services.backtest.engine_breakout import run_breakout
 
 DEFAULT_BACKTEST_WINDOWS: Tuple[int, int, int] = (20, 60, 120)
 STRATEGIES: Tuple[str, ...] = ("BREAKOUT",)
+
+
+def _safe_float(x: Any, default: float = 0.0) -> float:
+    try:
+        return float(x)
+    except Exception:
+        return float(default)
+
+
+def _get_rr_breakout_from_snapshot(snapshot: AutoTradeSettingSnapshot) -> Optional[float]:
+    """
+    ★唯一の真実：snapshot内のRRを読む
+    優先：
+      1) snapshot.snapshot['lab']['BREAKOUT']['rr']   （UI由来・現状の実態に合わせる）
+      2) snapshot.snapshot['tune']['rr_breakout']     （保険）
+    """
+    try:
+        sdict = snapshot.snapshot if isinstance(snapshot.snapshot, dict) else {}
+    except Exception:
+        sdict = {}
+
+    lab = sdict.get("lab") if isinstance(sdict.get("lab"), dict) else {}
+    bo = lab.get("BREAKOUT") if isinstance(lab.get("BREAKOUT"), dict) else {}
+    rr1 = bo.get("rr", None)
+    if rr1 is not None:
+        return _safe_float(rr1, None)
+
+    tune = sdict.get("tune") if isinstance(sdict.get("tune"), dict) else {}
+    rr2 = tune.get("rr_breakout", None)
+    if rr2 is not None:
+        return _safe_float(rr2, None)
+
+    return None
 
 
 def _build_final_gate(
@@ -103,7 +135,7 @@ def run_detailed_backtests_for_universe(
     - snapshot: ACTIVE Snapshot（必須）
     - picks: 今日の銘柄リスト
     - windows: 実行期間（例: (20,60,120)）
-    - rr_breakout: RR（設定値）
+    - rr_breakout: 互換用（原則使わない。snapshot内が唯一の真実）
     - base_equity_yen: 基準資産（Snapshot優先、なければsettings）
     - force: True の場合、既存 Execution を削除して再実行
     """
@@ -127,7 +159,16 @@ def run_detailed_backtests_for_universe(
     # -----------------------------------------------------
     picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
     bt_windows = tuple(int(x) for x in (windows or tuple(getattr(settings, "AUTOTRADE_BT_WINDOWS", DEFAULT_BACKTEST_WINDOWS))))
-    rr_b = float(rr_breakout if rr_breakout is not None else getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0))
+
+    # ★ RR(BREAKOUT) は snapshot 内を最優先（唯一の真実）
+    rr_from_snap = _get_rr_breakout_from_snapshot(snapshot)
+    if rr_from_snap is not None:
+        rr_b = float(rr_from_snap)
+    elif rr_breakout is not None:
+        # 互換用の保険
+        rr_b = float(rr_breakout)
+    else:
+        rr_b = float(getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0))
 
     snap_dict = snapshot.snapshot if isinstance(snapshot.snapshot, dict) else {}
     if base_equity_yen is not None:
@@ -253,6 +294,7 @@ def run_detailed_backtests_for_universe(
             "date": str(target_date),
             "base_equity_yen": int(base_equity),
             "rr_breakout": float(rr_b),
+            "windows": list(bt_windows),
         },
         "by_window": metrics_by_window_strategy,
         "gate": {
