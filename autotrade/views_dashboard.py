@@ -1,15 +1,22 @@
 """
-[FILE] autotrade/views_dashboard.py
-[PATH] <project_root>/autotrade/views_dashboard.py
-
-このファイルは何？
-- AutoTrade のダッシュボード表示（iPhone 1画面）用の View と整形関数です。
-
-今回の変更：
-- 「ACTIVE Snapshot のパラメータが唯一の真実」：
-  - state.active_snapshot みたいな曖昧な属性参照は廃止
-  - DBから status="ACTIVE" を毎回取得して表示する
-  - チップ表示も “初心者向け要約チップ” を上に出し、詳細キーは折りたたみで出す前提のまま維持
+# =========================================================
+# [FILE] autotrade/views_dashboard.py
+# [PATH] <project_root>/autotrade/views_dashboard.py
+#
+# このファイルは何？
+# - AutoTrade のダッシュボード表示（iPhone 1画面）用の View と整形関数です。
+#
+# 今回の修正は何？（目的）
+# - 「現在の動いている数値（今日の設定）」が表示されなくなった問題を修正します。
+# - 原因：dashboard.html が期待している「要約チップ（初心者向け）」が作れなくなっていた
+#   （関数シグネチャ変更により、呼び出し側と出力形式がズレた）
+#
+# 直す方針（あなたの希望を厳守）
+# - ダッシュボードは ACTIVE snapshot（DB status="ACTIVE"）を唯一の真実にする（state依存しない）
+# - チップ表示は「初心者向け要約チップ」を上に出し、
+#   「詳細キー（デバッグ用）」は折りたたみで出せる前提を維持
+# - gate.py は変更しない
+# =========================================================
 """
 
 from __future__ import annotations
@@ -282,21 +289,120 @@ def _get_active_snapshot(user) -> Optional[AutoTradeSettingSnapshot]:
     )
 
 
-def build_active_params_chips_for_template(*, user, active_snapshot: Optional[AutoTradeSettingSnapshot]) -> List[str]:
+def _safe_get(d: Any, *keys: str, default: Any = None) -> Any:
+    """
+    ネストdictから安全に値を取る（キーが無ければdefault）。
+    """
+    cur = d
+    for k in keys:
+        if not isinstance(cur, dict):
+            return default
+        cur = cur.get(k)
+    return cur if cur is not None else default
+
+
+def build_active_params_chips_for_template(*, user, active_snapshot: Optional[AutoTradeSettingSnapshot]) -> Dict[str, Any]:
     """
     ACTIVE Snapshot（実運用パラメータ）を表示する。
-    重要：表示も「DBのACTIVE」を唯一の真実にする。
-    """
-    chips: List[str] = []
 
+    ダッシュボード側のUI要件：
+    - まず “初心者向け要約チップ” を表示（短く、意味が分かる言葉で）
+    - 次に “詳細キー（デバッグ用）” を折りたたみで表示（キーを全部並べる）
+
+    返り値はテンプレ側で扱いやすい dict：
+      {
+        "summary": [ ... ],
+        "details": [ ... ],
+      }
+    """
     if active_snapshot is None:
-        return ["ACTIVE Snapshot がありません（まだ昇格していない可能性）"]
+        return {
+            "summary": ["ACTIVE Snapshot がありません（まだ昇格していない可能性）"],
+            "details": [],
+        }
 
     try:
         sdict = active_snapshot.snapshot if isinstance(active_snapshot.snapshot, dict) else {}
     except Exception:
         sdict = {}
 
+    # -------------------------
+    # 1) 要約（初心者向け）
+    # -------------------------
+    summary: List[str] = []
+
+    # まず必須：採用中の設定
+    summary.append(f"採用中の設定：ID {active_snapshot.id}（{active_snapshot.label}）")
+
+    # 判定に使う監視期間
+    windows = _safe_get(sdict, "manual_eval", "windows", default=None)
+    if windows is None:
+        windows = _safe_get(sdict, "manual_eval", "meta", "windows", default=None)
+    if windows is None:
+        windows = _safe_get(sdict, "windows", default=None)
+    if windows is None:
+        windows = [20, 60]
+    summary.append(f"判定に使う期間：{windows}")
+
+    # 基準資金
+    base_equity = (
+        _safe_get(sdict, "base_equity_yen", default=None)
+        or _safe_get(sdict, "manual_eval", "base_equity_yen", default=None)
+    )
+    if base_equity is not None:
+        summary.append(f"基準資金：{_safe_int(base_equity):d}円")
+
+    # BREAKOUT：利確RR
+    rr = (
+        _safe_get(sdict, "lab", "BREAKOUT", "rr", default=None)
+        or _safe_get(sdict, "tune", "rr_breakout", default=None)
+        or _safe_get(sdict, "rr_breakout", default=None)
+    )
+    if rr is not None:
+        summary.append(f"利確RR：{_safe_float(rr):.2f}（利確幅＝損切幅×RR）")
+
+    # BREAKOUT：損切り幅（UI% と 実際% の両対応）
+    stop_ui = _safe_get(sdict, "lab", "BREAKOUT", "stop_pct_ui", default=None)
+    if stop_ui is not None:
+        summary.append(f"損切り幅：{_safe_float(stop_ui):.2f}%")
+
+    stop_pct = _safe_get(sdict, "breakout_stop_pct", default=None)
+    # breakout_stop_pct は 0.004 のように “小数（=0.4%）” の可能性があるので表示は%に寄せる
+    if stop_pct is not None:
+        summary.append(f"損切り幅（内部）：{_safe_float(stop_pct)*100:.2f}%")
+
+    # BREAKOUT：ブレイク判定（直近何本）
+    lb = _safe_get(sdict, "lab", "BREAKOUT", "lookback_bars", default=None)
+    if lb is not None:
+        summary.append(f"ブレイク判定：直近 {int(_safe_int(lb))} 本（5分足）")
+
+    # BREAKOUT：最大保有
+    mh = _safe_get(sdict, "lab", "BREAKOUT", "max_hold_min", default=None)
+    if mh is not None:
+        summary.append(f"最大保有：{int(_safe_int(mh))} 分")
+
+    # 追加：デバッグで出ていた max_hold_bars があれば表示
+    mhb = _safe_get(sdict, "max_hold_bars", default=None)
+    if mhb is not None:
+        summary.append(f"最大保有（本数換算）：{int(_safe_int(mhb))} 本（5分足）")
+
+    # 評価日
+    eval_date = _safe_get(sdict, "manual_eval", "date", default=None)
+    if eval_date is not None:
+        summary.append(f"評価日：{eval_date}")
+
+    # 評価方法（メモ）
+    note = _safe_get(sdict, "manual_eval", "note", default=None)
+    if note is not None:
+        # UIに出す時は人間語に寄せる
+        if str(note) == "manual_backtest_from_ui":
+            summary.append("評価方法：UIから手動バックテスト")
+        else:
+            summary.append(f"評価方法：{str(note)}")
+
+    # -------------------------
+    # 2) 詳細（キーを全部：折りたたみ前提）
+    # -------------------------
     # 表示が爆発する巨大キーは除外
     exclude_prefixes = [
         "evidence",
@@ -310,46 +416,48 @@ def build_active_params_chips_for_template(*, user, active_snapshot: Optional[Au
 
     flat = _flatten_dict(sdict, max_depth=4)
 
-    filtered: List[Tuple[str, Any]] = []
+    details_pairs: List[Tuple[str, Any]] = []
     for k, v in flat:
         k0 = str(k)
         if any(k0 == p or k0.startswith(p + ".") for p in exclude_prefixes):
             continue
-        filtered.append((k0, v))
+        details_pairs.append((k0, v))
 
+    # 見たい“重要系”を上に寄せる
     priority_contains = [
-        "windows",
+        "manual_eval",
+        "lab.BREAKOUT",
+        "breakout_stop",
         "rr",
         "stop_pct",
         "lookback",
         "max_hold",
-        "daily_filter",
-        "sma_days",
-        "direction",
-        "risk",
-        "slippage",
         "base_equity",
+        "windows",
         "universe",
     ]
 
     def _prio_key(k: str) -> Tuple[int, str]:
+        kl = k.lower()
         for i, token in enumerate(priority_contains):
-            if token.lower() in k.lower():
+            if token.lower() in kl:
                 return (i, k)
         return (999, k)
 
-    filtered.sort(key=lambda kv: _prio_key(kv[0]))
+    details_pairs.sort(key=lambda kv: _prio_key(kv[0]))
 
-    for k, v in filtered:
-        chips.append(f"{k}：{_pretty_value(v)}")
+    details: List[str] = []
+    for k, v in details_pairs:
+        details.append(f"{k}：{_pretty_value(v)}")
 
-    chips.append(f"active_snapshot_id：{active_snapshot.id}")
-    chips.append(f"active_label：{active_snapshot.label}")
+    # 最後にIDとラベル（保険）
+    details.append(f"active_snapshot_id：{active_snapshot.id}")
+    details.append(f"active_label：{active_snapshot.label}")
 
-    if not chips:
-        chips = ["ACTIVE Snapshot はありますが、表示できるキーがありません"]
-
-    return chips
+    return {
+        "summary": summary,
+        "details": details,
+    }
 
 
 @login_required
@@ -357,12 +465,17 @@ def dashboard(request: HttpRequest):
     today = timezone.localdate()
     state, _ = AutoTradeDailyState.objects.get_or_create(date=today)
 
+    # ★唯一の真実：ACTIVE snapshot をDBから毎回取得
     active_snapshot = _get_active_snapshot(request.user)
 
     ctx = {
         "state": state,
         "result_cards": build_result_cards_for_template(state),
         "thresholds": build_thresholds_for_template(),
-        "active_params_chips": build_active_params_chips_for_template(user=request.user, active_snapshot=active_snapshot),
+        # ★ template 側が「要約＋詳細（折りたたみ）」で使えるように dict を渡す
+        "active_params": build_active_params_chips_for_template(
+            user=request.user,
+            active_snapshot=active_snapshot,
+        ),
     }
     return render(request, "autotrade/dashboard.html", ctx)
