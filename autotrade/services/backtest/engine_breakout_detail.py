@@ -1,20 +1,16 @@
-"""
-[FILE] autotrade/services/backtest/engine_breakout_detail.py
-[PATH] <project_root>/autotrade/services/backtest/engine_breakout_detail.py
-
-このファイルは何？
-- 戦略①（レンジブレイク）の「詳細バックテスト」エンジンです。
-- 1トレード=1件の辞書ログとして返します（DB保存は runner 側の役割）。
-
-今回の変更：
-- profileから設定した
-  - breakout_lookback_bars（ブレイク判定本数）
-  - breakout_max_hold_bars（最大保有）
-  - breakout_daily_filter（OFF/SMA）
-  - breakout_sma_days
-  - breakout_direction（TREND_ONLY/BOTH）
-  を反映できるようにする。
-"""
+# =========================================================
+# [FILE] autotrade/services/backtest/engine_breakout_detail.py
+# [PATH] <project_root>/autotrade/services/backtest/engine_breakout_detail.py
+#
+# このファイルは何？
+# - 戦略①（レンジブレイク）の「詳細バックテスト」エンジンです。
+# - 1トレード=1件の辞書ログとして返します（DB保存は runner 側の役割）。
+#
+# 今回の変更（ハイブリッドA：実験室をダッシュボード寄りに統一）：
+# - 日足SMAフィルタ（TREND_ONLY）で「SMAが出てない日は見送り」をやめる
+#   -> 本番(dashboard/engine_breakout.py) と同じ挙動に統一
+#   -> SMA不足日は “制限なし（許可）” 扱いにする
+# =========================================================
 
 from __future__ import annotations
 
@@ -106,21 +102,21 @@ def run_breakout_detail(
     slip = float(getattr(settings, "AUTOTRADE_SLIPPAGE_PCT", 0.0))
     risk_trade_pct = float(getattr(settings, "AUTOTRADE_RISK_TRADE_PCT", 0.0015))
 
-    # ★ 追加：ブレイク判定本数（5分足）
+    # ★ ブレイク判定本数（5分足）
     lookback_bars = int(snapshot_dict.get("breakout_lookback_bars") or 6)
     if lookback_bars < 2:
         lookback_bars = 2
     if lookback_bars > 60:
         lookback_bars = 60
 
-    # ★ 追加：最大保有（bars）
+    # ★ 最大保有（bars）
     max_hold_bars = int(snapshot_dict.get("breakout_max_hold_bars") or snapshot_dict.get("max_hold_bars") or 20)
     if max_hold_bars < 1:
         max_hold_bars = 1
     if max_hold_bars > 200:
         max_hold_bars = 200
 
-    # ★ 追加：日足フィルタ
+    # ★ 日足フィルタ
     daily_filter = str(snapshot_dict.get("breakout_daily_filter") or "OFF").upper()
     sma_days = int(snapshot_dict.get("breakout_sma_days") or 20)
     direction = str(snapshot_dict.get("breakout_direction") or "TREND_ONLY").upper()
@@ -166,6 +162,8 @@ def run_breakout_detail(
         - OFFなら常にOK
         - SMA + TREND_ONLY：UP→LONGのみ / DOWN→SHORTのみ
         - SMA + BOTH：両方向OK（trend_mapは作るが制限しない）
+        - ★ハイブリッドA：SMAが出てない日は “見送り” ではなく “制限なし(許可)”
+          -> 本番(engine_breakout.py) と同じ挙動に統一
         """
         if daily_filter != "SMA":
             return True
@@ -178,8 +176,8 @@ def run_breakout_detail(
         d = timezone.localtime(entry_dt_aware).date().isoformat()
         tr = trend_map.get(d)
         if tr not in ["UP", "DOWN"]:
-            # SMAが出てない日は安全側で “見送り”
-            return False
+            # ★SMA不足日は許可（制限なし）
+            return True
 
         if tr == "UP" and side == "LONG":
             return True
@@ -191,24 +189,21 @@ def run_breakout_detail(
     start_i = max(lookback_bars + 1, 10)
 
     for i in range(start_i, len(df) - 2):
-        # 直近lookback_bars本の高値/安値
         hh = float(max(highs[i - lookback_bars : i]))
         ll = float(min(lows[i - lookback_bars : i]))
 
         price = float(closes[i])
         nxt_open = float(opens[i + 1])
 
-        # ロット計算（100株単位）
         risk_yen = float(equity) * risk_trade_pct
         stop_yen_per_share = price * stop_pct
         shares = int((risk_yen / max(stop_yen_per_share, 1e-9)) // 100) * 100
         if shares < 100:
             continue
 
-        # 次バーの時刻（entry_at）
         entry_at = _ensure_aware(idx[i + 1].to_pydatetime() if hasattr(idx[i + 1], "to_pydatetime") else idx[i + 1])
 
-        # ---------- ロング（ブレイク上） ----------
+        # ロング
         if price > hh:
             if not _allowed_side(entry_at, "LONG"):
                 continue
@@ -284,7 +279,7 @@ def run_breakout_detail(
                     "holding_minutes": int(hold_min),
                 })
 
-        # ---------- ショート（ブレイク下） ----------
+        # ショート
         elif price < ll:
             if not _allowed_side(entry_at, "SHORT"):
                 continue
