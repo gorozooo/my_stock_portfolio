@@ -4,8 +4,10 @@
 #
 # このファイルは何？
 # - autotrade アプリのURLルーティング（URLとView関数の紐付け）です。
-# - 実験室（lab）の一覧/編集/検証/結果表示/昇格操作などの入口になります。
-# - 今回の追加：結果ページからの再検証（同条件 / picks更新）URLを追加します。
+#
+# 今回の変更：
+# - 実験室の「再検証（同条件）」を廃止するため、
+#   rerun（同条件）のURLを削除しました。
 # =========================================================
 
 from django.urls import path
@@ -31,12 +33,7 @@ urlpatterns = [
     # 検証結果（カード表示）
     path("lab/result/<int:snapshot_id>/", views.tuning_result, name="tuning_result"),
 
-    # ★ 追加：結果ページから再検証（同条件 / picks更新）
-    path(
-        "lab/result/<int:snapshot_id>/rerun/",
-        views.tuning_rerun_snapshot_force,
-        name="tuning_rerun_snapshot_force",
-    ),
+    # ★ 残す：結果ページから再検証（picks更新）
     path(
         "lab/result/<int:snapshot_id>/rerun-refresh-picks/",
         views.tuning_rerun_snapshot_refresh_picks,
