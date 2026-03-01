@@ -1,20 +1,16 @@
 <!--
-=========================================================
-[FILE] templates/autotrade/dashboard.html
+[FILE] dashboard.html
 [PATH] <project_root>/templates/autotrade/dashboard.html
 
 このファイルは何？
 - AutoTrade の iPhone 1画面ダッシュボードのテンプレです。
-- ここでは「判定理由」を、初心者向けの “結果カード（期間ごと）” 形式で表示します。
-- gate.py の文章をそのまま箇条書き表示せず、view側で整形した result_cards を表示します。
+- 「現在の動いている数値（今日の設定）」は ACTIVE Snapshot を唯一の真実として表示します。
 
 今回の変更：
-- 判定理由 / 合格ライン / 今日の対象銘柄 を折りたたみ（details）にする
-- 「現在の動いている数値（今日の設定）」を
-  ①初心者向け要約（見出し付き）
-  ②詳細（デバッグ用に全部）
-  の2段にする
-=========================================================
+- 「現在の動いている数値（今日の設定）」の表示を、実験室の検証結果（白枠）と同じ項目に統一
+  - rr / stop_pct / lookback_bars / max_hold_min / daily_filter / sma_days / direction
+- さらに初心者向けに、日本語の説明ラベルで表示
+- デバッグ用の “生キー一覧” は折りたたみ（details）に退避（必要な時だけ見る）
 -->
 {% extends "base.html" %}
 {% load humanize %}
@@ -80,11 +76,8 @@
         <div class="autotrade-muted">結論・理由・数字を “期間ごと” に整理して表示します</div>
       </div>
 
-      <!-- ★ 折りたたみ -->
       <details class="autotrade-mt10">
-        <summary class="autotrade-muted" style="cursor:pointer; user-select:none;">
-          ▶ 開く（期間ごとの判定理由）
-        </summary>
+        <summary class="autotrade-muted">▶▶ 開く（期間ごとの判定理由）</summary>
 
         <div class="autotrade-mt10">
           {% if result_cards %}
@@ -154,11 +147,8 @@
         <div class="autotrade-muted">これを満たすと FULL / LIGHT になります</div>
       </div>
 
-      <!-- ★ 折りたたみ -->
       <details class="autotrade-mt10">
-        <summary class="autotrade-muted" style="cursor:pointer; user-select:none;">
-          ▶ 開く（合格ライン）
-        </summary>
+        <summary class="autotrade-muted">▶▶ 開く（合格ライン）</summary>
 
         <div class="autotrade-mt10 autotrade-mono">
           <div class="autotrade-mt10">
@@ -192,33 +182,28 @@
       </details>
     </section>
 
-    <!-- 現在の動いている数値 -->
+    <!-- 現在の動いている数値（今日の設定） -->
     <section class="autotrade-card">
       <div class="autotrade-row">
         <div class="autotrade-h">現在の動いている数値（今日の設定）</div>
         <div class="autotrade-muted">ACTIVE Snapshot（実運用パラメータ）</div>
       </div>
 
-      <!-- ★ 初心者向け 要約（常時表示） -->
+      <!-- ここが「実験室の白枠と同じ内容」＋初心者向け -->
       <div class="autotrade-chips autotrade-mt10">
-        {% for x in active_params.summary %}
+        {% for x in active_summary_chips %}
           <div class="autotrade-chip autotrade-mono">{{ x }}</div>
         {% endfor %}
       </div>
 
-      <!-- ★ 詳細（デバッグ用）を折りたたみ -->
-      {% if active_params.debug %}
-        <details class="autotrade-mt10">
-          <summary class="autotrade-muted" style="cursor:pointer; user-select:none;">
-            ▶ 詳細（デバッグ用：キーを全部表示）
-          </summary>
-          <div class="autotrade-chips autotrade-mt10">
-            {% for x in active_params.debug %}
-              <div class="autotrade-chip autotrade-mono">{{ x }}</div>
-            {% endfor %}
-          </div>
-        </details>
-      {% endif %}
+      <details class="autotrade-mt10">
+        <summary class="autotrade-muted">▶▶ 詳細（デバッグ用：キーを全部表示）</summary>
+        <div class="autotrade-chips autotrade-mt10">
+          {% for x in active_detail_chips %}
+            <div class="autotrade-chip autotrade-mono">{{ x }}</div>
+          {% endfor %}
+        </div>
+      </details>
     </section>
 
     <!-- Universe -->
@@ -228,11 +213,8 @@
         <div class="autotrade-muted">毎朝自動</div>
       </div>
 
-      <!-- ★ 折りたたみ -->
       <details class="autotrade-mt10">
-        <summary class="autotrade-muted" style="cursor:pointer; user-select:none;">
-          ▶ 開く（今日の対象銘柄）
-        </summary>
+        <summary class="autotrade-muted">▶▶ 開く（今日の対象銘柄）</summary>
 
         <div class="autotrade-list autotrade-mt10">
           {% if state.universe.picks %}
