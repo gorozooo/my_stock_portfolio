@@ -4,10 +4,15 @@
 
 このファイルは何？
 - 実験室の検証結果ページです（iPhone最適）。
+- Snapshot の状態（DRAFT/CANDIDATE/ACTIVE/RETIRED）に応じて、
+  「本番候補」「本番採用」「ロールバック」などの操作ボタンを表示します。
 
 今回の変更：
-- 「再検証（同条件）」を廃止（ボタン/フォームを削除）
-- 「再検証（picks更新）」は残す
+- DRAFT でも「本番候補」「本番採用」ボタンを表示する（ユーザー要望）。
+- CANDIDATE でも「本番採用」を表示する。
+- ACTIVE のとき、直近PROMOTEの対象なら「ROLLBACK」を表示する。
+- 「再検証（同条件）」は廃止済みのまま維持。
+- 「再検証（picks更新）」は残す。
 -->
 
 {% extends "base.html" %}
@@ -114,9 +119,48 @@
       </details>
     {% endif %}
 
-    <!-- ★ 再検証：picks更新してやり直し（同条件は廃止） -->
-    <div class="lab-mt12 lab-row" style="gap:10px;">
+    <!-- =========================
+         操作ボタン
+         - DRAFTでも候補/採用を出す（要望）
+         ========================= -->
+    <div class="lab-mt12 lab-row" style="gap:10px; flex-wrap:wrap;">
 
+      <!-- 本番候補（CANDIDATE） -->
+      {% if snapshot.status != "ACTIVE" and snapshot.status != "RETIRED" %}
+        <form class="lab-inline" method="post" action="{% url 'autotrade:tuning_make_candidate' snapshot.id %}">
+          {% csrf_token %}
+          <button class="lab-btn" type="submit"
+                  data-confirm="この検証（id={{ snapshot.id }}）を「本番候補」にします。よろしいですか？">
+            ★ 本番候補
+          </button>
+        </form>
+      {% endif %}
+
+      <!-- 本番採用（ACTIVE） -->
+      {% if snapshot.status != "RETIRED" %}
+        <form class="lab-inline" method="post" action="{% url 'autotrade:tuning_promote_active' snapshot.id %}">
+          {% csrf_token %}
+          <button class="lab-btn" type="submit"
+                  data-confirm="この検証（id={{ snapshot.id }}）を「本番採用（ACTIVE）」にします。現在のACTIVEはRETIREDになります。よろしいですか？">
+            ✅ 本番採用
+          </button>
+        </form>
+      {% endif %}
+
+      <!-- ロールバック（直近PROMOTEの戻し） -->
+      {% if snapshot.status == "ACTIVE" %}
+        {% if last_promo and last_promo.action == "PROMOTE" and last_promo.to_snapshot and last_promo.to_snapshot.id == snapshot.id %}
+          <form class="lab-inline" method="post" action="{% url 'autotrade:tuning_rollback_active' snapshot.id %}">
+            {% csrf_token %}
+            <button class="lab-btn" type="submit"
+                    data-confirm="直前のACTIVEにロールバックします。よろしいですか？">
+              ↩ ROLLBACK（前のACTIVEへ）
+            </button>
+          </form>
+        {% endif %}
+      {% endif %}
+
+      <!-- ★ 再検証：picks更新してやり直し（同条件は廃止） -->
       <form class="lab-inline" method="post" action="{% url 'autotrade:tuning_rerun_snapshot_refresh_picks' snapshot.id %}">
         {% csrf_token %}
         <button class="lab-btn" type="submit"
@@ -129,7 +173,8 @@
     </div>
 
     <div class="lab-muted lab-mt8">
-      ※ 変化させたい時は picks更新 or パラメータ変更（作業台編集）を使います。
+      ※ 安全のため、DRAFTでも「本番候補」「本番採用」を押せます（あなたの要望）。
+      ただし「本番採用」を押すと、既存ACTIVEはRETIREDになります。
     </div>
   </div>
 
