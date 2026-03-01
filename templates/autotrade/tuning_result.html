@@ -4,12 +4,10 @@
 
 このファイルは何？
 - 実験室の検証結果ページです（iPhone最適）。
-- “見たいものだけ一瞬で見る” がテーマ。
 
 今回の変更：
-- 昇格操作（CANDIDATE / ACTIVE / ROLLBACK）のボタンUIを追加
-  * urls.py / views_tuning.py に既にある POST エンドポイントを呼ぶだけ
-  * @require_POST のため form + csrf_token で実装
+- 「再検証（同条件）」を廃止（ボタン/フォームを削除）
+- 「再検証（picks更新）」は残す
 -->
 
 {% extends "base.html" %}
@@ -116,65 +114,8 @@
       </details>
     {% endif %}
 
-    <!-- =========================
-         ★ 追加：昇格操作（CANDIDATE / ACTIVE / ROLLBACK）
-         ========================= -->
-    <div class="lab-mt12">
-      <div class="lab-muted">昇格操作（この結果を “本番候補 / 本番採用” にします）</div>
-
-      <div class="lab-mt10 lab-row" style="gap:10px; flex-wrap:wrap;">
-
-        <!-- CANDIDATE化：ACTIVE/RETIRED以外ならOK -->
-        {% if snapshot.status != "ACTIVE" and snapshot.status != "RETIRED" and snapshot.status != "CANDIDATE" %}
-          <form class="lab-inline" method="post" action="{% url 'autotrade:tuning_make_candidate' snapshot.id %}">
-            {% csrf_token %}
-            <button class="lab-btn" type="submit"
-                    data-confirm="このスナップショット（id={{ snapshot.id }}）を CANDIDATE（本番候補）にします。よろしいですか？">
-              ★ CANDIDATEにする
-            </button>
-          </form>
-        {% endif %}
-
-        <!-- ACTIVE昇格：RETIRED以外ならOK（ACTIVEにすると、旧ACTIVEはRETIREDへ） -->
-        {% if snapshot.status != "RETIRED" and snapshot.status != "ACTIVE" %}
-          <form class="lab-inline" method="post" action="{% url 'autotrade:tuning_promote_active' snapshot.id %}">
-            {% csrf_token %}
-            <button class="lab-btn lab-btn-primary" type="submit"
-                    data-confirm="このスナップショット（id={{ snapshot.id }}）を ACTIVE（本番採用）にします。旧ACTIVEはRETIREDに移動します。よろしいですか？">
-              ✅ ACTIVEにする（本番採用）
-            </button>
-          </form>
-        {% endif %}
-
-        <!-- ロールバック：直前PROMOTEがある場合だけ出す（押しても安全） -->
-        {% if last_promo and last_promo.action == "PROMOTE" %}
-          <form class="lab-inline" method="post" action="{% url 'autotrade:tuning_rollback_active' snapshot.id %}">
-            {% csrf_token %}
-            <button class="lab-btn" type="submit"
-                    data-confirm="直前のPROMOTEを取り消して、前のACTIVEに戻します。よろしいですか？">
-              ↩ ROLLBACK（前のACTIVEへ）
-            </button>
-          </form>
-        {% endif %}
-
-      </div>
-
-      <div class="lab-muted lab-mt8">
-        ※ ここで ACTIVE にすると、ダッシュボード側（朝ジョブ）が「本番採用中の設定」を見つけられるようになります。
-      </div>
-    </div>
-
-    <!-- ★ 再検証：snapshotを「同条件でやり直し」 or 「picks更新してやり直し」 -->
+    <!-- ★ 再検証：picks更新してやり直し（同条件は廃止） -->
     <div class="lab-mt12 lab-row" style="gap:10px;">
-
-      <form class="lab-inline" method="post" action="{% url 'autotrade:tuning_rerun_snapshot_force' snapshot.id %}">
-        {% csrf_token %}
-        <button class="lab-btn lab-btn-primary" type="submit"
-                data-rerun="1"
-                data-confirm="このスナップショット（id={{ snapshot.id }}）を、同条件で再検証します（picksは今日のもの）。よろしいですか？">
-          ↻ 再検証（同条件）
-        </button>
-      </form>
 
       <form class="lab-inline" method="post" action="{% url 'autotrade:tuning_rerun_snapshot_refresh_picks' snapshot.id %}">
         {% csrf_token %}
@@ -188,8 +129,7 @@
     </div>
 
     <div class="lab-muted lab-mt8">
-      ※ 「同じ作業台で同じ条件を回すだけ」だと基本は変わりません（データが同じなら結果も同じ）。
-      変化させたい時は picks更新 or パラメータ変更（作業台編集）を使います。
+      ※ 変化させたい時は picks更新 or パラメータ変更（作業台編集）を使います。
     </div>
   </div>
 
