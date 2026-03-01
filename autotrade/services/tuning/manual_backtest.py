@@ -1,5 +1,5 @@
 """
-[FILE] autotrade/services/tuning/manual_backtest.py
+[FILE] manual_backtest.py
 [PATH] <project_root>/autotrade/services/tuning/manual_backtest.py
 
 このファイルは何？
@@ -11,6 +11,11 @@
 重要：
 - UIは自由操作。安全は「ACTIVE昇格しない」「ロールバックで戻せる」で担保。
 - この段階（UI優先）では Execution/RunDetail のDB保存は必須ではない扱い。
+
+今回の変更（重要）：
+- daily_filter / sma_days / direction を snapshot（lab.BREAKOUT）へ必ず焼き付ける
+  → ダッシュボードは「ACTIVE snapshot が唯一の真実」なので、
+     ここに入れておかないと、実験室と表示がズレるため。
 """
 
 from __future__ import annotations
@@ -55,24 +60,43 @@ def _safe_int(x: Any, default: int = 0) -> int:
         return int(default)
 
 
+def _safe_str(x: Any, default: str = "") -> str:
+    try:
+        s = str(x)
+        return s if s is not None else str(default)
+    except Exception:
+        return str(default)
+
+
 def _build_snapshot_dict_from_profile(profile: AutoTradeTuningProfile) -> Dict[str, Any]:
     """
     profile.params（自由）を、エンジンが読む snapshot dict に落とす。
     ここは “実験室の翻訳層”。
 
     ★ BREAKOUTのみ
+
+    重要：
+    - ダッシュボードは「ACTIVE snapshot を唯一の真実」として表示する。
+      よって、表示に必要な daily_filter / sma_days / direction も snapshot に焼き付ける必要がある。
     """
     p = profile.params if isinstance(profile.params, dict) else {}
     b = p.get("BREAKOUT") if isinstance(p.get("BREAKOUT"), dict) else {}
 
     # UIは%表記（0.30）→ ratio（0.0030）
-    b_stop = _pct_to_ratio(_safe_float(b.get("stop_pct"), 0.30))
+    b_stop_ui = _safe_float(b.get("stop_pct"), 0.30)
+    b_stop = _pct_to_ratio(b_stop_ui)
 
     # RRはそのまま
     rr_b = _safe_float(b.get("rr"), 2.0)
 
     lookback_bars = _safe_int(b.get("lookback_bars"), 6)
     max_hold_b = _safe_int(b.get("max_hold_min"), 30)
+
+    # ★ 日足フィルタ（表示/将来の拡張用に必ず保存）
+    # 例：daily_filter="SMA", sma_days=20, direction="TREND_ONLY"
+    daily_filter = _safe_str(b.get("daily_filter"), "OFF") or "OFF"
+    sma_days = _safe_int(b.get("sma_days"), 20)
+    direction = _safe_str(b.get("direction"), "TREND_ONLY") or "TREND_ONLY"
 
     snap = {
         "base_equity_yen": int(getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)),
@@ -84,13 +108,23 @@ def _build_snapshot_dict_from_profile(profile: AutoTradeTuningProfile) -> Dict[s
         # 30分なら 5分足×6本。少し余裕で +1。
         "max_hold_bars": int(max_hold_b // 5 + 1),
 
+        # ★将来拡張用：エンジン側が読む可能性があるので top-level にも置く（未知キーは無視される想定）
+        "breakout_daily_filter": str(daily_filter),
+        "breakout_sma_days": int(sma_days),
+        "breakout_direction": str(direction),
+
         # 実験室の“人間向け”原本（UI表示用）
         "lab": {
             "BREAKOUT": {
-                "stop_pct_ui": float(_safe_float(b.get("stop_pct"), 0.30)),
+                "stop_pct_ui": float(b_stop_ui),
                 "rr": float(rr_b),
                 "lookback_bars": int(lookback_bars),
                 "max_hold_min": int(max_hold_b),
+
+                # ★ここが今回の本命（これが無いとダッシュボードと実験室がズレる）
+                "daily_filter": str(daily_filter),
+                "sma_days": int(sma_days),
+                "direction": str(direction),
             },
         },
     }
