@@ -4,10 +4,13 @@
 
 このファイルは何？
 - 実験室（TuningProfile）の View をまとめたファイルです。
-- 一覧・新規・編集・アーカイブ・検証実行・結果表示・再検証（同条件/ picks更新）
-- さらに CANDIDATE / ACTIVE昇格 / ロールバック（監査ログ付き）までを担当します。
 
-BREAKOUT一本運用：
+今回の変更：
+- 「再検証（同条件）」を廃止：
+  - tuning_rerun_snapshot_force を削除（URLも削除済み）
+- 再検証（picks更新）は残す
+- runner 実行のRR参照を "ACTIVE Snapshot が唯一の真実" に寄せるため、
+  rerun-refresh-picks でも rr_breakout を明示指定しない（runnerがsnapshotから取る）
 """
 
 from __future__ import annotations
@@ -433,35 +436,9 @@ def tuning_run_backtest(request: HttpRequest, pk: int):
     return redirect("autotrade:tuning_result", snapshot_id=snap_id)
 
 
-@login_required
-@require_POST
-def tuning_rerun_snapshot_force(request: HttpRequest, snapshot_id: int):
-    snap = get_object_or_404(AutoTradeSettingSnapshot, pk=snapshot_id, user=request.user)
-
-    today = timezone.localdate()
-    picks = _get_today_picks(request.user)
-    if not picks:
-        return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
-
-    windows = [20, 60]
-
-    sdict = snap.snapshot if isinstance(snap.snapshot, dict) else {}
-    tune = sdict.get("tune") if isinstance(sdict.get("tune"), dict) else {}
-    rr_b = tune.get("rr_breakout", None)
-
-    run_detailed_backtests_for_universe(
-        snapshot=snap,
-        picks=picks,
-        target_date=today,
-        windows=tuple(int(x) for x in windows),
-        rr_breakout=float(rr_b) if rr_b is not None else float(getattr(__import__("django.conf").conf.settings, "AUTOTRADE_RR_BREAKOUT", 2.0)),
-        base_equity_yen=None,
-        force=True,
-    )
-
-    return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
-
-
+# =========================================================
+# ★ 残す：再検証（picks更新）
+# =========================================================
 @login_required
 @require_POST
 def tuning_rerun_snapshot_refresh_picks(request: HttpRequest, snapshot_id: int):
@@ -482,16 +459,13 @@ def tuning_rerun_snapshot_refresh_picks(request: HttpRequest, snapshot_id: int):
 
     windows = [20, 60]
 
-    sdict = snap.snapshot if isinstance(snap.snapshot, dict) else {}
-    tune = sdict.get("tune") if isinstance(sdict.get("tune"), dict) else {}
-    rr_b = tune.get("rr_breakout", None)
-
+    # ★ rr_breakout を明示指定しない（唯一の真実＝snapshot内の値）
     run_detailed_backtests_for_universe(
         snapshot=snap,
         picks=picks,
         target_date=today,
         windows=tuple(int(x) for x in windows),
-        rr_breakout=float(rr_b) if rr_b is not None else float(getattr(__import__("django.conf").conf.settings, "AUTOTRADE_RR_BREAKOUT", 2.0)),
+        rr_breakout=None,
         base_equity_yen=None,
         force=True,
     )
