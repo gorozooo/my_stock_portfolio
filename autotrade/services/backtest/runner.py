@@ -1,14 +1,14 @@
-"""
-[FILE] autotrade/services/backtest/runner.py
-[PATH] <project_root>/autotrade/services/backtest/runner.py
-
-このファイルは何？
-- 詳細バックテストの司令塔（Execution基準）。
-
-今回の変更（超重要）：
-- RR(BREAKOUT) は settings ではなく、ACTIVE Snapshot の中身を最優先にする
-- rr_breakout 引数は “指定があっても最後の保険” に落とす（= 事故らないため）
-"""
+# =========================================================
+# [FILE] autotrade/services/backtest/runner.py
+# [PATH] <project_root>/autotrade/services/backtest/runner.py
+#
+# このファイルは何？
+# - 詳細バックテストの司令塔（Execution基準）。
+#
+# 今回の変更（windows 20/40/60へ統一）：
+# - DEFAULT_BACKTEST_WINDOWS を (20,40,60) に変更
+# - settings.AUTOTRADE_BT_WINDOWS があればそれを優先（既存ロジックは維持）
+# =========================================================
 
 from __future__ import annotations
 
@@ -33,7 +33,8 @@ from autotrade.services.common.guards import is_emergency_stopped
 from autotrade.services.backtest.engine_breakout import run_breakout
 
 
-DEFAULT_BACKTEST_WINDOWS: Tuple[int, int, int] = (20, 60, 120)
+# ★ windows を 20/40/60 に統一（settingsが無い場合の保険）
+DEFAULT_BACKTEST_WINDOWS: Tuple[int, int, int] = (20, 40, 60)
 STRATEGIES: Tuple[str, ...] = ("BREAKOUT",)
 
 
@@ -134,7 +135,7 @@ def run_detailed_backtests_for_universe(
 
     - snapshot: ACTIVE Snapshot（必須）
     - picks: 今日の銘柄リスト
-    - windows: 実行期間（例: (20,60,120)）
+    - windows: 実行期間（例: (20,40,60)）
     - rr_breakout: 互換用（原則使わない。snapshot内が唯一の真実）
     - base_equity_yen: 基準資産（Snapshot優先、なければsettings）
     - force: True の場合、既存 Execution を削除して再実行
