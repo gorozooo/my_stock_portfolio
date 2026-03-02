@@ -246,7 +246,7 @@ def run_backtest_for_tuning_profile(
     - evidence を snapshot に焼き付ける
     """
     if windows is None:
-        windows = [20, 60]
+        windows = [20, 40, 60]
 
     windows = [int(x) for x in (windows or [])]
     picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
