@@ -5,20 +5,16 @@
 # このファイルは何？
 # - 実験室（TuningProfile）の View をまとめたファイルです。
 #
-# 今回の変更（ハイブリッド両立）：
-# - 「固定検証（研究室）」と「今日再評価（現場）」を両方持つ
-#   1) 固定検証：Snapshot作成時の target_date / picks / windows を凍結して再実行
-#   2) 今日再評価：今日のuniverse（picks再生成）で再実行
-#
-# 既存方針は維持：
-# - 「再検証（同条件）」は廃止済みのまま（URLも削除済み）
-# - runner 実行のRR参照は "ACTIVE Snapshot が唯一の真実"
-#   rerun-refresh-picks でも rr_breakout を明示指定しない
+# 今回の変更：
+# - tuning_result.html に「研究室（固定＝Snapshot）」と「現場（今日＝DailyState）」を同時表示するため、
+#   tuning_result() で AutoTradeDailyState(今日) を読み取り、現場結果を ctx に追加。
+# - 研究室→現場 の差分（Δ）も同じ画面で出せるようにする。
+# - 2ボタン追加はしない（表示のみ）。
 # =========================================================
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Dict, List, Tuple
 
 from django.contrib.auth.decorators import login_required
@@ -276,6 +272,108 @@ def _build_diff_rows(
     return rows
 
 
+def _build_cards_from_by_window(*, by_window: Dict[int, Dict[str, Dict[str, Any]]], windows: List[int]) -> List[Dict[str, Any]]:
+    """
+    by_window (window -> {BREAKOUT: metrics}) から tuning_result.html の cards と同形を作る。
+    """
+    cards: List[Dict[str, Any]] = []
+    strategies = ["BREAKOUT"]
+    for strat in strategies:
+        for w in windows:
+            m = get_nested_dict(by_window, int(w), strat, default={})
+            if not isinstance(m, dict):
+                m = {}
+            cards.append({
+                "strategy": strat,
+                "window": str(w),
+                "trades": m.get("trades"),
+                "wins": m.get("wins"),
+                "losses": m.get("losses"),
+                "win_rate": m.get("win_rate"),
+                "sum_win_yen": m.get("sum_win_yen"),
+                "sum_loss_yen": m.get("sum_loss_yen"),
+                "pf": m.get("profit_factor"),
+                "dd_yen": m.get("max_drawdown_yen"),
+                "dd_pct": m.get("max_drawdown_pct"),
+                "pnl": m.get("total_pnl"),
+            })
+    return cards
+
+
+def _get_field_today_state(*, target_date: date) -> Dict[str, Any]:
+    """
+    今日の現場（AutoTradeDailyState）の backtest を tuning_result で表示できる形に整形して返す。
+    返す内容は「表示専用」。
+    """
+    state = AutoTradeDailyState.objects.filter(date=target_date).order_by("-id").first()
+    if not state:
+        return {"exists": False}
+
+    bt = state.backtest if isinstance(state.backtest, dict) else {}
+    meta = bt.get("meta") if isinstance(bt.get("meta"), dict) else {}
+    by_window = bt.get("by_window") if isinstance(bt.get("by_window"), dict) else {}
+    gate = bt.get("gate") if isinstance(bt.get("gate"), dict) else {}
+
+    # gateの置き場所は runner 実装により揺れるので両対応
+    final = gate.get("final") if isinstance(gate.get("final"), dict) else {}
+    gate_level = final.get("gate_level") or state.gate_level or "STOP"
+    active = final.get("active") if final.get("active") is not None else (state.strategy_decision or {}).get("active")
+    disabled = final.get("disabled") if final.get("disabled") is not None else (state.strategy_decision or {}).get("disabled")
+
+    gb = gate.get("BREAKOUT") if isinstance(gate.get("BREAKOUT"), dict) else {}
+    # reasons は runner側で state.gate_reason にも入る。表示は gate_reason があれば優先。
+    gate_reason_text = (state.gate_reason or "").strip()
+
+    # by_window の key が "20" 文字列だったり int だったりするので正規化
+    norm_by_window: Dict[int, Dict[str, Dict[str, Any]]] = {}
+    for k, v in (by_window or {}).items():
+        try:
+            wk = int(k)
+        except Exception:
+            continue
+        vv = v if isinstance(v, dict) else {}
+        # vv["BREAKOUT"] が metrics dict のはず
+        bo = vv.get("BREAKOUT") if isinstance(vv.get("BREAKOUT"), dict) else {}
+        norm_by_window[wk] = {"BREAKOUT": bo}
+
+    windows = meta.get("windows")
+    if isinstance(windows, list) and windows:
+        windows_list = []
+        for x in windows:
+            try:
+                windows_list.append(int(x))
+            except Exception:
+                continue
+        if windows_list:
+            win = windows_list
+        else:
+            win = [20, 60]
+    else:
+        win = [20, 60]
+
+    # cardsを作る
+    field_cards = _build_cards_from_by_window(by_window=norm_by_window, windows=win)
+
+    field = {
+        "exists": True,
+        "date": str(state.date),
+        "updated_at": state.updated_at,
+        "meta": meta,
+        "windows": win,
+        "gate": {
+            "gate_level": str(gate_level or "STOP"),
+            "active": active if active is not None else [],
+            "disabled": disabled if disabled is not None else [],
+            "gate_breakout": gb,
+            "gate_reason_text": gate_reason_text,
+        },
+        "by_window": norm_by_window,
+        "cards": field_cards,
+        "strategy": (state.strategy or ""),
+    }
+    return field
+
+
 # =========================================================
 # Views（Tuning）
 # =========================================================
@@ -425,49 +523,22 @@ def tuning_run_backtest(request: HttpRequest, pk: int):
         picks = [x.get("ticker") for x in (u.get("picks") or []) if isinstance(x, dict) and x.get("ticker")]
         picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
 
-    windows = [20, 60]
-
     result = run_backtest_for_tuning_profile(
         profile=profile,
         target_date=today,
         picks=picks,
-        windows=windows,
+        windows=[20, 60],
     )
 
     snap_id = int(result.get("snapshot_id") or 0)
     if snap_id <= 0:
         return redirect("autotrade:tuning_list")
 
-    # -----------------------------------------------------
-    # 🔒 固定検証（研究室）用：凍結条件を snapshot に保存
-    #   - target_date / picks / windows を固定して再現できるようにする
-    # -----------------------------------------------------
-    try:
-        snap = AutoTradeSettingSnapshot.objects.get(pk=snap_id, user=request.user)
-        sdict = snap.snapshot if isinstance(snap.snapshot, dict) else {}
-        if "lab" not in sdict or not isinstance(sdict.get("lab"), dict):
-            sdict["lab"] = {}
-
-        lab = sdict.get("lab") if isinstance(sdict.get("lab"), dict) else {}
-        frozen = lab.get("frozen") if isinstance(lab.get("frozen"), dict) else {}
-
-        # 既に凍結があるなら上書きしない（事故防止）
-        if not frozen:
-            sdict["lab"]["frozen"] = {
-                "target_date": str(today),
-                "picks": list(picks),
-                "windows": list(windows),
-            }
-            snap.snapshot = sdict
-            snap.save(update_fields=["snapshot"])
-    except Exception:
-        pass
-
     return redirect("autotrade:tuning_result", snapshot_id=snap_id)
 
 
 # =========================================================
-# 🧪 今日再評価（現場）：picks更新してやり直し
+# ★ 残す：再検証（picks更新）
 # =========================================================
 @login_required
 @require_POST
@@ -503,50 +574,6 @@ def tuning_rerun_snapshot_refresh_picks(request: HttpRequest, snapshot_id: int):
     return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
 
 
-# =========================================================
-# 🔒 固定検証（研究室）：凍結条件でやり直し（完全再現）
-# =========================================================
-@login_required
-@require_POST
-def tuning_rerun_snapshot_fixed(request: HttpRequest, snapshot_id: int):
-    snap = get_object_or_404(AutoTradeSettingSnapshot, pk=snapshot_id, user=request.user)
-
-    sdict = snap.snapshot if isinstance(snap.snapshot, dict) else {}
-    lab = sdict.get("lab") if isinstance(sdict.get("lab"), dict) else {}
-    frozen = lab.get("frozen") if isinstance(lab.get("frozen"), dict) else {}
-
-    target_date_s = frozen.get("target_date")
-    picks = frozen.get("picks")
-    windows = frozen.get("windows")
-
-    if not target_date_s or not picks or not windows:
-        # 凍結がない（旧スナップショット等）
-        return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
-
-    try:
-        target_date = datetime.fromisoformat(str(target_date_s)).date()
-    except Exception:
-        try:
-            target_date = timezone.localdate()
-        except Exception:
-            target_date = None
-
-    if target_date is None:
-        return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
-
-    run_detailed_backtests_for_universe(
-        snapshot=snap,
-        picks=[str(x).strip() for x in (picks or []) if str(x).strip()],
-        target_date=target_date,
-        windows=tuple(int(x) for x in (windows or []) if str(x).strip()),
-        rr_breakout=None,
-        base_equity_yen=None,
-        force=True,
-    )
-
-    return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
-
-
 @login_required
 def tuning_result(request: HttpRequest, snapshot_id: int):
     snap = get_object_or_404(AutoTradeSettingSnapshot, pk=snapshot_id, user=request.user)
@@ -559,26 +586,8 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
     windows = [20, 60]
     strategies = ["BREAKOUT"]
 
-    cards = []
-    for strat in strategies:
-        for w in windows:
-            m = get_nested_dict(by_window, int(w), strat, default={})
-            if not isinstance(m, dict):
-                m = {}
-            cards.append({
-                "strategy": strat,
-                "window": str(w),
-                "trades": m.get("trades"),
-                "wins": m.get("wins"),
-                "losses": m.get("losses"),
-                "win_rate": m.get("win_rate"),
-                "sum_win_yen": m.get("sum_win_yen"),
-                "sum_loss_yen": m.get("sum_loss_yen"),
-                "pf": m.get("profit_factor"),
-                "dd_yen": m.get("max_drawdown_yen"),
-                "dd_pct": m.get("max_drawdown_pct"),
-                "pnl": m.get("total_pnl"),
-            })
+    # 研究室（Snapshot.evidence）のカード
+    cards = _build_cards_from_by_window(by_window=by_window, windows=windows)
 
     active = _get_current_active_snapshot(request.user)
     last_promo = (
@@ -593,10 +602,6 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
     picks_today = _get_today_picks(request.user)
     picks_head = picks_today[:3]
 
-    # 🔒 凍結情報（研究室用）
-    lab = sdict.get("lab") if isinstance(sdict.get("lab"), dict) else {}
-    frozen = lab.get("frozen") if isinstance(lab.get("frozen"), dict) else {}
-
     header = {
         "status": snap.status,
         "snapshot_id": snap.id,
@@ -606,7 +611,6 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
         "windows": evidence.get("windows") or windows,
         "picks_n": len(picks_today),
         "picks_head": picks_head,
-        "frozen": frozen if frozen else None,
         "tune": {
             "knob": tune.get("knob"),
             "delta": tune.get("delta"),
@@ -616,6 +620,38 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
         } if tune else None,
     }
 
+    # -----------------------------
+    # 現場（今日＝DailyState）の表示用データ
+    # -----------------------------
+    field_today = _get_field_today_state(target_date=today)
+
+    # -----------------------------
+    # 研究室 → 現場 の差分（Δ）
+    # - 研究室: snapshot.evidence.by_window
+    # - 現場: field_today.by_window
+    # -----------------------------
+    diff_lab_vs_field = None
+    try:
+        if field_today.get("exists"):
+            lab_by_window: Dict[int, Dict[str, Dict[str, Any]]] = {}
+            for w in windows:
+                d = by_window.get(int(w)) if isinstance(by_window.get(int(w)), dict) else by_window.get(str(int(w)))
+                d = d if isinstance(d, dict) else {}
+                lab_by_window[int(w)] = {"BREAKOUT": d.get("BREAKOUT") if isinstance(d.get("BREAKOUT"), dict) else {}}
+
+            field_by_window = field_today.get("by_window") if isinstance(field_today.get("by_window"), dict) else {}
+            # field_by_window は既に {int(window): {"BREAKOUT": metrics}} の形
+
+            diff_lab_vs_field = {
+                "title": f"比較：研究室（snapshot id={snap.id}）→ 現場（{today}）",
+                "rows": _build_diff_rows(base_by_window=lab_by_window, cand_by_window=field_by_window, windows=list(windows)),
+                "base_score": _aggregate_score(lab_by_window, windows=list(windows)),
+                "cand_score": _aggregate_score(field_by_window, windows=list(windows)),
+            }
+    except Exception:
+        diff_lab_vs_field = None
+
+    # 既存：ACTIVEとの比較（残す）
     diff_vs_active = None
     if active and active.id != snap.id:
         ev_active = _collect_evidence_for_snapshot(snapshot=active, target_date=today, windows=list(windows))
@@ -636,6 +672,7 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
             "cand_score": _aggregate_score(cand_by_window, windows=list(windows)),
         }
 
+    # 既存：直前同ノブ比較（残す）
     diff_vs_prev = None
     if isinstance(tune, dict) and tune.get("knob"):
         knob = str(tune.get("knob"))
@@ -689,6 +726,14 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
         "active_snapshot": active,
         "last_promo": last_promo,
         "header": header,
+
+        # ★追加：現場（今日）
+        "field_today": field_today,
+
+        # ★追加：研究室→現場の差分
+        "diff_lab_vs_field": diff_lab_vs_field,
+
+        # 既存
         "diff_vs_active": diff_vs_active,
         "diff_vs_prev": diff_vs_prev,
     }
