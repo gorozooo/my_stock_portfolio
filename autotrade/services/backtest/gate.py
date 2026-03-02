@@ -1,20 +1,14 @@
-"""
-[FILE] autotrade/services/backtest/gate.py
-[PATH] <project_root>/autotrade/services/backtest/gate.py
-
-このファイルは何？
-- バックテスト結果（20/60/120）を見て、🟢🟡🔴を決める判定部品です。
-- “合格ライン（GATE_THRESHOLDS）” を基準に、判定（FULL/LIGHT/STOP）と初心者向けの理由文（reasons）を生成します。
-
-今回の変更点（初心者UI向け）：
-- reasons を「/区切り」ではなく、短い箇条書きの日本語に統一
-- 20日/60日など “期間ごと” に
-  1) ひとことで（意味）
-  2) どこが未達か（基準と比較）
-  3) 数字（PF/DD/回数/勝率/損益）
-  を並べる
-- min_win_rate（勝率基準）を閾値として正式に扱えるようにする（無い場合は無視）
-"""
+# =========================================================
+# [FILE] autotrade/services/backtest/gate.py
+# [PATH] <project_root>/autotrade/services/backtest/gate.py
+#
+# このファイルは何？
+# - バックテスト結果（windowごと）を見て、FULL/LIGHT/STOP を決める判定部品です。
+#
+# 今回の変更（windows 20/40/60へ統一）：
+# - final判定の STOPチェック対象を (60,120) → (40,60) に変更
+# - gate_from_backtests のループを (20,60,120) → (20,40,60) に変更
+# =========================================================
 
 from __future__ import annotations
 
@@ -215,7 +209,7 @@ def _judge_single(metrics: Dict[str, Any], *, window_days: int) -> Tuple[str, Li
 
 def judge_multi_window(metrics_by_window: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
     """
-    20/60/120 をまとめて判定して、最終の gate_level と理由を返す
+    20/40/60 をまとめて判定して、最終の gate_level と理由を返す
     """
     detail: Dict[int, str] = {}
     reasons: List[str] = []
@@ -234,13 +228,13 @@ def judge_multi_window(metrics_by_window: Dict[int, Dict[str, Any]]) -> Dict[str
     while reasons and (reasons[-1] or "").strip() == "":
         reasons.pop()
 
-    # final判定（既存思想）
+    # final判定（20がSTOPなら即STOP、それ以外は40/60のSTOP有無でLIGHT/FULL）
     if detail.get(20) == "STOP":
         final_level = "STOP"
         final_reasons = ["直近（20日）が不安定なため、停止が安全です。"]
-    elif any(detail.get(w) == "STOP" for w in (60, 120)):
+    elif any(detail.get(w) == "STOP" for w in (40, 60)):
         final_level = "LIGHT"
-        final_reasons = ["中長期に不安があるため、軽稼働が安全です。"]
+        final_reasons = ["中期に不安があるため、軽稼働が安全です。"]
     else:
         final_level = "FULL"
         final_reasons = ["すべての期間で基準を満たしています。通常稼働OKです。"]
@@ -258,7 +252,7 @@ def gate_from_backtests(bt_by_window: Dict[int, Dict[str, Any]]) -> Tuple[str, s
     旧 gate_service.gate_from_backtests の置き換え。
     """
     metrics_by_window: Dict[int, Dict[str, Any]] = {}
-    for w in (20, 60, 120):
+    for w in (20, 40, 60):
         d = (bt_by_window or {}).get(int(w)) or {}
         m = d.get("metrics") if isinstance(d, dict) else None
         metrics_by_window[int(w)] = (m if isinstance(m, dict) else d) or {}
