@@ -5,11 +5,11 @@
 # このファイルは何？
 # - 実験室（TuningProfile）の View をまとめたファイルです。
 #
-# 今回の変更：
-# - tuning_result.html に「研究室（固定＝Snapshot）」と「現場（今日＝DailyState）」を同時表示するため、
-#   tuning_result() で AutoTradeDailyState(今日) を読み取り、現場結果を ctx に追加。
-# - 研究室→現場 の差分（Δ）も同じ画面で出せるようにする。
-# - 2ボタン追加はしない（表示のみ）。
+# 今回の変更（windows 20/40/60へ統一）：
+# - windows の「唯一の真実」を settings.AUTOTRADE_BT_WINDOWS に統一
+# - tuning_run_backtest / tuning_rerun_snapshot_refresh_picks / tuning_result / _get_field_today_state の
+#   “20/60固定” を撤去し、すべて _get_bt_windows() 経由に変更
+# - evidence.windows が存在する場合はそれを優先（過去Snapshot互換）
 # =========================================================
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Dict, List, Tuple
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.http import HttpRequest
@@ -45,6 +46,41 @@ from .views_utils import get_nested_dict, delta_float, delta_int
 # =========================================================
 # Helpers（Tuning）
 # =========================================================
+
+def _get_bt_windows() -> List[int]:
+    """
+    windows の唯一の真実：
+    - settings.AUTOTRADE_BT_WINDOWS があればそれを使う
+    - 無ければ [20, 40, 60] を保険で返す
+    """
+    w = getattr(settings, "AUTOTRADE_BT_WINDOWS", None)
+    out: List[int] = []
+    if isinstance(w, (list, tuple)) and w:
+        for x in w:
+            try:
+                out.append(int(x))
+            except Exception:
+                continue
+    if out:
+        return out
+    return [20, 40, 60]
+
+
+def _normalize_windows(x: Any, *, fallback: List[int]) -> List[int]:
+    """
+    evidence.windows / meta.windows 等を安全に int[] にする。
+    """
+    out: List[int] = []
+    if isinstance(x, (list, tuple)) and x:
+        for v in x:
+            try:
+                out.append(int(v))
+            except Exception:
+                continue
+    if out:
+        return out
+    return list(fallback)
+
 
 def _default_params() -> Dict[str, Any]:
     """
@@ -336,20 +372,8 @@ def _get_field_today_state(*, target_date: date) -> Dict[str, Any]:
         bo = vv.get("BREAKOUT") if isinstance(vv.get("BREAKOUT"), dict) else {}
         norm_by_window[wk] = {"BREAKOUT": bo}
 
-    windows = meta.get("windows")
-    if isinstance(windows, list) and windows:
-        windows_list = []
-        for x in windows:
-            try:
-                windows_list.append(int(x))
-            except Exception:
-                continue
-        if windows_list:
-            win = windows_list
-        else:
-            win = [20, 60]
-    else:
-        win = [20, 60]
+    # windows は meta.windows があればそれ（過去互換）、無ければ settings を保険
+    win = _normalize_windows(meta.get("windows"), fallback=_get_bt_windows())
 
     # cardsを作る
     field_cards = _build_cards_from_by_window(by_window=norm_by_window, windows=win)
@@ -523,11 +547,13 @@ def tuning_run_backtest(request: HttpRequest, pk: int):
         picks = [x.get("ticker") for x in (u.get("picks") or []) if isinstance(x, dict) and x.get("ticker")]
         picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
 
+    windows = _get_bt_windows()
+
     result = run_backtest_for_tuning_profile(
         profile=profile,
         target_date=today,
         picks=picks,
-        windows=[20, 60],
+        windows=list(windows),
     )
 
     snap_id = int(result.get("snapshot_id") or 0)
@@ -558,7 +584,7 @@ def tuning_rerun_snapshot_refresh_picks(request: HttpRequest, snapshot_id: int):
     if not picks:
         return redirect("autotrade:tuning_result", snapshot_id=snapshot_id)
 
-    windows = [20, 60]
+    windows = _get_bt_windows()
 
     # ★ rr_breakout を明示指定しない（唯一の真実＝snapshot内の値）
     run_detailed_backtests_for_universe(
@@ -583,7 +609,8 @@ def tuning_result(request: HttpRequest, snapshot_id: int):
     gate = evidence.get("gate") if isinstance(evidence.get("gate"), dict) else {}
     by_window = evidence.get("by_window") if isinstance(evidence.get("by_window"), dict) else {}
 
-    windows = [20, 60]
+    # windowsは evidence優先（過去Snapshot互換）、無ければ settings を保険
+    windows = _normalize_windows(evidence.get("windows"), fallback=_get_bt_windows())
     strategies = ["BREAKOUT"]
 
     # 研究室（Snapshot.evidence）のカード
