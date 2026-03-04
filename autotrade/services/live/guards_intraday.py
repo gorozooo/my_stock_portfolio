@@ -8,7 +8,7 @@
 - 当日損失が閾値に達したら即STOP（新規禁止）
 - 連敗が閾値に達したら当日STOP（翌朝リセット）
 - 最大取引回数に達したら当日STOP
-- 時間ガード（14:30以降は新規禁止 / 15:00は強制クローズ“指示”）
+- 時間ガード（15:00以降は新規禁止 / 15:25は強制クローズ“指示”）
 
 注意：
 - ここは「判断」だけ。DB更新は job 側がやる。
@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 from datetime import datetime, time as dt_time
 
 from django.conf import settings
@@ -92,9 +92,9 @@ def evaluate_intraday_guards(
     # 設計D：連敗ガード（3連敗）
     max_lose_streak = int(getattr(settings, "AUTOTRADE_MAX_LOSE_STREAK", 3))
 
-    # 時間ガード
-    session_end = _parse_hhmm(getattr(settings, "AUTOTRADE_SESSION_END", "14:30"), "14:30")
-    force_close = _parse_hhmm(getattr(settings, "AUTOTRADE_FORCE_CLOSE", "15:00"), "15:00")
+    # 時間ガード（★デフォルトを新仕様に合わせる）
+    session_end = _parse_hhmm(getattr(settings, "AUTOTRADE_SESSION_END", "15:00"), "15:00")
+    force_close = _parse_hhmm(getattr(settings, "AUTOTRADE_FORCE_CLOSE", "15:25"), "15:25")
 
     now = now or _now_jst()
     now_t = now.time()
@@ -129,7 +129,7 @@ def evaluate_intraday_guards(
     # 時間による新規禁止
     forbid_by_time = (now_t >= session_end)
 
-    # 15:00 強制クローズ（ここでは「指示」を返すだけ）
+    # 15:25 強制クローズ（ここでは「指示」を返すだけ）
     force_close_now = (now_t >= force_close)
 
     # ① 日次損失ガード（最優先）
@@ -191,7 +191,7 @@ def evaluate_intraday_guards(
         return GuardResult(
             ok=True,
             stop_now=False,
-            stop_reason="【時間ガード】14:30以降は新規エントリーしません。",
+            stop_reason="【時間ガード】15:00以降は新規エントリーしません。",
             forbid_new_entries=True,
             force_close_now=force_close_now,
             meta={
