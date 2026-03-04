@@ -7,10 +7,10 @@
 - 「現在の動いている数値（今日の設定）」は ACTIVE Snapshot を唯一の真実として表示します。
 
 今回の変更：
-- 確定仕様に合わせて、稼働時間を 9:00〜15:00 に変更
-- 強制全決済を 15:25 に変更（15:00以降は新規禁止）
-- 「デモ稼働（PAPER）」の状態が iPhone 1画面で見えるカードを追加
-  - paper_last_bar_ts / paper_open_positions / paper_pending_orders / paper_logs を表示
+- PAPERトレード統計（N/勝率/勝敗/利益/損失/PF/DD）を表示
+- 今日のトレード履歴（Execution一覧）を表示（PAPER/LIVE両対応）
+- 現在のポジション（未クローズ扱いの一覧）を表示（将来拡張に備えた表示枠）
+- エクイティ推移（簡易）を表示（将来チャート化できる形）
 -->
 {% extends "base.html" %}
 {% load humanize %}
@@ -69,96 +69,179 @@
       </div>
     </section>
 
-    <!-- デモ稼働（PAPER） -->
+    <!-- 今日のトレード履歴（Execution一覧） -->
     <section class="autotrade-card">
       <div class="autotrade-row">
-        <div class="autotrade-h">デモ稼働（PAPER）</div>
-        <div class="autotrade-muted">リアル寄せ：いま何が起きてるか（状態だけ）</div>
-      </div>
-
-      <div class="autotrade-mt10 autotrade-mono" style="line-height:1.75;">
-        <div>最終バー時刻：{{ state.rules.paper_last_bar_ts|default:"-" }}</div>
-        <div>OPENポジ：{{ state.rules.paper_open_positions|length|default:"0" }} 件</div>
-        <div>PENDING：{{ state.rules.paper_pending_orders|length|default:"0" }} 件</div>
+        <div class="autotrade-h">今日のトレード履歴</div>
+        <div class="autotrade-muted">PAPER/LIVE の約定ログ（事実）</div>
       </div>
 
       <details class="autotrade-mt10">
-        <summary class="autotrade-muted">▶▶ 開く（OPEN / PENDING の中身）</summary>
+        <summary class="autotrade-muted">▶▶ 開く（今日の履歴）</summary>
 
-        <div class="autotrade-mt10 autotrade-mono">
-          <div class="autotrade-h">OPEN</div>
-          {% if state.rules.paper_open_positions %}
-            <div class="autotrade-mt10" style="line-height:1.75;">
-              {% for p in state.rules.paper_open_positions %}
-                <div class="autotrade-card autotrade-mt10" style="margin:0; padding:14px;">
-                  <div class="autotrade-row" style="align-items:center;">
-                    <div class="autotrade-h" style="letter-spacing:0.5px;">
-                      {{ p.ticker|default:"-" }} / {{ p.side|default:"-" }}
-                    </div>
-                    <div class="autotrade-pill">
-                      size {{ p.size|default:"-" }}
-                    </div>
+        <div class="autotrade-list autotrade-mt10">
+          {% if executions_today %}
+            {% for e in executions_today %}
+              <div class="autotrade-list-row" style="align-items:flex-start;">
+                <div class="autotrade-mono autotrade-ticker" style="min-width:78px;">
+                  {{ e.ticker }}
+                </div>
+
+                <div style="flex:1;">
+                  <div class="autotrade-mono" style="opacity:0.95;">
+                    {{ e.mode }} | {{ e.strategy }} | {{ e.side }}
                   </div>
-                  <div class="autotrade-mt10" style="line-height:1.75;">
-                    <div>entry：{{ p.entry_price|default:"-" }}</div>
-                    <div>stop：{{ p.stop_price|default:"-" }}</div>
-                    <div>take：{{ p.take_price|default:"-" }}</div>
-                    <div>entry_at：{{ p.entry_at|default:"-" }}</div>
-                    <div>expire_at：{{ p.expire_at|default:"-" }}</div>
-                    {% if p.holding_minutes is not None %}
-                      <div>holding_min：{{ p.holding_minutes }}</div>
-                    {% endif %}
+
+                  <div class="autotrade-muted" style="margin-top:4px;">
+                    入: {{ e.entry_at|date:"H:i" }}（{{ e.entry_price }}）
+                    →
+                    出: {{ e.exit_at|date:"H:i" }}（{{ e.exit_price }}）
+                    / 理由: {{ e.exit_reason }}
+                    / 保有: {{ e.holding_minutes }}分
+                    / RR: {{ e.rr|floatformat:2 }}
                   </div>
                 </div>
-              {% endfor %}
-            </div>
-          {% else %}
-            <div class="autotrade-muted autotrade-mt10">OPENはありません</div>
-          {% endif %}
-        </div>
 
-        <div class="autotrade-mt10 autotrade-mono">
-          <div class="autotrade-h">PENDING</div>
-          {% if state.rules.paper_pending_orders %}
-            <div class="autotrade-mt10" style="line-height:1.75;">
-              {% for o in state.rules.paper_pending_orders %}
-                <div class="autotrade-card autotrade-mt10" style="margin:0; padding:14px;">
-                  <div class="autotrade-row" style="align-items:center;">
-                    <div class="autotrade-h" style="letter-spacing:0.5px;">
-                      {{ o.ticker|default:"-" }} / {{ o.side|default:"-" }}
-                    </div>
-                    <div class="autotrade-pill">
-                      size {{ o.size|default:"-" }}
-                    </div>
-                  </div>
-                  <div class="autotrade-mt10" style="line-height:1.75;">
-                    <div>type：{{ o.type|default:"-" }}</div>
-                    <div>limit：{{ o.limit_price|default:"-" }}</div>
-                    <div>created_at：{{ o.created_at|default:"-" }}</div>
-                    <div>expire_at：{{ o.expire_at|default:"-" }}</div>
-                  </div>
+                <div class="autotrade-pill {% if e.pnl_yen >= 0 %}is-ok{% else %}is-bad{% endif %}" style="white-space:nowrap;">
+                  {{ e.pnl_yen|intcomma }}円
                 </div>
-              {% endfor %}
-            </div>
-          {% else %}
-            <div class="autotrade-muted autotrade-mt10">PENDINGはありません</div>
-          {% endif %}
-        </div>
-
-      </details>
-
-      <details class="autotrade-mt10">
-        <summary class="autotrade-muted">▶▶ 開く（直近ログ：PAPER）</summary>
-        <div class="autotrade-mt10 autotrade-mono" style="line-height:1.75;">
-          {% if state.rules.paper_logs %}
-            {% for line in state.rules.paper_logs|slice:"-10:" %}
-              <div>・{{ line }}</div>
+              </div>
             {% endfor %}
           {% else %}
-            <div class="autotrade-muted">まだログがありません</div>
+            <div class="autotrade-muted">まだ履歴がありません（PAPER/LIVEが動くと表示されます）</div>
           {% endif %}
         </div>
       </details>
+    </section>
+
+    <!-- 現在のポジション（未クローズ枠：将来拡張） -->
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div class="autotrade-h">現在のポジション</div>
+        <div class="autotrade-muted">（将来：リアルタイム表示 / 今は枠だけ）</div>
+      </div>
+
+      <details class="autotrade-mt10">
+        <summary class="autotrade-muted">▶▶ 開く（現在のポジション）</summary>
+
+        <div class="autotrade-list autotrade-mt10">
+          {% if open_positions %}
+            {% for p in open_positions %}
+              <div class="autotrade-list-row" style="align-items:flex-start;">
+                <div class="autotrade-mono autotrade-ticker" style="min-width:78px;">
+                  {{ p.ticker }}
+                </div>
+
+                <div style="flex:1;">
+                  <div class="autotrade-mono" style="opacity:0.95;">
+                    {{ p.mode }} | {{ p.strategy }} | {{ p.side }}
+                  </div>
+
+                  <div class="autotrade-muted" style="margin-top:4px;">
+                    entry: {{ p.entry_at|date:"H:i" }}（{{ p.entry_price }}）
+                    / size: {{ p.size }}
+                    {% if p.stop_price %} / stop: {{ p.stop_price }}{% endif %}
+                    {% if p.take_price %} / take: {{ p.take_price }}{% endif %}
+                  </div>
+                </div>
+
+                {% if p.unrealized_pnl_yen is not None %}
+                  <div class="autotrade-pill {% if p.unrealized_pnl_yen >= 0 %}is-ok{% else %}is-bad{% endif %}" style="white-space:nowrap;">
+                    {{ p.unrealized_pnl_yen|intcomma }}円
+                  </div>
+                {% else %}
+                  <div class="autotrade-pill" style="white-space:nowrap;">-</div>
+                {% endif %}
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="autotrade-muted">今はポジションがありません</div>
+          {% endif %}
+        </div>
+      </details>
+    </section>
+
+    <!-- エクイティ推移（簡易） -->
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div class="autotrade-h">エクイティ推移（簡易）</div>
+        <div class="autotrade-muted">（将来：チャート化OK / 今は数値一覧）</div>
+      </div>
+
+      <details class="autotrade-mt10">
+        <summary class="autotrade-muted">▶▶ 開く（推移）</summary>
+
+        <div class="autotrade-mt10 autotrade-mono" style="line-height:1.85;">
+          {% if equity_curve %}
+            {% for x in equity_curve %}
+              <div class="autotrade-row">
+                <div>{{ x.ts|default:"-" }}</div>
+                <div class="autotrade-pill">{{ x.equity_yen|intcomma }}円</div>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="autotrade-muted">まだ推移データがありません</div>
+          {% endif %}
+        </div>
+      </details>
+    </section>
+
+    <!-- PAPER統計 -->
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div class="autotrade-h">PAPER トレード統計</div>
+        <div class="autotrade-muted">実際の約定ログから計算（今日 or 累計のどちらでもOK）</div>
+      </div>
+
+      <div class="autotrade-mt10 autotrade-mono" style="line-height:1.8;">
+        <div class="autotrade-row">
+          <div>取引回数（N）</div>
+          <div class="autotrade-pill">{{ paper_stats.trades|default:"-" }}</div>
+        </div>
+
+        <div class="autotrade-row">
+          <div>勝率</div>
+          <div class="autotrade-pill">
+            {{ paper_stats.win_rate_pct|default:"-" }}%
+          </div>
+        </div>
+
+        <div class="autotrade-row">
+          <div>勝 / 負</div>
+          <div class="autotrade-pill">
+            {{ paper_stats.wins|default:"-" }} / {{ paper_stats.losses|default:"-" }}
+          </div>
+        </div>
+
+        <div class="autotrade-row">
+          <div>利益合計</div>
+          <div class="autotrade-pill is-ok">
+            +{{ paper_stats.sum_win_yen|intcomma|default:"-" }} 円
+          </div>
+        </div>
+
+        <div class="autotrade-row">
+          <div>損失合計</div>
+          <div class="autotrade-pill is-bad">
+            -{{ paper_stats.sum_loss_abs_yen|intcomma|default:"-" }} 円
+          </div>
+        </div>
+
+        <div class="autotrade-row">
+          <div>PF（Profit Factor）</div>
+          <div class="autotrade-pill">
+            {{ paper_stats.pf|default:"-" }}
+          </div>
+        </div>
+
+        <div class="autotrade-row">
+          <div>最大DD</div>
+          <div class="autotrade-pill is-bad">
+            -{{ paper_stats.dd_yen|intcomma|default:"-" }} 円
+            （-{{ paper_stats.dd_pct|default:"-" }}%）
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- 判定理由（結果カード形式） -->
@@ -281,6 +364,7 @@
         <div class="autotrade-muted">ACTIVE Snapshot（実運用パラメータ）</div>
       </div>
 
+      <!-- ここが「実験室の白枠と同じ内容」＋初心者向け -->
       <div class="autotrade-chips autotrade-mt10">
         {% for x in active_summary_chips %}
           <div class="autotrade-chip autotrade-mono">{{ x }}</div>
@@ -335,7 +419,6 @@
         <div class="autotrade-chip">同時ポジ：フル2 / 軽1</div>
         <div class="autotrade-chip">回数：フル6 / 軽3</div>
         <div class="autotrade-chip">稼働：9:00〜15:00</div>
-        <div class="autotrade-chip">15:00 以降は新規禁止</div>
         <div class="autotrade-chip">15:25 強制全決済</div>
       </div>
     </section>
