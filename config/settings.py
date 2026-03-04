@@ -212,8 +212,8 @@ AUTOTRADE_MAX_POSITIONS_LIGHT = 1
 AUTOTRADE_MAX_TRADES_LIGHT = 3
 
 AUTOTRADE_SESSION_START = "09:00"
-AUTOTRADE_SESSION_END = "14:30"
-AUTOTRADE_FORCE_CLOSE = "15:00"
+AUTOTRADE_SESSION_END = "15:00"
+AUTOTRADE_FORCE_CLOSE = "15:25"
 
 # 戦略回数配分
 AUTOTRADE_MAX_TRADES_BREAKOUT = 4
@@ -256,7 +256,7 @@ CRONJOBS = [
     ("30 6 * * 1-5", "autotrade.jobs.morning_prepare.run", ">> /tmp/autotrade_morning.log 2>&1"),
     
     # 9:30：戦略決定＆ゲート確定（9:30）
-    ("30 9 * * 1-5", "autotrade.jobs.decide_strategy.run", ">> /tmp/autotrade_decide.log 2>&1"),
+    ("55 8 * * 1-5", "autotrade.jobs.decide_strategy.run", ">> /tmp/autotrade_decide.log 2>&1"),
 
     # ★ 追加：場中ガード（毎分）
     ("*/1 9-15 * * 1-5", "autotrade.jobs.intraday_guard.run", ">> /tmp/autotrade_intraday_guard.log 2>&1"),
