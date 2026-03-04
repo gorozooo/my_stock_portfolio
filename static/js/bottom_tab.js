@@ -156,7 +156,7 @@ document.addEventListener("DOMContentLoaded", () => {
       { label:"分析",         href: URLS.aiapp_behavior,      icon:"📊", tone:"info" },
       
       { section:"デイトレ" },
-      { label:"ダッシュボード", href: URLS.autotrade_dashboard,     icon:"📝", tone:"info" },
+      { label:"ダッシュボード",  href:"/autotrade",     icon:"📝", tone:"info" },
       { label:"検証", href: URLS.autotrade_lab,     icon:"📟", tone:"info" },
       
       { section:"設定" },
