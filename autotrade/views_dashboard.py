@@ -4,17 +4,17 @@
 
 このファイルは何？
 - AutoTrade のダッシュボード表示（iPhone 1画面）用の View と整形関数です。
+- DB上の「DailyState（今日の状態）」＋「ACTIVE Snapshot（今日の設定）」＋「Execution（今日の事実ログ）」をまとめてテンプレへ渡します。
 
-今回の変更：
-- 「現在の動いている数値（今日の設定）」を、実験室の検証結果（白枠）と同じ項目に統一して初心者向けに表示
-  - rr / stop_pct / lookback_bars / max_hold_min / daily_filter / sma_days / direction
-- ACTIVE Snapshot をDBから毎回取得し、唯一の真実として使う（既存方針を維持）
-- デバッグ用の“生キー一覧”は別のリスト（active_detail_chips）として返す
+今回の追加（UI用の実データ供給）：
+- 今日の Execution 一覧（PAPER/LIVE、BACKTEST除外）を ctx["executions_today"] に追加
+- PAPER の統計（N/勝率/勝敗/利益合計/損失合計/PF/最大DD）を ctx["paper_stats"] に追加
+- 簡易エクイティ推移（時刻→総資産）を ctx["equity_curve"] に追加
+- open_positions は将来拡張の枠として、現段階は空配列で返す（モデル的に未クローズを表現していないため）
 """
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 from django.contrib.auth.decorators import login_required
@@ -25,6 +25,7 @@ from django.utils import timezone
 from .models import AutoTradeDailyState, AutoTradeSettingSnapshot
 from .views_utils import get_nested_dict
 
+from autotrade.models_backtest import AutoTradeExecution
 from autotrade.services.backtest.gate import GATE_THRESHOLDS
 
 
@@ -289,9 +290,8 @@ def build_active_summary_chips_for_template(*, active_snapshot: Optional[AutoTra
 
     sdict = active_snapshot.snapshot if isinstance(active_snapshot.snapshot, dict) else {}
 
-    # 実験室の表示と同じ “lab.BREAKOUT.*” を優先して読む
     rr = _get_nested(sdict, ["lab", "BREAKOUT", "rr"], None)
-    stop_pct_ui = _get_nested(sdict, ["lab", "BREAKOUT", "stop_pct_ui"], None)  # 0.4 のような “%表記”
+    stop_pct_ui = _get_nested(sdict, ["lab", "BREAKOUT", "stop_pct_ui"], None)
     lookback_bars = _get_nested(sdict, ["lab", "BREAKOUT", "lookback_bars"], None)
     max_hold_min = _get_nested(sdict, ["lab", "BREAKOUT", "max_hold_min"], None)
 
@@ -299,16 +299,13 @@ def build_active_summary_chips_for_template(*, active_snapshot: Optional[AutoTra
     sma_days = _get_nested(sdict, ["lab", "BREAKOUT", "sma_days"], None)
     direction = _get_nested(sdict, ["lab", "BREAKOUT", "direction"], None)
 
-    # 保険：別キーに居る場合
     if rr is None:
         rr = sdict.get("rr_breakout")
     if stop_pct_ui is None:
-        # 内部が 0.004（=0.4%）なら %に直す
         x = sdict.get("breakout_stop_pct")
         if x is not None:
             stop_pct_ui = _safe_float(x, 0.0) * 100.0
 
-    # 表示用の日本語化
     df = str(daily_filter) if daily_filter is not None else "OFF"
     if df not in ["OFF", "SMA"]:
         df = "OFF"
@@ -323,13 +320,10 @@ def build_active_summary_chips_for_template(*, active_snapshot: Optional[AutoTra
     out: List[str] = []
 
     out.append(f"採用中の設定：ID {active_snapshot.id}（{active_snapshot.label}）")
-
-    # ここから “実験室と同じ並び” を、初心者向けに
     out.append(f"利確RR：{_pretty_value(rr)}（利確幅＝損切り幅×RR）")
     out.append(f"損切り幅：{_pretty_value(stop_pct_ui)}%（逆行したら損切り）")
     out.append(f"ブレイク判定：直近 {_pretty_value(lookback_bars)} 本（5分足）")
     out.append(f"最大保有：{_pretty_value(max_hold_min)} 分（持ちっぱなし防止）")
-
     out.append(f"日足フィルタ：{df_label}")
     out.append(f"SMA日数：{_pretty_value(sma_days)}（例：20/50）")
     out.append(f"方向：{dr_label}")
@@ -400,6 +394,118 @@ def build_active_detail_chips_for_template(*, active_snapshot: Optional[AutoTrad
     return chips
 
 
+# =========================================================
+# UI追加：Execution集計（PAPER統計 / 今日の履歴 / 簡易エクイティ推移）
+# =========================================================
+def _calc_max_drawdown_yen(equity_points: List[int]) -> int:
+    """
+    equity_points（時系列）から最大DD（円）を返す。
+    peakからの下落幅の最大値。
+    """
+    peak = None
+    max_dd = 0
+    for x in equity_points or []:
+        try:
+            v = int(x)
+        except Exception:
+            continue
+        if peak is None or v > peak:
+            peak = v
+        if peak is not None:
+            dd = peak - v
+            if dd > max_dd:
+                max_dd = dd
+    return int(max_dd)
+
+
+def _build_paper_stats(*, base_equity_yen: int, execs_paper: List[AutoTradeExecution]) -> Dict[str, Any]:
+    """
+    PAPERのExecution（事実）から統計を作る。
+    """
+    execs = list(execs_paper or [])
+    trades = len(execs)
+
+    wins = 0
+    losses = 0
+    sum_win = 0
+    sum_loss = 0  # 負の合計（負値のまま）
+    pnls: List[int] = []
+
+    for e in execs:
+        pnl = _safe_int(getattr(e, "pnl_yen", 0), 0)
+        pnls.append(pnl)
+        if pnl >= 0:
+            wins += 1
+            sum_win += pnl
+        else:
+            losses += 1
+            sum_loss += pnl
+
+    sum_loss_abs = abs(sum_loss)
+
+    if trades > 0:
+        win_rate = wins / trades
+    else:
+        win_rate = 0.0
+
+    # PF = 利益合計 / 損失合計(絶対値)
+    if sum_loss_abs > 0:
+        pf = float(sum_win) / float(sum_loss_abs)
+    else:
+        pf = 999.0 if sum_win > 0 else 0.0
+
+    # 最大DD（PAPERの当日推移：base_equityから pnls を順に加算）
+    eq = int(base_equity_yen or 1_000_000)
+    equity_points = [eq]
+    for pnl in pnls:
+        eq += int(pnl)
+        equity_points.append(eq)
+
+    dd_yen = _calc_max_drawdown_yen(equity_points)
+    dd_pct = (float(dd_yen) / float(base_equity_yen)) if base_equity_yen > 0 else 0.0
+
+    return {
+        "trades": int(trades),
+        "wins": int(wins),
+        "losses": int(losses),
+        "win_rate_pct": round(_pct_100(win_rate), 1),
+        "sum_win_yen": int(sum_win),
+        "sum_loss_abs_yen": int(sum_loss_abs),
+        "pf": f"{pf:.3f}" if pf else f"{pf:.2f}",
+        "dd_yen": int(dd_yen),
+        "dd_pct": round(_pct_100(dd_pct), 1),
+    }
+
+
+def _build_equity_curve(*, base_equity_yen: int, execs_for_curve: List[AutoTradeExecution]) -> List[Dict[str, Any]]:
+    """
+    簡易エクイティ推移（時刻→総資産）。
+    - base_equity_yen から pnl を順に反映していく
+    - ts は exit_at（なければ created_at）で表示
+    """
+    execs = list(execs_for_curve or [])
+    eq = int(base_equity_yen or 1_000_000)
+
+    out: List[Dict[str, Any]] = []
+    out.append({"ts": "start", "equity_yen": int(eq)})
+
+    for e in execs:
+        pnl = _safe_int(getattr(e, "pnl_yen", 0), 0)
+        eq += int(pnl)
+
+        ts = "-"
+        try:
+            t = getattr(e, "exit_at", None) or getattr(e, "created_at", None)
+            if t is not None:
+                ts = timezone.localtime(t).strftime("%H:%M")
+        except Exception:
+            ts = "-"
+
+        out.append({"ts": ts, "equity_yen": int(eq)})
+
+    return out
+
+
 @login_required
 def dashboard(request: HttpRequest):
     today = timezone.localdate()
@@ -407,15 +513,59 @@ def dashboard(request: HttpRequest):
 
     active_snapshot = _get_active_snapshot(request.user)
 
+    # =========================================================
+    # 追加：今日のExecution（PAPER/LIVE、BACKTEST除外）
+    # =========================================================
+    executions_today = list(
+        AutoTradeExecution.objects.filter(
+            user=request.user,
+            created_at__date=today,
+        )
+        .exclude(mode="BACKTEST")
+        .order_by("exit_at", "id")
+    )
+
+    # =========================================================
+    # PAPER統計（今日のPAPERのみ）
+    # - base_equity は「今日開始時点の推定」として state.equity_yen - state.pnl_day_yen を使う
+    #   ※今は “表示” が目的。将来は正式な日次確定ロジックで厳密化する。
+    # =========================================================
+    start_equity_yen = int(_safe_int(state.equity_yen, 1_000_000) - _safe_int(state.pnl_day_yen, 0))
+    execs_paper_today = [e for e in executions_today if str(getattr(e, "mode", "")).upper() == "PAPER"]
+
+    paper_stats = _build_paper_stats(
+        base_equity_yen=start_equity_yen,
+        execs_paper=execs_paper_today,
+    )
+
+    # =========================================================
+    # 簡易エクイティ推移（まずは “今日のPAPER” を反映）
+    # - ここは用途次第で “PAPER+LIVE” に変えられる
+    # =========================================================
+    equity_curve = _build_equity_curve(
+        base_equity_yen=start_equity_yen,
+        execs_for_curve=execs_paper_today,
+    )
+
+    # =========================================================
+    # 現在のポジション（将来拡張）
+    # - AutoTradeExecution は exit_at 必須のため、現段階では空
+    # =========================================================
+    open_positions: List[Dict[str, Any]] = []
+
     ctx = {
         "state": state,
         "result_cards": build_result_cards_for_template(state),
         "thresholds": build_thresholds_for_template(),
 
-        # ★ここを「実験室の白枠と同じ内容」＋初心者向けに
+        # ACTIVE Snapshot 表示
         "active_summary_chips": build_active_summary_chips_for_template(active_snapshot=active_snapshot),
-
-        # ★デバッグ用の生キー（折りたたみ用）
         "active_detail_chips": build_active_detail_chips_for_template(active_snapshot=active_snapshot),
+
+        # ★ UI追加：PAPER統計 / 今日の履歴 / ポジション / 推移
+        "paper_stats": paper_stats,
+        "executions_today": executions_today,
+        "open_positions": open_positions,
+        "equity_curve": equity_curve,
     }
     return render(request, "autotrade/dashboard.html", ctx)
