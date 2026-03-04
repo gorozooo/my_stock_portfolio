@@ -155,6 +155,9 @@ document.addEventListener("DOMContentLoaded", () => {
       { label:"シミュレーション",     href: URLS.aiapp_simulate_list, icon:"🧪", tone:"info" },
       { label:"分析",         href: URLS.aiapp_behavior,      icon:"📊", tone:"info" },
       
+      { section:"デイトレ" },
+      { label:"ダッシュボード", href: URLS.auto_dashboard,     icon:"🧠", tone:"info" },
+      
       { section:"設定" },
       { label:"設定",           href: URLS.aiapp_settings,      icon:"⚙️", tone:"info" },
       { label:"ピックアップ診断(ALL)",           href: "/aiapp/debug/picks",      icon:"⚙️", tone:"info" },
