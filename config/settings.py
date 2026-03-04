@@ -262,5 +262,5 @@ CRONJOBS = [
     ("*/1 9-15 * * 1-5", "autotrade.jobs.intraday_guard.run", ">> /tmp/autotrade_intraday_guard.log 2>&1"),
 
     # 15:10：日次クローズ（15:10）
-    ("10 15 * * 1-5", "autotrade.jobs.end_of_day.run", ">> /tmp/autotrade_eod.log 2>&1"),
+    ("30 15 * * 1-5", "autotrade.jobs.end_of_day.run", ">> /tmp/autotrade_eod.log 2>&1"),
 ]
