@@ -157,7 +157,7 @@ document.addEventListener("DOMContentLoaded", () => {
       
       { section:"デイトレ" },
       { label:"ダッシュボード",  href:"/autotrade",     icon:"📝", tone:"info" },
-      { label:"検証", href: URLS.autotrade_lab,     icon:"📟", tone:"info" },
+      { label:"検証", href:"/autotrade/lab",     icon:"📟", tone:"info" },
       
       { section:"設定" },
       { label:"設定",           href: URLS.aiapp_settings,      icon:"⚙️", tone:"info" },
