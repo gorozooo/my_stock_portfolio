@@ -212,14 +212,21 @@ AUTOTRADE_MAX_POSITIONS_LIGHT = 1
 AUTOTRADE_MAX_TRADES_LIGHT = 3
 
 AUTOTRADE_SESSION_START = "09:00"
+
+# ★変更：稼働を 15:00 まで延長
 AUTOTRADE_SESSION_END = "15:00"
+
+# ★変更：強制全決済を 15:25 に
 AUTOTRADE_FORCE_CLOSE = "15:25"
 
-# 戦略回数配分
+# ★スイッチ：15:00以降は新規禁止、ただし保有は許可（15:25で強制決済）
+AUTOTRADE_ALLOW_HOLD_PAST_SESSION_END = True
+
+# 戦略回数配分（BREAKOUT一本運用でも “上限” として残す）
 AUTOTRADE_MAX_TRADES_BREAKOUT = 4
 AUTOTRADE_MAX_TRADES_VWAP = 2
 
-# RR
+# RR（snapshot側が唯一の真実。ここはフォールバック）
 AUTOTRADE_RR_BREAKOUT = 2.0
 AUTOTRADE_RR_VWAP = 1.5
 
@@ -236,8 +243,7 @@ AUTOTRADE_GATE = {
 # スリッページ（不利側固定）
 AUTOTRADE_SLIPPAGE_PCT = 0.0002  # 0.02%
 
-# 銘柄候補（ここは後で強化：今は安定稼働優先のフォールバック）
-# media/autotrade/universe_candidates.txt があればそれを優先して読む
+# 銘柄候補（フォールバック）
 AUTOTRADE_DEFAULT_CANDIDATES = [
     "7203.T","6758.T","9432.T","9984.T","8306.T","8316.T","8035.T","8058.T",
     "6861.T","6501.T","6503.T","7267.T","8801.T","8802.T","9020.T","9022.T",
@@ -254,13 +260,16 @@ AUTOTRADE_MORNING_AGG = "wmean"
 CRONJOBS = [
     # 毎朝：銘柄選定＆バックテスト（6:30）
     ("30 6 * * 1-5", "autotrade.jobs.morning_prepare.run", ">> /tmp/autotrade_morning.log 2>&1"),
-    
-    # 9:30：戦略決定＆ゲート確定（9:30）
+
+    # ★変更：8:55 戦略決定＆ルール確定（場が開く前に固定）
     ("55 8 * * 1-5", "autotrade.jobs.decide_strategy.run", ">> /tmp/autotrade_decide.log 2>&1"),
 
-    # ★ 追加：場中ガード（毎分）
+    # ★場中：デモ（PAPER）執行（毎分）
+    ("*/1 9-15 * * 1-5", "autotrade.jobs.intraday_trade.run", ">> /tmp/autotrade_intraday_trade.log 2>&1"),
+
+    # ★場中ガード（毎分）
     ("*/1 9-15 * * 1-5", "autotrade.jobs.intraday_guard.run", ">> /tmp/autotrade_intraday_guard.log 2>&1"),
 
-    # 15:10：日次クローズ（15:10）
+    # ★変更：15:30 日次クローズ（強制決済(15:25)の後に）
     ("30 15 * * 1-5", "autotrade.jobs.end_of_day.run", ">> /tmp/autotrade_eod.log 2>&1"),
 ]
