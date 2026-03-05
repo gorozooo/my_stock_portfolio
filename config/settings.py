@@ -1,3 +1,16 @@
+# =========================================================
+# [FILE] settings.py
+# [PATH] <project_root>/config/settings.py
+#
+# このファイルは何？
+# - Django全体の設定ファイルです（DB/アプリ/cron/各種定数など）。
+#
+# 今回の修正（SQLiteのdatabase locked対策＋cron多重実行対策）：
+# 1) SQLite接続のtimeoutを増やす（DBロック待ち猶予）
+# 2) AUTOTRADE用のcronロックファイル置き場を設定（Python側でflock相当を実現）
+# 3) CRONJOBSはユーザー指定のまま維持（スケジュール変更なし）
+# =========================================================
+
 """
 Django settings for config project.
 
@@ -102,10 +115,16 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 
 # === DB（開発: SQLite）===
+# ★ 修正：SQLiteのロック待ち猶予を増やす（database is locked対策）
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "db.sqlite3",
+        "OPTIONS": {
+            # sqlite3.connect(timeout=xx) と同義
+            # cron多重やgunicornアクセスと被った時に即死しにくくする
+            "timeout": 30,
+        },
     }
 }
 
@@ -253,6 +272,10 @@ AUTOTRADE_DEFAULT_CANDIDATES = [
 
 #"wmean"（売買代金重み）
 AUTOTRADE_MORNING_AGG = "wmean"
+
+# ★ 追加：cron多重実行を潰すためのロック置き場
+# - trade/guard が同時に走ると SQLite が詰まりやすいので、Python側で排他します（flock相当）
+AUTOTRADE_CRON_LOCK_DIR = str(BASE_DIR / "media" / "logs")
 
 # ==========================
 # ★ django-crontab（ジョブ）
