@@ -75,6 +75,9 @@ INSTALLED_APPS = [
 
     # ★ 家計簿（新規）
     "kakeibo.apps.KakeiboConfig",
+    
+    # ★ 指標（新規）
+    "shihyo.apps.ShihyoConfig",
 ]
 
 MIDDLEWARE = [
