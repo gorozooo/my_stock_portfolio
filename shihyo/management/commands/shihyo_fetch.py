@@ -5,9 +5,16 @@
 このファイルは何？
 - 指標（先物・ドル円・VIX）をStooqから取得してDBへ保存するコマンドです。
 - cronからこれを叩けば、アプリは「DBの最新スナップショット」を表示するだけでOKになります。
+
+今回の修正ポイント：
+- SQLiteのJSONFieldは NaN/Infinity をJSONとして扱えず保存に失敗するため、
+  raw_payload を保存する前に NaN/Infinity を None に変換して安全化します。
 """
 
 from __future__ import annotations
+
+import math
+from typing import Any
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone
@@ -15,6 +22,22 @@ from django.utils import timezone
 from shihyo.models import MarketIndicatorSnapshot
 from shihyo.services.stooq_client import StooqClient
 from shihyo.services.judge import judge
+
+
+def _json_safe(x: Any) -> Any:
+    """
+    JSONField(SQLite)が受け付けない値（NaN/Infinity）を None に変換して安全化する。
+    dict/list/tuple も再帰的に処理する。
+    """
+    if isinstance(x, float):
+        if math.isnan(x) or math.isinf(x):
+            return None
+        return x
+    if isinstance(x, dict):
+        return {str(k): _json_safe(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_json_safe(v) for v in x]
+    return x
 
 
 class Command(BaseCommand):
@@ -56,6 +79,7 @@ class Command(BaseCommand):
                 "calc": {"nikkei": n, "fx": f, "vix": v},
                 "fetched_at": timezone.now().isoformat(),
             }
+            raw = _json_safe(raw)  # ★ここが今回のキモ
 
             MarketIndicatorSnapshot.objects.create(
                 nikkei_futures_last=q_n.close,
@@ -80,13 +104,22 @@ class Command(BaseCommand):
 
         except Exception as e:
             err = str(e)
+
+            # エラー時も raw_payload には「安全なJSON」だけ入れる
+            safe_raw = _json_safe({
+                "fetched_at": timezone.now().isoformat(),
+                "error": err,
+                "raw": raw,
+            })
+
             MarketIndicatorSnapshot.objects.create(
                 action_title="🔴 取得失敗（前回の判断を優先）",
                 action_lines=[
                     "データ取得に失敗したため、新しい判断を作れませんでした",
                     "通信が戻ったら自動で更新されます",
                 ],
-                raw_payload=raw,
+                raw_payload=safe_raw,
                 error=err,
             )
+
             self.stdout.write(self.style.ERROR(f"Saved snapshot ERROR: {err}"))
