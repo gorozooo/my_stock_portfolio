@@ -1,0 +1,102 @@
+/*
+[FILE] shihyo.css
+[PATH] <project_root>/shihyo/static/shihyo/shihyo.css
+
+このファイルは何？
+- 指標専用ダッシュボードの見た目（スマホ最適）です。
+*/
+
+:root {
+  --bg: #0b0f16;
+  --card: rgba(255, 255, 255, 0.06);
+  --txt: rgba(255, 255, 255, 0.92);
+  --muted: rgba(255, 255, 255, 0.62);
+  --border: rgba(255, 255, 255, 0.10);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: radial-gradient(1000px 600px at 20% 0%, rgba(110, 150, 255, 0.16), transparent),
+              radial-gradient(900px 500px at 90% 10%, rgba(255, 120, 200, 0.14), transparent),
+              var(--bg);
+  color: var(--txt);
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", "Segoe UI", Roboto, sans-serif;
+}
+
+.wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px 14px 28px;
+}
+
+.top .title {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+.top .sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px 14px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.action { margin-top: 14px; }
+.action-title {
+  font-size: 18px;
+  font-weight: 900;
+}
+.action-lines {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: rgba(255,255,255,0.86);
+  line-height: 1.5;
+}
+.error {
+  margin-top: 10px;
+  font-size: 12px;
+  color: rgba(255, 200, 200, 0.92);
+}
+
+.grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.k {
+  font-size: 12px;
+  color: var(--muted);
+}
+.v {
+  margin-top: 6px;
+  font-size: 22px;
+  font-weight: 900;
+}
+.m {
+  margin-top: 6px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.78);
+}
+
+.mini { margin-top: 12px; }
+.mini .p {
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.78);
+  line-height: 1.6;
+}
+
+@media (min-width: 520px) {
+  .grid { grid-template-columns: 1fr 1fr; }
+}
