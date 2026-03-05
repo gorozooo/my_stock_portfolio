@@ -5,6 +5,7 @@
 このファイルは何？
 - 指標専用のダッシュボード画面（初心者向けの行動表示）。
 - base.html を継承して、背景/フォント/下タブなど「共通の見た目」に統一する。
+- KPIカードは「2カラム表示」にして右側の無駄スペースを情報で埋め、スタイリッシュにする。
 -->
 
 {% extends "base.html" %}
@@ -35,34 +36,54 @@
             <li>{{ line }}</li>
           {% endfor %}
         </ul>
-
         {% if latest.error %}
           <div class="shihyo-error">⚠️ エラー: {{ latest.error }}</div>
         {% endif %}
       </section>
 
       <section class="shihyo-grid">
-        <div class="shihyo-card">
-          <div class="shihyo-k">日経先物（NY.F）</div>
-          <div class="shihyo-v">{{ latest.nikkei_futures_last|floatformat:1 }}</div>
-          <div class="shihyo-m">
-            {{ latest.nikkei_label }} / {{ latest.nikkei_futures_change_pct|floatformat:2 }}%
+        <!-- 日経先物 -->
+        <div class="shihyo-card shihyo-kpi">
+          <div class="kpi-left">
+            <div class="shihyo-k">日経先物（NY.F）</div>
+            <div class="shihyo-v">{{ latest.nikkei_futures_last|floatformat:1 }}</div>
+            <div class="shihyo-m">{{ latest.nikkei_label }}</div>
+          </div>
+          <div class="kpi-right">
+            <div class="badge">
+              {{ latest.nikkei_futures_change_pct|floatformat:2 }}%
+            </div>
+            <div class="tiny">変化率</div>
           </div>
         </div>
 
-        <div class="shihyo-card">
-          <div class="shihyo-k">ドル円（USDJPY）</div>
-          <div class="shihyo-v">{{ latest.usdjpy_last|floatformat:3 }}</div>
-          <div class="shihyo-m">
-            {{ latest.fx_label }} / {{ latest.usdjpy_change_pct|floatformat:2 }}%
+        <!-- ドル円 -->
+        <div class="shihyo-card shihyo-kpi">
+          <div class="kpi-left">
+            <div class="shihyo-k">ドル円（USDJPY）</div>
+            <div class="shihyo-v">{{ latest.usdjpy_last|floatformat:3 }}</div>
+            <div class="shihyo-m">{{ latest.fx_label }}</div>
+          </div>
+          <div class="kpi-right">
+            <div class="badge">
+              {{ latest.usdjpy_change_pct|floatformat:2 }}%
+            </div>
+            <div class="tiny">変化率</div>
           </div>
         </div>
 
-        <div class="shihyo-card">
-          <div class="shihyo-k">VIX（VI.C）</div>
-          <div class="shihyo-v">{{ latest.vix_last|floatformat:2 }}</div>
-          <div class="shihyo-m">
-            {{ latest.vix_label }} / {{ latest.vix_change_pct|floatformat:2 }}%
+        <!-- VIX -->
+        <div class="shihyo-card shihyo-kpi">
+          <div class="kpi-left">
+            <div class="shihyo-k">VIX（VI.C）</div>
+            <div class="shihyo-v">{{ latest.vix_last|floatformat:2 }}</div>
+            <div class="shihyo-m">{{ latest.vix_label }}</div>
+          </div>
+          <div class="kpi-right">
+            <div class="badge">
+              {{ latest.vix_change_pct|floatformat:2 }}%
+            </div>
+            <div class="tiny">変化率</div>
           </div>
         </div>
       </section>
