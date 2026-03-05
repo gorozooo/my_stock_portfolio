@@ -5,10 +5,9 @@
 このファイルは何？
 - 指標専用ダッシュボードの見た目調整。
 - base.html の背景・フォント・共通UIに合わせるため、bodyは上書きしない。
-- グラデーション背景は使わない（完全撤去）。
+- KPIは「左=値」「右=変化率バッジ」で2カラム化し、右側の無駄スペースを無くす。
 */
 
-/* base全体に影響しないよう、shihyo-page配下だけに限定 */
 .shihyo-page {
   max-width: 720px;
   margin: 0 auto;
@@ -31,13 +30,12 @@
   opacity: 0.72;
 }
 
-/* カード：他ページに寄せた “薄いガラス” */
+/* カード（共通っぽい薄ガラス） */
 .shihyo-card {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.10);
   border-radius: 16px;
   padding: 14px 14px;
-  /* blurは好み。重いなら消してOK */
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
@@ -65,7 +63,7 @@
   opacity: 0.90;
 }
 
-/* 指標3枚 */
+/* 3枚のKPIカード */
 .shihyo-grid {
   margin-top: 12px;
   display: grid;
@@ -78,17 +76,58 @@
   opacity: 0.70;
 }
 
+/* 数字デカすぎ問題を抑える（でも存在感は維持） */
 .shihyo-v {
   margin-top: 8px;
-  font-size: 26px;
+  font-size: 22px; /* 26→22に縮小 */
   font-weight: 900;
   letter-spacing: 0.2px;
+  line-height: 1.15;
 }
 
 .shihyo-m {
   margin-top: 8px;
   font-size: 12px;
   opacity: 0.82;
+}
+
+/* KPIカードを2カラム化 */
+.shihyo-kpi {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.kpi-left {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* 右側に「変化率バッジ」を置いて空きを情報に変える */
+.kpi-right {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.badge {
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+.tiny {
+  font-size: 11px;
+  opacity: 0.68;
+  white-space: nowrap;
 }
 
 /* メモ */
@@ -104,6 +143,7 @@
 }
 
 @media (min-width: 560px) {
+  /* iPhone横・大画面は2カラムにしてさらにスタイリッシュに */
   .shihyo-grid {
     grid-template-columns: 1fr 1fr;
   }
