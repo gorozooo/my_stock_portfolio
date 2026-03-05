@@ -21,7 +21,10 @@ urlpatterns = [
 
     # ★ 家計簿（新規）
     path("kakeibo/", include("kakeibo.urls")),
-
+    
+    # ★ 指標（新規）
+    path("shihyo/", include("shihyo.urls")),
+    
     # ★ health check 専用
     path("healthz/", healthz),
     
