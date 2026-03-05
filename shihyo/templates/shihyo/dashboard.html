@@ -1,0 +1,82 @@
+<!--
+[FILE] dashboard.html
+[PATH] <project_root>/shihyo/templates/shihyo/dashboard.html
+
+このファイルは何？
+- 指標専用のダッシュボード画面（初心者向けの行動表示）です。
+- 数字は見せるが、主役は「今日どうするか」です。
+-->
+{% load static %}
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>指標ダッシュボード</title>
+  <link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}">
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div class="title">📡 指標ダッシュボード</div>
+      <div class="sub">
+        {% if latest %}
+          更新: {{ latest.created_at|date:"Y-m-d H:i" }}
+        {% else %}
+          まだデータがありません（取得コマンドを実行してください）
+        {% endif %}
+      </div>
+    </header>
+
+    {% if latest %}
+      <section class="card action">
+        <div class="action-title">{{ latest.action_title }}</div>
+        <ul class="action-lines">
+          {% for line in latest.action_lines %}
+            <li>{{ line }}</li>
+          {% endfor %}
+        </ul>
+        {% if latest.error %}
+          <div class="error">⚠️ エラー: {{ latest.error }}</div>
+        {% endif %}
+      </section>
+
+      <section class="grid">
+        <div class="card">
+          <div class="k">日経先物（NY.F）</div>
+          <div class="v">{{ latest.nikkei_futures_last|floatformat:1 }}</div>
+          <div class="m">
+            {{ latest.nikkei_label }} /
+            {{ latest.nikkei_futures_change_pct|floatformat:2 }}%
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="k">ドル円（USDJPY）</div>
+          <div class="v">{{ latest.usdjpy_last|floatformat:3 }}</div>
+          <div class="m">
+            {{ latest.fx_label }} /
+            {{ latest.usdjpy_change_pct|floatformat:2 }}%
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="k">VIX（VI.C）</div>
+          <div class="v">{{ latest.vix_last|floatformat:2 }}</div>
+          <div class="m">
+            {{ latest.vix_label }} /
+            {{ latest.vix_change_pct|floatformat:2 }}%
+          </div>
+        </div>
+      </section>
+
+      <section class="card mini">
+        <div class="k">初心者用メモ</div>
+        <div class="p">
+          🟢=「下がった所を分割」 / 🟡=「方向出るまで待つ」 / 🔴=「守る（新規控える）」
+        </div>
+      </section>
+    {% endif %}
+  </div>
+</body>
+</html>
