@@ -4,18 +4,18 @@
 
 このファイルは何？
 - 指標専用のダッシュボード画面（初心者向けの行動表示）です。
-- 数字は見せるが、主役は「今日どうするか」です。
+- base.html を継承して、共通レイアウト（ヘッダー/下タブ/トースト等）に乗せます。
 -->
+
+{% extends "base.html" %}
 {% load static %}
-<!doctype html>
-<html lang="ja">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>指標ダッシュボード</title>
+
+{% block title %}指標ダッシュボード{% endblock %}
+
+{% block content %}
+  {# base.html に head 用の block が無くても確実にCSSを読ませるため、ここで link します #}
   <link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}">
-</head>
-<body>
+
   <div class="wrap">
     <header class="top">
       <div class="title">📡 指標ダッシュボード</div>
@@ -78,5 +78,4 @@
       </section>
     {% endif %}
   </div>
-</body>
-</html>
+{% endblock %}
