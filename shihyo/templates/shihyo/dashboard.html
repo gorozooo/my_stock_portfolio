@@ -14,86 +14,118 @@
 {% block title %}指標ダッシュボード{% endblock %}
 
 {% block content %}
-  <link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}">
+<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}">
 
-  <div class="shihyo-page">
-    <div class="shihyo-header">
-      <div class="shihyo-title">📡 指標ダッシュボード</div>
-      <div class="shihyo-sub">
-        {% if latest %}
-          更新: {{ latest.created_at|date:"Y-m-d H:i" }}
-        {% else %}
-          まだデータがありません（取得コマンドを実行してください）
-        {% endif %}
-      </div>
-    </div>
+<div class="shihyo-page">
 
-    {% if latest %}
-      <section class="shihyo-card shihyo-action">
-        <div class="shihyo-action-title">{{ latest.action_title }}</div>
-        <ul class="shihyo-action-lines">
-          {% for line in latest.action_lines %}
-            <li>{{ line }}</li>
-          {% endfor %}
-        </ul>
-        {% if latest.error %}
-          <div class="shihyo-error">⚠️ エラー: {{ latest.error }}</div>
-        {% endif %}
-      </section>
+<div class="shihyo-header">
+<div class="shihyo-title">📡 指標ダッシュボード</div>
+<div class="shihyo-sub">
+{% if latest %}
+更新: {{ latest.created_at|date:"Y-m-d H:i" }}
+{% else %}
+まだデータがありません
+{% endif %}
+</div>
+</div>
 
-      <section class="shihyo-grid">
-        <!-- 日経先物 -->
-        <div class="shihyo-card shihyo-kpi">
-          <div class="kpi-left">
-            <div class="shihyo-k">日経先物（NY.F）</div>
-            <div class="shihyo-v">{{ latest.nikkei_futures_last|floatformat:1 }}</div>
-            <div class="shihyo-m">{{ latest.nikkei_label }}</div>
-          </div>
-          <div class="kpi-right">
-            <div class="badge">
-              {{ latest.nikkei_futures_change_pct|floatformat:2 }}%
-            </div>
-            <div class="tiny">変化率</div>
-          </div>
-        </div>
+{% if latest %}
 
-        <!-- ドル円 -->
-        <div class="shihyo-card shihyo-kpi">
-          <div class="kpi-left">
-            <div class="shihyo-k">ドル円（USDJPY）</div>
-            <div class="shihyo-v">{{ latest.usdjpy_last|floatformat:3 }}</div>
-            <div class="shihyo-m">{{ latest.fx_label }}</div>
-          </div>
-          <div class="kpi-right">
-            <div class="badge">
-              {{ latest.usdjpy_change_pct|floatformat:2 }}%
-            </div>
-            <div class="tiny">変化率</div>
-          </div>
-        </div>
+<section class="shihyo-card shihyo-action">
+<div class="shihyo-action-title">{{ latest.action_title }}</div>
 
-        <!-- VIX -->
-        <div class="shihyo-card shihyo-kpi">
-          <div class="kpi-left">
-            <div class="shihyo-k">VIX（VI.C）</div>
-            <div class="shihyo-v">{{ latest.vix_last|floatformat:2 }}</div>
-            <div class="shihyo-m">{{ latest.vix_label }}</div>
-          </div>
-          <div class="kpi-right">
-            <div class="badge">
-              {{ latest.vix_change_pct|floatformat:2 }}%
-            </div>
-            <div class="tiny">変化率</div>
-          </div>
-        </div>
-      </section>
+<ul class="shihyo-action-lines">
+{% for line in latest.action_lines %}
+<li>{{ line }}</li>
+{% endfor %}
+</ul>
 
-      <section class="shihyo-card shihyo-mini">
-        <div class="shihyo-k">初心者用メモ</div>
-        <div class="shihyo-p">
-          🟢=「下がった所を分割」 / 🟡=「方向出るまで待つ」 / 🔴=「守る（新規控える）」
-        </div>
-      </section>
-    {% endif %}
-  </div>
+{% if latest.error %}
+<div class="shihyo-error">⚠️ {{ latest.error }}</div>
+{% endif %}
+</section>
+
+<section class="shihyo-grid">
+
+<!-- 日経先物 -->
+<div class="shihyo-card shihyo-kpi">
+
+<div class="kpi-left">
+<div class="shihyo-k">日経先物（NY.F）</div>
+<div class="shihyo-v">{{ latest.nikkei_futures_last|floatformat:1 }}</div>
+<div class="shihyo-m">{{ latest.nikkei_label }}</div>
+</div>
+
+<div class="kpi-right">
+<div class="badge
+{% if latest.nikkei_futures_change_pct > 0 %}
+badge-up
+{% elif latest.nikkei_futures_change_pct < 0 %}
+badge-down
+{% endif %}
+">
+{{ latest.nikkei_futures_change_pct|floatformat:2 }}%
+</div>
+</div>
+
+</div>
+
+<!-- ドル円 -->
+<div class="shihyo-card shihyo-kpi">
+
+<div class="kpi-left">
+<div class="shihyo-k">ドル円（USDJPY）</div>
+<div class="shihyo-v">{{ latest.usdjpy_last|floatformat:3 }}</div>
+<div class="shihyo-m">{{ latest.fx_label }}</div>
+</div>
+
+<div class="kpi-right">
+<div class="badge
+{% if latest.usdjpy_change_pct > 0 %}
+badge-up
+{% elif latest.usdjpy_change_pct < 0 %}
+badge-down
+{% endif %}
+">
+{{ latest.usdjpy_change_pct|floatformat:2 }}%
+</div>
+</div>
+
+</div>
+
+<!-- VIX -->
+<div class="shihyo-card shihyo-kpi">
+
+<div class="kpi-left">
+<div class="shihyo-k">VIX（VI.C）</div>
+<div class="shihyo-v">{{ latest.vix_last|floatformat:2 }}</div>
+<div class="shihyo-m">{{ latest.vix_label }}</div>
+</div>
+
+<div class="kpi-right">
+<div class="badge
+{% if latest.vix_change_pct > 0 %}
+badge-up
+{% elif latest.vix_change_pct < 0 %}
+badge-down
+{% endif %}
+">
+{{ latest.vix_change_pct|floatformat:2 }}%
+</div>
+</div>
+
+</div>
+
+</section>
+
+<section class="shihyo-card shihyo-mini">
+<div class="shihyo-k">初心者メモ</div>
+<div class="shihyo-p">
+🟢 押し目 / 🟡 様子見 / 🔴 守り
+</div>
+</section>
+
+{% endif %}
+
+</div>
 {% endblock %}
