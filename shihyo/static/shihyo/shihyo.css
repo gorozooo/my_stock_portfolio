@@ -142,6 +142,20 @@
   opacity: 0.82;
 }
 
+/* 上昇（薄い緑） */
+.badge-up{
+background:rgba(40,200,120,0.15);
+border:1px solid rgba(40,200,120,0.45);
+color:rgb(120,255,180);
+}
+
+/* 下落（薄い赤） */
+.badge-down{
+background:rgba(255,80,80,0.15);
+border:1px solid rgba(255,80,80,0.45);
+color:rgb(255,140,140);
+}
+
 @media (min-width: 560px) {
   /* iPhone横・大画面は2カラムにしてさらにスタイリッシュに */
   .shihyo-grid {
