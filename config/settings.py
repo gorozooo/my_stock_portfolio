@@ -275,7 +275,13 @@ AUTOTRADE_DEFAULT_CANDIDATES = [
 AUTOTRADE_MORNING_AGG = "wmean"
 
 # ★ cron排他ロック置き場（既存のまま）
-AUTOTRADE_CRON_LOCK_DIR = str(BASE_DIR / "media" / "logs")
+#AUTOTRADE_CRON_LOCK_DIR = str(BASE_DIR / "media" / "logs")
+
+# ==========================
+# ★ AUTOTRADE CRON Safety
+# ==========================
+AUTOTRADE_CRON_LOCK_DIR = "/tmp"
+AUTOTRADE_CRON_MAX_RUNTIME_SEC = 50
 
 # ==========================
 # ★ django-crontab（ジョブ）
