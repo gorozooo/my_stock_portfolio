@@ -5,10 +5,10 @@
 # このファイルは何？
 # - Django全体の設定ファイルです（DB/アプリ/cron/各種定数など）。
 #
-# 今回の修正（SQLiteのdatabase locked対策＋cron多重実行対策）：
-# 1) SQLite接続のtimeoutを増やす（DBロック待ち猶予）
-# 2) AUTOTRADE用のcronロックファイル置き場を設定（Python側でflock相当を実現）
-# 3) CRONJOBSはユーザー指定のまま維持（スケジュール変更なし）
+# 今回の修正（database is locked 対策の決定版）：
+# 1) autotrade だけ別SQLite（autotrade.sqlite3）へ分離してロック競合を根絶
+# 2) SQLite を WAL + busy_timeout に（同時アクセス耐性アップ）
+# 3) router（DATABASE_ROUTERS）で autotrade のDBを自動的に切り替える
 # =========================================================
 
 """
@@ -114,19 +114,37 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-# === DB（開発: SQLite）===
-# ★ 修正：SQLiteのロック待ち猶予を増やす（database is locked対策）
+# =========================================================
+# DB（SQLite）
+# - default: 既存（web/他cronが使うメインDB）
+# - autotrade: autotrade専用DB（ロック競合を避ける）
+# =========================================================
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "db.sqlite3",
         "OPTIONS": {
-            # sqlite3.connect(timeout=xx) と同義
-            # cron多重やgunicornアクセスと被った時に即死しにくくする
             "timeout": 30,
         },
-    }
+    },
+    "autotrade": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "autotrade.sqlite3",
+        "OPTIONS": {
+            "timeout": 30,
+        },
+    },
 }
+
+# ★ autotradeアプリだけ autotrade DB を使う（自動ルーティング）
+DATABASE_ROUTERS = [
+    "config.db_router.AutotradeRouter",
+]
+
+# ★ SQLite を WAL + busy_timeout に（接続確立時にPRAGMAを打つ）
+#   ※このimportでsignal登録される
+import config.sqlite_setup  # noqa: F401
+
 
 # === パスワードバリデータ ===
 AUTH_PASSWORD_VALIDATORS = [
@@ -209,10 +227,7 @@ AIAPP_PRO_EQUITY_YEN = 5_000_000
 # ==========================
 # ★ ACCESS CONTROL（追加）
 # ==========================
-# 株アプリは「あなた1人だけ」通すための固定ユーザー名
 STOCKS_OWNER_USERNAME = os.getenv("STOCKS_OWNER_USERNAME", "gorozooo")
-
-# 家計簿アプリは「夫婦だけ」通すためのグループ名
 KAKEIBO_GROUP_NAME = os.getenv("KAKEIBO_GROUP_NAME", "kakeibo_users")
 
 # ==========================
@@ -220,7 +235,6 @@ KAKEIBO_GROUP_NAME = os.getenv("KAKEIBO_GROUP_NAME", "kakeibo_users")
 # ==========================
 AUTOTRADE_BASE_EQUITY_YEN = 1_000_000
 
-# 資金管理（総資産連動）
 AUTOTRADE_RISK_TRADE_PCT = 0.0015  # 0.15%
 AUTOTRADE_RISK_DAY_PCT = 0.01      # 1%
 
@@ -231,38 +245,26 @@ AUTOTRADE_MAX_POSITIONS_LIGHT = 1
 AUTOTRADE_MAX_TRADES_LIGHT = 3
 
 AUTOTRADE_SESSION_START = "09:00"
-
-# ★変更：稼働を 15:00 まで延長
 AUTOTRADE_SESSION_END = "15:00"
-
-# ★変更：強制全決済を 15:25 に
 AUTOTRADE_FORCE_CLOSE = "15:25"
-
-# ★スイッチ：15:00以降は新規禁止、ただし保有は許可（15:25で強制決済）
 AUTOTRADE_ALLOW_HOLD_PAST_SESSION_END = True
 
-# 戦略回数配分（BREAKOUT一本運用でも “上限” として残す）
 AUTOTRADE_MAX_TRADES_BREAKOUT = 4
 AUTOTRADE_MAX_TRADES_VWAP = 2
 
-# RR（snapshot側が唯一の真実。ここはフォールバック）
 AUTOTRADE_RR_BREAKOUT = 2.0
 AUTOTRADE_RR_VWAP = 1.5
 
-# バックテスト期間
 AUTOTRADE_BT_WINDOWS = [20, 40, 60]
 
-# ゲート判定（DD / PF / 回数）
 AUTOTRADE_GATE = {
     "dd_limits": {20: 0.02, 40: 0.03, 60: 0.04},
     "pf_min": 1.05,
     "min_trades": {20: 10, 40: 20, 60: 30},
 }
 
-# スリッページ（不利側固定）
 AUTOTRADE_SLIPPAGE_PCT = 0.0002  # 0.02%
 
-# 銘柄候補（フォールバック）
 AUTOTRADE_DEFAULT_CANDIDATES = [
     "7203.T","6758.T","9432.T","9984.T","8306.T","8316.T","8035.T","8058.T",
     "6861.T","6501.T","6503.T","7267.T","8801.T","8802.T","9020.T","9022.T",
@@ -270,29 +272,18 @@ AUTOTRADE_DEFAULT_CANDIDATES = [
     "7011.T","9101.T","9104.T","8411.T","8604.T","8601.T","5401.T","5406.T",
 ]
 
-#"wmean"（売買代金重み）
 AUTOTRADE_MORNING_AGG = "wmean"
 
-# ★ 追加：cron多重実行を潰すためのロック置き場
-# - trade/guard が同時に走ると SQLite が詰まりやすいので、Python側で排他します（flock相当）
+# ★ cron排他ロック置き場（既存のまま）
 AUTOTRADE_CRON_LOCK_DIR = str(BASE_DIR / "media" / "logs")
 
 # ==========================
 # ★ django-crontab（ジョブ）
 # ==========================
 CRONJOBS = [
-    # 毎朝：銘柄選定＆バックテスト（6:30）
     ("30 6 * * 1-5", "autotrade.jobs.morning_prepare.run", ">> /tmp/autotrade_morning.log 2>&1"),
-
-    # ★変更：8:55 戦略決定＆ルール確定（場が開く前に固定）
     ("55 8 * * 1-5", "autotrade.jobs.decide_strategy.run", ">> /tmp/autotrade_decide.log 2>&1"),
-
-    # ★場中：デモ（PAPER）執行（毎分）
     ("*/1 9-15 * * 1-5", "autotrade.jobs.intraday_trade.run", ">> /tmp/autotrade_intraday_trade.log 2>&1"),
-
-    # ★場中ガード（毎分）
     ("*/1 9-15 * * 1-5", "autotrade.jobs.intraday_guard.run", ">> /tmp/autotrade_intraday_guard.log 2>&1"),
-
-    # ★変更：15:30 日次クローズ（強制決済(15:25)の後に）
     ("30 15 * * 1-5", "autotrade.jobs.end_of_day.run", ">> /tmp/autotrade_eod.log 2>&1"),
 ]
