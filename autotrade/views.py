@@ -7,9 +7,9 @@
 - views_dashboard.py / views_tuning.py / views_api.py に分割した各Viewを再エクスポートします。
 - urls.py からは常にここ（autotrade.views）を参照しても壊れないようにするためのハブです。
 
-今回の変更：
-- 廃止済みの tuning_rerun_snapshot_force を __all__ からも完全削除。
-  （ImportError/混乱の温床になるので、残骸を消す）
+安全装置（プロ運用品質）
+- 廃止済みのView名を残すと、urls.pyやimport時に落ちてcronまで止まります。
+- よって、存在するViewだけを import / __all__ に残します。
 """
 
 from __future__ import annotations
