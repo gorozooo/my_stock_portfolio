@@ -3,8 +3,8 @@
 [PATH] <project_root>/shihyo/templates/shihyo/dashboard.html
 
 このファイルは何？
-- 指標専用のダッシュボード画面（初心者向けの行動表示）です。
-- base.html を継承して、共通レイアウト（ヘッダー/下タブ/トースト等）に乗せます。
+- 指標専用のダッシュボード画面（初心者向けの行動表示）。
+- base.html を継承して、背景/フォント/下タブなど「共通の見た目」に統一する。
 -->
 
 {% extends "base.html" %}
@@ -13,66 +13,63 @@
 {% block title %}指標ダッシュボード{% endblock %}
 
 {% block content %}
-  {# base.html に head 用の block が無くても確実にCSSを読ませるため、ここで link します #}
   <link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}">
 
-  <div class="wrap">
-    <header class="top">
-      <div class="title">📡 指標ダッシュボード</div>
-      <div class="sub">
+  <div class="shihyo-page">
+    <div class="shihyo-header">
+      <div class="shihyo-title">📡 指標ダッシュボード</div>
+      <div class="shihyo-sub">
         {% if latest %}
           更新: {{ latest.created_at|date:"Y-m-d H:i" }}
         {% else %}
           まだデータがありません（取得コマンドを実行してください）
         {% endif %}
       </div>
-    </header>
+    </div>
 
     {% if latest %}
-      <section class="card action">
-        <div class="action-title">{{ latest.action_title }}</div>
-        <ul class="action-lines">
+      <section class="shihyo-card shihyo-action">
+        <div class="shihyo-action-title">{{ latest.action_title }}</div>
+        <ul class="shihyo-action-lines">
           {% for line in latest.action_lines %}
             <li>{{ line }}</li>
           {% endfor %}
         </ul>
+
         {% if latest.error %}
-          <div class="error">⚠️ エラー: {{ latest.error }}</div>
+          <div class="shihyo-error">⚠️ エラー: {{ latest.error }}</div>
         {% endif %}
       </section>
 
-      <section class="grid">
-        <div class="card">
-          <div class="k">日経先物（NY.F）</div>
-          <div class="v">{{ latest.nikkei_futures_last|floatformat:1 }}</div>
-          <div class="m">
-            {{ latest.nikkei_label }} /
-            {{ latest.nikkei_futures_change_pct|floatformat:2 }}%
+      <section class="shihyo-grid">
+        <div class="shihyo-card">
+          <div class="shihyo-k">日経先物（NY.F）</div>
+          <div class="shihyo-v">{{ latest.nikkei_futures_last|floatformat:1 }}</div>
+          <div class="shihyo-m">
+            {{ latest.nikkei_label }} / {{ latest.nikkei_futures_change_pct|floatformat:2 }}%
           </div>
         </div>
 
-        <div class="card">
-          <div class="k">ドル円（USDJPY）</div>
-          <div class="v">{{ latest.usdjpy_last|floatformat:3 }}</div>
-          <div class="m">
-            {{ latest.fx_label }} /
-            {{ latest.usdjpy_change_pct|floatformat:2 }}%
+        <div class="shihyo-card">
+          <div class="shihyo-k">ドル円（USDJPY）</div>
+          <div class="shihyo-v">{{ latest.usdjpy_last|floatformat:3 }}</div>
+          <div class="shihyo-m">
+            {{ latest.fx_label }} / {{ latest.usdjpy_change_pct|floatformat:2 }}%
           </div>
         </div>
 
-        <div class="card">
-          <div class="k">VIX（VI.C）</div>
-          <div class="v">{{ latest.vix_last|floatformat:2 }}</div>
-          <div class="m">
-            {{ latest.vix_label }} /
-            {{ latest.vix_change_pct|floatformat:2 }}%
+        <div class="shihyo-card">
+          <div class="shihyo-k">VIX（VI.C）</div>
+          <div class="shihyo-v">{{ latest.vix_last|floatformat:2 }}</div>
+          <div class="shihyo-m">
+            {{ latest.vix_label }} / {{ latest.vix_change_pct|floatformat:2 }}%
           </div>
         </div>
       </section>
 
-      <section class="card mini">
-        <div class="k">初心者用メモ</div>
-        <div class="p">
+      <section class="shihyo-card shihyo-mini">
+        <div class="shihyo-k">初心者用メモ</div>
+        <div class="shihyo-p">
           🟢=「下がった所を分割」 / 🟡=「方向出るまで待つ」 / 🔴=「守る（新規控える）」
         </div>
       </section>
