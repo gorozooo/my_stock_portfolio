@@ -5,10 +5,14 @@
 # このファイルは何？
 # - 場中（毎分）に動く「デモトレード（PAPER）執行ジョブ」です。
 #
-# 今回の修正：
-# - trade/guard の同時実行で SQLite が lock しやすいので、
-#   Python側で “排他ロック（flock -n相当）” を導入し、同時実行を防止。
-# - それでも SQLite が一瞬 lock するケースに備え、保存系だけ軽いリトライを追加。
+# 今回の修正（安全装置）：
+# 1) trade/guard の同時実行で SQLite が lock しやすいので、
+#    Python側で “排他ロック（flock -n相当）” を導入し、同時実行を防止。
+# 2) SQLite が一瞬 lock するケースに備え、保存系だけ軽いリトライを追加。
+# 3) ★プロ必須の安全装置：
+#    - “実行時間タイムアウト（Watchdog）” を導入
+#      → 1分ジョブが長引いて次の1分ジョブと被る事故を防ぐ
+#    - 例外時はジョブ失敗（raise）にせず、skipped で終える（cronが荒れない）
 # =========================================================
 
 from __future__ import annotations
@@ -17,9 +21,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from datetime import date, datetime, time as dt_time, timedelta
 import os
 import time
+import signal
+from contextlib import contextmanager
 
 from django.conf import settings
-from django.db import transaction
 from django.db.utils import OperationalError
 from django.utils import timezone
 
@@ -38,6 +43,29 @@ from autotrade.services.backtest.engine_breakout import (
     _build_daily_trend_map,
     _ensure_aware,
 )
+
+
+# =========================================================
+# ★プロ必須の安全装置：Watchdog（実行時間タイムアウト）
+# =========================================================
+@contextmanager
+def _time_limit(seconds: int):
+    """
+    Linux専用：一定秒数を超えたら TimeoutError を投げる。
+    cronが「遅延→被り→事故」になるのを防ぐ。
+    """
+    sec = int(max(1, seconds))
+
+    def _handler(signum, frame):
+        raise TimeoutError(f"autotrade intraday_trade timed out ({sec}s)")
+
+    old = signal.signal(signal.SIGALRM, _handler)
+    signal.alarm(sec)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
 
 
 # =========================================================
@@ -339,412 +367,430 @@ def _compute_breakout_signal_from_prev_bar(
 # =========================================================
 # メイン
 # =========================================================
-@transaction.atomic
 def run():
+    # ★ 安全装置：最大実行時間（秒）
+    max_runtime = int(getattr(settings, "AUTOTRADE_CRON_MAX_RUNTIME_SEC", 50))
+
     # ★ 追加：trade/guardの同時実行を潰す（flock -n相当）
     lock_dir = str(getattr(settings, "AUTOTRADE_CRON_LOCK_DIR", "/tmp"))
     lock_path = os.path.join(lock_dir, "autotrade_intraday.lock")
+
     with cron_file_lock(lock_path) as acquired:
         if not acquired:
             return {"ok": True, "skipped": True, "reason": "locked_by_other_job"}
 
-        today = date.today()
-        now = _now_jst()
+        try:
+            with _time_limit(max_runtime):
+                today = date.today()
+                now = _now_jst()
 
-        # get_or_create / save も lock する可能性があるので軽くリトライ
-        def _load_state():
-            return AutoTradeDailyState.objects.get_or_create(date=today)
+                # get_or_create / save も lock する可能性があるので軽くリトライ
+                def _load_state():
+                    return AutoTradeDailyState.objects.get_or_create(date=today)
 
-        state, _ = _db_retry(_load_state)
+                state, _ = _db_retry(_load_state)
 
-        # 非常停止は凍結
-        if is_emergency_stopped(state):
-            return {"ok": True, "skipped": True, "reason": "emergency_stop"}
+                # 非常停止は凍結
+                if is_emergency_stopped(state):
+                    return {"ok": True, "skipped": True, "reason": "emergency_stop"}
 
-        active = _get_active_snapshot()
-        if active is None:
-            _append_paper_log(state, "ACTIVE Snapshot が無いので、PAPERは動かしません。")
-            state.updated_at = timezone.now()
-            _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
-            return {"ok": True, "skipped": True, "reason": "no_active"}
+                active = _get_active_snapshot()
+                if active is None:
+                    _append_paper_log(state, "ACTIVE Snapshot が無いので、PAPERは動かしません。")
+                    state.updated_at = timezone.now()
+                    _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
+                    return {"ok": True, "skipped": True, "reason": "no_active"}
 
-        user = active.user
+                user = active.user
 
-        picks = _get_today_picks_from_state(state)
-        if not picks:
-            _append_paper_log(state, "今日のpicksが無い（state.universe）ため、PAPERは見送ります。")
-            state.updated_at = timezone.now()
-            _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
-            return {"ok": True, "skipped": True, "reason": "no_picks"}
+                picks = _get_today_picks_from_state(state)
+                if not picks:
+                    _append_paper_log(state, "今日のpicksが無い（state.universe）ため、PAPERは見送ります。")
+                    state.updated_at = timezone.now()
+                    _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
+                    return {"ok": True, "skipped": True, "reason": "no_picks"}
 
-        gate_level = str(state.gate_level or "STOP").upper().strip()
-        max_pos, max_trades = _gate_limits(gate_level)
+                gate_level = str(state.gate_level or "STOP").upper().strip()
+                max_pos, max_trades = _gate_limits(gate_level)
 
-        stop_pct = float(_get_stop_pct_breakout_from_snapshot(active))
-        lookback_bars = int(_get_lookback_bars_from_snapshot(active))
-        max_hold_bars = int(_get_max_hold_bars_from_snapshot(active))
+                stop_pct = float(_get_stop_pct_breakout_from_snapshot(active))
+                lookback_bars = int(_get_lookback_bars_from_snapshot(active))
+                max_hold_bars = int(_get_max_hold_bars_from_snapshot(active))
 
-        rr = _safe_float((active.snapshot or {}).get("rr_breakout"), float(getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0)))
-        if rr <= 0.1:
-            rr = float(getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0))
+                rr = _safe_float((active.snapshot or {}).get("rr_breakout"), float(getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0)))
+                if rr <= 0.1:
+                    rr = float(getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0))
 
-        slip = float(getattr(settings, "AUTOTRADE_SLIPPAGE_PCT", 0.0))
+                slip = float(getattr(settings, "AUTOTRADE_SLIPPAGE_PCT", 0.0))
 
-        # open/pending
-        positions = _get_open_positions(state)
-        pending = _get_pending_orders(state)
+                # open/pending
+                positions = _get_open_positions(state)
+                pending = _get_pending_orders(state)
 
-        # =========================================================
-        # 0) 15:25 強制全決済（FORCE）
-        # =========================================================
-        if _is_force_close_time(now):
-            closed = 0
-            for ticker, p in list((positions or {}).items()):
-                try:
-                    bars = _fetch_last_two_bars(ticker=str(ticker))
-                    if bars is None:
-                        continue
-                    prev, cur = bars
-                    # 強制決済は “最新足のclose” を使う（不利側スリップ）
-                    last_price = float(cur["close"])
-                    exit_at = cur["dt"]
+                # =========================================================
+                # 0) 15:25 強制全決済（FORCE）
+                # =========================================================
+                if _is_force_close_time(now):
+                    closed = 0
+                    for ticker, p in list((positions or {}).items()):
+                        try:
+                            bars = _fetch_last_two_bars(ticker=str(ticker))
+                            if bars is None:
+                                continue
+                            prev, cur = bars
+                            # 強制決済は “最新足のclose” を使う（不利側スリップ）
+                            last_price = float(cur["close"])
+                            exit_at = cur["dt"]
 
-                    side = str(p.get("side") or "LONG").upper()
-                    size = _safe_int(p.get("size"), 0)
-                    entry_price = _safe_float(p.get("entry_price"), 0.0)
+                            side = str(p.get("side") or "LONG").upper()
+                            size = _safe_int(p.get("size"), 0)
+                            entry_price = _safe_float(p.get("entry_price"), 0.0)
 
-                    entry_at_s = str(p.get("entry_at") or "")
+                            entry_at_s = str(p.get("entry_at") or "")
+                            try:
+                                entry_at = _ensure_aware(datetime.fromisoformat(entry_at_s))
+                            except Exception:
+                                entry_at = exit_at
+
+                            if side == "LONG":
+                                exit_price = float(last_price) * (1 - slip)
+                                pnl = (exit_price - entry_price) * size
+                                rr_real = (exit_price - entry_price) / max(entry_price * stop_pct, 1e-9)
+                            else:
+                                exit_price = float(last_price) * (1 + slip)
+                                pnl = (entry_price - exit_price) * size
+                                rr_real = (entry_price - exit_price) / max(entry_price * stop_pct, 1e-9)
+
+                            _db_retry(lambda: AutoTradeExecution.objects.create(
+                                user=user,
+                                snapshot=active,
+                                run_detail=None,
+                                mode="PAPER",
+                                strategy="BREAKOUT",
+                                ticker=str(ticker),
+                                side=side,
+                                entry_at=entry_at,
+                                entry_price=float(entry_price),
+                                size=int(size),
+                                exit_at=exit_at,
+                                exit_price=float(exit_price),
+                                exit_reason="FORCE",
+                                pnl_yen=int(round(pnl)),
+                                rr=float(rr_real),
+                                holding_minutes=int(max(0, int((exit_at - entry_at).total_seconds() // 60))),
+                            ))
+
+                            positions.pop(str(ticker), None)
+                            # pendingも消す（もう終わり）
+                            pending.pop(str(ticker), None)
+                            closed += 1
+                        except Exception:
+                            continue
+
+                    _set_open_positions(state, positions)
+                    _set_pending_orders(state, pending)
+                    if closed > 0:
+                        _append_paper_log(state, f"15:25 強制全決済：{closed}件をFORCEでクローズしました。")
+                    state.updated_at = timezone.now()
+                    _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
+                    return {"ok": True, "skipped": False, "force_closed": closed}
+
+                # =========================================================
+                # 1) 足更新トリガー（同じ足で二重処理しない）
+                # =========================================================
+                rep = str((picks or [""])[0])
+                rep_bars = _fetch_last_two_bars(ticker=rep) if rep else None
+                if rep_bars is None:
+                    state.updated_at = timezone.now()
+                    _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
+                    return {"ok": True, "skipped": True, "reason": "no_bar_data"}
+
+                _, rep_cur = rep_bars
+                cur_bar_ts = str(rep_cur["ts"])
+                last_bar_ts = _get_last_bar_ts(state)
+
+                # まだ足が更新していないなら何もしない（超重要：二重エントリー防止）
+                if last_bar_ts == cur_bar_ts:
+                    state.updated_at = timezone.now()
+                    _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
+                    return {"ok": True, "skipped": True, "reason": "same_bar"}
+
+                # この足で処理することを確定
+                _set_last_bar_ts(state, cur_bar_ts)
+
+                # =========================================================
+                # 2) まず pending を「この足のOPEN」で約定させる（リアル寄せ）
+                # =========================================================
+                filled = 0
+                if gate_level != "STOP":
+                    for ticker, od in list((pending or {}).items()):
+                        try:
+                            # 既にポジ持ちなら約定しない
+                            if str(ticker) in (positions or {}):
+                                pending.pop(str(ticker), None)
+                                continue
+
+                            # 上限チェック
+                            if len(positions or {}) >= int(max_pos):
+                                break
+
+                            trades_today = _today_trade_count(user, today)
+                            if trades_today >= int(max_trades):
+                                break
+
+                            bars = _fetch_last_two_bars(ticker=str(ticker))
+                            if bars is None:
+                                continue
+                            prev, cur = bars
+
+                            side = str(od.get("side") or "").upper()
+                            if side not in ["LONG", "SHORT"]:
+                                pending.pop(str(ticker), None)
+                                continue
+
+                            # “この足のOPEN” で約定（不利側スリップ）
+                            raw_open = float(cur["open"])
+                            entry_at = cur["dt"]
+
+                            if not _trend_allows(snapshot=active, ticker=str(ticker), entry_dt=entry_at, side=side):
+                                pending.pop(str(ticker), None)
+                                continue
+
+                            equity_yen = int(state.equity_yen or getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000))
+                            size = _calc_shares(equity_yen=equity_yen, price=float(raw_open), stop_pct=float(stop_pct))
+                            if size < 100:
+                                pending.pop(str(ticker), None)
+                                continue
+
+                            if side == "LONG":
+                                entry_price = float(raw_open) * (1 + slip)
+                                stop_price = float(entry_price) * (1 - float(stop_pct))
+                                take_price = float(entry_price) * (1 + float(stop_pct) * float(rr))
+                            else:
+                                entry_price = float(raw_open) * (1 - slip)
+                                stop_price = float(entry_price) * (1 + float(stop_pct))
+                                take_price = float(entry_price) * (1 - float(stop_pct) * float(rr))
+
+                            hold_minutes = int(max(5, int(max_hold_bars) * 5))
+                            expire_at = entry_at + timedelta(minutes=hold_minutes)
+
+                            positions[str(ticker)] = {
+                                "ticker": str(ticker),
+                                "side": side,
+                                "size": int(size),
+                                "entry_at": timezone.localtime(entry_at).isoformat(),
+                                "entry_price": float(entry_price),
+                                "stop_price": float(stop_price),
+                                "take_price": float(take_price),
+                                "expire_at": timezone.localtime(expire_at).isoformat(),
+                                "params": {
+                                    "stop_pct": float(stop_pct),
+                                    "rr": float(rr),
+                                    "lookback_bars": int(lookback_bars),
+                                    "max_hold_bars": int(max_hold_bars),
+                                },
+                                "filled_bar_ts": str(cur["ts"]),
+                            }
+
+                            pending.pop(str(ticker), None)
+                            filled += 1
+                            _append_paper_log(state, f"約定（次足OPEN）：{ticker} {side} size={size} entry={entry_price:.3f}")
+
+                        except Exception:
+                            continue
+
+                _set_open_positions(state, positions)
+                _set_pending_orders(state, pending)
+
+                # =========================================================
+                # 3) openポジの決済判定（この足の high/low で TP/SL を再現）
+                # =========================================================
+                closed = 0
+                for ticker, p in list((positions or {}).items()):
                     try:
-                        entry_at = _ensure_aware(datetime.fromisoformat(entry_at_s))
+                        bars = _fetch_last_two_bars(ticker=str(ticker))
+                        if bars is None:
+                            continue
+                        prev, cur = bars
+
+                        side = str(p.get("side") or "LONG").upper()
+                        size = _safe_int(p.get("size"), 0)
+                        entry_price = _safe_float(p.get("entry_price"), 0.0)
+                        stop_price = _safe_float(p.get("stop_price"), 0.0)
+                        take_price = _safe_float(p.get("take_price"), 0.0)
+
+                        entry_at_s = str(p.get("entry_at") or "")
+                        try:
+                            entry_at = _ensure_aware(datetime.fromisoformat(entry_at_s))
+                        except Exception:
+                            entry_at = cur["dt"]
+
+                        expire_at_s = str(p.get("expire_at") or "")
+                        expire_at = None
+                        try:
+                            expire_at = _ensure_aware(datetime.fromisoformat(expire_at_s))
+                        except Exception:
+                            expire_at = None
+
+                        # この足の高値安値で判定
+                        high = float(cur["high"])
+                        low = float(cur["low"])
+                        exit_at = cur["dt"]
+
+                        exit_reason = None
+                        exit_price = None
+
+                        if side == "LONG":
+                            if low <= stop_price:
+                                exit_reason = "SL"
+                                exit_price = float(stop_price) * (1 - slip)
+                            elif high >= take_price:
+                                exit_reason = "TP"
+                                exit_price = float(take_price) * (1 - slip)
+                        else:
+                            if high >= stop_price:
+                                exit_reason = "SL"
+                                exit_price = float(stop_price) * (1 + slip)
+                            elif low <= take_price:
+                                exit_reason = "TP"
+                                exit_price = float(take_price) * (1 + slip)
+
+                        # 時間切れ（max_hold）
+                        if exit_reason is None and expire_at is not None and exit_at >= expire_at:
+                            exit_reason = "TIME"
+                            # 時間切れはこの足のclose（不利側スリップ）
+                            last_price = float(cur["close"])
+                            if side == "LONG":
+                                exit_price = float(last_price) * (1 - slip)
+                            else:
+                                exit_price = float(last_price) * (1 + slip)
+
+                        if exit_reason is None:
+                            continue
+
+                        if side == "LONG":
+                            pnl = (float(exit_price) - entry_price) * size
+                            rr_real = (float(exit_price) - entry_price) / max(entry_price * stop_pct, 1e-9)
+                        else:
+                            pnl = (entry_price - float(exit_price)) * size
+                            rr_real = (entry_price - float(exit_price)) / max(entry_price * stop_pct, 1e-9)
+
+                        _db_retry(lambda: AutoTradeExecution.objects.create(
+                            user=user,
+                            snapshot=active,
+                            run_detail=None,
+                            mode="PAPER",
+                            strategy="BREAKOUT",
+                            ticker=str(ticker),
+                            side=side,
+                            entry_at=entry_at,
+                            entry_price=float(entry_price),
+                            size=int(size),
+                            exit_at=exit_at,
+                            exit_price=float(exit_price),
+                            exit_reason=str(exit_reason),
+                            pnl_yen=int(round(pnl)),
+                            rr=float(rr_real),
+                            holding_minutes=int(max(0, int((exit_at - entry_at).total_seconds() // 60))),
+                        ))
+
+                        positions.pop(str(ticker), None)
+                        closed += 1
+
                     except Exception:
-                        entry_at = exit_at
-
-                    if side == "LONG":
-                        exit_price = float(last_price) * (1 - slip)
-                        pnl = (exit_price - entry_price) * size
-                        rr_real = (exit_price - entry_price) / max(entry_price * stop_pct, 1e-9)
-                    else:
-                        exit_price = float(last_price) * (1 + slip)
-                        pnl = (entry_price - exit_price) * size
-                        rr_real = (entry_price - exit_price) / max(entry_price * stop_pct, 1e-9)
-
-                    _db_retry(lambda: AutoTradeExecution.objects.create(
-                        user=user,
-                        snapshot=active,
-                        run_detail=None,
-                        mode="PAPER",
-                        strategy="BREAKOUT",
-                        ticker=str(ticker),
-                        side=side,
-                        entry_at=entry_at,
-                        entry_price=float(entry_price),
-                        size=int(size),
-                        exit_at=exit_at,
-                        exit_price=float(exit_price),
-                        exit_reason="FORCE",
-                        pnl_yen=int(round(pnl)),
-                        rr=float(rr_real),
-                        holding_minutes=int(max(0, int((exit_at - entry_at).total_seconds() // 60))),
-                    ))
-
-                    positions.pop(str(ticker), None)
-                    # pendingも消す（もう終わり）
-                    pending.pop(str(ticker), None)
-                    closed += 1
-                except Exception:
-                    continue
-
-            _set_open_positions(state, positions)
-            _set_pending_orders(state, pending)
-            if closed > 0:
-                _append_paper_log(state, f"15:25 強制全決済：{closed}件をFORCEでクローズしました。")
-            state.updated_at = timezone.now()
-            _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
-            return {"ok": True, "skipped": False, "force_closed": closed}
-
-        # =========================================================
-        # 1) 足更新トリガー（同じ足で二重処理しない）
-        # =========================================================
-        rep = str((picks or [""])[0])
-        rep_bars = _fetch_last_two_bars(ticker=rep) if rep else None
-        if rep_bars is None:
-            state.updated_at = timezone.now()
-            _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
-            return {"ok": True, "skipped": True, "reason": "no_bar_data"}
-
-        _, rep_cur = rep_bars
-        cur_bar_ts = str(rep_cur["ts"])
-        last_bar_ts = _get_last_bar_ts(state)
-
-        # まだ足が更新していないなら何もしない（超重要：二重エントリー防止）
-        if last_bar_ts == cur_bar_ts:
-            state.updated_at = timezone.now()
-            _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
-            return {"ok": True, "skipped": True, "reason": "same_bar"}
-
-        # この足で処理することを確定
-        _set_last_bar_ts(state, cur_bar_ts)
-
-        # =========================================================
-        # 2) まず pending を「この足のOPEN」で約定させる（リアル寄せ）
-        # =========================================================
-        filled = 0
-        if gate_level != "STOP":
-            for ticker, od in list((pending or {}).items()):
-                try:
-                    # 既にポジ持ちなら約定しない
-                    if str(ticker) in (positions or {}):
-                        pending.pop(str(ticker), None)
                         continue
 
-                    # 上限チェック
-                    if len(positions or {}) >= int(max_pos):
+                if closed > 0:
+                    _append_paper_log(state, f"クローズ：{closed}件（TP/SL/TIME）")
+                    _set_open_positions(state, positions)
+
+                # =========================================================
+                # 4) 新規シグナル → pending注文を作る（次足OPENで約定）
+                # =========================================================
+                if gate_level == "STOP":
+                    _set_pending_orders(state, pending)
+                    state.updated_at = timezone.now()
+                    _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
+                    return {"ok": True, "skipped": True, "reason": "gate_stop", "filled": filled, "closed": closed}
+
+                if _forbid_new_entries_by_time(now):
+                    if not _allow_hold_past_end():
+                        pass
+                    _set_pending_orders(state, pending)
+                    state.updated_at = timezone.now()
+                    _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
+                    return {"ok": True, "skipped": True, "reason": "time_forbid_entries", "filled": filled, "closed": closed}
+
+                rules = _get_rules_dict(state)
+                ig = rules.get("intraday_guard") if isinstance(rules.get("intraday_guard"), dict) else {}
+                ig_res = ig.get("result") if isinstance(ig.get("result"), dict) else {}
+                if bool(ig_res.get("forbid_new_entries")):
+                    _set_pending_orders(state, pending)
+                    state.updated_at = timezone.now()
+                    _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
+                    return {"ok": True, "skipped": True, "reason": "intraday_guard_forbid", "filled": filled, "closed": closed}
+
+                trades_today = _today_trade_count(user, today)
+                if trades_today >= int(max_trades):
+                    _append_paper_log(state, f"新規禁止：当日取引回数が上限（{trades_today}/{max_trades}）")
+                    _set_pending_orders(state, pending)
+                    state.updated_at = timezone.now()
+                    _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
+                    return {"ok": True, "skipped": True, "reason": "max_trades", "filled": filled, "closed": closed}
+
+                created_orders = 0
+                for ticker in (picks or [])[:10]:
+                    t = str(ticker)
+
+                    if t in (positions or {}):
+                        continue
+                    if t in (pending or {}):
+                        continue
+                    if len(positions or {}) + len(pending or {}) >= int(max_pos):
                         break
 
-                    trades_today = _today_trade_count(user, today)
-                    if trades_today >= int(max_trades):
-                        break
-
-                    bars = _fetch_last_two_bars(ticker=str(ticker))
-                    if bars is None:
-                        continue
-                    prev, cur = bars
-
-                    side = str(od.get("side") or "").upper()
-                    if side not in ["LONG", "SHORT"]:
-                        pending.pop(str(ticker), None)
+                    sig = _compute_breakout_signal_from_prev_bar(ticker=t, lookback_bars=int(lookback_bars))
+                    if sig is None:
                         continue
 
-                    # “この足のOPEN” で約定（不利側スリップ）
-                    raw_open = float(cur["open"])
-                    entry_at = cur["dt"]
-
-                    if not _trend_allows(snapshot=active, ticker=str(ticker), entry_dt=entry_at, side=side):
-                        pending.pop(str(ticker), None)
-                        continue
-
-                    equity_yen = int(state.equity_yen or getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000))
-                    size = _calc_shares(equity_yen=equity_yen, price=float(raw_open), stop_pct=float(stop_pct))
-                    if size < 100:
-                        pending.pop(str(ticker), None)
-                        continue
-
-                    if side == "LONG":
-                        entry_price = float(raw_open) * (1 + slip)
-                        stop_price = float(entry_price) * (1 - float(stop_pct))
-                        take_price = float(entry_price) * (1 + float(stop_pct) * float(rr))
-                    else:
-                        entry_price = float(raw_open) * (1 - slip)
-                        stop_price = float(entry_price) * (1 + float(stop_pct))
-                        take_price = float(entry_price) * (1 - float(stop_pct) * float(rr))
-
-                    hold_minutes = int(max(5, int(max_hold_bars) * 5))
-                    expire_at = entry_at + timedelta(minutes=hold_minutes)
-
-                    positions[str(ticker)] = {
-                        "ticker": str(ticker),
-                        "side": side,
-                        "size": int(size),
-                        "entry_at": timezone.localtime(entry_at).isoformat(),
-                        "entry_price": float(entry_price),
-                        "stop_price": float(stop_price),
-                        "take_price": float(take_price),
-                        "expire_at": timezone.localtime(expire_at).isoformat(),
-                        "params": {
-                            "stop_pct": float(stop_pct),
-                            "rr": float(rr),
-                            "lookback_bars": int(lookback_bars),
-                            "max_hold_bars": int(max_hold_bars),
-                        },
-                        "filled_bar_ts": str(cur["ts"]),
+                    pending[t] = {
+                        "ticker": t,
+                        "side": str(sig).upper(),
+                        "created_at": timezone.localtime(timezone.now()).isoformat(),
+                        "based_on_bar_ts": str(cur_bar_ts),
                     }
+                    created_orders += 1
+                    _append_paper_log(state, f"注文作成（次足OPEN）：{t} {str(sig).upper()}")
 
-                    pending.pop(str(ticker), None)
-                    filled += 1
-                    _append_paper_log(state, f"約定（次足OPEN）：{ticker} {side} size={size} entry={entry_price:.3f}")
+                    if trades_today + created_orders >= int(max_trades):
+                        break
 
-                except Exception:
-                    continue
+                _set_pending_orders(state, pending)
+                _set_open_positions(state, positions)
 
-        _set_open_positions(state, positions)
-        _set_pending_orders(state, pending)
+                state.updated_at = timezone.now()
+                _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
 
-        # =========================================================
-        # 3) openポジの決済判定（この足の high/low で TP/SL を再現）
-        # =========================================================
-        closed = 0
-        for ticker, p in list((positions or {}).items()):
-            try:
-                bars = _fetch_last_two_bars(ticker=str(ticker))
-                if bars is None:
-                    continue
-                prev, cur = bars
+                return {
+                    "ok": True,
+                    "skipped": False,
+                    "bar_ts": cur_bar_ts,
+                    "filled": filled,
+                    "closed": closed,
+                    "orders_created": created_orders,
+                    "open_positions": len(positions or {}),
+                    "pending_orders": len(pending or {}),
+                }
 
-                side = str(p.get("side") or "LONG").upper()
-                size = _safe_int(p.get("size"), 0)
-                entry_price = _safe_float(p.get("entry_price"), 0.0)
-                stop_price = _safe_float(p.get("stop_price"), 0.0)
-                take_price = _safe_float(p.get("take_price"), 0.0)
-
-                entry_at_s = str(p.get("entry_at") or "")
-                try:
-                    entry_at = _ensure_aware(datetime.fromisoformat(entry_at_s))
-                except Exception:
-                    entry_at = cur["dt"]
-
-                expire_at_s = str(p.get("expire_at") or "")
-                expire_at = None
-                try:
-                    expire_at = _ensure_aware(datetime.fromisoformat(expire_at_s))
-                except Exception:
-                    expire_at = None
-
-                # この足の高値安値で判定
-                high = float(cur["high"])
-                low = float(cur["low"])
-                exit_at = cur["dt"]
-
-                exit_reason = None
-                exit_price = None
-
-                if side == "LONG":
-                    if low <= stop_price:
-                        exit_reason = "SL"
-                        exit_price = float(stop_price) * (1 - slip)
-                    elif high >= take_price:
-                        exit_reason = "TP"
-                        exit_price = float(take_price) * (1 - slip)
-                else:
-                    if high >= stop_price:
-                        exit_reason = "SL"
-                        exit_price = float(stop_price) * (1 + slip)
-                    elif low <= take_price:
-                        exit_reason = "TP"
-                        exit_price = float(take_price) * (1 + slip)
-
-                # 時間切れ（max_hold）
-                if exit_reason is None and expire_at is not None and exit_at >= expire_at:
-                    exit_reason = "TIME"
-                    # 時間切れはこの足のclose（不利側スリップ）
-                    last_price = float(cur["close"])
-                    if side == "LONG":
-                        exit_price = float(last_price) * (1 - slip)
-                    else:
-                        exit_price = float(last_price) * (1 + slip)
-
-                if exit_reason is None:
-                    continue
-
-                if side == "LONG":
-                    pnl = (float(exit_price) - entry_price) * size
-                    rr_real = (float(exit_price) - entry_price) / max(entry_price * stop_pct, 1e-9)
-                else:
-                    pnl = (entry_price - float(exit_price)) * size
-                    rr_real = (entry_price - float(exit_price)) / max(entry_price * stop_pct, 1e-9)
-
-                _db_retry(lambda: AutoTradeExecution.objects.create(
-                    user=user,
-                    snapshot=active,
-                    run_detail=None,
-                    mode="PAPER",
-                    strategy="BREAKOUT",
-                    ticker=str(ticker),
-                    side=side,
-                    entry_at=entry_at,
-                    entry_price=float(entry_price),
-                    size=int(size),
-                    exit_at=exit_at,
-                    exit_price=float(exit_price),
-                    exit_reason=str(exit_reason),
-                    pnl_yen=int(round(pnl)),
-                    rr=float(rr_real),
-                    holding_minutes=int(max(0, int((exit_at - entry_at).total_seconds() // 60))),
-                ))
-
-                positions.pop(str(ticker), None)
-                closed += 1
-
-            except Exception:
-                continue
-
-        if closed > 0:
-            _append_paper_log(state, f"クローズ：{closed}件（TP/SL/TIME）")
-            _set_open_positions(state, positions)
-
-        # =========================================================
-        # 4) 新規シグナル → pending注文を作る（次足OPENで約定）
-        # =========================================================
-        if gate_level == "STOP":
-            _set_pending_orders(state, pending)
-            state.updated_at = timezone.now()
-            _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
-            return {"ok": True, "skipped": True, "reason": "gate_stop", "filled": filled, "closed": closed}
-
-        if _forbid_new_entries_by_time(now):
-            if not _allow_hold_past_end():
-                pass
-            _set_pending_orders(state, pending)
-            state.updated_at = timezone.now()
-            _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
-            return {"ok": True, "skipped": True, "reason": "time_forbid_entries", "filled": filled, "closed": closed}
-
-        rules = _get_rules_dict(state)
-        ig = rules.get("intraday_guard") if isinstance(rules.get("intraday_guard"), dict) else {}
-        ig_res = ig.get("result") if isinstance(ig.get("result"), dict) else {}
-        if bool(ig_res.get("forbid_new_entries")):
-            _set_pending_orders(state, pending)
-            state.updated_at = timezone.now()
-            _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
-            return {"ok": True, "skipped": True, "reason": "intraday_guard_forbid", "filled": filled, "closed": closed}
-
-        trades_today = _today_trade_count(user, today)
-        if trades_today >= int(max_trades):
-            _append_paper_log(state, f"新規禁止：当日取引回数が上限（{trades_today}/{max_trades}）")
-            _set_pending_orders(state, pending)
-            state.updated_at = timezone.now()
-            _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
-            return {"ok": True, "skipped": True, "reason": "max_trades", "filled": filled, "closed": closed}
-
-        created_orders = 0
-        for ticker in (picks or [])[:10]:
-            t = str(ticker)
-
-            if t in (positions or {}):
-                continue
-            if t in (pending or {}):
-                continue
-            if len(positions or {}) + len(pending or {}) >= int(max_pos):
-                break
-
-            sig = _compute_breakout_signal_from_prev_bar(ticker=t, lookback_bars=int(lookback_bars))
-            if sig is None:
-                continue
-
-            pending[t] = {
-                "ticker": t,
-                "side": str(sig).upper(),
-                "created_at": timezone.localtime(timezone.now()).isoformat(),
-                "based_on_bar_ts": str(cur_bar_ts),
-            }
-            created_orders += 1
-            _append_paper_log(state, f"注文作成（次足OPEN）：{t} {str(sig).upper()}")
-
-            if trades_today + created_orders >= int(max_trades):
-                break
-
-        _set_pending_orders(state, pending)
-        _set_open_positions(state, positions)
-
-        state.updated_at = timezone.now()
-        _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
-
-        return {
-            "ok": True,
-            "skipped": False,
-            "bar_ts": cur_bar_ts,
-            "filled": filled,
-            "closed": closed,
-            "orders_created": created_orders,
-            "open_positions": len(positions or {}),
-            "pending_orders": len(pending or {}),
-        }
+        except TimeoutError:
+            # ★ 安全装置：タイムアウト → 落とさず終了（cronが荒れない）
+            return {"ok": True, "skipped": True, "reason": "timeout_watchdog"}
+        except OperationalError as e:
+            # DBロック等は “失敗扱い” にせず、スキップで終える
+            msg = str(e).lower()
+            if "database is locked" in msg:
+                return {"ok": True, "skipped": True, "reason": "db_locked"}
+            raise
+        except Exception:
+            # 想定外も落とさずスキップ（安全優先）
+            return {"ok": True, "skipped": True, "reason": "unexpected_error"}
