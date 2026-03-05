@@ -5,9 +5,10 @@
 # このファイルは何？
 # - autotrade アプリのURLルーティング（URLとView関数の紐付け）です。
 #
-# 今回の修正：
-# - 存在しない View（tuning_rerun_snapshot_fixed）を参照していたため削除。
-# - 2ボタンは不要なので、残すのは「rerun-refresh-picks」のみ。
+# 安全装置（プロ運用品質）
+# - 存在しないViewを参照すると、Djangoの起動チェックで落ちて cron も止まります。
+# - よって、参照するViewは「views.pyのハブから再エクスポートされているものだけ」に限定します。
+# - 不要な2ボタンは撤去し、「rerun-refresh-picks」のみに統一します。
 # =========================================================
 
 from django.urls import path
