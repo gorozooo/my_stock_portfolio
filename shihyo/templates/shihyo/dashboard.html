@@ -4,9 +4,10 @@
 
 このファイルは何？
 - 指標専用ダッシュボード
-- 投資の森のような「横3カード」表示
-- 上部の相場判断カードは「車のメーター風 0-100 リスクゲージ」
-- AI予想カードは、views.py で計算した実データベースの予想結果を表示する
+- 上部に車のメーター風リスクゲージを表示
+- 中段に日経先物 / ドル円 / VIX の3カードを表示
+- 下段に「日経平均AI予想」カードを表示する
+- AI予想カードは views.py で計算した実データを表示する
 -->
 
 {% extends "base.html" %}
@@ -173,7 +174,7 @@
 
     </section>
 
-    <!-- AI予想カード -->
+    <!-- 日経平均AI予想カード -->
     <section class="shihyo-card ai-pred-card">
       <div class="ai-pred-top">
         <div class="ai-pred-title-wrap">
@@ -181,7 +182,7 @@
           <div class="ai-pred-subtitle">{{ ai_pred.subtitle }}</div>
         </div>
 
-        <div class="ai-pred-badge {{ ai_pred.badge_class }}">
+        <div class="{{ ai_pred.badge_class }}">
           {{ ai_pred.label }}
         </div>
       </div>
