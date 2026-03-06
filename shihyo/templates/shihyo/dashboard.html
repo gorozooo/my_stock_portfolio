@@ -5,9 +5,9 @@
 このファイルは何？
 - 指標専用ダッシュボード
 - 投資の森のような「横3カード」表示
-- 上部の相場判断カードは「車のメーター風 0-100 リスクゲージ」に変更
-- 今回の版では、左=守り / 中央=様子見 / 右=攻め に修正
-- 将来AI予想カードを追加しやすいように、空のAI予想カード枠を表示
+- 上部の相場判断カードは「車のメーター風 0-100 リスクゲージ」
+- AI予想カードを完成UIで表示する
+- 現時点ではAI予想カードはダミー値表示だが、後で実データ差し込み可能な構造
 -->
 
 {% extends "base.html" %}
@@ -16,7 +16,7 @@
 {% block title %}指標ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=8">
+<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=9">
 
 <div class="shihyo-page">
 
@@ -203,17 +203,53 @@
 
     </section>
 
-    <!-- AI予想カード枠（空） -->
-    <section class="shihyo-card ai-empty-card">
-      <div class="ai-empty-top">
-        <div class="ai-empty-title">AI予想</div>
-        <div class="ai-empty-badge">準備中</div>
+    <!-- AI予想カード（完成UI） -->
+    <section class="shihyo-card ai-pred-card">
+      <div class="ai-pred-top">
+        <div class="ai-pred-title-wrap">
+          <div class="ai-pred-title">AI予想</div>
+          <div class="ai-pred-subtitle">日経平均シナリオ</div>
+        </div>
+
+        <div class="ai-pred-badge ai-pred-badge-up">
+          上昇予想
+        </div>
       </div>
 
-      <div class="ai-empty-body">
-        <div class="ai-empty-main">ここにAI予想カードが入ります</div>
-        <div class="ai-empty-sub">
-          予想方向 / 予想値 / 現在値 / 乖離率 / 根拠メモ
+      <div class="ai-pred-main">
+        <div class="ai-main-block">
+          <div class="ai-main-label">予想値</div>
+          <div class="ai-main-value">56,820</div>
+        </div>
+
+        <div class="ai-main-block ai-main-block-current">
+          <div class="ai-main-label">現在値</div>
+          <div class="ai-main-value ai-main-value-current">
+            {{ latest.nikkei_futures_last|floatformat:1 }}
+          </div>
+        </div>
+
+        <div class="ai-main-block ai-main-block-gap">
+          <div class="ai-main-label">乖離率</div>
+          <div class="ai-main-value ai-main-value-up">+4.43%</div>
+        </div>
+      </div>
+
+      <div class="ai-pred-meta">
+        <div class="ai-meta-item">
+          <span class="ai-meta-k">確率</span>
+          <span class="ai-meta-v">63%</span>
+        </div>
+        <div class="ai-meta-item">
+          <span class="ai-meta-k">更新</span>
+          <span class="ai-meta-v">07:20</span>
+        </div>
+      </div>
+
+      <div class="ai-reason-box">
+        <div class="ai-reason-title">根拠メモ</div>
+        <div class="ai-reason-text">
+          先物の戻り余地、ドル円の追い風、VIX低下を加味。寄り後の失速がなければ上方向を優先。
         </div>
       </div>
     </section>
