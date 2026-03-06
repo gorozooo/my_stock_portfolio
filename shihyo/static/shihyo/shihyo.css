@@ -6,9 +6,7 @@
 - 指標ダッシュボードUI
 - 投資の森のような横3カード表示
 - 上部は車のメーター風 0-100 リスクゲージ
-- 左=守り / 中央=様子見 / 右=攻め
-- 今回の修正では、半円の向きだけを右に90°回転して正しい向きにする
-- 下にAI予想カード枠（空）を置く
+- AI予想カードを完成UIで表示
 - VIXだけ特別色
 */
 
@@ -142,7 +140,7 @@
   transition: transform .25s ease;
 }
 
-/* 左=守り, 中央=様子見, 右=攻め */
+/* 左=攻め, 中央=様子見, 右=守り */
 .needle-18{
   transform: translateX(-50%) rotate(-58deg);
 }
@@ -218,9 +216,9 @@
   font-weight: 800;
 }
 
-.zone-red{ color: #ff9c9c; }
-.zone-yellow{ color: #ffd86b; }
 .zone-green{ color: #73ff9d; }
+.zone-yellow{ color: #ffd86b; }
+.zone-red{ color: #ff9c9c; }
 
 .risk-summary{
   margin-top: 12px;
@@ -341,51 +339,155 @@
 }
 
 /* =========================
-   AI予想カード枠（空）
+   AI予想カード（完成UI）
 ========================= */
-.ai-empty-card{
+.ai-pred-card{
   margin-top: 14px;
 }
 
-.ai-empty-top{
+.ai-pred-top{
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
 }
 
-.ai-empty-title{
-  font-size: 15px;
-  font-weight: 800;
-  opacity: .92;
+.ai-pred-title-wrap{
+  min-width: 0;
 }
 
-.ai-empty-badge{
+.ai-pred-title{
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.2;
+  opacity: .96;
+}
+
+.ai-pred-subtitle{
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: .66;
+  line-height: 1.3;
+}
+
+.ai-pred-badge{
+  flex: 0 0 auto;
   border-radius: 999px;
-  padding: 5px 10px;
+  padding: 6px 11px;
   font-size: 11px;
   font-weight: 800;
   line-height: 1;
-  color: rgba(255,255,255,.92);
-  background: rgba(255,255,255,.10);
-  border: 1px solid rgba(255,255,255,.14);
+  white-space: nowrap;
 }
 
-.ai-empty-body{
-  margin-top: 10px;
+.ai-pred-badge-up{
+  background: rgba(56, 201, 101, .18);
+  color: #73ff9d;
+  border: 1px solid rgba(56, 201, 101, .32);
 }
 
-.ai-empty-main{
-  font-size: 14px;
+.ai-pred-badge-down{
+  background: rgba(255, 92, 92, .18);
+  color: #ff9c9c;
+  border: 1px solid rgba(255, 92, 92, .32);
+}
+
+.ai-pred-badge-wait{
+  background: rgba(235, 191, 55, .18);
+  color: #ffd86b;
+  border: 1px solid rgba(235, 191, 55, .32);
+}
+
+.ai-pred-main{
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.ai-main-block{
+  min-width: 0;
+  padding: 10px 10px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.08);
+}
+
+.ai-main-label{
+  font-size: 11px;
+  opacity: .68;
+  line-height: 1.2;
+}
+
+.ai-main-value{
+  margin-top: 6px;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: .2px;
+  white-space: nowrap;
+}
+
+.ai-main-value-current{
+  color: rgba(255,255,255,.96);
+}
+
+.ai-main-value-up{
+  color: #73ff9d;
+}
+
+.ai-main-value-down{
+  color: #ff9c9c;
+}
+
+.ai-main-value-wait{
+  color: #ffd86b;
+}
+
+.ai-pred-meta{
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.ai-meta-item{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-meta-k{
+  font-size: 11px;
+  opacity: .62;
+}
+
+.ai-meta-v{
+  font-size: 12px;
   font-weight: 800;
-  opacity: .92;
+  opacity: .94;
 }
 
-.ai-empty-sub{
+.ai-reason-box{
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.07);
+}
+
+.ai-reason-title{
+  font-size: 11px;
+  font-weight: 800;
+  opacity: .70;
+}
+
+.ai-reason-text{
   margin-top: 6px;
   font-size: 12px;
-  line-height: 1.45;
-  opacity: .68;
+  line-height: 1.5;
+  opacity: .86;
 }
 
 /* =========================
@@ -419,12 +521,13 @@
   }
 
   .risk-title,
-  .ai-empty-title{
+  .ai-pred-title{
     font-size: 14px;
   }
 
   .risk-summary,
-  .ai-empty-sub{
+  .ai-reason-text,
+  .ai-pred-subtitle{
     font-size: 11px;
   }
 
@@ -459,5 +562,14 @@
   .gauge-labels,
   .gauge-zones{
     max-width: 290px;
+  }
+
+  .ai-pred-main{
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .ai-main-value{
+    font-size: 20px;
   }
 }
