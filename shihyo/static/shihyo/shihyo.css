@@ -5,7 +5,7 @@
 このファイルは何？
 - 指標ダッシュボードUI
 - 投資の森のような横3カード表示
-- 上部はリスクメーター表示
+- 上部は車のメーター風 0-100 リスクゲージ
 - 下にAI予想カード枠（空）を置く
 - VIXだけ特別色
 */
@@ -49,7 +49,7 @@
 }
 
 /* =========================
-   リスクメーター
+   リスクメーター（車風）
 ========================= */
 .risk-card{
   margin-top: 10px;
@@ -95,79 +95,137 @@
   border: 1px solid rgba(255, 92, 92, .32);
 }
 
-.risk-meter{
+.gauge-wrap{
   margin-top: 12px;
 }
 
-.risk-meter-track{
+.gauge-shell{
   position: relative;
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 6px;
-  align-items: center;
+  width: 100%;
+  max-width: 320px;
+  height: 170px;
+  margin: 0 auto;
 }
 
-.risk-meter-seg{
-  height: 10px;
-  border-radius: 999px;
-  opacity: .95;
-}
-
-.seg-green{
-  background: linear-gradient(90deg, rgba(39,160,80,.95), rgba(70,220,120,.95));
-}
-
-.seg-yellow{
-  background: linear-gradient(90deg, rgba(190,140,25,.95), rgba(246,203,64,.95));
-}
-
-.seg-red{
-  background: linear-gradient(90deg, rgba(178,42,42,.95), rgba(244,75,75,.95));
-}
-
-.risk-meter-pointer{
+.gauge-arc{
   position: absolute;
-  top: -6px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #ffffff;
-  border: 2px solid rgba(0,0,0,.35);
-  box-shadow: 0 2px 8px rgba(0,0,0,.45);
-  transform: translateX(-50%);
-  transition: left .25s ease;
-}
-
-.pointer-left{
-  left: 16.5%;
-}
-
-.pointer-center{
   left: 50%;
+  top: 0;
+  width: 260px;
+  height: 260px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background:
+    conic-gradient(
+      from 180deg,
+      #35cb70 0deg 60deg,
+      #d6ab2f 60deg 120deg,
+      #eb4f4f 120deg 180deg,
+      transparent 180deg 360deg
+    );
+  -webkit-mask: radial-gradient(circle at center, transparent 0 63%, #000 64% 100%);
+          mask: radial-gradient(circle at center, transparent 0 63%, #000 64% 100%);
 }
 
-.pointer-right{
-  left: 83.5%;
+.gauge-needle{
+  position: absolute;
+  left: 50%;
+  bottom: 34px;
+  width: 4px;
+  height: 92px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(220,220,220,.9));
+  transform-origin: bottom center;
+  box-shadow: 0 0 10px rgba(255,255,255,.18);
+  transition: transform .25s ease;
 }
 
-.risk-meter-labels{
-  margin-top: 6px;
+/* 0=左(攻め), 50=中央, 100=右(守り) */
+.needle-18{
+  transform: translateX(-50%) rotate(-58deg);
+}
+
+.needle-50{
+  transform: translateX(-50%) rotate(0deg);
+}
+
+.needle-82{
+  transform: translateX(-50%) rotate(58deg);
+}
+
+.gauge-center-cap{
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  width: 18px;
+  height: 18px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: #f3f3f3;
+  border: 2px solid rgba(0,0,0,.28);
+  box-shadow: 0 2px 10px rgba(0,0,0,.35);
+}
+
+.gauge-score{
+  position: absolute;
+  left: 50%;
+  bottom: 58px;
+  transform: translateX(-50%);
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: .3px;
+  color: rgba(255,255,255,.98);
+}
+
+.gauge-score-sub{
+  position: absolute;
+  left: 50%;
+  bottom: 36px;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  opacity: .72;
+}
+
+.gauge-labels{
+  width: 100%;
+  max-width: 320px;
+  margin: -12px auto 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   font-size: 11px;
   font-weight: 700;
+  opacity: .78;
 }
 
-.lbl-green{ color: #73ff9d; }
-.lbl-yellow{ color: #ffd86b; }
-.lbl-red{ color: #ff9c9c; }
+.gauge-label-mid{
+  transform: translateX(2px);
+}
+
+.gauge-zones{
+  width: 100%;
+  max-width: 320px;
+  margin: 8px auto 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.zone-green{ color: #73ff9d; }
+.zone-yellow{ color: #ffd86b; }
+.zone-red{ color: #ff9c9c; }
 
 .risk-summary{
-  margin-top: 10px;
+  margin-top: 12px;
   font-size: 12px;
   opacity: .82;
   line-height: 1.45;
+  text-align: center;
 }
 
 /* =========================
@@ -366,5 +424,38 @@
   .risk-summary,
   .ai-empty-sub{
     font-size: 11px;
+  }
+
+  .gauge-shell{
+    max-width: 290px;
+    height: 156px;
+  }
+
+  .gauge-arc{
+    width: 238px;
+    height: 238px;
+  }
+
+  .gauge-needle{
+    height: 84px;
+    bottom: 31px;
+  }
+
+  .gauge-center-cap{
+    bottom: 25px;
+  }
+
+  .gauge-score{
+    font-size: 26px;
+    bottom: 54px;
+  }
+
+  .gauge-score-sub{
+    bottom: 34px;
+  }
+
+  .gauge-labels,
+  .gauge-zones{
+    max-width: 290px;
   }
 }
