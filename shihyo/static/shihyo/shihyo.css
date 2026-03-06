@@ -4,137 +4,187 @@
 
 このファイルは何？
 - 指標専用ダッシュボードの見た目調整。
-- バッジは廃止し、KPIカード全体で色を出す。
-- VIXだけ特別色（上昇=黄 / 下落=青）。
+- KPIはカードではなく、文字列ベースの横並び表示にする。
+- %だけ色を付ける。
+- VIXだけ特別色（上昇=黄 / 下落=青）で表示する。
 */
 
 .shihyo-page{
-  max-width:720px;
-  margin:0 auto;
-  padding:12px 14px 28px;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 12px 14px 28px;
 }
 
-.shihyo-header{ padding:6px 2px 10px; }
-.shihyo-title{ font-size:18px; font-weight:800; letter-spacing:.2px; }
-.shihyo-sub{ margin-top:6px; font-size:12px; opacity:.72; }
+.shihyo-header{
+  padding: 6px 2px 10px;
+}
+
+.shihyo-title{
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: .2px;
+}
+
+.shihyo-sub{
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: .72;
+}
+
+/* 共通カード */
+.shihyo-card{
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 16px;
+  padding: 14px 14px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
 
 /* 行動カード */
-.shihyo-card{
-  background:rgba(255,255,255,.06);
-  border:1px solid rgba(255,255,255,.10);
-  border-radius:16px;
-  padding:14px 14px;
-  backdrop-filter:blur(10px);
-  -webkit-backdrop-filter:blur(10px);
+.shihyo-action{
+  margin-top: 10px;
 }
 
-.shihyo-action{ margin-top:10px; }
-.shihyo-action-title{ font-size:18px; font-weight:900; }
+.shihyo-action-title{
+  font-size: 18px;
+  font-weight: 900;
+}
+
 .shihyo-action-lines{
-  margin:10px 0 0;
-  padding-left:18px;
-  line-height:1.55;
-  opacity:.90;
-}
-.shihyo-error{ margin-top:10px; font-size:12px; opacity:.90; }
-
-/* KPIグリッド */
-.shihyo-grid{
-  margin-top:12px;
-  display:grid;
-  grid-template-columns:1fr;
-  gap:10px;
+  margin: 10px 0 0;
+  padding-left: 18px;
+  line-height: 1.55;
+  opacity: .90;
 }
 
-/* KPIカード（ここが主役） */
-.shihyo-kpi{
-  border-radius:16px;
-  padding:14px 14px;
-  border:1px solid rgba(255,255,255,.10);
-  background:rgba(255,255,255,.06);
-  backdrop-filter:blur(10px);
-  -webkit-backdrop-filter:blur(10px);
+.shihyo-error{
+  margin-top: 10px;
+  font-size: 12px;
+  opacity: .90;
 }
 
-/* 1行目：左=名称、右=％（右上に寄せて中央が空かない） */
-.kpi-top{
-  display:flex;
-  align-items:flex-start;
-  justify-content:space-between;
-  gap:10px;
+/* KPI行エリア */
+.shihyo-lines{
+  margin-top: 14px;
 }
 
-.shihyo-k{
-  font-size:12px;
-  opacity:.70;
+.shihyo-line{
+  display: grid;
+  grid-template-columns: 1.45fr 0.8fr 1fr 1.2fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 0;
 }
 
-.kpi-pct{
-  font-size:12px;
-  font-weight:900;
-  letter-spacing:.2px;
-  opacity:.92;
+.shihyo-line + .shihyo-line{
+  margin-top: 6px;
 }
 
-/* 数字は“大きすぎない”が存在感は残す */
-.shihyo-v{
-  margin-top:10px;
-  font-size:24px;
-  font-weight:900;
-  letter-spacing:.2px;
-  line-height:1.12;
+.line-name{
+  font-size: 12px;
+  opacity: .72;
+  line-height: 1.35;
 }
 
-.shihyo-m{
-  margin-top:8px;
-  font-size:12px;
-  opacity:.82;
+.line-pct{
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .2px;
+  text-align: left;
+  white-space: nowrap;
 }
 
-/* --- 通常指標の色（薄く） --- */
-.kpi-up{
-  background:rgba(40,200,120,.08);
-  border-color:rgba(40,200,120,.18);
+.line-value{
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: .2px;
+  line-height: 1.1;
+  text-align: center;
+  white-space: nowrap;
 }
-.kpi-up .kpi-pct{ color:rgba(140,255,190,.95); }
 
-.kpi-down{
-  background:rgba(255,80,80,.08);
-  border-color:rgba(255,80,80,.18);
+.line-label{
+  font-size: 12px;
+  opacity: .86;
+  line-height: 1.35;
+  text-align: left;
 }
-.kpi-down .kpi-pct{ color:rgba(255,160,160,.95); }
 
-.kpi-flat{
-  background:rgba(255,255,255,.06);
-  border-color:rgba(255,255,255,.10);
+/* 通常指標の色 */
+.pct-up{
+  color: rgba(120,255,180,.98);
 }
-.kpi-flat .kpi-pct{ color:rgba(255,255,255,.82); }
 
-/* --- VIXだけ特別色（意味が逆） --- */
-/* VIX上昇 = 恐怖↑ = 危険（黄色） */
-.vix-up{
-  background:rgba(255,200,60,.09);
-  border-color:rgba(255,200,60,.22);
+.pct-down{
+  color: rgba(255,140,140,.98);
 }
-.vix-up .kpi-pct{ color:rgba(255,230,140,.98); }
 
-/* VIX下落 = 恐怖↓ = 安心方向（青） */
-.vix-down{
-  background:rgba(80,170,255,.09);
-  border-color:rgba(80,170,255,.22);
+.pct-flat{
+  color: rgba(255,255,255,.82);
 }
-.vix-down .kpi-pct{ color:rgba(170,220,255,.98); }
 
-.vix-flat{
-  background:rgba(255,255,255,.06);
-  border-color:rgba(255,255,255,.10);
+/* VIXだけ特別色 */
+.vix-pct-up{
+  color: rgba(255,225,120,.98);
 }
-.vix-flat .kpi-pct{ color:rgba(255,255,255,.82); }
+
+.vix-pct-down{
+  color: rgba(150,210,255,.98);
+}
 
 /* メモ */
-.shihyo-mini{ margin-top:12px; }
-.shihyo-p{ margin-top:8px; font-size:12px; line-height:1.6; opacity:.82; }
+.shihyo-k{
+  font-size: 12px;
+  opacity: .72;
+}
 
-@media (min-width:560px){
-  .shihyo-grid{ grid-template-columns:1fr 1fr; }
+.shihyo-mini{
+  margin-top: 14px;
+}
+
+.shihyo-p{
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  opacity: .82;
+}
+
+/* スマホ最適化 */
+@media (max-width: 640px){
+  .shihyo-line{
+    grid-template-columns: 1.2fr .8fr 1fr 1.15fr;
+    gap: 8px;
+  }
+
+  .line-value{
+    font-size: 22px;
+  }
+
+  .line-label{
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 420px){
+  .shihyo-line{
+    grid-template-columns: 1.15fr .78fr .95fr 1.05fr;
+    gap: 8px;
+  }
+
+  .line-name{
+    font-size: 11px;
+  }
+
+  .line-pct{
+    font-size: 11px;
+  }
+
+  .line-value{
+    font-size: 19px;
+  }
+
+  .line-label{
+    font-size: 10px;
+  }
 }
