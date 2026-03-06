@@ -3,10 +3,10 @@
 [PATH] <project_root>/shihyo/templates/shihyo/dashboard.html
 
 このファイルは何？
-- 指標専用のダッシュボード画面。
-- KPIはシンプルな文字列ベースで表示する。
-- %だけ色を付けて、一瞬で判断しやすくする。
-- VIXだけは意味が逆なので特別色で表示する。
+- 指標専用ダッシュボード
+- 構造はシンプルに維持
+- 初心者メモは削除
+- 行動カードはコンパクト化
 -->
 
 {% extends "base.html" %}
@@ -15,7 +15,7 @@
 {% block title %}指標ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=2">
 
 <div class="shihyo-page">
 
@@ -32,20 +32,24 @@
 
   {% if latest %}
 
+    <!-- 相場判断カード（コンパクト化） -->
     <section class="shihyo-card shihyo-action">
-      <div class="shihyo-action-title">{{ latest.action_title }}</div>
+      <div class="shihyo-action-title">
+        {{ latest.action_title }}
+      </div>
 
-      <ul class="shihyo-action-lines">
+      <div class="shihyo-action-lines">
         {% for line in latest.action_lines %}
-          <li>{{ line }}</li>
+          <div>{{ line }}</div>
         {% endfor %}
-      </ul>
+      </div>
 
       {% if latest.error %}
         <div class="shihyo-error">⚠️ {{ latest.error }}</div>
       {% endif %}
     </section>
 
+    <!-- 指標 -->
     <section class="shihyo-lines">
 
       <!-- 日経先物 -->
@@ -123,13 +127,6 @@
         </div>
       </div>
 
-    </section>
-
-    <section class="shihyo-card shihyo-mini">
-      <div class="shihyo-k">初心者メモ</div>
-      <div class="shihyo-p">
-        🟢 押し目 / 🟡 様子見 / 🔴 守り
-      </div>
     </section>
 
   {% endif %}
