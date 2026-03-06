@@ -6,6 +6,7 @@
 - 指標ダッシュボードUI
 - 投資の森のような横3カード表示
 - 上部は車のメーター風 0-100 リスクゲージ
+- 今回の版では 左=守り / 中央=様子見 / 右=攻め
 - 下にAI予想カード枠（空）を置く
 - VIXだけ特別色
 */
@@ -118,9 +119,9 @@
   background:
     conic-gradient(
       from 180deg,
-      #35cb70 0deg 60deg,
+      #eb4f4f 0deg 60deg,
       #d6ab2f 60deg 120deg,
-      #eb4f4f 120deg 180deg,
+      #35cb70 120deg 180deg,
       transparent 180deg 360deg
     );
   -webkit-mask: radial-gradient(circle at center, transparent 0 63%, #000 64% 100%);
@@ -140,7 +141,7 @@
   transition: transform .25s ease;
 }
 
-/* 0=左(攻め), 50=中央, 100=右(守り) */
+/* 左=守り, 中央=様子見, 右=攻め */
 .needle-18{
   transform: translateX(-50%) rotate(-58deg);
 }
@@ -216,9 +217,9 @@
   font-weight: 800;
 }
 
-.zone-green{ color: #73ff9d; }
-.zone-yellow{ color: #ffd86b; }
 .zone-red{ color: #ff9c9c; }
+.zone-yellow{ color: #ffd86b; }
+.zone-green{ color: #73ff9d; }
 
 .risk-summary{
   margin-top: 12px;
