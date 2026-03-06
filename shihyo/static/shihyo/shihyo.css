@@ -120,9 +120,9 @@
   background:
     conic-gradient(
       from 180deg,
-      #eb4f4f 0deg 60deg,
+      #35cb70 0deg 60deg,
       #d6ab2f 60deg 120deg,
-      #35cb70 120deg 180deg,
+      #eb4f4f 120deg 180deg,
       transparent 180deg 360deg
     );
   -webkit-mask: radial-gradient(circle at center, transparent 0 63%, #000 64% 100%);
