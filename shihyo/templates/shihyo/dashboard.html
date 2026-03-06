@@ -4,9 +4,9 @@
 
 このファイルは何？
 - 指標専用ダッシュボード
-- 投資の森のような「横3カード」表示にする
-- 上部の相場判断カードはコンパクト化
-- 将来AI予想カードを追加しやすい構造
+- 投資の森のような「横3カード」表示
+- 上部の相場判断カードは「リスクメーター」に変更
+- 将来AI予想カードを追加しやすいように、空のAI予想カード枠を表示
 -->
 
 {% extends "base.html" %}
@@ -15,7 +15,7 @@
 {% block title %}指標ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=3">
+<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=4">
 
 <div class="shihyo-page">
 
@@ -32,12 +32,48 @@
 
   {% if latest %}
 
-    <section class="shihyo-card shihyo-action">
-      <div class="shihyo-action-row">
-        <div class="shihyo-action-title">{{ latest.action_title }}</div>
+    <!-- リスクメーター -->
+    <section class="shihyo-card risk-card">
+      <div class="risk-top">
+        <div class="risk-title">リスクメーター</div>
+        <div class="risk-badge
+          {% if '守る' in latest.action_title %}
+            risk-badge-red
+          {% elif '様子見' in latest.action_title %}
+            risk-badge-yellow
+          {% else %}
+            risk-badge-green
+          {% endif %}
+        ">
+          {{ latest.action_title }}
+        </div>
       </div>
 
-      <div class="shihyo-action-summary">
+      <div class="risk-meter">
+        <div class="risk-meter-track">
+          <div class="risk-meter-seg seg-green"></div>
+          <div class="risk-meter-seg seg-yellow"></div>
+          <div class="risk-meter-seg seg-red"></div>
+
+          <div class="risk-meter-pointer
+            {% if '守る' in latest.action_title %}
+              pointer-right
+            {% elif '様子見' in latest.action_title %}
+              pointer-center
+            {% else %}
+              pointer-left
+            {% endif %}
+          "></div>
+        </div>
+
+        <div class="risk-meter-labels">
+          <span class="lbl-green">攻め</span>
+          <span class="lbl-yellow">様子見</span>
+          <span class="lbl-red">守り</span>
+        </div>
+      </div>
+
+      <div class="risk-summary">
         {% if latest.action_lines and latest.action_lines|length > 0 %}
           {{ latest.action_lines.0 }}
           {% if latest.action_lines|length > 2 %}
@@ -53,6 +89,7 @@
       {% endif %}
     </section>
 
+    <!-- 横3カード -->
     <section class="shihyo-mini-cards">
 
       <!-- 日経先物 -->
@@ -144,6 +181,21 @@
         </div>
       </div>
 
+    </section>
+
+    <!-- AI予想カード枠（空） -->
+    <section class="shihyo-card ai-empty-card">
+      <div class="ai-empty-top">
+        <div class="ai-empty-title">AI予想</div>
+        <div class="ai-empty-badge">準備中</div>
+      </div>
+
+      <div class="ai-empty-body">
+        <div class="ai-empty-main">ここにAI予想カードが入ります</div>
+        <div class="ai-empty-sub">
+          予想方向 / 予想値 / 現在値 / 乖離率 / 根拠メモ
+        </div>
+      </div>
     </section>
 
   {% endif %}
