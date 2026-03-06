@@ -5,12 +5,18 @@
 このファイルは何？
 - Stooq のCSVエンドポイントから価格データを取得する「取得部品」です。
 - StooqのCSV URL形式: https://stooq.com/q/l/?s=%1&f=sd2t2ohlcv&h&e=csv を利用します。
+
+今回の修正ポイント：
+- Stooq が返す "N/D" を安全に処理する
+- 空文字 / NA / N/D / None を float("nan") にする
+- calc_change() でも欠損値に強くする
 """
 
 from __future__ import annotations
 
 import csv
 import io
+import math
 from dataclasses import dataclass
 from typing import Dict, Optional
 
@@ -35,9 +41,10 @@ class StooqClient:
     def fetch_latest(self, symbol: str, timeout_sec: int = 10) -> Quote:
         """
         symbol例:
-          - ny.f (Nikkei 225 Futures on stooq)
+          - ny.f   (Nikkei 225 Futures on stooq)
+          - nkx    (Nikkei 225 spot on stooq)
           - usdjpy (USDJPY)
-          - vi.c (VIX)
+          - vi.c   (VIX)
         """
         params = {
             "s": symbol,
@@ -48,7 +55,6 @@ class StooqClient:
         r = requests.get(self.BASE_URL, params=params, timeout=timeout_sec)
         r.raise_for_status()
 
-        # CSV parse
         text = r.text.strip()
         f = io.StringIO(text)
         reader = csv.DictReader(f)
@@ -57,16 +63,24 @@ class StooqClient:
         if not rows:
             raise RuntimeError(f"Empty CSV for symbol={symbol}")
 
-        # Stooq returns single-line latest quote (typically)
         row = rows[-1]
 
         def _to_float(x: Optional[str]) -> float:
             if x is None:
                 return float("nan")
+
             x = x.strip()
-            if x == "" or x.lower() == "na":
+            if x == "":
                 return float("nan")
-            return float(x)
+
+            upper = x.upper()
+            if upper in {"NA", "N/A", "N/D", "ND", "-"}:
+                return float("nan")
+
+            try:
+                return float(x)
+            except (TypeError, ValueError):
+                return float("nan")
 
         return Quote(
             symbol=row.get("Symbol", symbol),
@@ -82,12 +96,20 @@ class StooqClient:
     @staticmethod
     def calc_change(close: float, open_: float) -> Dict[str, float]:
         """
-        Stooqのデータは「前日終値」が直接取れないケースがあるので、
-        まずは “今日のOpen→Close” の変化を簡易差分として使います。
-        （本番で前日終値ベースにしたくなったら拡張できます）
+        Stooqのデータは前日終値が直接取れないケースがあるため、
+        まずは “当日Open→Close” の差を簡易変化率として使う。
+
+        欠損値（nan）や open=0 の場合は安全に 0 を返す。
         """
-        if open_ == 0 or open_ != open_ or close != close:  # nan check
+        if (
+            open_ == 0
+            or math.isnan(open_)
+            or math.isnan(close)
+            or math.isinf(open_)
+            or math.isinf(close)
+        ):
             return {"change": 0.0, "pct": 0.0}
+
         change = close - open_
         pct = (change / open_) * 100.0
         return {"change": float(change), "pct": float(pct)}
