@@ -4,9 +4,9 @@
 
 このファイルは何？
 - 指標専用ダッシュボード
-- 構造はシンプルに維持
-- 初心者メモは削除
-- 行動カードはコンパクト化
+- 投資の森のような「横3カード」表示にする
+- 上部の相場判断カードはコンパクト化
+- 将来AI予想カードを追加しやすい構造
 -->
 
 {% extends "base.html" %}
@@ -15,7 +15,7 @@
 {% block title %}指標ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=2">
+<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=3">
 
 <div class="shihyo-page">
 
@@ -32,16 +32,20 @@
 
   {% if latest %}
 
-    <!-- 相場判断カード（コンパクト化） -->
     <section class="shihyo-card shihyo-action">
-      <div class="shihyo-action-title">
-        {{ latest.action_title }}
+      <div class="shihyo-action-row">
+        <div class="shihyo-action-title">{{ latest.action_title }}</div>
       </div>
 
-      <div class="shihyo-action-lines">
-        {% for line in latest.action_lines %}
-          <div>{{ line }}</div>
-        {% endfor %}
+      <div class="shihyo-action-summary">
+        {% if latest.action_lines and latest.action_lines|length > 0 %}
+          {{ latest.action_lines.0 }}
+          {% if latest.action_lines|length > 2 %}
+            / {{ latest.action_lines.2 }}
+          {% elif latest.action_lines|length > 1 %}
+            / {{ latest.action_lines.1 }}
+          {% endif %}
+        {% endif %}
       </div>
 
       {% if latest.error %}
@@ -49,80 +53,93 @@
       {% endif %}
     </section>
 
-    <!-- 指標 -->
-    <section class="shihyo-lines">
+    <section class="shihyo-mini-cards">
 
       <!-- 日経先物 -->
-      <div class="shihyo-line">
-        <div class="line-name">日経先物（NY.F）</div>
+      <div class="mini-card">
+        <div class="mini-card-head">
+          <span class="mini-name">日経先物</span>
+        </div>
 
-        <div class="line-pct
+        <div class="mini-value">
+          {{ latest.nikkei_futures_last|floatformat:1 }}
+        </div>
+
+        <div class="mini-change
           {% if latest.nikkei_futures_change_pct > 0 %}
-            pct-up
+            change-up
           {% elif latest.nikkei_futures_change_pct < 0 %}
-            pct-down
+            change-down
           {% else %}
-            pct-flat
+            change-flat
           {% endif %}
         ">
           {{ latest.nikkei_futures_change_pct|floatformat:2 }}%
         </div>
 
-        <div class="line-value">
-          {{ latest.nikkei_futures_last|floatformat:1 }}
-        </div>
-
-        <div class="line-label">
+        <div class="mini-label mini-label-red">
           {{ latest.nikkei_label }}
         </div>
       </div>
 
       <!-- ドル円 -->
-      <div class="shihyo-line">
-        <div class="line-name">ドル円（USDJPY）</div>
+      <div class="mini-card">
+        <div class="mini-card-head">
+          <span class="mini-name">ドル円</span>
+        </div>
 
-        <div class="line-pct
+        <div class="mini-value">
+          {{ latest.usdjpy_last|floatformat:3 }}
+        </div>
+
+        <div class="mini-change
           {% if latest.usdjpy_change_pct > 0 %}
-            pct-up
+            change-up
           {% elif latest.usdjpy_change_pct < 0 %}
-            pct-down
+            change-down
           {% else %}
-            pct-flat
+            change-flat
           {% endif %}
         ">
           {{ latest.usdjpy_change_pct|floatformat:2 }}%
         </div>
 
-        <div class="line-value">
-          {{ latest.usdjpy_last|floatformat:3 }}
-        </div>
-
-        <div class="line-label">
+        <div class="mini-label mini-label-red">
           {{ latest.fx_label }}
         </div>
       </div>
 
       <!-- VIX -->
-      <div class="shihyo-line">
-        <div class="line-name">VIX（VI.C）</div>
+      <div class="mini-card">
+        <div class="mini-card-head">
+          <span class="mini-name">VIX</span>
+        </div>
 
-        <div class="line-pct
+        <div class="mini-value">
+          {{ latest.vix_last|floatformat:2 }}
+        </div>
+
+        <div class="mini-change
           {% if latest.vix_change_pct > 0 %}
-            vix-pct-up
+            vix-change-up
           {% elif latest.vix_change_pct < 0 %}
-            vix-pct-down
+            vix-change-down
           {% else %}
-            pct-flat
+            change-flat
           {% endif %}
         ">
           {{ latest.vix_change_pct|floatformat:2 }}%
         </div>
 
-        <div class="line-value">
-          {{ latest.vix_last|floatformat:2 }}
-        </div>
-
-        <div class="line-label">
+        <div class="mini-label
+          {% if latest.vix_change_pct > 0 %}
+            mini-label-yellow
+          {% elif latest.vix_change_pct < 0 %}
+            mini-label-blue
+          {% else %}
+            mini-label-gray
+          {% endif %}
+        ">
           {{ latest.vix_label }}
         </div>
       </div>
