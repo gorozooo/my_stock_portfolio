@@ -6,8 +6,7 @@
 - 指標専用ダッシュボード
 - 投資の森のような「横3カード」表示
 - 上部の相場判断カードは「車のメーター風 0-100 リスクゲージ」
-- AI予想カードを完成UIで表示する
-- 現時点ではAI予想カードはダミー値表示だが、後で実データ差し込み可能な構造
+- AI予想カードは、views.py で計算した実データベースの予想結果を表示する
 -->
 
 {% extends "base.html" %}
@@ -16,7 +15,7 @@
 {% block title %}指標ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=9">
+<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=10">
 
 <div class="shihyo-page">
 
@@ -33,21 +32,13 @@
 
   {% if latest %}
 
-    <!-- リスクメーター（車のメーター風 0-100） -->
+    <!-- リスクメーター -->
     <section class="shihyo-card risk-card">
       <div class="risk-top">
         <div class="risk-title">リスクメーター</div>
 
-        <div class="risk-badge
-          {% if '守る' in latest.action_title %}
-            risk-badge-red
-          {% elif '様子見' in latest.action_title %}
-            risk-badge-yellow
-          {% else %}
-            risk-badge-green
-          {% endif %}
-        ">
-          {{ latest.action_title }}
+        <div class="risk-badge {{ risk.badge_class }}">
+          {{ risk.title }}
         </div>
       </div>
 
@@ -55,28 +46,14 @@
         <div class="gauge-shell">
           <div class="gauge-arc"></div>
 
-          <div class="gauge-needle
-            {% if '守る' in latest.action_title %}
-              needle-18
-            {% elif '様子見' in latest.action_title %}
-              needle-50
-            {% else %}
-              needle-82
-            {% endif %}
-          "></div>
+          <div
+            class="gauge-needle"
+            style="transform: translateX(-50%) rotate({{ risk.needle_deg }}deg);"
+          ></div>
 
           <div class="gauge-center-cap"></div>
 
-          <div class="gauge-score">
-            {% if '守る' in latest.action_title %}
-              18
-            {% elif '様子見' in latest.action_title %}
-              50
-            {% else %}
-              82
-            {% endif %}
-          </div>
-
+          <div class="gauge-score">{{ risk.score }}</div>
           <div class="gauge-score-sub">/ 100</div>
         </div>
 
@@ -94,14 +71,7 @@
       </div>
 
       <div class="risk-summary">
-        {% if latest.action_lines and latest.action_lines|length > 0 %}
-          {{ latest.action_lines.0 }}
-          {% if latest.action_lines|length > 2 %}
-            / {{ latest.action_lines.2 }}
-          {% elif latest.action_lines|length > 1 %}
-            / {{ latest.action_lines.1 }}
-          {% endif %}
-        {% endif %}
+        {{ risk.summary }}
       </div>
 
       {% if latest.error %}
@@ -203,53 +173,55 @@
 
     </section>
 
-    <!-- AI予想カード（完成UI） -->
+    <!-- AI予想カード -->
     <section class="shihyo-card ai-pred-card">
       <div class="ai-pred-top">
         <div class="ai-pred-title-wrap">
           <div class="ai-pred-title">AI予想</div>
-          <div class="ai-pred-subtitle">日経平均シナリオ</div>
+          <div class="ai-pred-subtitle">{{ ai_pred.subtitle }}</div>
         </div>
 
-        <div class="ai-pred-badge ai-pred-badge-up">
-          上昇予想
+        <div class="ai-pred-badge {{ ai_pred.badge_class }}">
+          {{ ai_pred.label }}
         </div>
       </div>
 
       <div class="ai-pred-main">
         <div class="ai-main-block">
           <div class="ai-main-label">予想値</div>
-          <div class="ai-main-value">56,820</div>
+          <div class="ai-main-value">{{ ai_pred.predicted_value }}</div>
         </div>
 
         <div class="ai-main-block ai-main-block-current">
           <div class="ai-main-label">現在値</div>
           <div class="ai-main-value ai-main-value-current">
-            {{ latest.nikkei_futures_last|floatformat:1 }}
+            {{ ai_pred.current_value }}
           </div>
         </div>
 
         <div class="ai-main-block ai-main-block-gap">
           <div class="ai-main-label">乖離率</div>
-          <div class="ai-main-value ai-main-value-up">+4.43%</div>
+          <div class="ai-main-value {{ ai_pred.gap_class }}">
+            {{ ai_pred.gap_pct }}
+          </div>
         </div>
       </div>
 
       <div class="ai-pred-meta">
         <div class="ai-meta-item">
           <span class="ai-meta-k">確率</span>
-          <span class="ai-meta-v">63%</span>
+          <span class="ai-meta-v">{{ ai_pred.confidence }}</span>
         </div>
         <div class="ai-meta-item">
           <span class="ai-meta-k">更新</span>
-          <span class="ai-meta-v">07:20</span>
+          <span class="ai-meta-v">{{ ai_pred.updated_at }}</span>
         </div>
       </div>
 
       <div class="ai-reason-box">
         <div class="ai-reason-title">根拠メモ</div>
         <div class="ai-reason-text">
-          先物の戻り余地、ドル円の追い風、VIX低下を加味。寄り後の失速がなければ上方向を優先。
+          {{ ai_pred.reason }}
         </div>
       </div>
     </section>
