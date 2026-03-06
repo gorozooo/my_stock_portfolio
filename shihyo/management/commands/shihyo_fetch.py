@@ -3,12 +3,9 @@
 [PATH] <project_root>/shihyo/management/commands/shihyo_fetch.py
 
 このファイルは何？
-- 指標（先物・ドル円・VIX）をStooqから取得してDBへ保存するコマンドです。
-- cronからこれを叩けば、アプリは「DBの最新スナップショット」を表示するだけでOKになります。
-
-今回の修正ポイント：
-- SQLiteのJSONFieldは NaN/Infinity をJSONとして扱えず保存に失敗するため、
-  raw_payload を保存する前に NaN/Infinity を None に変換して安全化します。
+- 指標（先物・ドル円・VIX・日経平均現物）を取得してDBへ保存するコマンドです。
+- 日経平均の現物値は raw_payload["nikkei_spot"] に保存します。
+- DBモデルは変えずに、AI予想で使えるようにしています。
 """
 
 from __future__ import annotations
@@ -20,8 +17,8 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from shihyo.models import MarketIndicatorSnapshot
-from shihyo.services.stooq_client import StooqClient
 from shihyo.services.judge import judge
+from shihyo.services.stooq_client import StooqClient
 
 
 def _json_safe(x: Any) -> Any:
@@ -41,50 +38,65 @@ def _json_safe(x: Any) -> Any:
 
 
 class Command(BaseCommand):
-    help = "Fetch Nikkei futures, USDJPY, VIX and store snapshot."
+    help = "Fetch Nikkei futures, Nikkei spot, USDJPY, VIX and store snapshot."
 
     def handle(self, *args, **options):
         client = StooqClient()
 
         # Stooq symbols
         symbols = {
-            "nikkei": "ny.f",   # Nikkei 225 futures (Stooq)
-            "fx": "usdjpy",     # USDJPY
-            "vix": "vi.c",      # S&P 500 VIX
+            "nikkei_futures": "ny.f",  # Nikkei 225 futures
+            "nikkei_spot": "nkx",      # Nikkei 225 spot (Stooq)
+            "fx": "usdjpy",            # USDJPY
+            "vix": "vi.c",             # VIX
         }
 
         raw = {}
         err = ""
 
         try:
-            q_n = client.fetch_latest(symbols["nikkei"])
+            q_nf = client.fetch_latest(symbols["nikkei_futures"])
+            q_ns = client.fetch_latest(symbols["nikkei_spot"])
             q_f = client.fetch_latest(symbols["fx"])
             q_v = client.fetch_latest(symbols["vix"])
 
-            n = client.calc_change(q_n.close, q_n.open)
+            nf = client.calc_change(q_nf.close, q_nf.open)
+            ns = client.calc_change(q_ns.close, q_ns.open)
             f = client.calc_change(q_f.close, q_f.open)
             v = client.calc_change(q_v.close, q_v.open)
 
             judged = judge(
-                nikkei_change_pct=n["pct"],
+                nikkei_change_pct=nf["pct"],
                 fx_change_pct=f["pct"],
                 vix_last=q_v.close,
                 vix_change_pct=v["pct"],
             )
 
             raw = {
-                "nikkei": q_n.__dict__,
-                "fx": q_f.__dict__,
-                "vix": q_v.__dict__,
-                "calc": {"nikkei": n, "fx": f, "vix": v},
+                "nikkei_futures": {
+                    **q_nf.__dict__,
+                    "calc": nf,
+                },
+                "nikkei_spot": {
+                    **q_ns.__dict__,
+                    "calc": ns,
+                },
+                "fx": {
+                    **q_f.__dict__,
+                    "calc": f,
+                },
+                "vix": {
+                    **q_v.__dict__,
+                    "calc": v,
+                },
                 "fetched_at": timezone.now().isoformat(),
             }
-            raw = _json_safe(raw)  # ★ここが今回のキモ
+            raw = _json_safe(raw)
 
             MarketIndicatorSnapshot.objects.create(
-                nikkei_futures_last=q_n.close,
-                nikkei_futures_change=n["change"],
-                nikkei_futures_change_pct=n["pct"],
+                nikkei_futures_last=q_nf.close,
+                nikkei_futures_change=nf["change"],
+                nikkei_futures_change_pct=nf["pct"],
                 usdjpy_last=q_f.close,
                 usdjpy_change=f["change"],
                 usdjpy_change_pct=f["pct"],
@@ -105,7 +117,6 @@ class Command(BaseCommand):
         except Exception as e:
             err = str(e)
 
-            # エラー時も raw_payload には「安全なJSON」だけ入れる
             safe_raw = _json_safe({
                 "fetched_at": timezone.now().isoformat(),
                 "error": err,
