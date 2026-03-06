@@ -3,188 +3,137 @@
 [PATH] <project_root>/shihyo/static/shihyo/shihyo.css
 
 このファイルは何？
-- 指標専用ダッシュボードの見た目調整。
-- KPIはカードではなく、文字列ベースの横並び表示にする。
-- %だけ色を付ける。
-- VIXだけ特別色（上昇=黄 / 下落=青）で表示する。
+- 指標ダッシュボードUI
+- 行動カードをコンパクト化
+- 指標は横並び表
 */
 
 .shihyo-page{
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 12px 14px 28px;
+  max-width:720px;
+  margin:0 auto;
+  padding:12px 14px 28px;
 }
 
 .shihyo-header{
-  padding: 6px 2px 10px;
+  padding:6px 2px 10px;
 }
 
 .shihyo-title{
-  font-size: 18px;
-  font-weight: 800;
-  letter-spacing: .2px;
+  font-size:18px;
+  font-weight:800;
 }
 
 .shihyo-sub{
-  margin-top: 6px;
-  font-size: 12px;
-  opacity: .72;
+  margin-top:4px;
+  font-size:12px;
+  opacity:.7;
 }
 
 /* 共通カード */
+
 .shihyo-card{
-  background: rgba(255,255,255,.06);
-  border: 1px solid rgba(255,255,255,.10);
-  border-radius: 16px;
-  padding: 14px 14px;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:14px;
+  padding:10px 12px;
 }
 
-/* 行動カード */
+/* 相場判断カード */
+
 .shihyo-action{
-  margin-top: 10px;
+  margin-top:8px;
 }
 
 .shihyo-action-title{
-  font-size: 18px;
-  font-weight: 900;
+  font-size:16px;
+  font-weight:800;
 }
 
 .shihyo-action-lines{
-  margin: 10px 0 0;
-  padding-left: 18px;
-  line-height: 1.55;
-  opacity: .90;
+  margin-top:6px;
+  font-size:13px;
+  line-height:1.4;
+  opacity:.9;
 }
 
 .shihyo-error{
-  margin-top: 10px;
-  font-size: 12px;
-  opacity: .90;
+  margin-top:6px;
+  font-size:12px;
+  color:#ff9090;
 }
 
-/* KPI行エリア */
+/* 指標 */
+
 .shihyo-lines{
-  margin-top: 14px;
+  margin-top:14px;
 }
 
 .shihyo-line{
-  display: grid;
-  grid-template-columns: 1.45fr 0.8fr 1fr 1.2fr;
-  gap: 10px;
-  align-items: center;
-  padding: 10px 0;
+  display:grid;
+  grid-template-columns:1.4fr .7fr 1fr 1.2fr;
+  align-items:center;
+  gap:8px;
+  padding:10px 0;
 }
 
 .shihyo-line + .shihyo-line{
-  margin-top: 6px;
+  border-top:1px solid rgba(255,255,255,.05);
 }
 
 .line-name{
-  font-size: 12px;
-  opacity: .72;
-  line-height: 1.35;
+  font-size:12px;
+  opacity:.7;
 }
 
 .line-pct{
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: .2px;
-  text-align: left;
-  white-space: nowrap;
+  font-size:13px;
+  font-weight:800;
 }
 
 .line-value{
-  font-size: 24px;
-  font-weight: 900;
-  letter-spacing: .2px;
-  line-height: 1.1;
-  text-align: center;
-  white-space: nowrap;
+  font-size:22px;
+  font-weight:900;
 }
 
 .line-label{
-  font-size: 12px;
-  opacity: .86;
-  line-height: 1.35;
-  text-align: left;
+  font-size:12px;
+  opacity:.8;
 }
 
-/* 通常指標の色 */
+/* 通常 */
+
 .pct-up{
-  color: rgba(120,255,180,.98);
+  color:#59ff9f;
 }
 
 .pct-down{
-  color: rgba(255,140,140,.98);
+  color:#ff8f8f;
 }
 
 .pct-flat{
-  color: rgba(255,255,255,.82);
+  color:#ffffffcc;
 }
 
-/* VIXだけ特別色 */
+/* VIX */
+
 .vix-pct-up{
-  color: rgba(255,225,120,.98);
+  color:#ffd86b;
 }
 
 .vix-pct-down{
-  color: rgba(150,210,255,.98);
+  color:#7cc4ff;
 }
 
-/* メモ */
-.shihyo-k{
-  font-size: 12px;
-  opacity: .72;
-}
+/* モバイル */
 
-.shihyo-mini{
-  margin-top: 14px;
-}
-
-.shihyo-p{
-  margin-top: 8px;
-  font-size: 12px;
-  line-height: 1.6;
-  opacity: .82;
-}
-
-/* スマホ最適化 */
-@media (max-width: 640px){
-  .shihyo-line{
-    grid-template-columns: 1.2fr .8fr 1fr 1.15fr;
-    gap: 8px;
-  }
+@media (max-width:480px){
 
   .line-value{
-    font-size: 22px;
+    font-size:20px;
   }
 
   .line-label{
-    font-size: 11px;
-  }
-}
-
-@media (max-width: 420px){
-  .shihyo-line{
-    grid-template-columns: 1.15fr .78fr .95fr 1.05fr;
-    gap: 8px;
+    font-size:11px;
   }
 
-  .line-name{
-    font-size: 11px;
-  }
-
-  .line-pct{
-    font-size: 11px;
-  }
-
-  .line-value{
-    font-size: 19px;
-  }
-
-  .line-label{
-    font-size: 10px;
-  }
 }
