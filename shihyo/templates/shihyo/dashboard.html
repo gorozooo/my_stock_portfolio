@@ -5,7 +5,7 @@
 このファイルは何？
 - 指標専用ダッシュボード
 - 投資の森のような「横3カード」表示
-- 上部の相場判断カードは「リスクメーター」に変更
+- 上部の相場判断カードは「車のメーター風 0-100 リスクゲージ」に変更
 - 将来AI予想カードを追加しやすいように、空のAI予想カード枠を表示
 -->
 
@@ -15,7 +15,7 @@
 {% block title %}指標ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=4">
+<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=5">
 
 <div class="shihyo-page">
 
@@ -32,10 +32,11 @@
 
   {% if latest %}
 
-    <!-- リスクメーター -->
+    <!-- リスクメーター（車のメーター風 0-100） -->
     <section class="shihyo-card risk-card">
       <div class="risk-top">
         <div class="risk-title">リスクメーター</div>
+
         <div class="risk-badge
           {% if '守る' in latest.action_title %}
             risk-badge-red
@@ -49,27 +50,45 @@
         </div>
       </div>
 
-      <div class="risk-meter">
-        <div class="risk-meter-track">
-          <div class="risk-meter-seg seg-green"></div>
-          <div class="risk-meter-seg seg-yellow"></div>
-          <div class="risk-meter-seg seg-red"></div>
+      <div class="gauge-wrap">
+        <div class="gauge-shell">
+          <div class="gauge-arc"></div>
 
-          <div class="risk-meter-pointer
+          <div class="gauge-needle
             {% if '守る' in latest.action_title %}
-              pointer-right
+              needle-82
             {% elif '様子見' in latest.action_title %}
-              pointer-center
+              needle-50
             {% else %}
-              pointer-left
+              needle-18
             {% endif %}
           "></div>
+
+          <div class="gauge-center-cap"></div>
+
+          <div class="gauge-score">
+            {% if '守る' in latest.action_title %}
+              82
+            {% elif '様子見' in latest.action_title %}
+              50
+            {% else %}
+              18
+            {% endif %}
+          </div>
+
+          <div class="gauge-score-sub">/ 100</div>
         </div>
 
-        <div class="risk-meter-labels">
-          <span class="lbl-green">攻め</span>
-          <span class="lbl-yellow">様子見</span>
-          <span class="lbl-red">守り</span>
+        <div class="gauge-labels">
+          <span class="gauge-label gauge-label-left">0</span>
+          <span class="gauge-label gauge-label-mid">50</span>
+          <span class="gauge-label gauge-label-right">100</span>
+        </div>
+
+        <div class="gauge-zones">
+          <span class="zone-green">攻め</span>
+          <span class="zone-yellow">様子見</span>
+          <span class="zone-red">守り</span>
         </div>
       </div>
 
