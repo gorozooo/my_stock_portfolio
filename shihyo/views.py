@@ -9,6 +9,10 @@
   1) リスクメーター用の score / title / needle角度
   2) 日経平均AI予想カード用の label / 予想値 / 乖離率 / 根拠
   を計算してテンプレートへ渡します。
+
+今回の正式版のポイント：
+- 日経平均現物が取れないときは、先物へフォールバックしない
+- AI予想カードは「取得待ち」表示にする
 """
 
 from __future__ import annotations
@@ -38,18 +42,26 @@ def _safe_float(value, default: float = 0.0) -> float:
         return default
 
 
-def _extract_nikkei_spot(raw_payload: dict | None) -> tuple[float, float]:
+def _extract_nikkei_spot(raw_payload: dict | None) -> tuple[float, float, bool, str]:
     """
     raw_payload から日経平均（現物）の close と change_pct を取り出す。
-    無ければ 0.0 を返す。
+    戻り値:
+      (close, change_pct, available, source_name)
     """
     if not isinstance(raw_payload, dict):
-        return 0.0, 0.0
+        return 0.0, 0.0, False, "unknown"
 
     nikkei_spot = raw_payload.get("nikkei_spot") or {}
+    available = bool(nikkei_spot.get("available"))
+    source_name = str(nikkei_spot.get("source") or "unknown")
+
     close_value = _safe_float(nikkei_spot.get("close"), 0.0)
     change_pct = _safe_float((nikkei_spot.get("calc") or {}).get("pct"), 0.0)
-    return close_value, change_pct
+
+    if not available or close_value <= 0:
+        return 0.0, 0.0, False, source_name
+
+    return close_value, change_pct, True, source_name
 
 
 def _build_risk_context(latest: MarketIndicatorSnapshot) -> dict:
@@ -118,7 +130,7 @@ def _build_risk_context(latest: MarketIndicatorSnapshot) -> dict:
 
 
 def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) -> dict:
-    nikkei_spot_last, nikkei_spot_pct = _extract_nikkei_spot(latest.raw_payload)
+    nikkei_spot_last, nikkei_spot_pct, spot_available, spot_source = _extract_nikkei_spot(latest.raw_payload)
 
     nikkei_futures_pct = _safe_float(latest.nikkei_futures_change_pct, 0.0)
     fx_pct = _safe_float(latest.usdjpy_change_pct, 0.0)
@@ -126,9 +138,21 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
     vix_pct = _safe_float(latest.vix_change_pct, 0.0)
     risk_score = int(risk["score"])
 
-    # 日経平均の現物値が取れていない場合のフォールバック
-    if nikkei_spot_last <= 0:
-        nikkei_spot_last = _safe_float(latest.nikkei_futures_last, 0.0)
+    # 正式版:
+    # 日経平均現物が取れないときは、先物で代用しない
+    if not spot_available or nikkei_spot_last <= 0:
+        return {
+            "subtitle": "日経平均ベース短期シナリオ",
+            "label": "取得待ち",
+            "badge_class": "ai-pred-badge ai-pred-badge-wait",
+            "predicted_value": "-",
+            "current_value": "-",
+            "gap_pct": "-",
+            "gap_class": "ai-main-value-wait",
+            "confidence": "-",
+            "updated_at": latest.created_at.strftime("%H:%M") if latest.created_at else "-",
+            "reason": f"日経平均現物が取得できないため予想を停止中（source={spot_source}）。先物では代用しません。",
+        }
 
     # 日経平均AI予想のシグナル
     signal = 0.0
