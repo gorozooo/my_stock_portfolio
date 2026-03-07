@@ -144,6 +144,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const MENUS = {
     home: [
       { section:"ホーム" },
+      { label:"指標",  href:"/shihyo",     icon:"📊", tone:"info" },
       { label:"トレンド",        href: URLS.trend_base,           icon:"📈", tone:"info" },
       { label:"設定を開く",      href:"/settings/trade",          icon:"⚙️", tone:"info" },
     ],
