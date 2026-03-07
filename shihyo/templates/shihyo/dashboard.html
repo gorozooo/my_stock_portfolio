@@ -6,8 +6,9 @@
 - 指標専用ダッシュボード
 - 上部に車のメーター風リスクゲージを表示
 - 中段に日経先物 / ドル円 / VIX の3カードを表示
-- 下段に「日経平均AI予想」カードを表示する
-- AI予想はスマホ向けに、予想値 / 現在値 を横カード化して見やすくする
+- 下段に日経平均AI予想カードを表示する
+- さらに「市場の偏り」カードを追加し、
+  業種強弱・人気テーマ/弱いテーマを初心者向けに見せる
 -->
 
 {% extends "base.html" %}
@@ -16,7 +17,7 @@
 {% block title %}指標ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=13">
+<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=14">
 
 <div class="shihyo-page">
 
@@ -239,6 +240,64 @@
           {{ ai_pred.reason }}
         </div>
       </div>
+    </section>
+
+    <!-- 市場の偏りカード -->
+    <section class="shihyo-card market-bias-card">
+      <div class="market-bias-top">
+        <div class="market-bias-title">市場の偏り</div>
+        <div class="market-bias-summary-badge {{ market_bias.summary_badge_class }}">
+          {{ market_bias.summary_title }}
+        </div>
+      </div>
+
+      <div class="market-bias-summary">
+        {{ market_bias.summary_text }}
+      </div>
+
+      {% if market_bias.available %}
+        <section class="market-bias-grid">
+          <div class="bias-block">
+            <div class="bias-block-title">お金が入っている業種</div>
+            <div class="bias-chip-list">
+              {% for item in market_bias.strong_sectors %}
+                <span class="bias-chip bias-chip-strong">{{ item }}</span>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="bias-block">
+            <div class="bias-block-title">売られやすい業種</div>
+            <div class="bias-chip-list">
+              {% for item in market_bias.weak_sectors %}
+                <span class="bias-chip bias-chip-weak">{{ item }}</span>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="bias-block">
+            <div class="bias-block-title">今人気のテーマ</div>
+            <div class="bias-chip-list">
+              {% for item in market_bias.hot_themes %}
+                <span class="bias-chip bias-chip-theme">{{ item }}</span>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="bias-block">
+            <div class="bias-block-title">売られているテーマ</div>
+            <div class="bias-chip-list">
+              {% for item in market_bias.cold_themes %}
+                <span class="bias-chip bias-chip-cold">{{ item }}</span>
+              {% endfor %}
+            </div>
+          </div>
+        </section>
+      {% else %}
+        <div class="market-bias-empty">
+          業種強弱データの取得準備中です。取得後はここに「強い業種 / 弱い業種 / 人気テーマ / 弱いテーマ」を表示します。
+        </div>
+      {% endif %}
     </section>
 
   {% endif %}
