@@ -5,22 +5,28 @@
 このファイルは何？
 - 指標（先物・ドル円・VIX・日経平均現物）を取得してDBへ保存するコマンドです。
 - 日経平均の現物値は raw_payload["nikkei_spot"] に保存します。
-- DBモデルは変えずに、AI予想で使えるようにしています。
+- さらに raw_payload["market_bias"] に、
+  1) 強い業種TOP3
+  2) 弱い業種TOP3
+  3) 値上がり上位の偏り
+  4) 値下がり上位の偏り
+  を保存します。
 
-今回の正式版のポイント：
-- 日経平均現物は Stooq の ^nkx を優先して取得
-- 取れないときは nkx を試す
-- さらに取れないときだけ Yahoo Finance ^N225 を試す
-- それでも取れない場合は、日経平均現物は None のまま保存
-- 「取れなかったら先物で代用」はしない
+今回の market_bias 取得方針：
+- 業種強弱は株探の TOPIX ページにある「東証【業種別】騰落ランキング」から取得
+- 値上がり上位 / 値下がり上位は株探英語版のランキングページから取得
+- 値下がり上位 / 値上がり上位は銘柄名ベースで保存し、初心者にも読みやすくする
+- 取得失敗時は market_bias を unavailable で保存する
 """
 
 from __future__ import annotations
 
 import math
+import re
 from typing import Any, Optional
 
 import requests
+from bs4 import BeautifulSoup
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
@@ -75,6 +81,26 @@ def _calc_from_prev_close(close_value: Optional[float], prev_close_value: Option
 class Command(BaseCommand):
     help = "Fetch Nikkei futures, Nikkei spot, USDJPY, VIX and store snapshot."
 
+    USER_AGENT = (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/123.0.0.0 Safari/537.36"
+    )
+
+    def _http_get(self, url: str, params: Optional[dict] = None) -> str:
+        r = requests.get(
+            url,
+            params=params,
+            timeout=12,
+            headers={
+                "User-Agent": self.USER_AGENT,
+                "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+                "Referer": "https://kabutan.jp/",
+            },
+        )
+        r.raise_for_status()
+        return r.text
+
     def _fetch_nikkei_spot_from_stooq(self, client: StooqClient) -> Optional[dict]:
         """
         Stooq から日経平均現物を取得する。
@@ -114,7 +140,7 @@ class Command(BaseCommand):
             "events": "div,splits",
         }
         headers = {
-            "User-Agent": "Mozilla/5.0",
+            "User-Agent": self.USER_AGENT,
             "Accept": "application/json,text/plain,*/*",
             "Referer": "https://finance.yahoo.com/quote/%5EN225/",
         }
@@ -179,14 +205,197 @@ class Command(BaseCommand):
 
         return None, {"change": 0.0, "pct": 0.0}, "unavailable"
 
+    def _extract_sector_rows(self, section_text: str) -> list[dict]:
+        rows: list[dict] = []
+        for raw_line in section_text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if "業種名" in line or "騰落率" in line or "銘柄数" in line:
+                continue
+
+            # 例: 銀行業 +11.79 +2.02% 596.68 69
+            m = re.match(
+                r"^(?P<name>.+?)\s+(?P<diff>[+\-]?\d+(?:\.\d+)?)\s+(?P<pct>[+\-]?\d+(?:\.\d+)?)%\s+",
+                line,
+            )
+            if m:
+                name = m.group("name").strip()
+                pct = float(m.group("pct"))
+                rows.append({"name": name, "pct": pct})
+        return rows
+
+    def _fetch_sector_bias_from_kabutan(self) -> dict:
+        """
+        株探 TOPIX ページの「東証【業種別】騰落ランキング」から
+        上位/下位業種を取得する。
+        """
+        try:
+            html = self._http_get("https://kabutan.jp/stock/chart", params={"code": "0010"})
+            soup = BeautifulSoup(html, "html.parser")
+            text = soup.get_text("\n", strip=True)
+
+            if "東証【業種別】騰落ランキング" not in text:
+                return {"available": False, "strong": [], "weak": []}
+
+            after_title = text.split("東証【業種別】騰落ランキング", 1)[1]
+            upper_text = after_title.split("騰落率上位10", 1)
+            if len(upper_text) < 2:
+                return {"available": False, "strong": [], "weak": []}
+
+            remainder = upper_text[1]
+            upper_block, lower_rest = remainder.split("騰落率下位10", 1)
+            lower_block = lower_rest.split("こちらは株探プレミアム", 1)[0]
+
+            strong_rows = self._extract_sector_rows(upper_block)
+            weak_rows = self._extract_sector_rows(lower_block)
+
+            return {
+                "available": bool(strong_rows or weak_rows),
+                "strong": strong_rows[:3],
+                "weak": weak_rows[:3],
+            }
+        except Exception:
+            return {"available": False, "strong": [], "weak": []}
+
+    def _extract_rank_names_from_kabutan_en(self, text: str) -> list[str]:
+        """
+        Kabutan英語版ランキングページのテキストから
+        銘柄名を抽出する。
+        ルール:
+          ある行の次行に 'TSE' を含む場合、その行を銘柄名とみなす。
+        """
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        names: list[str] = []
+
+        for i in range(len(lines) - 1):
+            current_line = lines[i]
+            next_line = lines[i + 1]
+
+            if "TSE" in next_line and current_line not in names:
+                if current_line in {
+                    "All",
+                    "Stock",
+                    "Price",
+                    "Market Cap",
+                    "Change",
+                    "Volume",
+                    "PER",
+                    "PBR",
+                    "Yield",
+                    "Liquidity",
+                    "Low",
+                    "Mid",
+                    "High",
+                    "Slightly High",
+                }:
+                    continue
+                names.append(current_line)
+
+        return names
+
+    def _fetch_top_movers_from_kabutan_en(self) -> dict:
+        """
+        株探英語版のランキングページから
+        値上がり上位 / 値下がり上位の銘柄名を取る。
+        """
+        base = "https://en.kabutan.com/jp/trends"
+        result = {
+            "available": False,
+            "gainers": [],
+            "losers": [],
+        }
+
+        try:
+            gainers_html = self._http_get(f"{base}/price_increase", params={"capitalization": "5", "market": "all", "page": "1"})
+            gainers_text = BeautifulSoup(gainers_html, "html.parser").get_text("\n", strip=True)
+            gainers = self._extract_rank_names_from_kabutan_en(gainers_text)[:3]
+
+            losers_html = self._http_get(f"{base}/price_decrease", params={"capitalization": "5", "market": "all", "page": "1"})
+            losers_text = BeautifulSoup(losers_html, "html.parser").get_text("\n", strip=True)
+            losers = self._extract_rank_names_from_kabutan_en(losers_text)[:3]
+
+            result["gainers"] = gainers
+            result["losers"] = losers
+            result["available"] = bool(gainers or losers)
+            return result
+        except Exception:
+            return result
+
+    def _build_market_bias(self) -> dict:
+        """
+        業種強弱 + 値上がり/値下がり上位の偏り を作る。
+        """
+        sector_bias = self._fetch_sector_bias_from_kabutan()
+        mover_bias = self._fetch_top_movers_from_kabutan_en()
+
+        strong = [row["name"] for row in sector_bias.get("strong", [])]
+        weak = [row["name"] for row in sector_bias.get("weak", [])]
+        gainers = mover_bias.get("gainers", [])[:3]
+        losers = mover_bias.get("losers", [])[:3]
+
+        available = bool(strong or weak or gainers or losers)
+
+        if not available:
+            return {
+                "available": False,
+                "summary_title": "準備中",
+                "summary_text": "日本株市場で、どこに資金が入っているか / どこが売られているか を集計中です。",
+                "summary_badge_class": "market-bias-badge market-bias-badge-wait",
+                "tone": "neutral",
+                "strong_sectors": [],
+                "weak_sectors": [],
+                "hot_themes": [],
+                "cold_themes": [],
+            }
+
+        strong_pct_total = sum(row["pct"] for row in sector_bias.get("strong", []))
+        weak_pct_total = sum(row["pct"] for row in sector_bias.get("weak", []))
+
+        if strong_pct_total > abs(weak_pct_total) * 1.2:
+            summary_title = "やや強い"
+            badge_class = "market-bias-badge market-bias-badge-on"
+            tone = "risk_on"
+        elif abs(weak_pct_total) > max(strong_pct_total, 0.01) * 1.2:
+            summary_title = "やや弱い"
+            badge_class = "market-bias-badge market-bias-badge-off"
+            tone = "risk_off"
+        else:
+            summary_title = "まちまち"
+            badge_class = "market-bias-badge market-bias-badge-wait"
+            tone = "neutral"
+
+        parts: list[str] = []
+        if strong:
+            parts.append(f"強い業種は {' / '.join(strong[:2])}")
+        if weak:
+            parts.append(f"弱い業種は {' / '.join(weak[:2])}")
+        if gainers:
+            parts.append(f"上昇上位は {' / '.join(gainers[:2])}")
+        if losers:
+            parts.append(f"下落上位は {' / '.join(losers[:2])}")
+
+        summary_text = "、".join(parts) if parts else "日本株の偏りを集計中です。"
+
+        return {
+            "available": True,
+            "summary_title": summary_title,
+            "summary_text": summary_text,
+            "summary_badge_class": badge_class,
+            "tone": tone,
+            "strong_sectors": strong[:3],
+            "weak_sectors": weak[:3],
+            "hot_themes": gainers[:3],
+            "cold_themes": losers[:3],
+        }
+
     def handle(self, *args, **options):
         client = StooqClient()
 
-        # Stooq symbols
         symbols = {
-            "nikkei_futures": "ny.f",  # Nikkei 225 futures
-            "fx": "usdjpy",            # USDJPY
-            "vix": "vi.c",             # VIX
+            "nikkei_futures": "ny.f",
+            "fx": "usdjpy",
+            "vix": "vi.c",
         }
 
         raw = {}
@@ -202,6 +411,8 @@ class Command(BaseCommand):
             nf = client.calc_change(q_nf.close, q_nf.open)
             f = client.calc_change(q_f.close, q_f.open)
             v = client.calc_change(q_v.close, q_v.open)
+
+            market_bias = self._build_market_bias()
 
             judged = judge(
                 nikkei_change_pct=nf["pct"],
@@ -238,6 +449,7 @@ class Command(BaseCommand):
                     **q_v.__dict__,
                     "calc": v,
                 },
+                "market_bias": market_bias,
                 "fetched_at": timezone.now().isoformat(),
             }
             raw = _json_safe(raw)
@@ -261,18 +473,19 @@ class Command(BaseCommand):
                 error="",
             )
 
+            messages = ["Saved snapshot OK"]
+
             if q_ns and _is_valid_number(q_ns.close) and q_ns.close > 0:
-                self.stdout.write(
-                    self.style.SUCCESS(
-                        f"Saved snapshot OK (nikkei_spot source={nikkei_spot_source}, close={q_ns.close})"
-                    )
-                )
+                messages.append(f"nikkei_spot={nikkei_spot_source}")
             else:
-                self.stdout.write(
-                    self.style.WARNING(
-                        "Saved snapshot OK (nikkei_spot unavailable; AI prediction will wait for spot data)"
-                    )
-                )
+                messages.append("nikkei_spot=unavailable")
+
+            if market_bias.get("available"):
+                messages.append("market_bias=available")
+            else:
+                messages.append("market_bias=unavailable")
+
+            self.stdout.write(self.style.SUCCESS(" / ".join(messages)))
 
         except Exception as e:
             err = str(e)
