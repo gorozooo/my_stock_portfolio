@@ -7,7 +7,7 @@
 - 上部に車のメーター風リスクゲージを表示
 - 中段に日経先物 / ドル円 / VIX の3カードを表示
 - 下段に「日経平均AI予想」カードを表示する
-- AI予想はスマホ向けに、予想値 / 現在値 / 乖離率 を横3カード化して見やすくする
+- AI予想はスマホ向けに、予想値 / 現在値 を横カード化して見やすくする
 -->
 
 {% extends "base.html" %}
@@ -16,7 +16,7 @@
 {% block title %}指標ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=12">
+<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=13">
 
 <div class="shihyo-page">
 
@@ -188,15 +188,20 @@
       <div class="ai-pred-top">
         <div class="ai-pred-title-wrap">
           <div class="ai-pred-title">日経平均AI予想</div>
-          <div class="ai-pred-subtitle">{{ ai_pred.subtitle }}</div>
         </div>
 
-        <div class="{{ ai_pred.badge_class }}">
-          {{ ai_pred.label }}
+        <div class="ai-pred-top-right">
+          <div class="ai-pred-confidence">
+            <span class="ai-meta-k">確率</span>
+            <span class="ai-meta-v">{{ ai_pred.confidence }}</span>
+          </div>
+          <div class="{{ ai_pred.badge_class }}">
+            {{ ai_pred.label }}
+          </div>
         </div>
       </div>
 
-      <section class="ai-mini-cards">
+      <section class="ai-mini-cards ai-mini-cards-2col">
 
         <div class="mini-card ai-mini-card">
           <div class="mini-card-head">
@@ -209,10 +214,6 @@
 
           <div class="mini-change {{ ai_pred.predicted_delta_class }}">
             {{ ai_pred.predicted_delta_display }}
-          </div>
-
-          <div class="mini-label mini-label-gray">
-            AI算出
           </div>
         </div>
 
@@ -228,42 +229,9 @@
           <div class="mini-change {{ ai_pred.current_delta_class }}">
             {{ ai_pred.current_delta_display }}
           </div>
-
-          <div class="mini-label mini-label-gray">
-            日経平均
-          </div>
-        </div>
-
-        <div class="mini-card ai-mini-card">
-          <div class="mini-card-head">
-            <span class="mini-name">乖離率</span>
-          </div>
-
-          <div class="mini-value {{ ai_pred.gap_class }}">
-            {{ ai_pred.gap_pct }}
-          </div>
-
-          <div class="mini-change change-flat">
-            現在値との差
-          </div>
-
-          <div class="mini-label mini-label-gray">
-            予想差
-          </div>
         </div>
 
       </section>
-
-      <div class="ai-pred-meta ai-pred-meta-compact">
-        <div class="ai-meta-item">
-          <span class="ai-meta-k">確率</span>
-          <span class="ai-meta-v">{{ ai_pred.confidence }}</span>
-        </div>
-        <div class="ai-meta-item">
-          <span class="ai-meta-k">更新</span>
-          <span class="ai-meta-v">{{ ai_pred.updated_at }}</span>
-        </div>
-      </div>
 
       <div class="ai-reason-box ai-reason-box-compact">
         <div class="ai-reason-title">根拠メモ</div>
