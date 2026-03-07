@@ -10,9 +10,11 @@
   2) 日経平均AI予想カード用の label / 予想値 / 乖離率 / 根拠
   を計算してテンプレートへ渡します。
 
-今回の正式版のポイント：
-- 日経平均現物が取れないときは、先物へフォールバックしない
-- AI予想カードは「取得待ち」表示にする
+今回の修正ポイント：
+- 先物 / ドル円 はテンプレート側で ±数値 (±%) を表示
+- 日経平均AI予想カードでは
+  - 予想値ブロックに「現在値との差（±数値 / ±%）」を追加
+  - 現在値ブロックに「前日比（±数値 / ±%）」を追加
 """
 
 from __future__ import annotations
@@ -42,26 +44,63 @@ def _safe_float(value, default: float = 0.0) -> float:
         return default
 
 
-def _extract_nikkei_spot(raw_payload: dict | None) -> tuple[float, float, bool, str]:
+def _format_signed_number(value: float | None, digits: int = 1) -> str:
+    if value is None:
+        return "-"
+    if value > 0:
+        return f"+{value:,.{digits}f}"
+    return f"{value:,.{digits}f}"
+
+
+def _format_signed_percent(value: float | None, digits: int = 2) -> str:
+    if value is None:
+        return "-"
+    if value > 0:
+        return f"+{value:.{digits}f}%"
+    return f"{value:.{digits}f}%"
+
+
+def _delta_class(value: float | None, vix_mode: bool = False) -> str:
+    if value is None:
+        return "change-flat"
+
+    if not vix_mode:
+        if value > 0:
+            return "change-up"
+        if value < 0:
+            return "change-down"
+        return "change-flat"
+
+    # VIX用（上昇=黄 / 低下=青）
+    if value > 0:
+        return "vix-change-up"
+    if value < 0:
+        return "vix-change-down"
+    return "change-flat"
+
+
+def _extract_nikkei_spot(raw_payload: dict | None) -> tuple[float, float, float, bool, str]:
     """
-    raw_payload から日経平均（現物）の close と change_pct を取り出す。
+    raw_payload から日経平均（現物）の close / change / change_pct を取り出す。
     戻り値:
-      (close, change_pct, available, source_name)
+      (close, change, change_pct, available, source_name)
     """
     if not isinstance(raw_payload, dict):
-        return 0.0, 0.0, False, "unknown"
+        return 0.0, 0.0, 0.0, False, "unknown"
 
     nikkei_spot = raw_payload.get("nikkei_spot") or {}
     available = bool(nikkei_spot.get("available"))
     source_name = str(nikkei_spot.get("source") or "unknown")
 
     close_value = _safe_float(nikkei_spot.get("close"), 0.0)
-    change_pct = _safe_float((nikkei_spot.get("calc") or {}).get("pct"), 0.0)
+    calc_dict = nikkei_spot.get("calc") or {}
+    change_value = _safe_float(calc_dict.get("change"), 0.0)
+    change_pct = _safe_float(calc_dict.get("pct"), 0.0)
 
     if not available or close_value <= 0:
-        return 0.0, 0.0, False, source_name
+        return 0.0, 0.0, 0.0, False, source_name
 
-    return close_value, change_pct, True, source_name
+    return close_value, change_value, change_pct, True, source_name
 
 
 def _build_risk_context(latest: MarketIndicatorSnapshot) -> dict:
@@ -89,7 +128,6 @@ def _build_risk_context(latest: MarketIndicatorSnapshot) -> dict:
     score += max(0.0, vix_pct) * 0.6
     score -= max(0.0, -vix_pct) * 0.35
 
-    # 既存action_titleも少し反映
     action_title = latest.action_title or ""
     if "守る" in action_title:
         score += 8.0
@@ -130,7 +168,7 @@ def _build_risk_context(latest: MarketIndicatorSnapshot) -> dict:
 
 
 def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) -> dict:
-    nikkei_spot_last, nikkei_spot_pct, spot_available, spot_source = _extract_nikkei_spot(latest.raw_payload)
+    nikkei_spot_last, nikkei_spot_change, nikkei_spot_pct, spot_available, spot_source = _extract_nikkei_spot(latest.raw_payload)
 
     nikkei_futures_pct = _safe_float(latest.nikkei_futures_change_pct, 0.0)
     fx_pct = _safe_float(latest.usdjpy_change_pct, 0.0)
@@ -138,7 +176,6 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
     vix_pct = _safe_float(latest.vix_change_pct, 0.0)
     risk_score = int(risk["score"])
 
-    # 正式版:
     # 日経平均現物が取れないときは、先物で代用しない
     if not spot_available or nikkei_spot_last <= 0:
         return {
@@ -152,36 +189,29 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
             "confidence": "-",
             "updated_at": latest.created_at.strftime("%H:%M") if latest.created_at else "-",
             "reason": f"日経平均現物が取得できないため予想を停止中（source={spot_source}）。先物では代用しません。",
+            "predicted_delta_display": "-",
+            "predicted_delta_class": "change-flat",
+            "current_delta_display": "-",
+            "current_delta_class": "change-flat",
         }
 
     # 日経平均AI予想のシグナル
     signal = 0.0
-
-    # 現物そのものの方向
     signal += nikkei_spot_pct * 1.35
-
-    # 先物は先行指標として重めに採用
     signal += nikkei_futures_pct * 1.60
-
-    # ドル円は追い風/逆風
     signal += fx_pct * 3.20
-
-    # VIX低下はプラス、上昇はマイナス
     signal += (-vix_pct) * 0.18
 
-    # VIX水準が高いときは慎重寄り
     if vix_last > 20:
         signal -= (vix_last - 20.0) * 0.18
     elif 0 < vix_last < 15:
         signal += (15.0 - vix_last) * 0.08
 
-    # リスクスコアでも補正
     if risk_score >= 70:
         signal -= 0.8
     elif risk_score <= 30:
         signal += 0.5
 
-    # 乖離率
     gap_pct_value = _clamp(signal * 0.55, -2.80, 2.80)
 
     if gap_pct_value >= 0.35:
@@ -198,8 +228,8 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
         gap_class = "ai-main-value-wait"
 
     predicted_value = nikkei_spot_last * (1.0 + (gap_pct_value / 100.0))
+    predicted_delta_abs = predicted_value - nikkei_spot_last
 
-    # 簡易信頼度
     confidence_value = 52 + min(28, int(abs(signal) * 8))
     confidence_value = int(_clamp(confidence_value, 50, 80))
 
@@ -235,17 +265,30 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
 
     reason_text = " / ".join(reasons[:3])
 
+    predicted_delta_display = (
+        f"{_format_signed_number(predicted_delta_abs, 1)} "
+        f"({_format_signed_percent(gap_pct_value, 2)})"
+    )
+    current_delta_display = (
+        f"{_format_signed_number(nikkei_spot_change, 1)} "
+        f"({_format_signed_percent(nikkei_spot_pct, 2)})"
+    )
+
     return {
         "subtitle": "日経平均ベース短期シナリオ",
         "label": label,
         "badge_class": badge_class,
         "predicted_value": _format_price(predicted_value, 1),
         "current_value": _format_price(nikkei_spot_last, 1),
-        "gap_pct": f"{gap_pct_value:+.2f}%",
+        "gap_pct": _format_signed_percent(gap_pct_value, 2),
         "gap_class": gap_class,
         "confidence": f"{confidence_value}%",
         "updated_at": latest.created_at.strftime("%H:%M") if latest.created_at else "-",
         "reason": reason_text,
+        "predicted_delta_display": predicted_delta_display,
+        "predicted_delta_class": _delta_class(predicted_delta_abs),
+        "current_delta_display": current_delta_display,
+        "current_delta_class": _delta_class(nikkei_spot_change),
     }
 
 
