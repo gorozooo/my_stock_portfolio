@@ -7,6 +7,7 @@
 - 投資の森のような横3カード表示
 - 上部は車のメーター風 0-100 リスクゲージ
 - AI予想カードも上の3指標に寄せたコンパクトUIで表示
+- 市場の偏りカードを追加
 - VIXだけ特別色
 */
 
@@ -326,7 +327,7 @@
 }
 
 /* =========================
-   AI予想カード（コンパクト版）
+   AI予想カード
 ========================= */
 .ai-pred-card{
   margin-top: 14px;
@@ -450,11 +451,142 @@
 }
 
 /* =========================
+   市場の偏りカード
+========================= */
+.market-bias-card{
+  margin-top: 14px;
+}
+
+.market-bias-top{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.market-bias-title{
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.2;
+  opacity: .96;
+}
+
+.market-bias-summary-badge{
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 6px 11px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.market-bias-badge-on{
+  background: rgba(56, 201, 101, .18);
+  color: #73ff9d;
+  border: 1px solid rgba(56, 201, 101, .32);
+}
+
+.market-bias-badge-off{
+  background: rgba(255, 92, 92, .18);
+  color: #ff9c9c;
+  border: 1px solid rgba(255, 92, 92, .32);
+}
+
+.market-bias-badge-wait{
+  background: rgba(235, 191, 55, .18);
+  color: #ffd86b;
+  border: 1px solid rgba(235, 191, 55, .32);
+}
+
+.market-bias-summary{
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: .84;
+}
+
+.market-bias-grid{
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.bias-block{
+  min-width: 0;
+  padding: 10px 10px 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.07);
+}
+
+.bias-block-title{
+  font-size: 11px;
+  font-weight: 800;
+  opacity: .72;
+}
+
+.bias-chip-list{
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bias-chip{
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.bias-chip-strong{
+  background: rgba(56, 201, 101, .14);
+  color: #73ff9d;
+  border: 1px solid rgba(56, 201, 101, .22);
+}
+
+.bias-chip-weak{
+  background: rgba(255, 92, 92, .14);
+  color: #ff9c9c;
+  border: 1px solid rgba(255, 92, 92, .22);
+}
+
+.bias-chip-theme{
+  background: rgba(255,255,255,.10);
+  color: rgba(255,255,255,.94);
+  border: 1px solid rgba(255,255,255,.10);
+}
+
+.bias-chip-cold{
+  background: rgba(80, 140, 255, .14);
+  color: #9fc3ff;
+  border: 1px solid rgba(80, 140, 255, .22);
+}
+
+.market-bias-empty{
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.07);
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: .82;
+}
+
+/* =========================
    小さめスマホ対応
 ========================= */
 @media (max-width: 420px){
   .shihyo-mini-cards,
-  .ai-mini-cards{
+  .ai-mini-cards,
+  .market-bias-grid{
     gap: 6px;
   }
 
@@ -485,12 +617,15 @@
   }
 
   .risk-title,
-  .ai-pred-title{
+  .ai-pred-title,
+  .market-bias-title{
     font-size: 14px;
   }
 
   .risk-summary,
-  .ai-reason-text{
+  .ai-reason-text,
+  .market-bias-summary,
+  .market-bias-empty{
     font-size: 11px;
   }
 
@@ -529,5 +664,9 @@
 
   .ai-pred-top-right{
     gap: 6px;
+  }
+
+  .market-bias-grid{
+    grid-template-columns: 1fr;
   }
 }
