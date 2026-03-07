@@ -8,13 +8,13 @@
 - 最新スナップショットの実データから、
   1) リスクメーター用の score / title / needle角度
   2) 日経平均AI予想カード用の label / 予想値 / 乖離率 / 根拠
+  3) 市場の偏りカード用の表示データ
   を計算してテンプレートへ渡します。
 
-今回の修正ポイント：
-- 先物 / ドル円 はテンプレート側で ±数値 (±%) を表示
-- 日経平均AI予想カードでは
-  - 予想値ブロックに「現在値との差（±数値 / ±%）」を追加
-  - 現在値ブロックに「前日比（±数値 / ±%）」を追加
+今回の市場の偏りカードについて：
+- 現在の取得処理で market_bias データが raw_payload にあれば表示
+- 無ければ UI は表示しつつ「取得準備中」にする
+- 推測で業種やテーマは作らない
 """
 
 from __future__ import annotations
@@ -71,7 +71,6 @@ def _delta_class(value: float | None, vix_mode: bool = False) -> str:
             return "change-down"
         return "change-flat"
 
-    # VIX用（上昇=黄 / 低下=青）
     if value > 0:
         return "vix-change-up"
     if value < 0:
@@ -109,22 +108,16 @@ def _build_risk_context(latest: MarketIndicatorSnapshot) -> dict:
     vix_last = _safe_float(latest.vix_last, 0.0)
     vix_pct = _safe_float(latest.vix_change_pct, 0.0)
 
-    # 0=攻め / 100=守り
     score = 50.0
-
-    # 日経先物が弱いほどリスク加算、強いほど減算
     score += max(0.0, -nikkei_pct) * 10.0
     score -= max(0.0, nikkei_pct) * 8.0
 
-    # ドル円が円高方向ならリスク加算、円安方向なら減算
     score += max(0.0, -fx_pct) * 20.0
     score -= max(0.0, fx_pct) * 12.0
 
-    # VIXの水準が高いほどリスク加算
     if vix_last > 15:
         score += (vix_last - 15.0) * 1.7
 
-    # VIX上昇はリスク加算、VIX低下は減算
     score += max(0.0, vix_pct) * 0.6
     score -= max(0.0, -vix_pct) * 0.35
 
@@ -137,10 +130,7 @@ def _build_risk_context(latest: MarketIndicatorSnapshot) -> dict:
         score -= 8.0
 
     score = int(round(_clamp(score, 0.0, 100.0)))
-
-    # 0=左, 50=中央, 100=右
-    needle_deg = -58.0 + (score / 100.0) * 116.0
-    needle_deg = round(needle_deg, 1)
+    needle_deg = round(-58.0 + (score / 100.0) * 116.0, 1)
 
     if score >= 67:
         title = "今は守る相場"
@@ -176,7 +166,6 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
     vix_pct = _safe_float(latest.vix_change_pct, 0.0)
     risk_score = int(risk["score"])
 
-    # 日経平均現物が取れないときは、先物で代用しない
     if not spot_available or nikkei_spot_last <= 0:
         return {
             "subtitle": "日経平均ベース短期シナリオ",
@@ -195,7 +184,6 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
             "current_delta_class": "change-flat",
         }
 
-    # 日経平均AI予想のシグナル
     signal = 0.0
     signal += nikkei_spot_pct * 1.35
     signal += nikkei_futures_pct * 1.60
@@ -292,6 +280,56 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
     }
 
 
+def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
+    """
+    raw_payload["market_bias"] があれば使う。
+    ない場合は UI だけ出して準備中表示にする。
+    """
+    raw_payload = latest.raw_payload if isinstance(latest.raw_payload, dict) else {}
+    market_bias = raw_payload.get("market_bias") or {}
+
+    strong_sectors = market_bias.get("strong_sectors") or []
+    weak_sectors = market_bias.get("weak_sectors") or []
+    hot_themes = market_bias.get("hot_themes") or []
+    cold_themes = market_bias.get("cold_themes") or []
+
+    available = any([strong_sectors, weak_sectors, hot_themes, cold_themes])
+
+    if not available:
+        return {
+            "available": False,
+            "summary_title": "準備中",
+            "summary_badge_class": "market-bias-badge market-bias-badge-wait",
+            "summary_text": "日本株市場で、どこに資金が入っているか / どこが売られているか を表示します。",
+            "strong_sectors": [],
+            "weak_sectors": [],
+            "hot_themes": [],
+            "cold_themes": [],
+        }
+
+    summary_title = str(market_bias.get("summary_title") or "市場の偏り")
+    summary_text = str(market_bias.get("summary_text") or "今日は市場の偏りが出ています。")
+
+    tone = str(market_bias.get("tone") or "neutral")
+    if tone == "risk_on":
+        badge_class = "market-bias-badge market-bias-badge-on"
+    elif tone == "risk_off":
+        badge_class = "market-bias-badge market-bias-badge-off"
+    else:
+        badge_class = "market-bias-badge market-bias-badge-wait"
+
+    return {
+        "available": True,
+        "summary_title": summary_title,
+        "summary_badge_class": badge_class,
+        "summary_text": summary_text,
+        "strong_sectors": [str(x) for x in strong_sectors[:3]],
+        "weak_sectors": [str(x) for x in weak_sectors[:3]],
+        "hot_themes": [str(x) for x in hot_themes[:3]],
+        "cold_themes": [str(x) for x in cold_themes[:3]],
+    }
+
+
 @login_required
 def dashboard(request):
     latest = MarketIndicatorSnapshot.objects.first()
@@ -300,12 +338,16 @@ def dashboard(request):
         "latest": latest,
         "risk": None,
         "ai_pred": None,
+        "market_bias": None,
     }
 
     if latest:
         risk = _build_risk_context(latest)
         ai_pred = _build_ai_prediction_context(latest, risk)
+        market_bias = _build_market_bias_context(latest)
+
         context["risk"] = risk
         context["ai_pred"] = ai_pred
+        context["market_bias"] = market_bias
 
     return render(request, "shihyo/dashboard.html", context)
