@@ -6,7 +6,7 @@
 - 指標ダッシュボードUI
 - 投資の森のような横3カード表示
 - 上部は車のメーター風 0-100 リスクゲージ
-- AI予想カードを完成UIで表示
+- AI予想カードも上の3指標に寄せたコンパクトUIで表示
 - VIXだけ特別色
 */
 
@@ -138,19 +138,6 @@
   transform-origin: bottom center;
   box-shadow: 0 0 10px rgba(255,255,255,.18);
   transition: transform .25s ease;
-}
-
-/* 左=攻め, 中央=様子見, 右=守り */
-.needle-18{
-  transform: translateX(-50%) rotate(-58deg);
-}
-
-.needle-50{
-  transform: translateX(-50%) rotate(0deg);
-}
-
-.needle-82{
-  transform: translateX(-50%) rotate(58deg);
 }
 
 .gauge-center-cap{
@@ -339,7 +326,7 @@
 }
 
 /* =========================
-   AI予想カード（完成UI）
+   AI予想カード（コンパクト版）
 ========================= */
 .ai-pred-card{
   margin-top: 14px;
@@ -398,53 +385,18 @@
   border: 1px solid rgba(235, 191, 55, .32);
 }
 
-.ai-pred-main{
-  margin-top: 14px;
+.ai-mini-cards{
+  margin-top: 12px;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
+  gap: 8px;
 }
 
-.ai-main-block{
-  min-width: 0;
-  padding: 10px 10px;
-  border-radius: 12px;
-  background: rgba(255,255,255,.05);
-  border: 1px solid rgba(255,255,255,.08);
+.ai-mini-card .mini-value{
+  font-size: 20px;
 }
 
-.ai-main-label{
-  font-size: 11px;
-  opacity: .68;
-  line-height: 1.2;
-}
-
-.ai-main-value{
-  margin-top: 6px;
-  font-size: 22px;
-  font-weight: 900;
-  line-height: 1.1;
-  letter-spacing: .2px;
-  white-space: nowrap;
-}
-
-.ai-main-value-current{
-  color: rgba(255,255,255,.96);
-}
-
-.ai-main-value-up{
-  color: #73ff9d;
-}
-
-.ai-main-value-down{
-  color: #ff9c9c;
-}
-
-.ai-main-value-wait{
-  color: #ffd86b;
-}
-
-.ai-pred-meta{
+.ai-pred-meta-compact{
   margin-top: 12px;
   display: flex;
   align-items: center;
@@ -469,7 +421,7 @@
   opacity: .94;
 }
 
-.ai-reason-box{
+.ai-reason-box-compact{
   margin-top: 12px;
   padding: 10px 12px;
   border-radius: 12px;
@@ -494,7 +446,8 @@
    小さめスマホ対応
 ========================= */
 @media (max-width: 420px){
-  .shihyo-mini-cards{
+  .shihyo-mini-cards,
+  .ai-mini-cards{
     gap: 6px;
   }
 
@@ -509,6 +462,10 @@
 
   .mini-value{
     font-size: 16px;
+  }
+
+  .ai-mini-card .mini-value{
+    font-size: 17px;
   }
 
   .mini-change{
@@ -562,14 +519,5 @@
   .gauge-labels,
   .gauge-zones{
     max-width: 290px;
-  }
-
-  .ai-pred-main{
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-
-  .ai-main-value{
-    font-size: 20px;
   }
 }
