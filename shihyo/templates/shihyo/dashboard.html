@@ -7,7 +7,7 @@
 - 上部に車のメーター風リスクゲージを表示
 - 中段に日経先物 / ドル円 / VIX の3カードを表示
 - 下段に「日経平均AI予想」カードを表示する
-- AI予想カードは views.py で計算した実データを表示する
+- 先物・ドル円・AI予想値・日経平均現在値には、%だけでなく ±数値 も表示する
 -->
 
 {% extends "base.html" %}
@@ -16,7 +16,7 @@
 {% block title %}指標ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=10">
+<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=11">
 
 <div class="shihyo-page">
 
@@ -102,7 +102,10 @@
             change-flat
           {% endif %}
         ">
-          {{ latest.nikkei_futures_change_pct|floatformat:2 }}%
+          {% if latest.nikkei_futures_change > 0 %}+{% endif %}{{ latest.nikkei_futures_change|floatformat:1 }}
+          (
+          {% if latest.nikkei_futures_change_pct > 0 %}+{% endif %}{{ latest.nikkei_futures_change_pct|floatformat:2 }}%
+          )
         </div>
 
         <div class="mini-label mini-label-red">
@@ -129,7 +132,10 @@
             change-flat
           {% endif %}
         ">
-          {{ latest.usdjpy_change_pct|floatformat:2 }}%
+          {% if latest.usdjpy_change > 0 %}+{% endif %}{{ latest.usdjpy_change|floatformat:3 }}
+          (
+          {% if latest.usdjpy_change_pct > 0 %}+{% endif %}{{ latest.usdjpy_change_pct|floatformat:2 }}%
+          )
         </div>
 
         <div class="mini-label mini-label-red">
@@ -156,7 +162,10 @@
             change-flat
           {% endif %}
         ">
-          {{ latest.vix_change_pct|floatformat:2 }}%
+          {% if latest.vix_change > 0 %}+{% endif %}{{ latest.vix_change|floatformat:2 }}
+          (
+          {% if latest.vix_change_pct > 0 %}+{% endif %}{{ latest.vix_change_pct|floatformat:2 }}%
+          )
         </div>
 
         <div class="mini-label
@@ -191,12 +200,18 @@
         <div class="ai-main-block">
           <div class="ai-main-label">予想値</div>
           <div class="ai-main-value">{{ ai_pred.predicted_value }}</div>
+          <div class="mini-change {{ ai_pred.predicted_delta_class }}" style="margin-top:8px;">
+            {{ ai_pred.predicted_delta_display }}
+          </div>
         </div>
 
         <div class="ai-main-block ai-main-block-current">
           <div class="ai-main-label">現在値</div>
           <div class="ai-main-value ai-main-value-current">
             {{ ai_pred.current_value }}
+          </div>
+          <div class="mini-change {{ ai_pred.current_delta_class }}" style="margin-top:8px;">
+            {{ ai_pred.current_delta_display }}
           </div>
         </div>
 
