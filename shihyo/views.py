@@ -7,14 +7,14 @@
 - 最新スナップショットを1件だけ表示します。
 - 最新スナップショットの実データから、
   1) リスクメーター用の score / title / needle角度
-  2) 日経平均AI予想カード用の label / 予想値 / 乖離率 / 根拠
+  2) 日経平均AI予想カード用の label / 予想値 / 根拠
   3) 市場の偏りカード用の表示データ
   を計算してテンプレートへ渡します。
 
-今回の市場の偏りカードについて：
-- 現在の取得処理で market_bias データが raw_payload にあれば表示
-- 無ければ UI は表示しつつ「取得準備中」にする
-- 推測で業種やテーマは作らない
+今回の修正ポイント：
+- raw_payload["market_bias"] があれば優先して使う
+- 無ければ ShihyoMarketBiasSnapshot(mode=close) を直接読んで表示する
+- つまり market_bias の表示経路を二重化して、画面を安定化する
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from __future__ import annotations
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
-from shihyo.models import MarketIndicatorSnapshot
+from shihyo.models import MarketIndicatorSnapshot, ShihyoMarketBiasSnapshot
 
 
 def _clamp(value: float, min_value: float, max_value: float) -> float:
@@ -282,8 +282,9 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
 
 def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
     """
-    raw_payload["market_bias"] があれば使う。
-    ない場合は UI だけ出して準備中表示にする。
+    1) raw_payload["market_bias"] があれば優先して使う
+    2) 無ければ ShihyoMarketBiasSnapshot(mode=close) の最新を使う
+    3) それも無ければ準備中表示
     """
     raw_payload = latest.raw_payload if isinstance(latest.raw_payload, dict) else {}
     market_bias = raw_payload.get("market_bias") or {}
@@ -293,40 +294,64 @@ def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
     hot_themes = market_bias.get("hot_themes") or []
     cold_themes = market_bias.get("cold_themes") or []
 
-    available = any([strong_sectors, weak_sectors, hot_themes, cold_themes])
+    if any([strong_sectors, weak_sectors, hot_themes, cold_themes]):
+        summary_title = str(market_bias.get("summary_title") or "市場の偏り")
+        summary_text = str(market_bias.get("summary_text") or "今日は市場の偏りが出ています。")
+        tone = str(market_bias.get("tone") or "neutral")
 
-    if not available:
+        if tone == "risk_on":
+            badge_class = "market-bias-badge market-bias-badge-on"
+        elif tone == "risk_off":
+            badge_class = "market-bias-badge market-bias-badge-off"
+        else:
+            badge_class = "market-bias-badge market-bias-badge-wait"
+
         return {
-            "available": False,
-            "summary_title": "準備中",
-            "summary_badge_class": "market-bias-badge market-bias-badge-wait",
-            "summary_text": "日本株市場で、どこに資金が入っているか / どこが売られているか を表示します。",
-            "strong_sectors": [],
-            "weak_sectors": [],
-            "hot_themes": [],
-            "cold_themes": [],
+            "available": True,
+            "summary_title": summary_title,
+            "summary_badge_class": badge_class,
+            "summary_text": summary_text,
+            "strong_sectors": [str(x) for x in strong_sectors[:3]],
+            "weak_sectors": [str(x) for x in weak_sectors[:3]],
+            "hot_themes": [str(x) for x in hot_themes[:3]],
+            "cold_themes": [str(x) for x in cold_themes[:3]],
         }
 
-    summary_title = str(market_bias.get("summary_title") or "市場の偏り")
-    summary_text = str(market_bias.get("summary_text") or "今日は市場の偏りが出ています。")
+    latest_bias = (
+        ShihyoMarketBiasSnapshot.objects
+        .filter(mode=ShihyoMarketBiasSnapshot.MODE_CLOSE)
+        .order_by("-date", "-updated_at")
+        .first()
+    )
 
-    tone = str(market_bias.get("tone") or "neutral")
-    if tone == "risk_on":
-        badge_class = "market-bias-badge market-bias-badge-on"
-    elif tone == "risk_off":
-        badge_class = "market-bias-badge market-bias-badge-off"
-    else:
-        badge_class = "market-bias-badge market-bias-badge-wait"
+    if latest_bias:
+        if latest_bias.tone == ShihyoMarketBiasSnapshot.TONE_RISK_ON:
+            badge_class = "market-bias-badge market-bias-badge-on"
+        elif latest_bias.tone == ShihyoMarketBiasSnapshot.TONE_RISK_OFF:
+            badge_class = "market-bias-badge market-bias-badge-off"
+        else:
+            badge_class = "market-bias-badge market-bias-badge-wait"
+
+        return {
+            "available": True,
+            "summary_title": latest_bias.summary_title or "市場の偏り",
+            "summary_badge_class": badge_class,
+            "summary_text": latest_bias.summary_text or "今日は市場の偏りが出ています。",
+            "strong_sectors": [str(x) for x in (latest_bias.strong_sectors or [])[:3]],
+            "weak_sectors": [str(x) for x in (latest_bias.weak_sectors or [])[:3]],
+            "hot_themes": [str(x) for x in (latest_bias.hot_themes or [])[:3]],
+            "cold_themes": [str(x) for x in (latest_bias.cold_themes or [])[:3]],
+        }
 
     return {
-        "available": True,
-        "summary_title": summary_title,
-        "summary_badge_class": badge_class,
-        "summary_text": summary_text,
-        "strong_sectors": [str(x) for x in strong_sectors[:3]],
-        "weak_sectors": [str(x) for x in weak_sectors[:3]],
-        "hot_themes": [str(x) for x in hot_themes[:3]],
-        "cold_themes": [str(x) for x in cold_themes[:3]],
+        "available": False,
+        "summary_title": "準備中",
+        "summary_badge_class": "market-bias-badge market-bias-badge-wait",
+        "summary_text": "日本株市場で、どこに資金が入っているか / どこが売られているか を表示します。",
+        "strong_sectors": [],
+        "weak_sectors": [],
+        "hot_themes": [],
+        "cold_themes": [],
     }
 
 
