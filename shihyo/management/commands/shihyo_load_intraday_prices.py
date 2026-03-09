@@ -12,6 +12,8 @@
 - ETF/ETN はデフォルトで除外
 - --include-etf を付けたときだけ ETF/ETN も対象にする
 - pandas の FutureWarning を解消
+- prev_close が無いときは、同じ1分足データの前営業日終値から補完する
+- sector_name を保存時に正規化する
 """
 
 from __future__ import annotations
@@ -78,6 +80,50 @@ def _parse_target_date(s: str) -> date:
     return datetime.strptime(s, "%Y-%m-%d").date()
 
 
+def _normalize_sector_name(sector_name: str | None) -> str:
+    s = (sector_name or "").strip()
+    if not s:
+        return ""
+
+    alias_map = {
+        "食品": "食料品",
+        "食料": "食料品",
+        "建設・資材": "建設業",
+        "建設": "建設業",
+        "素材・化学": "化学",
+        "医薬": "医薬品",
+        "情報通信": "情報・通信業",
+        "情報・通信": "情報・通信業",
+        "電力・ガス": "電気・ガス業",
+        "電気ガス": "電気・ガス業",
+        "電気・ガス": "電気・ガス業",
+        "自動車・輸送機": "輸送用機器",
+        "商社・卸売": "卸売業",
+        "銀行・金融": "銀行業",
+        "電機・精密": "電気機器",
+        "小売": "小売業",
+        "卸売": "卸売業",
+        "不動産": "不動産業",
+        "海運": "海運業",
+        "空運": "空運業",
+        "陸運": "陸運業",
+        "倉庫・運輸": "倉庫・運輸関連業",
+        "証券・商品先物取引業": "証券、商品先物取引業",
+        "石油・石炭": "石油・石炭製品",
+        "ガラス・土石": "ガラス・土石製品",
+        "その他金融": "その他金融業",
+    }
+
+    if s in alias_map:
+        return alias_map[s]
+
+    for key, value in alias_map.items():
+        if s == key or s in key or key in s:
+            return value
+
+    return s
+
+
 def _get_prev_close_map(target_date: date) -> dict[str, float]:
     """
     対象日より前の直近日次価格を code -> close で作る。
@@ -127,9 +173,33 @@ def _is_etf_like(master: StockMaster) -> bool:
         "投資法人",
         "NEXT FUNDS",
         "MAXIS",
-        "iFreeETF",
+        "IFREEETF",
     ]
     return any(k in name for k in keywords)
+
+
+def _infer_prev_close_from_intraday_df(df: "pd.DataFrame", target_date: date) -> Optional[float]:
+    """
+    1分足データの中から、対象日の前営業日の最終 close を拾って prev_close の補完に使う。
+    """
+    if df is None or df.empty:
+        return None
+
+    try:
+        work = _normalize_index_to_jst(df)
+        work = work.sort_index()
+    except Exception:
+        return None
+
+    prior_rows = work[work.index.date < target_date]
+    if prior_rows.empty:
+        return None
+
+    try:
+        last_close = prior_rows.iloc[-1].get("Close")
+        return _safe_float(last_close)
+    except Exception:
+        return None
 
 
 def _pick_intraday_snapshot(
@@ -301,6 +371,7 @@ class Command(BaseCommand):
         updated_count = 0
         no_price_count = 0
         failed_chunks = 0
+        fallback_prev_close_count = 0
 
         self.stdout.write(
             f"[shihyo_load_intraday_prices] target_date={target_date} "
@@ -350,6 +421,11 @@ class Command(BaseCommand):
                         continue
 
                     prev_close = prev_close_map.get(master.code)
+                    if prev_close is None:
+                        prev_close = _infer_prev_close_from_intraday_df(df, target_date)
+                        if prev_close is not None:
+                            fallback_prev_close_count += 1
+
                     change = None
                     change_pct = None
 
@@ -397,7 +473,7 @@ class Command(BaseCommand):
                             "captured_at": row["captured_at"],
                             "name": master.name or "",
                             "sector_code": master.sector_code or None,
-                            "sector_name": master.sector_name or None,
+                            "sector_name": _normalize_sector_name(master.sector_name),
                             "last": row["last"],
                             "prev_close": row["prev_close"],
                             "change": row["change"],
@@ -417,6 +493,7 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 "[shihyo_load_intraday_prices] done "
                 f"created={created_count} updated={updated_count} "
-                f"no_price={no_price_count} failed_chunks={failed_chunks}"
+                f"no_price={no_price_count} failed_chunks={failed_chunks} "
+                f"fallback_prev_close={fallback_prev_close_count}"
             )
         )
