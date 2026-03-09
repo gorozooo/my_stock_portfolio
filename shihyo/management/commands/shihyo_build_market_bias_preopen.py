@@ -8,22 +8,16 @@
 - 目的は「昨日どうだったか」ではなく、
   「今日の寄り前に、どこへ資金が向かいそうか」を作ることです。
 
-今回の改善ポイント:
+今回の修正ポイント：
+- preopen 保存日付を JST 基準に修正
+- これで朝7時に走ったとき、前日付ではなく「今日の preopen」として保存される
 - preopen 側の業種名も close / open_1000 と同じ 33業種寄りへそろえる
-- 17業種寄りの表記（例: エネルギー資源）を 33業種側へ寄せる
-- 返却する strong / weak も正規化済みで保存する
-
-使い方:
-- まず shihyo_fetch で最新指標を保存
-- そのあとこのコマンドで preopen を作成
-
-  python manage.py shihyo_fetch
-  python manage.py shihyo_build_market_bias_preopen
 """
 
 from __future__ import annotations
 
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
 from shihyo.models import MarketIndicatorSnapshot, ShihyoMarketBiasSnapshot
 
@@ -128,11 +122,6 @@ def _sector_to_theme(sector_name: str | None) -> str:
 
 
 def _theme_to_sectors(themes: list[str]) -> list[str]:
-    """
-    予報用にテーマから代表的な業種名へ戻す。
-    UIは業種名を出したいので、ざっくり代表名へ変換する。
-    返す業種名は 33業種寄りで統一する。
-    """
     mapping = {
         "金利関連": ["銀行業", "保険業", "証券、商品先物取引業"],
         "商社・景気敏感": ["卸売業", "輸送用機器", "機械"],
@@ -300,8 +289,11 @@ class Command(BaseCommand):
 
         payload = _build_preopen_bias(close_bias, latest)
 
+        # JST の今日で保存する
+        today_local = timezone.localdate()
+
         obj, created = ShihyoMarketBiasSnapshot.objects.update_or_create(
-            date=latest.created_at.date(),
+            date=today_local,
             mode=ShihyoMarketBiasSnapshot.MODE_PREOPEN,
             defaults=payload,
         )
