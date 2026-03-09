@@ -13,8 +13,9 @@
 
 今回の修正ポイント：
 - raw_payload["market_bias"] があれば優先して使う
-- 無ければ ShihyoMarketBiasSnapshot(mode=close) を直接読んで表示する
-- つまり market_bias の表示経路を二重化して、画面を安定化する
+- 無ければ ShihyoMarketBiasSnapshot を直接読む
+- その際は close より preopen を優先して表示する
+- つまり朝7:00予報が画面に反映される
 """
 
 from __future__ import annotations
@@ -280,10 +281,36 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
     }
 
 
+def _get_latest_market_bias_snapshot() -> ShihyoMarketBiasSnapshot | None:
+    """
+    表示優先順位:
+      1. preopen
+      2. close
+    ※ open_1000 は次段階で追加する
+    """
+    latest_preopen = (
+        ShihyoMarketBiasSnapshot.objects
+        .filter(mode=ShihyoMarketBiasSnapshot.MODE_PREOPEN)
+        .order_by("-date", "-updated_at")
+        .first()
+    )
+    if latest_preopen:
+        return latest_preopen
+
+    latest_close = (
+        ShihyoMarketBiasSnapshot.objects
+        .filter(mode=ShihyoMarketBiasSnapshot.MODE_CLOSE)
+        .order_by("-date", "-updated_at")
+        .first()
+    )
+    return latest_close
+
+
 def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
     """
     1) raw_payload["market_bias"] があれば優先して使う
-    2) 無ければ ShihyoMarketBiasSnapshot(mode=close) の最新を使う
+    2) 無ければ DB の市場の偏りスナップショットを使う
+       - preopen を close より優先
     3) それも無ければ準備中表示
     """
     raw_payload = latest.raw_payload if isinstance(latest.raw_payload, dict) else {}
@@ -317,12 +344,7 @@ def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
             "cold_themes": [str(x) for x in cold_themes[:3]],
         }
 
-    latest_bias = (
-        ShihyoMarketBiasSnapshot.objects
-        .filter(mode=ShihyoMarketBiasSnapshot.MODE_CLOSE)
-        .order_by("-date", "-updated_at")
-        .first()
-    )
+    latest_bias = _get_latest_market_bias_snapshot()
 
     if latest_bias:
         if latest_bias.tone == ShihyoMarketBiasSnapshot.TONE_RISK_ON:
