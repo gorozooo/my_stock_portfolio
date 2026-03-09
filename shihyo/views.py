@@ -12,13 +12,10 @@
   を計算してテンプレートへ渡します。
 
 今回の修正ポイント：
-- 市場の偏りカードに「何モードを表示中か」を渡す
-- 優先順は open_1000 → preopen → close
-- それぞれ
-    - 10:00実績
-    - 朝予報
-    - 引け後実績
-  のラベルで表示できるようにする
+- 市場の偏りを初心者向けの日本語に整える
+- 10:00実績があるときは、朝予報との差を
+  「ほぼ一致 / 一部一致 / ズレあり」で表示できるようにする
+- 表示優先順位は open_1000 → preopen → close
 """
 
 from __future__ import annotations
@@ -178,7 +175,6 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
             "predicted_value": "-",
             "current_value": "-",
             "gap_pct": "-",
-            "gap_class": "ai-main-value-wait",
             "confidence": "-",
             "updated_at": latest.created_at.strftime("%H:%M") if latest.created_at else "-",
             "reason": f"日経平均現物が取得できないため予想を停止中（source={spot_source}）。先物では代用しません。",
@@ -321,6 +317,91 @@ def _mode_meta_from_mode(mode: str | None) -> tuple[str, str]:
     return "保存値", "market-bias-mode market-bias-mode-raw"
 
 
+def _build_market_bias_beginner_text(
+    mode_label: str,
+    strong_sectors: list[str],
+    weak_sectors: list[str],
+    hot_themes: list[str],
+    cold_themes: list[str],
+) -> str:
+    prefix_map = {
+        "10:00実績": "10:00時点では",
+        "朝予報": "朝の予想では",
+        "引け後実績": "引け後時点では",
+        "保存値": "いまの保存データでは",
+    }
+    prefix = prefix_map.get(mode_label, "いまは")
+
+    parts: list[str] = []
+
+    if strong_sectors and weak_sectors:
+        parts.append(f"{prefix}、{strong_sectors[0]}などに買いが入りやすく、{weak_sectors[0]}などは売られやすい流れです。")
+    elif strong_sectors:
+        parts.append(f"{prefix}、{strong_sectors[0]}などに買いが入りやすい流れです。")
+    elif weak_sectors:
+        parts.append(f"{prefix}、{weak_sectors[0]}などは売られやすい流れです。")
+    else:
+        parts.append(f"{prefix}、まだ大きな偏りは読み取り中です。")
+
+    if hot_themes:
+        parts.append(f"値上がり上位は{hot_themes[0]}寄りです。")
+    if cold_themes:
+        parts.append(f"値下がり上位は{cold_themes[0]}寄りです。")
+
+    return " ".join(parts)
+
+
+def _build_market_bias_compare(latest_bias: ShihyoMarketBiasSnapshot | None) -> dict:
+    if latest_bias is None or latest_bias.mode != ShihyoMarketBiasSnapshot.MODE_OPEN_1000:
+        return {
+            "label": "",
+            "class": "",
+            "text": "",
+        }
+
+    preopen = (
+        ShihyoMarketBiasSnapshot.objects
+        .filter(date=latest_bias.date, mode=ShihyoMarketBiasSnapshot.MODE_PREOPEN)
+        .order_by("-updated_at")
+        .first()
+    )
+
+    if not preopen:
+        return {
+            "label": "",
+            "class": "",
+            "text": "",
+        }
+
+    open_strong = set(str(x) for x in (latest_bias.strong_sectors or []))
+    open_weak = set(str(x) for x in (latest_bias.weak_sectors or []))
+    pre_strong = set(str(x) for x in (preopen.strong_sectors or []))
+    pre_weak = set(str(x) for x in (preopen.weak_sectors or []))
+
+    same_side_overlap = len(open_strong & pre_strong) + len(open_weak & pre_weak)
+    cross_overlap = len(open_strong & pre_weak) + len(open_weak & pre_strong)
+
+    if same_side_overlap >= 2 and cross_overlap == 0:
+        return {
+            "label": "ほぼ一致",
+            "class": "market-bias-compare-badge market-bias-compare-good",
+            "text": "朝予報どおりの流れです。寄り後も主役業種が大きく変わっていません。",
+        }
+
+    if same_side_overlap >= 1 and cross_overlap <= 1:
+        return {
+            "label": "一部一致",
+            "class": "market-bias-compare-badge market-bias-compare-mid",
+            "text": "朝予報の一部は当たりですが、寄り後に少し入れ替わりも出ています。",
+        }
+
+    return {
+        "label": "ズレあり",
+        "class": "market-bias-compare-badge market-bias-compare-alert",
+        "text": "朝予報と少し違う動きです。寄り後に資金の向きが変わっています。",
+    }
+
+
 def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
     """
     表示優先順位:
@@ -333,26 +414,42 @@ def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
 
     if latest_bias:
         mode_label, mode_class = _mode_meta_from_mode(latest_bias.mode)
+        strong_sectors = [str(x) for x in (latest_bias.strong_sectors or [])[:3]]
+        weak_sectors = [str(x) for x in (latest_bias.weak_sectors or [])[:3]]
+        hot_themes = [str(x) for x in (latest_bias.hot_themes or [])[:3]]
+        cold_themes = [str(x) for x in (latest_bias.cold_themes or [])[:3]]
+        compare = _build_market_bias_compare(latest_bias)
+
         return {
             "available": True,
             "summary_title": latest_bias.summary_title or "市場の偏り",
             "summary_badge_class": _badge_class_from_tone(latest_bias.tone),
             "summary_text": latest_bias.summary_text or "今日は市場の偏りが出ています。",
-            "strong_sectors": [str(x) for x in (latest_bias.strong_sectors or [])[:3]],
-            "weak_sectors": [str(x) for x in (latest_bias.weak_sectors or [])[:3]],
-            "hot_themes": [str(x) for x in (latest_bias.hot_themes or [])[:3]],
-            "cold_themes": [str(x) for x in (latest_bias.cold_themes or [])[:3]],
+            "strong_sectors": strong_sectors,
+            "weak_sectors": weak_sectors,
+            "hot_themes": hot_themes,
+            "cold_themes": cold_themes,
             "mode_label": mode_label,
             "mode_class": mode_class,
+            "beginner_text": _build_market_bias_beginner_text(
+                mode_label=mode_label,
+                strong_sectors=strong_sectors,
+                weak_sectors=weak_sectors,
+                hot_themes=hot_themes,
+                cold_themes=cold_themes,
+            ),
+            "compare_label": compare["label"],
+            "compare_class": compare["class"],
+            "compare_text": compare["text"],
         }
 
     raw_payload = latest.raw_payload if isinstance(latest.raw_payload, dict) else {}
     market_bias = raw_payload.get("market_bias") or {}
 
-    strong_sectors = market_bias.get("strong_sectors") or []
-    weak_sectors = market_bias.get("weak_sectors") or []
-    hot_themes = market_bias.get("hot_themes") or []
-    cold_themes = market_bias.get("cold_themes") or []
+    strong_sectors = [str(x) for x in (market_bias.get("strong_sectors") or [])[:3]]
+    weak_sectors = [str(x) for x in (market_bias.get("weak_sectors") or [])[:3]]
+    hot_themes = [str(x) for x in (market_bias.get("hot_themes") or [])[:3]]
+    cold_themes = [str(x) for x in (market_bias.get("cold_themes") or [])[:3]]
 
     if any([strong_sectors, weak_sectors, hot_themes, cold_themes]):
         mode_label, mode_class = _mode_meta_from_mode(None)
@@ -365,12 +462,22 @@ def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
             "summary_title": summary_title,
             "summary_badge_class": _badge_class_from_tone(tone),
             "summary_text": summary_text,
-            "strong_sectors": [str(x) for x in strong_sectors[:3]],
-            "weak_sectors": [str(x) for x in weak_sectors[:3]],
-            "hot_themes": [str(x) for x in hot_themes[:3]],
-            "cold_themes": [str(x) for x in cold_themes[:3]],
+            "strong_sectors": strong_sectors,
+            "weak_sectors": weak_sectors,
+            "hot_themes": hot_themes,
+            "cold_themes": cold_themes,
             "mode_label": mode_label,
             "mode_class": mode_class,
+            "beginner_text": _build_market_bias_beginner_text(
+                mode_label=mode_label,
+                strong_sectors=strong_sectors,
+                weak_sectors=weak_sectors,
+                hot_themes=hot_themes,
+                cold_themes=cold_themes,
+            ),
+            "compare_label": "",
+            "compare_class": "",
+            "compare_text": "",
         }
 
     return {
@@ -384,6 +491,10 @@ def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
         "cold_themes": [],
         "mode_label": "準備中",
         "mode_class": "market-bias-mode market-bias-mode-raw",
+        "beginner_text": "データがそろうと、ここに『今どこにお金が向かっているか』をやさしく表示します。",
+        "compare_label": "",
+        "compare_class": "",
+        "compare_text": "",
     }
 
 
