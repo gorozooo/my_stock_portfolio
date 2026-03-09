@@ -8,20 +8,11 @@
 - スクレイピングに依存せず、
   自前の日次価格データから「市場の偏り」を作ります。
 
-このコマンドで作るもの:
-- 強い業種 TOP3
-- 弱い業種 TOP3
-- 値上がり上位の偏り TOP3
-- 値下がり上位の偏り TOP3
-- 初心者向けの要約文
-- tone (risk_on / neutral / risk_off)
-
-使い方の例:
-- 直近営業日ベースで作成
-  python manage.py shihyo_build_market_bias
-
-- 日付指定
-  python manage.py shihyo_build_market_bias --date 2026-03-09
+今回の改善ポイント:
+- ETF/ETN は市場の偏り集計から除外
+- 業種名を正規化して「食品」→「食料品」などを吸収
+- 最低件数フィルタを追加し、1銘柄だけの業種を除外
+- テーマ変換を強化して「その他」を減らす
 """
 
 from __future__ import annotations
@@ -36,6 +27,8 @@ from django.core.management.base import BaseCommand, CommandParser
 from shihyo.models import ShihyoDailyPrice, ShihyoMarketBiasSnapshot
 
 
+MIN_SECTOR_COUNT = 2
+
 THEME_PRIORITY = [
     "金利関連",
     "商社・景気敏感",
@@ -45,6 +38,7 @@ THEME_PRIORITY = [
     "ディフェンシブ",
     "グロース",
     "インフラ関連",
+    "素材",
     "その他",
 ]
 
@@ -55,8 +49,60 @@ def _parse_target_date(s: str) -> Optional[str]:
     return datetime.strptime(s, "%Y-%m-%d").date().isoformat()
 
 
-def _sector_to_theme(sector_name: str | None) -> str:
+def _normalize_sector_name(sector_name: str | None) -> str:
     s = (sector_name or "").strip()
+    if not s:
+        return ""
+
+    alias_map = {
+        "食品": "食料品",
+        "食料": "食料品",
+        "情報通信": "情報・通信業",
+        "情報・通信": "情報・通信業",
+        "電気ガス": "電気・ガス業",
+        "電気・ガス": "電気・ガス業",
+        "その他金融": "その他金融業",
+        "不動産": "不動産業",
+        "卸売": "卸売業",
+        "小売": "小売業",
+        "海運": "海運業",
+        "空運": "空運業",
+        "陸運": "陸運業",
+        "倉庫・運輸": "倉庫・運輸関連業",
+        "証券・商品先物取引業": "証券、商品先物取引業",
+        "石油・石炭": "石油・石炭製品",
+        "ガラス・土石": "ガラス・土石製品",
+    }
+
+    if s in alias_map:
+        return alias_map[s]
+
+    for key, value in alias_map.items():
+        if s == key or s in key or key in s:
+            return value
+
+    return s
+
+
+def _is_excluded_sector(sector_name: str | None) -> bool:
+    s = _normalize_sector_name(sector_name)
+
+    if not s:
+        return True
+
+    excluded_keywords = [
+        "ETF/ETN",
+        "ETN",
+        "ETF",
+        "REIT",
+        "投信",
+        "指数",
+    ]
+    return any(k in s for k in excluded_keywords)
+
+
+def _sector_to_theme(sector_name: str | None) -> str:
+    s = _normalize_sector_name(sector_name)
 
     if not s:
         return "その他"
@@ -70,6 +116,7 @@ def _sector_to_theme(sector_name: str | None) -> str:
         (["医薬品", "電気・ガス業", "水産・農林業", "パルプ・紙"], "ディフェンシブ"),
         (["サービス業"], "グロース"),
         (["建設業", "ガラス・土石製品", "倉庫・運輸関連業"], "インフラ関連"),
+        (["化学", "ゴム製品", "金属製品"], "素材"),
     ]
 
     for keys, theme in mapping:
@@ -92,33 +139,37 @@ def _pick_latest_date_or_raise(target_date: Optional[str]) -> str:
     return latest.isoformat()
 
 
-def _build_sector_scores(rows: list[ShihyoDailyPrice]) -> list[dict]:
+def _build_sector_scores(rows: list[ShihyoDailyPrice]) -> tuple[list[dict], dict]:
     bucket: dict[str, list[ShihyoDailyPrice]] = defaultdict(list)
+    excluded_rows = 0
 
     for row in rows:
-        sector = (row.sector_name or "").strip()
-        if not sector:
+        sector = _normalize_sector_name(row.sector_name)
+        if _is_excluded_sector(sector):
+            excluded_rows += 1
+            continue
+        if row.change_pct is None:
             continue
         bucket[sector].append(row)
 
     results: list[dict] = []
+    skipped_low_count: list[str] = []
 
     for sector, items in bucket.items():
+        total_count = len(items)
+        if total_count < MIN_SECTOR_COUNT:
+            skipped_low_count.append(sector)
+            continue
+
         valid_pct = [x.change_pct for x in items if x.change_pct is not None]
         valid_turnover = [x.turnover for x in items if x.turnover is not None]
         up_count = sum(1 for x in items if (x.change_pct or 0) > 0)
         down_count = sum(1 for x in items if (x.change_pct or 0) < 0)
-        total_count = len(items)
 
         avg_pct = mean(valid_pct) if valid_pct else 0.0
         up_ratio = (up_count / total_count) if total_count > 0 else 0.0
-        turnover_score = 0.0
+        turnover_score = mean(valid_turnover) if valid_turnover else 0.0
 
-        if valid_turnover:
-            turnover_score = mean(valid_turnover)
-
-        # 初期版のシンプルスコア
-        # 平均騰落率を主軸に、上昇比率を補正で足す
         score = (avg_pct * 0.7) + ((up_ratio - 0.5) * 8.0)
 
         results.append(
@@ -135,25 +186,39 @@ def _build_sector_scores(rows: list[ShihyoDailyPrice]) -> list[dict]:
         )
 
     results.sort(key=lambda x: x["score"], reverse=True)
-    return results
+
+    debug = {
+        "excluded_rows": excluded_rows,
+        "skipped_low_count_sectors": skipped_low_count,
+        "min_sector_count": MIN_SECTOR_COUNT,
+    }
+    return results, debug
 
 
 def _build_theme_bias(rows: list[ShihyoDailyPrice], top_n: int = 20) -> tuple[list[str], list[str], dict]:
-    gainers = sorted(
-        [x for x in rows if x.change_pct is not None],
-        key=lambda x: x.change_pct,
-        reverse=True,
-    )[:top_n]
+    valid_rows = [
+        x for x in rows
+        if x.change_pct is not None and not _is_excluded_sector(x.sector_name)
+    ]
 
-    losers = sorted(
-        [x for x in rows if x.change_pct is not None],
-        key=lambda x: x.change_pct,
-    )[:top_n]
+    gainers = sorted(valid_rows, key=lambda x: x.change_pct, reverse=True)[:top_n]
+    losers = sorted(valid_rows, key=lambda x: x.change_pct)[:top_n]
 
-    gain_counter = Counter(_sector_to_theme(x.sector_name) for x in gainers if x.sector_name)
-    lose_counter = Counter(_sector_to_theme(x.sector_name) for x in losers if x.sector_name)
+    gain_counter = Counter(
+        _sector_to_theme(x.sector_name)
+        for x in gainers
+        if _sector_to_theme(x.sector_name) != "その他"
+    )
+    lose_counter = Counter(
+        _sector_to_theme(x.sector_name)
+        for x in losers
+        if _sector_to_theme(x.sector_name) != "その他"
+    )
 
     def _ordered_top(counter: Counter) -> list[str]:
+        if not counter:
+            return []
+
         items = sorted(
             counter.items(),
             key=lambda kv: (-kv[1], THEME_PRIORITY.index(kv[0]) if kv[0] in THEME_PRIORITY else 999),
@@ -174,6 +239,20 @@ def _build_theme_bias(rows: list[ShihyoDailyPrice], top_n: int = 20) -> tuple[li
     return hot_themes, cold_themes, raw
 
 
+def _pick_top_unique(items: list[str], limit: int = 3) -> list[str]:
+    result: list[str] = []
+    seen = set()
+    for item in items:
+        x = str(item).strip()
+        if not x or x in seen:
+            continue
+        seen.add(x)
+        result.append(x)
+        if len(result) >= limit:
+            break
+    return result
+
+
 def _build_summary(strong_sectors: list[str], weak_sectors: list[str], hot_themes: list[str], cold_themes: list[str]) -> tuple[str, str, str]:
     if strong_sectors and weak_sectors:
         summary_text = f"強い業種は {' / '.join(strong_sectors[:2])}、弱い業種は {' / '.join(weak_sectors[:2])} です。"
@@ -188,9 +267,6 @@ def _build_summary(strong_sectors: list[str], weak_sectors: list[str], hot_theme
         summary_text += f" 値上がり上位は {' / '.join(hot_themes[:2])} に偏っています。"
     if cold_themes:
         summary_text += f" 値下がり上位は {' / '.join(cold_themes[:2])} に偏っています。"
-
-    positive = len(strong_sectors) + len(hot_themes)
-    negative = len(weak_sectors) + len(cold_themes)
 
     if strong_sectors and hot_themes and not weak_sectors:
         summary_title = "やや強い"
@@ -227,9 +303,13 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"対象日の価格データがありません: {actual_date}"))
             return
 
-        sector_scores = _build_sector_scores(rows)
-        strong_sectors = [x["sector"] for x in sector_scores[:3]]
-        weak_sectors = [x["sector"] for x in sorted(sector_scores, key=lambda x: x["score"])[:3]]
+        sector_scores, sector_debug = _build_sector_scores(rows)
+
+        strong_sectors = _pick_top_unique([x["sector"] for x in sector_scores], limit=3)
+        weak_sectors = _pick_top_unique(
+            [x["sector"] for x in sorted(sector_scores, key=lambda x: x["score"])],
+            limit=3,
+        )
 
         hot_themes, cold_themes, theme_raw = _build_theme_bias(rows, top_n=20)
         summary_title, summary_text, tone = _build_summary(
@@ -244,6 +324,7 @@ class Command(BaseCommand):
             "mode": ShihyoMarketBiasSnapshot.MODE_CLOSE,
             "sector_scores_top10": sector_scores[:10],
             "sector_scores_bottom10": sorted(sector_scores, key=lambda x: x["score"])[:10],
+            "sector_debug": sector_debug,
             "theme_raw": theme_raw,
             "source": "shihyo_daily_price",
         }
