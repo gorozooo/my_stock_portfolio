@@ -8,6 +8,7 @@
 - 上部は車のメーター風 0-100 リスクゲージ
 - AI予想カードも上の3指標に寄せたコンパクトUIで表示
 - 市場の偏りカードを追加
+- 今回の修正で「朝予報 / 10:00実績 / 引け後実績」の表示モードを明示する
 - VIXだけ特別色
 */
 
@@ -412,12 +413,6 @@
   font-size: 20px;
 }
 
-.ai-meta-item{
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .ai-meta-k{
   font-size: 11px;
   opacity: .62;
@@ -469,6 +464,49 @@
   font-weight: 900;
   line-height: 1.2;
   opacity: .96;
+}
+
+.market-bias-top-right{
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.market-bias-mode{
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  border: 1px solid rgba(255,255,255,.10);
+}
+
+.market-bias-mode-open{
+  background: rgba(80, 140, 255, .16);
+  color: #9fc3ff;
+  border-color: rgba(80, 140, 255, .28);
+}
+
+.market-bias-mode-preopen{
+  background: rgba(235, 191, 55, .16);
+  color: #ffd86b;
+  border-color: rgba(235, 191, 55, .28);
+}
+
+.market-bias-mode-close{
+  background: rgba(255,255,255,.10);
+  color: rgba(255,255,255,.90);
+  border-color: rgba(255,255,255,.14);
+}
+
+.market-bias-mode-raw{
+  background: rgba(255,255,255,.08);
+  color: rgba(255,255,255,.78);
+  border-color: rgba(255,255,255,.12);
 }
 
 .market-bias-summary-badge{
@@ -662,7 +700,8 @@
     max-width: 290px;
   }
 
-  .ai-pred-top-right{
+  .ai-pred-top-right,
+  .market-bias-top-right{
     gap: 6px;
   }
 
