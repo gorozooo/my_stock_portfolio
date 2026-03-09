@@ -12,16 +12,20 @@
   を計算してテンプレートへ渡します。
 
 今回の修正ポイント：
-- 市場の偏りを初心者向けの日本語に整える
-- 10:00実績があるときは、朝予報との差を
-  「ほぼ一致 / 一部一致 / ズレあり」で表示できるようにする
-- 表示優先順位は open_1000 → preopen → close
+- 市場の偏りの表示選択を「現在時刻(JST)」ベースに修正
+- 朝は当日の preopen を優先
+- 10:00以降は当日の open_1000 を優先
+- 引け後は当日の close を優先
+- 前日の open_1000 が朝に出てしまう問題を防ぐ
 """
 
 from __future__ import annotations
 
+from datetime import time as dt_time
+
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
+from django.utils import timezone
 
 from shihyo.models import MarketIndicatorSnapshot, ShihyoMarketBiasSnapshot
 
@@ -276,24 +280,61 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
     }
 
 
-def _get_latest_market_bias_snapshot() -> ShihyoMarketBiasSnapshot | None:
+def _select_market_bias_snapshot() -> ShihyoMarketBiasSnapshot | None:
     """
-    表示優先順位:
-      1. open_1000
-      2. preopen
-      3. close
+    JST 現在時刻ベースで表示対象を選ぶ。
+
+    朝 (10:00前):
+      今日の preopen → 今日の open_1000 → 今日の close → 最新 close
+
+    10:00以降:
+      今日の open_1000 → 今日の preopen → 今日の close → 最新 close
+
+    引け後(15:30以降):
+      今日の close → 今日の open_1000 → 今日の preopen → 最新 close
     """
-    for mode in [
-        ShihyoMarketBiasSnapshot.MODE_OPEN_1000,
-        ShihyoMarketBiasSnapshot.MODE_PREOPEN,
-        ShihyoMarketBiasSnapshot.MODE_CLOSE,
-    ]:
-        obj = (
-            ShihyoMarketBiasSnapshot.objects
-            .filter(mode=mode)
-            .order_by("-date", "-updated_at")
-            .first()
-        )
+    now_local = timezone.localtime()
+    today_local = now_local.date()
+    current_time = now_local.time()
+
+    today_preopen = (
+        ShihyoMarketBiasSnapshot.objects
+        .filter(date=today_local, mode=ShihyoMarketBiasSnapshot.MODE_PREOPEN)
+        .order_by("-updated_at")
+        .first()
+    )
+    today_open_1000 = (
+        ShihyoMarketBiasSnapshot.objects
+        .filter(date=today_local, mode=ShihyoMarketBiasSnapshot.MODE_OPEN_1000)
+        .order_by("-updated_at")
+        .first()
+    )
+    today_close = (
+        ShihyoMarketBiasSnapshot.objects
+        .filter(date=today_local, mode=ShihyoMarketBiasSnapshot.MODE_CLOSE)
+        .order_by("-updated_at")
+        .first()
+    )
+    latest_close = (
+        ShihyoMarketBiasSnapshot.objects
+        .filter(mode=ShihyoMarketBiasSnapshot.MODE_CLOSE)
+        .order_by("-date", "-updated_at")
+        .first()
+    )
+
+    if current_time < dt_time(10, 0):
+        for obj in [today_preopen, today_open_1000, today_close, latest_close]:
+            if obj:
+                return obj
+        return None
+
+    if current_time < dt_time(15, 30):
+        for obj in [today_open_1000, today_preopen, today_close, latest_close]:
+            if obj:
+                return obj
+        return None
+
+    for obj in [today_close, today_open_1000, today_preopen, latest_close]:
         if obj:
             return obj
     return None
@@ -403,14 +444,7 @@ def _build_market_bias_compare(latest_bias: ShihyoMarketBiasSnapshot | None) -> 
 
 
 def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
-    """
-    表示優先順位:
-      1) DB の市場の偏りスナップショット
-         open_1000 → preopen → close
-      2) raw_payload["market_bias"]
-      3) 準備中
-    """
-    latest_bias = _get_latest_market_bias_snapshot()
+    latest_bias = _select_market_bias_snapshot()
 
     if latest_bias:
         mode_label, mode_class = _mode_meta_from_mode(latest_bias.mode)
