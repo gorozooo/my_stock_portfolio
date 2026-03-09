@@ -12,10 +12,10 @@
   を計算してテンプレートへ渡します。
 
 今回の修正ポイント：
-- raw_payload["market_bias"] があれば優先して使う
-- 無ければ ShihyoMarketBiasSnapshot を直接読む
-- その際は close より preopen を優先して表示する
-- つまり朝7:00予報が画面に反映される
+- 市場の偏りは DB スナップショットを最優先で使う
+- 優先順は open_1000 → preopen → close
+- DB に何も無いときだけ raw_payload["market_bias"] を使う
+- これで 10:00 実績版が画面に出せる
 """
 
 from __future__ import annotations
@@ -284,35 +284,58 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
 def _get_latest_market_bias_snapshot() -> ShihyoMarketBiasSnapshot | None:
     """
     表示優先順位:
-      1. preopen
-      2. close
-    ※ open_1000 は次段階で追加する
+      1. open_1000
+      2. preopen
+      3. close
     """
-    latest_preopen = (
-        ShihyoMarketBiasSnapshot.objects
-        .filter(mode=ShihyoMarketBiasSnapshot.MODE_PREOPEN)
-        .order_by("-date", "-updated_at")
-        .first()
-    )
-    if latest_preopen:
-        return latest_preopen
+    for mode in [
+        ShihyoMarketBiasSnapshot.MODE_OPEN_1000,
+        ShihyoMarketBiasSnapshot.MODE_PREOPEN,
+        ShihyoMarketBiasSnapshot.MODE_CLOSE,
+    ]:
+        obj = (
+            ShihyoMarketBiasSnapshot.objects
+            .filter(mode=mode)
+            .order_by("-date", "-updated_at")
+            .first()
+        )
+        if obj:
+            return obj
+    return None
 
-    latest_close = (
-        ShihyoMarketBiasSnapshot.objects
-        .filter(mode=ShihyoMarketBiasSnapshot.MODE_CLOSE)
-        .order_by("-date", "-updated_at")
-        .first()
-    )
-    return latest_close
+
+def _badge_class_from_tone(tone: str) -> str:
+    if tone == ShihyoMarketBiasSnapshot.TONE_RISK_ON or tone == "risk_on":
+        return "market-bias-badge market-bias-badge-on"
+    if tone == ShihyoMarketBiasSnapshot.TONE_RISK_OFF or tone == "risk_off":
+        return "market-bias-badge market-bias-badge-off"
+    return "market-bias-badge market-bias-badge-wait"
 
 
 def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
     """
-    1) raw_payload["market_bias"] があれば優先して使う
-    2) 無ければ DB の市場の偏りスナップショットを使う
-       - preopen を close より優先
-    3) それも無ければ準備中表示
+    表示優先順位:
+      1) DB の市場の偏りスナップショット
+         open_1000 → preopen → close
+      2) raw_payload["market_bias"]
+      3) 準備中
+
+    これで 10:00 実績版が、close の raw_payload に邪魔されず画面に出る。
     """
+    latest_bias = _get_latest_market_bias_snapshot()
+
+    if latest_bias:
+        return {
+            "available": True,
+            "summary_title": latest_bias.summary_title or "市場の偏り",
+            "summary_badge_class": _badge_class_from_tone(latest_bias.tone),
+            "summary_text": latest_bias.summary_text or "今日は市場の偏りが出ています。",
+            "strong_sectors": [str(x) for x in (latest_bias.strong_sectors or [])[:3]],
+            "weak_sectors": [str(x) for x in (latest_bias.weak_sectors or [])[:3]],
+            "hot_themes": [str(x) for x in (latest_bias.hot_themes or [])[:3]],
+            "cold_themes": [str(x) for x in (latest_bias.cold_themes or [])[:3]],
+        }
+
     raw_payload = latest.raw_payload if isinstance(latest.raw_payload, dict) else {}
     market_bias = raw_payload.get("market_bias") or {}
 
@@ -326,43 +349,15 @@ def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
         summary_text = str(market_bias.get("summary_text") or "今日は市場の偏りが出ています。")
         tone = str(market_bias.get("tone") or "neutral")
 
-        if tone == "risk_on":
-            badge_class = "market-bias-badge market-bias-badge-on"
-        elif tone == "risk_off":
-            badge_class = "market-bias-badge market-bias-badge-off"
-        else:
-            badge_class = "market-bias-badge market-bias-badge-wait"
-
         return {
             "available": True,
             "summary_title": summary_title,
-            "summary_badge_class": badge_class,
+            "summary_badge_class": _badge_class_from_tone(tone),
             "summary_text": summary_text,
             "strong_sectors": [str(x) for x in strong_sectors[:3]],
             "weak_sectors": [str(x) for x in weak_sectors[:3]],
             "hot_themes": [str(x) for x in hot_themes[:3]],
             "cold_themes": [str(x) for x in cold_themes[:3]],
-        }
-
-    latest_bias = _get_latest_market_bias_snapshot()
-
-    if latest_bias:
-        if latest_bias.tone == ShihyoMarketBiasSnapshot.TONE_RISK_ON:
-            badge_class = "market-bias-badge market-bias-badge-on"
-        elif latest_bias.tone == ShihyoMarketBiasSnapshot.TONE_RISK_OFF:
-            badge_class = "market-bias-badge market-bias-badge-off"
-        else:
-            badge_class = "market-bias-badge market-bias-badge-wait"
-
-        return {
-            "available": True,
-            "summary_title": latest_bias.summary_title or "市場の偏り",
-            "summary_badge_class": badge_class,
-            "summary_text": latest_bias.summary_text or "今日は市場の偏りが出ています。",
-            "strong_sectors": [str(x) for x in (latest_bias.strong_sectors or [])[:3]],
-            "weak_sectors": [str(x) for x in (latest_bias.weak_sectors or [])[:3]],
-            "hot_themes": [str(x) for x in (latest_bias.hot_themes or [])[:3]],
-            "cold_themes": [str(x) for x in (latest_bias.cold_themes or [])[:3]],
         }
 
     return {
