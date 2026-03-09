@@ -8,6 +8,11 @@
 - 目的は「昨日どうだったか」ではなく、
   「今日の寄り前に、どこへ資金が向かいそうか」を作ることです。
 
+今回の改善ポイント:
+- preopen 側の業種名も close / open_1000 と同じ 33業種寄りへそろえる
+- 17業種寄りの表記（例: エネルギー資源）を 33業種側へ寄せる
+- 返却する strong / weak も正規化済みで保存する
+
 使い方:
 - まず shihyo_fetch で最新指標を保存
 - そのあとこのコマンドで preopen を作成
@@ -43,8 +48,62 @@ def _dedupe_keep_order(items: list[str]) -> list[str]:
     return result
 
 
-def _sector_to_theme(sector_name: str | None) -> str:
+def _normalize_sector_name(sector_name: str | None) -> str:
     s = (sector_name or "").strip()
+    if not s:
+        return ""
+
+    alias_map = {
+        "食品": "食料品",
+        "食料": "食料品",
+        "エネルギー資源": "石油・石炭製品",
+        "建設・資材": "建設業",
+        "建設": "建設業",
+        "素材・化学": "化学",
+        "素材": "化学",
+        "医薬": "医薬品",
+        "情報通信": "情報・通信業",
+        "情報・通信": "情報・通信業",
+        "情報通信・サービスその他": "情報・通信業",
+        "電力・ガス": "電気・ガス業",
+        "電力ガス": "電気・ガス業",
+        "電気ガス": "電気・ガス業",
+        "電気・ガス": "電気・ガス業",
+        "自動車・輸送機": "輸送用機器",
+        "電機・精密": "電気機器",
+        "商社・卸売": "卸売業",
+        "銀行・金融": "銀行業",
+        "小売": "小売業",
+        "卸売": "卸売業",
+        "不動産": "不動産業",
+        "海運": "海運業",
+        "空運": "空運業",
+        "陸運": "陸運業",
+        "倉庫・運輸": "倉庫・運輸関連業",
+        "証券・商品先物取引業": "証券、商品先物取引業",
+        "石油・石炭": "石油・石炭製品",
+        "ガラス・土石": "ガラス・土石製品",
+        "その他金融": "その他金融業",
+    }
+
+    if s in alias_map:
+        return alias_map[s]
+
+    for key, value in alias_map.items():
+        if s == key or s in key or key in s:
+            return value
+
+    return s
+
+
+def _normalize_sector_list(items: list[str]) -> list[str]:
+    normalized = [_normalize_sector_name(x) for x in items]
+    normalized = [x for x in normalized if x]
+    return _dedupe_keep_order(normalized)
+
+
+def _sector_to_theme(sector_name: str | None) -> str:
+    s = _normalize_sector_name(sector_name)
 
     if not s:
         return "その他"
@@ -58,6 +117,7 @@ def _sector_to_theme(sector_name: str | None) -> str:
         (["医薬品", "電気・ガス業", "水産・農林業", "パルプ・紙"], "ディフェンシブ"),
         (["サービス業"], "グロース"),
         (["建設業", "ガラス・土石製品", "倉庫・運輸関連業"], "インフラ関連"),
+        (["化学", "ゴム製品", "金属製品"], "素材"),
     ]
 
     for keys, theme in mapping:
@@ -71,6 +131,7 @@ def _theme_to_sectors(themes: list[str]) -> list[str]:
     """
     予報用にテーマから代表的な業種名へ戻す。
     UIは業種名を出したいので、ざっくり代表名へ変換する。
+    返す業種名は 33業種寄りで統一する。
     """
     mapping = {
         "金利関連": ["銀行業", "保険業", "証券、商品先物取引業"],
@@ -81,27 +142,27 @@ def _theme_to_sectors(themes: list[str]) -> list[str]:
         "ディフェンシブ": ["医薬品", "電気・ガス業", "水産・農林業"],
         "グロース": ["サービス業", "情報・通信業"],
         "インフラ関連": ["建設業", "ガラス・土石製品", "倉庫・運輸関連業"],
+        "素材": ["化学", "ゴム製品", "金属製品"],
         "その他": [],
     }
 
     result: list[str] = []
     for theme in themes:
         result.extend(mapping.get(theme, []))
-    return _dedupe_keep_order(result)[:3]
+    return _normalize_sector_list(result)[:3]
 
 
 def _build_preopen_bias(close_bias: ShihyoMarketBiasSnapshot, latest: MarketIndicatorSnapshot) -> dict:
-    close_strong = [str(x) for x in (close_bias.strong_sectors or [])[:3]]
-    close_weak = [str(x) for x in (close_bias.weak_sectors or [])[:3]]
-    close_hot = [str(x) for x in (close_bias.hot_themes or [])[:3]]
-    close_cold = [str(x) for x in (close_bias.cold_themes or [])[:3]]
+    close_strong = _normalize_sector_list([str(x) for x in (close_bias.strong_sectors or [])[:3]])
+    close_weak = _normalize_sector_list([str(x) for x in (close_bias.weak_sectors or [])[:3]])
+    close_hot = _dedupe_keep_order([str(x) for x in (close_bias.hot_themes or [])[:3]])
+    close_cold = _dedupe_keep_order([str(x) for x in (close_bias.cold_themes or [])[:3]])
 
     nikkei_pct = _safe_float(latest.nikkei_futures_change_pct, 0.0)
     fx_pct = _safe_float(latest.usdjpy_change_pct, 0.0)
     vix_pct = _safe_float(latest.vix_change_pct, 0.0)
     vix_last = _safe_float(latest.vix_last, 0.0)
 
-    # 外部環境のざっくり判定
     bullish_score = 0
     bearish_score = 0
 
@@ -129,20 +190,16 @@ def _build_preopen_bias(close_bias: ShihyoMarketBiasSnapshot, latest: MarketIndi
     elif 0 < vix_last < 18:
         bullish_score += 1
 
-    # まずは引け後版を土台にする
     predicted_strong = list(close_strong)
     predicted_weak = list(close_weak)
     predicted_hot = list(close_hot)
     predicted_cold = list(close_cold)
 
-    # 追い風が強いとき
     if bullish_score >= bearish_score + 2:
         extra_hot = _dedupe_keep_order(
             close_hot + [_sector_to_theme(x) for x in close_strong]
         )[:3]
         predicted_hot = extra_hot
-
-        # 守りテーマを弱い側へ少し後退
         predicted_cold = _dedupe_keep_order(close_cold)[:3]
 
         summary_title = "やや強い"
@@ -153,7 +210,6 @@ def _build_preopen_bias(close_bias: ShihyoMarketBiasSnapshot, latest: MarketIndi
             f"中心の買い継続を想定しています。"
         )
 
-    # 逆風が強いとき
     elif bearish_score >= bullish_score + 2:
         defensive_themes = _dedupe_keep_order(
             close_cold + ["ディフェンシブ", "内需"]
@@ -172,7 +228,6 @@ def _build_preopen_bias(close_bias: ShihyoMarketBiasSnapshot, latest: MarketIndi
             f"に注意です。"
         )
 
-    # 強弱まちまち
     else:
         predicted_hot = _dedupe_keep_order(close_hot + [_sector_to_theme(x) for x in close_strong])[:3]
         predicted_cold = _dedupe_keep_order(close_cold + [_sector_to_theme(x) for x in close_weak])[:3]
@@ -185,9 +240,16 @@ def _build_preopen_bias(close_bias: ShihyoMarketBiasSnapshot, latest: MarketIndi
             f"{' / '.join(predicted_weak[:2]) if predicted_weak else '弱い業種'} の両方を確認したい朝です。"
         )
 
+    predicted_strong = _normalize_sector_list(predicted_strong)[:3]
+    predicted_weak = _normalize_sector_list(predicted_weak)[:3]
+    predicted_hot = _dedupe_keep_order(predicted_hot)[:3]
+    predicted_cold = _dedupe_keep_order(predicted_cold)[:3]
+
     raw_detail = {
         "base_close_snapshot_date": close_bias.date.isoformat() if close_bias.date else None,
         "base_close_summary_title": close_bias.summary_title,
+        "base_close_strong": close_strong,
+        "base_close_weak": close_weak,
         "nikkei_futures_change_pct": nikkei_pct,
         "usdjpy_change_pct": fx_pct,
         "vix_change_pct": vix_pct,
@@ -201,10 +263,10 @@ def _build_preopen_bias(close_bias: ShihyoMarketBiasSnapshot, latest: MarketIndi
         "summary_title": summary_title,
         "summary_text": summary_text,
         "tone": tone,
-        "strong_sectors": _dedupe_keep_order(predicted_strong)[:3],
-        "weak_sectors": _dedupe_keep_order(predicted_weak)[:3],
-        "hot_themes": _dedupe_keep_order(predicted_hot)[:3],
-        "cold_themes": _dedupe_keep_order(predicted_cold)[:3],
+        "strong_sectors": predicted_strong,
+        "weak_sectors": predicted_weak,
+        "hot_themes": predicted_hot,
+        "cold_themes": predicted_cold,
         "raw_detail": raw_detail,
     }
 
