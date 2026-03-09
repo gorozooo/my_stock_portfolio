@@ -8,26 +8,10 @@
 - yfinance の 1分足を使い、対象日の 10:00 までの実績を保存します。
 - 10:00確認(open_1000) の実績集計の土台データになります。
 
-このコマンドで保存するもの:
-- code / name
-- sector_code / sector_name
-- last / prev_close / change / change_pct
-- volume（10:00までの累計）
-- turnover（概算: Σ close×volume）
-- source / raw_payload
-
-使い方の例:
-- 今日の 10:00 実績を保存
-  python manage.py shihyo_load_intraday_prices
-
-- 日付指定
-  python manage.py shihyo_load_intraday_prices --date 2026-03-09
-
-- まず20銘柄だけテスト
-  python manage.py shihyo_load_intraday_prices --limit 20
-
-- 特定コードだけ
-  python manage.py shihyo_load_intraday_prices --codes 7203,6501,8306
+今回の改善ポイント:
+- ETF/ETN はデフォルトで除外
+- --include-etf を付けたときだけ ETF/ETN も対象にする
+- pandas の FutureWarning を解消
 """
 
 from __future__ import annotations
@@ -128,6 +112,26 @@ def _normalize_index_to_jst(df: "pd.DataFrame") -> "pd.DataFrame":
     return work
 
 
+def _is_etf_like(master: StockMaster) -> bool:
+    sector_name = (master.sector_name or "").strip()
+    name = (master.name or "").upper()
+
+    if sector_name == "ETF/ETN":
+        return True
+
+    keywords = [
+        "ETF",
+        "ETN",
+        "REIT",
+        "上場投信",
+        "投資法人",
+        "NEXT FUNDS",
+        "MAXIS",
+        "iFreeETF",
+    ]
+    return any(k in name for k in keywords)
+
+
 def _pick_intraday_snapshot(
     df: "pd.DataFrame",
     target_date: date,
@@ -184,7 +188,7 @@ def _pick_intraday_snapshot(
     if volume_series is not None and close_series is not None:
         try:
             vol = volume_series.fillna(0).astype(float)
-            cls = close_series.fillna(method="ffill").fillna(0).astype(float)
+            cls = close_series.ffill().fillna(0).astype(float)
             cumulative_turnover = float((cls * vol).sum())
         except Exception:
             cumulative_turnover = None
@@ -228,6 +232,11 @@ class Command(BaseCommand):
             default=50,
             help="yfinance へ投げる同時取得件数",
         )
+        parser.add_argument(
+            "--include-etf",
+            action="store_true",
+            help="ETF/ETN も含めて取得する（未指定なら除外）",
+        )
 
     def handle(self, *args, **options):
         if yf is None or pd is None:
@@ -242,6 +251,7 @@ class Command(BaseCommand):
         chunk_size = max(1, int(options.get("chunk") or 50))
         limit = max(0, int(options.get("limit") or 0))
         cutoff_time = time(10, 0, 0)
+        include_etf = bool(options.get("include_etf"))
 
         codes_arg = (options.get("codes") or "").strip()
         requested_codes = [c.strip() for c in codes_arg.split(",") if c.strip()] if codes_arg else []
@@ -249,23 +259,36 @@ class Command(BaseCommand):
         masters_qs = StockMaster.objects.all().order_by("code")
         if requested_codes:
             masters_qs = masters_qs.filter(code__in=requested_codes)
-        if limit > 0:
-            masters_qs = masters_qs[:limit]
 
-        masters = list(masters_qs)
-        if not masters:
+        masters_all = list(masters_qs)
+        if not masters_all:
             self.stdout.write(self.style.WARNING("対象の StockMaster が見つかりませんでした。"))
             return
 
-        symbol_map: dict[str, StockMaster] = {}
-        skipped = 0
+        masters: list[StockMaster] = []
+        skipped_non_jpx = 0
+        skipped_etf = 0
 
-        for master in masters:
+        for master in masters_all:
             symbol = _to_symbol(master.code)
             if not symbol:
-                skipped += 1
+                skipped_non_jpx += 1
                 continue
-            symbol_map[symbol] = master
+
+            if not include_etf and _is_etf_like(master):
+                skipped_etf += 1
+                continue
+
+            masters.append(master)
+
+        if limit > 0:
+            masters = masters[:limit]
+
+        symbol_map: dict[str, StockMaster] = {}
+        for master in masters:
+            symbol = _to_symbol(master.code)
+            if symbol:
+                symbol_map[symbol] = master
 
         symbols = list(symbol_map.keys())
         if not symbols:
@@ -281,7 +304,8 @@ class Command(BaseCommand):
 
         self.stdout.write(
             f"[shihyo_load_intraday_prices] target_date={target_date} "
-            f"mode={ShihyoIntradayPrice.MODE_OPEN_1000} symbols={len(symbols)}"
+            f"mode={ShihyoIntradayPrice.MODE_OPEN_1000} symbols={len(symbols)} "
+            f"skipped_non_jpx={skipped_non_jpx} skipped_etf={skipped_etf}"
         )
 
         for part in _chunked(symbols, chunk_size):
@@ -393,6 +417,6 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 "[shihyo_load_intraday_prices] done "
                 f"created={created_count} updated={updated_count} "
-                f"no_price={no_price_count} skipped={skipped} failed_chunks={failed_chunks}"
+                f"no_price={no_price_count} failed_chunks={failed_chunks}"
             )
         )
