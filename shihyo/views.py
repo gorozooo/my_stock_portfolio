@@ -12,10 +12,13 @@
   を計算してテンプレートへ渡します。
 
 今回の修正ポイント：
-- 市場の偏りは DB スナップショットを最優先で使う
+- 市場の偏りカードに「何モードを表示中か」を渡す
 - 優先順は open_1000 → preopen → close
-- DB に何も無いときだけ raw_payload["market_bias"] を使う
-- これで 10:00 実績版が画面に出せる
+- それぞれ
+    - 10:00実績
+    - 朝予報
+    - 引け後実績
+  のラベルで表示できるようにする
 """
 
 from __future__ import annotations
@@ -206,15 +209,12 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
     if gap_pct_value >= 0.35:
         label = "上昇予想"
         badge_class = "ai-pred-badge ai-pred-badge-up"
-        gap_class = "ai-main-value-up"
     elif gap_pct_value <= -0.35:
         label = "下落予想"
         badge_class = "ai-pred-badge ai-pred-badge-down"
-        gap_class = "ai-main-value-down"
     else:
         label = "様子見"
         badge_class = "ai-pred-badge ai-pred-badge-wait"
-        gap_class = "ai-main-value-wait"
 
     predicted_value = nikkei_spot_last * (1.0 + (gap_pct_value / 100.0))
     predicted_delta_abs = predicted_value - nikkei_spot_last
@@ -270,7 +270,6 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
         "predicted_value": _format_price(predicted_value, 1),
         "current_value": _format_price(nikkei_spot_last, 1),
         "gap_pct": _format_signed_percent(gap_pct_value, 2),
-        "gap_class": gap_class,
         "confidence": f"{confidence_value}%",
         "updated_at": latest.created_at.strftime("%H:%M") if latest.created_at else "-",
         "reason": reason_text,
@@ -312,6 +311,16 @@ def _badge_class_from_tone(tone: str) -> str:
     return "market-bias-badge market-bias-badge-wait"
 
 
+def _mode_meta_from_mode(mode: str | None) -> tuple[str, str]:
+    if mode == ShihyoMarketBiasSnapshot.MODE_OPEN_1000:
+        return "10:00実績", "market-bias-mode market-bias-mode-open"
+    if mode == ShihyoMarketBiasSnapshot.MODE_PREOPEN:
+        return "朝予報", "market-bias-mode market-bias-mode-preopen"
+    if mode == ShihyoMarketBiasSnapshot.MODE_CLOSE:
+        return "引け後実績", "market-bias-mode market-bias-mode-close"
+    return "保存値", "market-bias-mode market-bias-mode-raw"
+
+
 def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
     """
     表示優先順位:
@@ -319,12 +328,11 @@ def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
          open_1000 → preopen → close
       2) raw_payload["market_bias"]
       3) 準備中
-
-    これで 10:00 実績版が、close の raw_payload に邪魔されず画面に出る。
     """
     latest_bias = _get_latest_market_bias_snapshot()
 
     if latest_bias:
+        mode_label, mode_class = _mode_meta_from_mode(latest_bias.mode)
         return {
             "available": True,
             "summary_title": latest_bias.summary_title or "市場の偏り",
@@ -334,6 +342,8 @@ def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
             "weak_sectors": [str(x) for x in (latest_bias.weak_sectors or [])[:3]],
             "hot_themes": [str(x) for x in (latest_bias.hot_themes or [])[:3]],
             "cold_themes": [str(x) for x in (latest_bias.cold_themes or [])[:3]],
+            "mode_label": mode_label,
+            "mode_class": mode_class,
         }
 
     raw_payload = latest.raw_payload if isinstance(latest.raw_payload, dict) else {}
@@ -345,6 +355,7 @@ def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
     cold_themes = market_bias.get("cold_themes") or []
 
     if any([strong_sectors, weak_sectors, hot_themes, cold_themes]):
+        mode_label, mode_class = _mode_meta_from_mode(None)
         summary_title = str(market_bias.get("summary_title") or "市場の偏り")
         summary_text = str(market_bias.get("summary_text") or "今日は市場の偏りが出ています。")
         tone = str(market_bias.get("tone") or "neutral")
@@ -358,6 +369,8 @@ def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
             "weak_sectors": [str(x) for x in weak_sectors[:3]],
             "hot_themes": [str(x) for x in hot_themes[:3]],
             "cold_themes": [str(x) for x in cold_themes[:3]],
+            "mode_label": mode_label,
+            "mode_class": mode_class,
         }
 
     return {
@@ -369,6 +382,8 @@ def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
         "weak_sectors": [],
         "hot_themes": [],
         "cold_themes": [],
+        "mode_label": "準備中",
+        "mode_class": "market-bias-mode market-bias-mode-raw",
     }
 
 
