@@ -8,8 +8,10 @@
 
 対応 phase:
 - preopen
-    1) shihyo_fetch
-    2) shihyo_build_market_bias_preopen
+    1) shihyo_load_daily_prices
+    2) shihyo_build_market_bias
+    3) shihyo_fetch
+    4) shihyo_build_market_bias_preopen
 
 - open_1000
     1) shihyo_load_intraday_prices
@@ -86,10 +88,16 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"[shihyo_run_pipeline] start phase={phase}"))
 
         if phase == "preopen":
-            self.stdout.write("[1/2] shihyo_fetch")
+            self.stdout.write("[1/4] shihyo_load_daily_prices")
+            call_command("shihyo_load_daily_prices")
+
+            self.stdout.write("[2/4] shihyo_build_market_bias")
+            call_command("shihyo_build_market_bias")
+
+            self.stdout.write("[3/4] shihyo_fetch")
             call_command("shihyo_fetch")
 
-            self.stdout.write("[2/2] shihyo_build_market_bias_preopen")
+            self.stdout.write("[4/4] shihyo_build_market_bias_preopen")
             call_command("shihyo_build_market_bias_preopen")
 
             self.stdout.write(self.style.SUCCESS("[shihyo_run_pipeline] done phase=preopen"))
