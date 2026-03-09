@@ -8,7 +8,8 @@
 - 上部は車のメーター風 0-100 リスクゲージ
 - AI予想カードも上の3指標に寄せたコンパクトUIで表示
 - 市場の偏りカードを追加
-- 今回の修正で「朝予報 / 10:00実績 / 引け後実績」の表示モードを明示する
+- 今回の修正で「朝予報 / 10:00実績 / 引け後実績」の表示モードと、
+  朝予報との差を明示する
 - VIXだけ特別色
 */
 
@@ -544,6 +545,73 @@
   opacity: .84;
 }
 
+.market-bias-beginner{
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.07);
+  font-size: 12px;
+  line-height: 1.55;
+  opacity: .92;
+}
+
+.market-bias-compare-box{
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.07);
+}
+
+.market-bias-compare-top{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.market-bias-compare-title{
+  font-size: 11px;
+  font-weight: 800;
+  opacity: .72;
+}
+
+.market-bias-compare-badge{
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.market-bias-compare-good{
+  background: rgba(56, 201, 101, .18);
+  color: #73ff9d;
+  border: 1px solid rgba(56, 201, 101, .32);
+}
+
+.market-bias-compare-mid{
+  background: rgba(235, 191, 55, .18);
+  color: #ffd86b;
+  border: 1px solid rgba(235, 191, 55, .32);
+}
+
+.market-bias-compare-alert{
+  background: rgba(255, 92, 92, .18);
+  color: #ff9c9c;
+  border: 1px solid rgba(255, 92, 92, .32);
+}
+
+.market-bias-compare-text{
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: .86;
+}
+
 .market-bias-grid{
   margin-top: 12px;
   display: grid;
@@ -663,6 +731,8 @@
   .risk-summary,
   .ai-reason-text,
   .market-bias-summary,
+  .market-bias-beginner,
+  .market-bias-compare-text,
   .market-bias-empty{
     font-size: 11px;
   }
@@ -707,5 +777,9 @@
 
   .market-bias-grid{
     grid-template-columns: 1fr;
+  }
+
+  .market-bias-compare-top{
+    align-items: flex-start;
   }
 }
