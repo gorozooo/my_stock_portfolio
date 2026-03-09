@@ -9,7 +9,8 @@
 - 下段に日経平均AI予想カードを表示する
 - さらに「市場の偏り」カードを追加し、
   業種強弱・値上がり上位/値下がり上位の偏りを初心者向けに見せる
-- 今回の修正で「朝予報 / 10:00実績 / 引け後実績」の表示モードを明示する
+- 今回の修正で「朝予報 / 10:00実績 / 引け後実績」の表示モードと、
+  朝予報との差を明示する
 -->
 
 {% extends "base.html" %}
@@ -18,7 +19,7 @@
 {% block title %}指標ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=16">
+<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=17">
 
 <div class="shihyo-page">
 
@@ -261,6 +262,24 @@
       <div class="market-bias-summary">
         {{ market_bias.summary_text }}
       </div>
+
+      <div class="market-bias-beginner">
+        {{ market_bias.beginner_text }}
+      </div>
+
+      {% if market_bias.compare_text %}
+        <div class="market-bias-compare-box">
+          <div class="market-bias-compare-top">
+            <div class="market-bias-compare-title">朝予報との差</div>
+            <div class="{{ market_bias.compare_class }}">
+              {{ market_bias.compare_label }}
+            </div>
+          </div>
+          <div class="market-bias-compare-text">
+            {{ market_bias.compare_text }}
+          </div>
+        </div>
+      {% endif %}
 
       {% if market_bias.available %}
         <section class="market-bias-grid">
