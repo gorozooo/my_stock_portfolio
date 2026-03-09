@@ -4,11 +4,14 @@
 
 このファイルは何？
 - 指標専用アプリ shihyo のDBモデルです。
-- 既存の MarketIndicatorSnapshot に加えて、
-  1) 銘柄ごとの日次価格を保存する ShihyoDailyPrice
-  2) 市場の偏りの完成データを保存する ShihyoMarketBiasSnapshot
+- 既存の
+  1) MarketIndicatorSnapshot
+  2) ShihyoDailyPrice
+  3) ShihyoMarketBiasSnapshot
+  に加えて、
+  4) 場中価格保存用の ShihyoIntradayPrice
   を追加します。
-- 将来的に 7:00予報 / 10:00確認 / 引け後集計 をこの土台の上に作ります。
+- 将来的に 10:00確認(open_1000) の実績集計は、このモデルを土台に作ります。
 """
 
 from django.db import models
@@ -91,6 +94,57 @@ class ShihyoDailyPrice(models.Model):
 
     def __str__(self) -> str:
         return f"{self.date} {self.code} {self.name}"
+
+
+class ShihyoIntradayPrice(models.Model):
+    """
+    指標専用の場中価格保存テーブル。
+    - 10:00確認(open_1000) 用の実績データを保存する
+    - 将来、他の時刻スロットにも拡張できるよう mode を持つ
+    """
+    MODE_OPEN_1000 = "open_1000"
+
+    MODE_CHOICES = [
+        (MODE_OPEN_1000, "10時確認"),
+    ]
+
+    date = models.DateField(db_index=True)
+    mode = models.CharField(max_length=16, choices=MODE_CHOICES, db_index=True)
+
+    captured_at = models.DateTimeField(db_index=True)
+
+    code = models.CharField(max_length=12, db_index=True)
+    name = models.CharField(max_length=255, blank=True, default="")
+
+    sector_code = models.CharField(max_length=16, null=True, blank=True, db_index=True)
+    sector_name = models.CharField(max_length=255, null=True, blank=True, db_index=True)
+
+    last = models.FloatField(null=True, blank=True)
+    prev_close = models.FloatField(null=True, blank=True)
+    change = models.FloatField(null=True, blank=True)
+    change_pct = models.FloatField(null=True, blank=True)
+
+    volume = models.BigIntegerField(null=True, blank=True)
+    turnover = models.FloatField(null=True, blank=True)
+
+    source = models.CharField(max_length=32, default="manual", blank=True)
+    raw_payload = models.JSONField(default=dict, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-date", "mode", "code"]
+        unique_together = ("date", "mode", "code")
+        indexes = [
+            models.Index(fields=["date", "mode", "code"]),
+            models.Index(fields=["date", "mode", "sector_name"]),
+            models.Index(fields=["mode", "captured_at"]),
+            models.Index(fields=["sector_name", "date", "mode"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.date} {self.mode} {self.code} {self.name}"
 
 
 class ShihyoMarketBiasSnapshot(models.Model):
