@@ -10,9 +10,10 @@
   raw_payload["market_bias"] に保存します。
 
 今回の修正ポイント：
-- 株探スクレイピング依存を削除
-- market_bias は自前集計済みの DB スナップショットを使用
-- views.py / dashboard.html はそのまま活かせる形を維持
+- VIX は Yahoo Finance (^VIX) を優先で取得
+- 取れないときだけ Stooq(vi.c) にフォールバック
+- raw_payload["vix"]["source"] に取得元を保存
+- ログにも vix_source を出す
 """
 
 from __future__ import annotations
@@ -185,6 +186,86 @@ class Command(BaseCommand):
 
         return None, {"change": 0.0, "pct": 0.0}, "unavailable"
 
+    def _fetch_vix_from_yahoo(self) -> Optional[dict]:
+        """
+        Yahoo Finance の chart API から ^VIX を取得する。
+        朝時点はこちらのほうが新しいことが多いので優先で使う。
+        """
+        url = "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX"
+        params = {
+            "interval": "1d",
+            "range": "5d",
+            "includePrePost": "false",
+            "events": "div,splits",
+        }
+        headers = {
+            "User-Agent": self.USER_AGENT,
+            "Accept": "application/json,text/plain,*/*",
+            "Referer": "https://finance.yahoo.com/quote/%5EVIX/",
+        }
+
+        try:
+            r = requests.get(url, params=params, headers=headers, timeout=10)
+            r.raise_for_status()
+            data = r.json()
+
+            result = (((data or {}).get("chart") or {}).get("result") or [None])[0]
+            if not result:
+                return None
+
+            meta = result.get("meta") or {}
+            close_value = meta.get("regularMarketPrice")
+            prev_close_value = meta.get("previousClose")
+            open_value = meta.get("regularMarketOpen")
+
+            close_value = float(close_value) if close_value is not None else float("nan")
+            prev_close_value = float(prev_close_value) if prev_close_value is not None else float("nan")
+            open_value = float(open_value) if open_value is not None else float("nan")
+
+            if not _is_valid_number(close_value) or close_value <= 0:
+                return None
+
+            calc = _calc_from_prev_close(close_value, prev_close_value)
+
+            quote = Quote(
+                symbol="^VIX",
+                date="",
+                time="",
+                open=open_value,
+                high=float("nan"),
+                low=float("nan"),
+                close=close_value,
+                volume=float("nan"),
+            )
+
+            return {
+                "source": "yahoo_finance",
+                "symbol": "^VIX",
+                "quote": quote,
+                "calc": calc,
+                "previous_close": prev_close_value if _is_valid_number(prev_close_value) else None,
+            }
+        except Exception:
+            return None
+
+    def _fetch_vix(self, client: StooqClient) -> tuple[Optional[Quote], dict, str]:
+        """
+        VIX は Yahoo Finance 優先、ダメなら Stooq にフォールバック。
+        """
+        yahoo_result = self._fetch_vix_from_yahoo()
+        if yahoo_result:
+            return yahoo_result["quote"], yahoo_result["calc"], yahoo_result["source"]
+
+        try:
+            q = client.fetch_latest("vi.c")
+            calc = client.calc_change(q.close, q.open)
+            if _is_valid_number(q.close) and q.close > 0:
+                return q, calc, "stooq"
+        except Exception:
+            pass
+
+        return None, {"change": 0.0, "pct": 0.0}, "unavailable"
+
     def _load_market_bias_snapshot(self) -> dict[str, Any]:
         """
         自前集計済みの市場の偏りスナップショット（mode=close）を読む。
@@ -230,7 +311,6 @@ class Command(BaseCommand):
         symbols = {
             "nikkei_futures": "ny.f",
             "fx": "usdjpy",
-            "vix": "vi.c",
         }
 
         raw = {}
@@ -239,13 +319,15 @@ class Command(BaseCommand):
         try:
             q_nf = client.fetch_latest(symbols["nikkei_futures"])
             q_f = client.fetch_latest(symbols["fx"])
-            q_v = client.fetch_latest(symbols["vix"])
+            q_v, v, vix_source = self._fetch_vix(client)
+
+            if q_v is None or not _is_valid_number(q_v.close):
+                raise ValueError("VIX unavailable")
 
             q_ns, ns, nikkei_spot_source = self._fetch_nikkei_spot(client)
 
             nf = client.calc_change(q_nf.close, q_nf.open)
             f = client.calc_change(q_f.close, q_f.open)
-            v = client.calc_change(q_v.close, q_v.open)
 
             market_bias = self._load_market_bias_snapshot()
 
@@ -287,11 +369,16 @@ class Command(BaseCommand):
                 "vix": {
                     **q_v.__dict__,
                     "calc": v,
+                    "source": vix_source,
                 },
                 "market_bias": market_bias,
                 "fetched_at": timezone.now().isoformat(),
             }
             raw = _json_safe(raw)
+
+            snapshot_source = "mixed"
+            if nikkei_spot_source == "stooq" and vix_source == "stooq":
+                snapshot_source = "stooq"
 
             MarketIndicatorSnapshot.objects.create(
                 nikkei_futures_last=q_nf.close,
@@ -308,6 +395,7 @@ class Command(BaseCommand):
                 vix_label=judged.vix_label,
                 action_title=judged.action_title,
                 action_lines=judged.action_lines,
+                source=snapshot_source,
                 raw_payload=raw,
                 error="",
             )
@@ -318,6 +406,8 @@ class Command(BaseCommand):
                 messages.append(f"nikkei_spot={nikkei_spot_source}")
             else:
                 messages.append("nikkei_spot=unavailable")
+
+            messages.append(f"vix={vix_source}")
 
             if market_bias.get("available"):
                 messages.append(f"market_bias=available({market_bias.get('snapshot_date')})")
