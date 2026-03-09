@@ -8,10 +8,10 @@
 - 朝7:00予報ではなく、10:00時点の実績ベースで
   「市場の偏り」を作ります。
 
-今回の集計方針:
+今回の改善ポイント:
+- open_1000 側の業種名を 33業種寄りにそろえる
+- 17業種寄りの表記（例: エネルギー資源）を 33業種側へ寄せる
 - ETF/ETN は除外
-- 業種名を正規化
-- 最低件数フィルタを使う
 - 強い業種 / 弱い業種 / 値上がり上位の偏り / 値下がり上位の偏り を作る
 - 朝予報(preopen) があれば比較材料として raw_detail に入れる
 
@@ -59,17 +59,30 @@ def _normalize_sector_name(sector_name: str | None) -> str:
     if not s:
         return ""
 
+    # 17業種 / 表記ゆれ / 短縮名 を 33業種寄りへ寄せる
     alias_map = {
         "食品": "食料品",
         "食料": "食料品",
+        "エネルギー資源": "石油・石炭製品",
+        "建設・資材": "建設業",
+        "建設": "建設業",
+        "素材・化学": "化学",
+        "素材": "化学",
+        "医薬": "医薬品",
         "情報通信": "情報・通信業",
         "情報・通信": "情報・通信業",
+        "情報通信・サービスその他": "情報・通信業",
+        "電力・ガス": "電気・ガス業",
+        "電力ガス": "電気・ガス業",
         "電気ガス": "電気・ガス業",
         "電気・ガス": "電気・ガス業",
-        "その他金融": "その他金融業",
-        "不動産": "不動産業",
-        "卸売": "卸売業",
+        "自動車・輸送機": "輸送用機器",
+        "電機・精密": "電気機器",
+        "商社・卸売": "卸売業",
+        "銀行・金融": "銀行業",
         "小売": "小売業",
+        "卸売": "卸売業",
+        "不動産": "不動産業",
         "海運": "海運業",
         "空運": "空運業",
         "陸運": "陸運業",
@@ -77,6 +90,7 @@ def _normalize_sector_name(sector_name: str | None) -> str:
         "証券・商品先物取引業": "証券、商品先物取引業",
         "石油・石炭": "石油・石炭製品",
         "ガラス・土石": "ガラス・土石製品",
+        "その他金融": "その他金融業",
     }
 
     if s in alias_map:
@@ -309,8 +323,8 @@ def _build_summary(
         tone = ShihyoMarketBiasSnapshot.TONE_RISK_OFF
 
     if preopen_snapshot:
-        preopen_strong = list(preopen_snapshot.strong_sectors or [])
-        preopen_weak = list(preopen_snapshot.weak_sectors or [])
+        preopen_strong = [_normalize_sector_name(x) for x in list(preopen_snapshot.strong_sectors or [])]
+        preopen_weak = [_normalize_sector_name(x) for x in list(preopen_snapshot.weak_sectors or [])]
 
         if strong_sectors and preopen_strong and strong_sectors[0] == preopen_strong[0]:
             base_text_parts.append("朝予報の主力業種はおおむね一致しています。")
