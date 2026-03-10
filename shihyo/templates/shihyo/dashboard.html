@@ -8,7 +8,8 @@
 - 中段に 日経先物 / 日経 / ドル円 / VIX の4カードを 2×2 で表示
 - 下段に日経平均AI予想カードを表示する
 - 市場の偏りカードも表示する
-- 今回の修正で、AI予想カードは「予想値のみ」を表示する
+- 今回の修正で、4カードの表示値はすべて views.py 側で整形済み文字列を使う
+- AI予想カードは「予想値のみ」を表示する
 -->
 
 {% extends "base.html" %}
@@ -91,26 +92,15 @@
         </div>
 
         <div class="mini-value">
-          {{ latest.nikkei_futures_last|floatformat:1 }}
+          {{ nikkei_futures_card.last }}
         </div>
 
-        <div class="mini-change
-          {% if latest.nikkei_futures_change_pct > 0 %}
-            change-up
-          {% elif latest.nikkei_futures_change_pct < 0 %}
-            change-down
-          {% else %}
-            change-flat
-          {% endif %}
-        ">
-          {% if latest.nikkei_futures_change > 0 %}+{% endif %}{{ latest.nikkei_futures_change|floatformat:1 }}
-          (
-          {% if latest.nikkei_futures_change_pct > 0 %}+{% endif %}{{ latest.nikkei_futures_change_pct|floatformat:2 }}%
-          )
+        <div class="mini-change {{ nikkei_futures_card.delta_class }}">
+          {{ nikkei_futures_card.delta_display }}
         </div>
 
-        <div class="mini-label mini-label-red">
-          {{ latest.nikkei_label }}
+        <div class="{{ nikkei_futures_card.label_class }}">
+          {{ nikkei_futures_card.label }}
         </div>
       </div>
 
@@ -128,7 +118,7 @@
           {{ nikkei_spot_card.delta_display }}
         </div>
 
-        <div class="mini-label {{ nikkei_spot_card.label_class }}">
+        <div class="{{ nikkei_spot_card.label_class }}">
           {{ nikkei_spot_card.label }}
         </div>
       </div>
@@ -140,26 +130,15 @@
         </div>
 
         <div class="mini-value">
-          {{ latest.usdjpy_last|floatformat:3 }}
+          {{ fx_card.last }}
         </div>
 
-        <div class="mini-change
-          {% if latest.usdjpy_change_pct > 0 %}
-            change-up
-          {% elif latest.usdjpy_change_pct < 0 %}
-            change-down
-          {% else %}
-            change-flat
-          {% endif %}
-        ">
-          {% if latest.usdjpy_change > 0 %}+{% endif %}{{ latest.usdjpy_change|floatformat:3 }}
-          (
-          {% if latest.usdjpy_change_pct > 0 %}+{% endif %}{{ latest.usdjpy_change_pct|floatformat:2 }}%
-          )
+        <div class="mini-change {{ fx_card.delta_class }}">
+          {{ fx_card.delta_display }}
         </div>
 
-        <div class="mini-label mini-label-red">
-          {{ latest.fx_label }}
+        <div class="{{ fx_card.label_class }}">
+          {{ fx_card.label }}
         </div>
       </div>
 
@@ -170,34 +149,15 @@
         </div>
 
         <div class="mini-value">
-          {{ latest.vix_last|floatformat:2 }}
+          {{ vix_card.last }}
         </div>
 
-        <div class="mini-change
-          {% if latest.vix_change_pct > 0 %}
-            vix-change-up
-          {% elif latest.vix_change_pct < 0 %}
-            vix-change-down
-          {% else %}
-            change-flat
-          {% endif %}
-        ">
-          {% if latest.vix_change > 0 %}+{% endif %}{{ latest.vix_change|floatformat:2 }}
-          (
-          {% if latest.vix_change_pct > 0 %}+{% endif %}{{ latest.vix_change_pct|floatformat:2 }}%
-          )
+        <div class="mini-change {{ vix_card.delta_class }}">
+          {{ vix_card.delta_display }}
         </div>
 
-        <div class="mini-label
-          {% if latest.vix_change_pct > 0 %}
-            mini-label-yellow
-          {% elif latest.vix_change_pct < 0 %}
-            mini-label-blue
-          {% else %}
-            mini-label-gray
-          {% endif %}
-        ">
-          {{ latest.vix_label }}
+        <div class="{{ vix_card.label_class }}">
+          {{ vix_card.label }}
         </div>
       </div>
 
@@ -222,7 +182,6 @@
       </div>
 
       <section class="ai-mini-cards ai-mini-cards-1col">
-
         <div class="mini-card ai-mini-card">
           <div class="mini-card-head">
             <span class="mini-name">予想値</span>
@@ -236,7 +195,6 @@
             {{ ai_pred.predicted_delta_display }}
           </div>
         </div>
-
       </section>
 
       <div class="ai-reason-box ai-reason-box-compact">
