@@ -7,15 +7,14 @@
 - 最新スナップショットを1件だけ表示します。
 - 最新スナップショットの実データから、
   1) リスクメーター用の score / title / needle角度
-  2) 上段4カード用の表示データ
-  3) 日経平均AI予想カード用の label / 予想値 / 根拠
+  2) 日経平均AI予想カード用の label / 予想値 / 根拠
+  3) 日経平均現物カード用の表示データ
   4) 市場の偏りカード用の表示データ
   を計算してテンプレートへ渡します。
 
 今回の修正ポイント：
-- 上段4カードの表示をすべて views.py 側で整形して統一
-- 日経先物 / 日経 は小数点以下2桁で表示
-- 3桁カンマ区切りも統一
+- 上段4カード用に「日経平均 現物カード」の表示データを追加
+- AI予想カードは予想値だけを出す前提で整える
 """
 
 from __future__ import annotations
@@ -80,12 +79,6 @@ def _delta_class(value: float | None, vix_mode: bool = False) -> str:
     if value < 0:
         return "vix-change-down"
     return "change-flat"
-
-
-def _build_card_delta_display(change_value: float | None, pct_value: float | None, digits: int = 2) -> str:
-    if change_value is None or pct_value is None:
-        return "-"
-    return f"{_format_signed_number(change_value, digits)} ({_format_signed_percent(pct_value, 2)})"
 
 
 def _extract_nikkei_spot(raw_payload: dict | None) -> tuple[float, float, float, float, bool, str]:
@@ -168,62 +161,12 @@ def _build_risk_context(latest: MarketIndicatorSnapshot) -> dict:
     }
 
 
-def _build_futures_card_context(latest: MarketIndicatorSnapshot) -> dict:
-    change_value = latest.nikkei_futures_change
-    pct_value = latest.nikkei_futures_change_pct
-
-    return {
-        "name": "日経先物",
-        "value": _format_price(latest.nikkei_futures_last, 2),
-        "delta_display": _build_card_delta_display(change_value, pct_value, digits=2),
-        "delta_class": _delta_class(change_value),
-        "label": latest.nikkei_label or "中立",
-        "label_class": "mini-label-red",
-    }
-
-
-def _build_fx_card_context(latest: MarketIndicatorSnapshot) -> dict:
-    change_value = latest.usdjpy_change
-    pct_value = latest.usdjpy_change_pct
-
-    return {
-        "name": "ドル円",
-        "value": _format_price(latest.usdjpy_last, 3),
-        "delta_display": _build_card_delta_display(change_value, pct_value, digits=3),
-        "delta_class": _delta_class(change_value),
-        "label": latest.fx_label or "中立",
-        "label_class": "mini-label-red",
-    }
-
-
-def _build_vix_card_context(latest: MarketIndicatorSnapshot) -> dict:
-    change_value = latest.vix_change
-    pct_value = latest.vix_change_pct
-
-    if pct_value is not None and pct_value > 0:
-        label_class = "mini-label-yellow"
-    elif pct_value is not None and pct_value < 0:
-        label_class = "mini-label-blue"
-    else:
-        label_class = "mini-label-gray"
-
-    return {
-        "name": "VIX",
-        "value": _format_price(latest.vix_last, 2),
-        "delta_display": _build_card_delta_display(change_value, pct_value, digits=2),
-        "delta_class": _delta_class(change_value, vix_mode=True),
-        "label": latest.vix_label or "中立",
-        "label_class": label_class,
-    }
-
-
 def _build_nikkei_spot_card_context(latest: MarketIndicatorSnapshot) -> dict:
     nikkei_spot_last, nikkei_spot_change, nikkei_spot_pct, raw_previous_close, spot_available, spot_source = _extract_nikkei_spot(latest.raw_payload)
 
     if not spot_available or nikkei_spot_last <= 0:
         return {
-            "name": "日経",
-            "value": "-",
+            "last": "-",
             "delta_display": "-",
             "delta_class": "change-flat",
             "label": "取得待ち",
@@ -259,9 +202,8 @@ def _build_nikkei_spot_card_context(latest: MarketIndicatorSnapshot) -> dict:
         label_class = "mini-label-gray"
 
     return {
-        "name": "日経",
-        "value": _format_price(nikkei_spot_last, 2),
-        "delta_display": _build_card_delta_display(spot_change, spot_pct, digits=2),
+        "last": _format_price(nikkei_spot_last, 1),
+        "delta_display": f"{_format_signed_number(spot_change, 1)} ({_format_signed_percent(spot_pct, 2)})",
         "delta_class": _delta_class(spot_change),
         "label": label,
         "label_class": label_class,
@@ -657,28 +599,19 @@ def dashboard(request):
     context = {
         "latest": latest,
         "risk": None,
-        "futures_card": None,
         "nikkei_spot_card": None,
-        "fx_card": None,
-        "vix_card": None,
         "ai_pred": None,
         "market_bias": None,
     }
 
     if latest:
         risk = _build_risk_context(latest)
-        futures_card = _build_futures_card_context(latest)
         nikkei_spot_card = _build_nikkei_spot_card_context(latest)
-        fx_card = _build_fx_card_context(latest)
-        vix_card = _build_vix_card_context(latest)
         ai_pred = _build_ai_prediction_context(latest, risk)
         market_bias = _build_market_bias_context(latest)
 
         context["risk"] = risk
-        context["futures_card"] = futures_card
         context["nikkei_spot_card"] = nikkei_spot_card
-        context["fx_card"] = fx_card
-        context["vix_card"] = vix_card
         context["ai_pred"] = ai_pred
         context["market_bias"] = market_bias
 
