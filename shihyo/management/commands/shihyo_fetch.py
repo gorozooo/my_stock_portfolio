@@ -10,10 +10,10 @@
   raw_payload["market_bias"] に保存します。
 
 今回の修正ポイント：
+- 日経平均現物は Yahoo Finance を優先して取得する
+- previous_close を必ず raw_payload["nikkei_spot"]["previous_close"] に保存する
 - VIX は Yahoo Finance (^VIX) を優先で取得
-- 取れないときだけ Stooq(vi.c) にフォールバック
-- raw_payload["vix"]["source"] に取得元を保存
-- ログにも vix_source を出す
+- raw_payload["vix"]["source"] に取得元を保存する
 """
 
 from __future__ import annotations
@@ -85,23 +85,20 @@ class Command(BaseCommand):
     def _fetch_nikkei_spot_from_stooq(self, client: StooqClient) -> Optional[dict]:
         """
         Stooq から日経平均現物を取得する。
-        優先順:
-          1. ^nkx
-          2. nkx
+        previous_close は取得できないため fallback 用。
         """
         candidates = ["^nkx", "nkx"]
 
         for symbol in candidates:
             try:
                 q = client.fetch_latest(symbol)
-                calc = client.calc_change(q.close, q.open)
-
                 if _is_valid_number(q.close) and q.close > 0:
                     return {
                         "source": "stooq",
                         "symbol": symbol,
                         "quote": q,
-                        "calc": calc,
+                        "calc": {"change": 0.0, "pct": 0.0},
+                        "previous_close": None,
                     }
             except Exception:
                 continue
@@ -111,7 +108,7 @@ class Command(BaseCommand):
     def _fetch_nikkei_spot_from_yahoo(self) -> Optional[dict]:
         """
         Yahoo Finance の chart API から ^N225 を取得する。
-        非公式系のため、最後のフォールバックとして使う。
+        previous close が取れるのでこちらを優先する。
         """
         url = "https://query1.finance.yahoo.com/v8/finance/chart/%5EN225"
         params = {
@@ -170,21 +167,31 @@ class Command(BaseCommand):
         except Exception:
             return None
 
-    def _fetch_nikkei_spot(self, client: StooqClient) -> tuple[Optional[Quote], dict, str]:
+    def _fetch_nikkei_spot(self, client: StooqClient) -> tuple[Optional[Quote], dict, str, Optional[float]]:
         """
         日経平均現物を取得する。
         戻り値:
-          (quote or None, calc_dict, source_name)
+          (quote or None, calc_dict, source_name, previous_close)
         """
-        stooq_result = self._fetch_nikkei_spot_from_stooq(client)
-        if stooq_result:
-            return stooq_result["quote"], stooq_result["calc"], stooq_result["source"]
-
         yahoo_result = self._fetch_nikkei_spot_from_yahoo()
         if yahoo_result:
-            return yahoo_result["quote"], yahoo_result["calc"], yahoo_result["source"]
+            return (
+                yahoo_result["quote"],
+                yahoo_result["calc"],
+                yahoo_result["source"],
+                yahoo_result.get("previous_close"),
+            )
 
-        return None, {"change": 0.0, "pct": 0.0}, "unavailable"
+        stooq_result = self._fetch_nikkei_spot_from_stooq(client)
+        if stooq_result:
+            return (
+                stooq_result["quote"],
+                stooq_result["calc"],
+                stooq_result["source"],
+                stooq_result.get("previous_close"),
+            )
+
+        return None, {"change": 0.0, "pct": 0.0}, "unavailable", None
 
     def _fetch_vix_from_yahoo(self) -> Optional[dict]:
         """
@@ -324,7 +331,7 @@ class Command(BaseCommand):
             if q_v is None or not _is_valid_number(q_v.close):
                 raise ValueError("VIX unavailable")
 
-            q_ns, ns, nikkei_spot_source = self._fetch_nikkei_spot(client)
+            q_ns, ns, nikkei_spot_source, nikkei_spot_prev_close = self._fetch_nikkei_spot(client)
 
             nf = client.calc_change(q_nf.close, q_nf.open)
             f = client.calc_change(q_f.close, q_f.open)
@@ -360,6 +367,7 @@ class Command(BaseCommand):
                     ),
                     "calc": ns,
                     "source": nikkei_spot_source,
+                    "previous_close": nikkei_spot_prev_close,
                     "available": bool(q_ns and _is_valid_number(q_ns.close) and q_ns.close > 0),
                 },
                 "fx": {
