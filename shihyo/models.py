@@ -8,10 +8,11 @@
   1) MarketIndicatorSnapshot
   2) ShihyoDailyPrice
   3) ShihyoMarketBiasSnapshot
-  に加えて、
-  4) 場中価格保存用の ShihyoIntradayPrice
-  を追加します。
-- 将来的に 10:00確認(open_1000) の実績集計は、このモデルを土台に作ります。
+  4) ShihyoIntradayPrice
+  を管理します。
+- 今回の修正で、日経平均AI予想の基準を安定させるため
+  MarketIndicatorSnapshot に nikkei_spot_previous_close を追加します。
+- これにより、日経平均の「現在値」「予想値」を前日終値比で安定表示できる土台を作ります。
 """
 
 from django.db import models
@@ -32,6 +33,9 @@ class MarketIndicatorSnapshot(models.Model):
     vix_last = models.FloatField(null=True, blank=True)
     vix_change = models.FloatField(null=True, blank=True)
     vix_change_pct = models.FloatField(null=True, blank=True)
+
+    # --- nikkei spot previous close (正式保存) ---
+    nikkei_spot_previous_close = models.FloatField(null=True, blank=True)
 
     # --- beginner-friendly labels ---
     nikkei_label = models.CharField(max_length=32, default="", blank=True)
