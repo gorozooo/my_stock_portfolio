@@ -5,12 +5,10 @@
 このファイルは何？
 - 指標専用ダッシュボード
 - 上部に車のメーター風リスクゲージを表示
-- 中段に日経先物 / ドル円 / VIX の3カードを表示
+- 中段に 日経先物 / 日経 / ドル円 / VIX の4カードを 2×2 で表示
 - 下段に日経平均AI予想カードを表示する
-- さらに「市場の偏り」カードを追加し、
-  業種強弱・値上がり上位/値下がり上位の偏りを初心者向けに見せる
-- 今回の修正で、市場の偏りの重複文言を整理し、
-  下のやさしい説明だけを残す
+- 市場の偏りカードも表示する
+- 今回の修正で、AI予想カードは「予想値のみ」を表示する
 -->
 
 {% extends "base.html" %}
@@ -19,7 +17,7 @@
 {% block title %}指標ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=18">
+<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=19">
 
 <div class="shihyo-page">
 
@@ -83,7 +81,7 @@
       {% endif %}
     </section>
 
-    <!-- 横3カード -->
+    <!-- 4カード / 2×2 -->
     <section class="shihyo-mini-cards">
 
       <!-- 日経先物 -->
@@ -113,6 +111,25 @@
 
         <div class="mini-label mini-label-red">
           {{ latest.nikkei_label }}
+        </div>
+      </div>
+
+      <!-- 日経平均 現物 -->
+      <div class="mini-card">
+        <div class="mini-card-head">
+          <span class="mini-name">日経</span>
+        </div>
+
+        <div class="mini-value">
+          {{ nikkei_spot_card.last }}
+        </div>
+
+        <div class="mini-change {{ nikkei_spot_card.delta_class }}">
+          {{ nikkei_spot_card.delta_display }}
+        </div>
+
+        <div class="mini-label {{ nikkei_spot_card.label_class }}">
+          {{ nikkei_spot_card.label }}
         </div>
       </div>
 
@@ -204,7 +221,7 @@
         </div>
       </div>
 
-      <section class="ai-mini-cards ai-mini-cards-2col">
+      <section class="ai-mini-cards ai-mini-cards-1col">
 
         <div class="mini-card ai-mini-card">
           <div class="mini-card-head">
@@ -217,20 +234,6 @@
 
           <div class="mini-change {{ ai_pred.predicted_delta_class }}">
             {{ ai_pred.predicted_delta_display }}
-          </div>
-        </div>
-
-        <div class="mini-card ai-mini-card">
-          <div class="mini-card-head">
-            <span class="mini-name">現在値</span>
-          </div>
-
-          <div class="mini-value">
-            {{ ai_pred.current_value }}
-          </div>
-
-          <div class="mini-change {{ ai_pred.current_delta_class }}">
-            {{ ai_pred.current_delta_display }}
           </div>
         </div>
 
