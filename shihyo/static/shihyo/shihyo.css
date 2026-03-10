@@ -4,11 +4,11 @@
 
 このファイルは何？
 - 指標ダッシュボードUI
-- 投資の森のような横3カード表示
 - 上部は車のメーター風 0-100 リスクゲージ
-- AI予想カードも上の3指標に寄せたコンパクトUIで表示
-- 市場の偏りカードを追加
-- 今回の修正で「朝予報 / 10:00実績 / 引け後実績」の表示モードと、
+- 中段は 日経先物 / 日経 / ドル円 / VIX の4カードを 2×2 で表示
+- AI予想カードは予想値のみのコンパクト表示
+- 市場の偏りカードを表示
+- 朝予報 / 10:00実績 / 引け後実績 の表示モードと、
   朝予報との差を明示する
 - VIXだけ特別色
 */
@@ -219,12 +219,12 @@
 }
 
 /* =========================
-   横3カード
+   4カード / 2×2
 ========================= */
 .shihyo-mini-cards{
   margin-top: 12px;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
 
@@ -302,6 +302,18 @@
 .mini-label-red{
   background: rgba(255, 70, 70, .88);
   color: #ffffff;
+}
+
+.mini-label-green{
+  background: rgba(56, 201, 101, .22);
+  color: #73ff9d;
+  border: 1px solid rgba(56, 201, 101, .30);
+}
+
+.mini-label-softred{
+  background: rgba(255, 92, 92, .18);
+  color: #ff9c9c;
+  border: 1px solid rgba(255, 92, 92, .30);
 }
 
 /* VIX専用 */
@@ -402,16 +414,15 @@
 .ai-mini-cards{
   margin-top: 12px;
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
 
-.ai-mini-cards-2col{
-  grid-template-columns: repeat(2, 1fr);
+.ai-mini-cards-1col{
+  grid-template-columns: 1fr;
 }
 
 .ai-mini-card .mini-value{
-  font-size: 20px;
+  font-size: 22px;
 }
 
 .ai-meta-k{
@@ -536,13 +547,6 @@
   background: rgba(235, 191, 55, .18);
   color: #ffd86b;
   border: 1px solid rgba(235, 191, 55, .32);
-}
-
-.market-bias-summary{
-  margin-top: 10px;
-  font-size: 12px;
-  line-height: 1.5;
-  opacity: .84;
 }
 
 .market-bias-beginner{
@@ -710,7 +714,7 @@
   }
 
   .ai-mini-card .mini-value{
-    font-size: 17px;
+    font-size: 18px;
   }
 
   .mini-change{
@@ -730,7 +734,6 @@
 
   .risk-summary,
   .ai-reason-text,
-  .market-bias-summary,
   .market-bias-beginner,
   .market-bias-compare-text,
   .market-bias-empty{
