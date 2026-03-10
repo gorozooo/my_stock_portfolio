@@ -14,8 +14,9 @@
 - 優先順位:
   1) Yahoo Finance meta.previousClose
   2) Yahoo Finance の配列から前営業日終値を復元
-  3) DBに保存済みの直近 nikkei_spot_previous_close
-  4) DBに保存済みの直近 nikkei_spot close
+  3) DBに保存済みの直近 nikkei_spot_previous_close（ただし JST 前日以前のみ）
+  4) DBに保存済みの直近 nikkei_spot close（ただし JST 前日以前のみ）
+- 今日の spot close を previous_close に誤採用しないようにする
 - VIX は Yahoo Finance (^VIX) を優先し、ダメなら Stooq にフォールバック
 - MarketIndicatorSnapshot.nikkei_spot_previous_close に正式保存する
 """
@@ -103,34 +104,44 @@ class Command(BaseCommand):
             return None
 
     # =========================
-    # 日経平均現物 previous_close の fallback
+    # DB fallback 用ヘルパ
     # =========================
+    def _iter_past_snapshots_before_today(self, limit: int = 60):
+        """
+        JST基準で「今日より前」に作られた snapshot だけを新しい順で返す。
+        今日の close を previous_close に誤採用しないため、
+        same-day の snapshot は候補から除外する。
+        """
+        today_local = timezone.localdate()
+
+        qs = MarketIndicatorSnapshot.objects.order_by("-created_at")[:limit]
+        for row in qs:
+            created_local_date = timezone.localtime(row.created_at).date()
+            if created_local_date >= today_local:
+                continue
+            yield row
+
     def _load_last_saved_nikkei_previous_close(self) -> tuple[Optional[float], str]:
         """
         直近保存済みの previous_close を取得する。
+        ただし JST 前日以前の snapshot のみを見る。
         優先:
           1) 正式カラム nikkei_spot_previous_close
           2) raw_payload["nikkei_spot"]["previous_close"]
         """
-        row = (
-            MarketIndicatorSnapshot.objects
-            .exclude(nikkei_spot_previous_close__isnull=True)
-            .order_by("-created_at")
-            .first()
-        )
-        if row and _is_valid_number(row.nikkei_spot_previous_close):
-            return float(row.nikkei_spot_previous_close), "db_saved_previous_close"
+        for row in self._iter_past_snapshots_before_today(limit=80):
+            if _is_valid_number(row.nikkei_spot_previous_close) and float(row.nikkei_spot_previous_close) > 0:
+                return float(row.nikkei_spot_previous_close), "db_saved_previous_close"
 
-        rows = MarketIndicatorSnapshot.objects.order_by("-created_at")[:20]
-        for x in rows:
-            raw = x.raw_payload if isinstance(x.raw_payload, dict) else {}
+            raw = row.raw_payload if isinstance(row.raw_payload, dict) else {}
             nikkei_spot = raw.get("nikkei_spot") or {}
             prev_close = nikkei_spot.get("previous_close")
             try:
                 prev_close = float(prev_close)
             except Exception:
                 prev_close = None
-            if _is_valid_number(prev_close) and prev_close > 0:
+
+            if _is_valid_number(prev_close) and float(prev_close) > 0:
                 return float(prev_close), "db_raw_previous_close"
 
         return None, "unavailable"
@@ -138,18 +149,19 @@ class Command(BaseCommand):
     def _load_last_saved_nikkei_close(self) -> tuple[Optional[float], str]:
         """
         直近保存済みの日経平均現物 close を取得する。
-        previous_close が取れないときの最終fallback。
+        ただし JST 前日以前の snapshot のみを見る。
+        previous_close がどうしても取れないときの最終fallback。
         """
-        rows = MarketIndicatorSnapshot.objects.order_by("-created_at")[:30]
-        for x in rows:
-            raw = x.raw_payload if isinstance(x.raw_payload, dict) else {}
+        for row in self._iter_past_snapshots_before_today(limit=80):
+            raw = row.raw_payload if isinstance(row.raw_payload, dict) else {}
             nikkei_spot = raw.get("nikkei_spot") or {}
             close_value = nikkei_spot.get("close")
             try:
                 close_value = float(close_value)
             except Exception:
                 close_value = None
-            if _is_valid_number(close_value) and close_value > 0:
+
+            if _is_valid_number(close_value) and float(close_value) > 0:
                 return float(close_value), "db_last_spot_close"
 
         return None, "unavailable"
@@ -300,8 +312,8 @@ class Command(BaseCommand):
         previous_close を必ず決めにいく。
         優先:
           1) Yahoo 直取得
-          2) DB保存済み previous_close
-          3) DB保存済み last spot close
+          2) DB保存済み previous_close（JST前日以前のみ）
+          3) DB保存済み last spot close（JST前日以前のみ）
         """
         if yahoo_result:
             prev_close = yahoo_result.get("previous_close")
