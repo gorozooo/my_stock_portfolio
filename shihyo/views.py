@@ -16,7 +16,8 @@
 - 朝は当日の preopen を優先
 - 10:00以降は当日の open_1000 を優先
 - 引け後は当日の close を優先
-- 前日の open_1000 が朝に出てしまう問題を防ぐ
+- 日経平均AI予想カードの「予想値」「現在値」下の数値を、
+  どちらも前日終値比に統一
 """
 
 from __future__ import annotations
@@ -83,14 +84,14 @@ def _delta_class(value: float | None, vix_mode: bool = False) -> str:
     return "change-flat"
 
 
-def _extract_nikkei_spot(raw_payload: dict | None) -> tuple[float, float, float, bool, str]:
+def _extract_nikkei_spot(raw_payload: dict | None) -> tuple[float, float, float, float, bool, str]:
     """
-    raw_payload から日経平均（現物）の close / change / change_pct を取り出す。
+    raw_payload から日経平均（現物）の close / change / change_pct / previous_close を取り出す。
     戻り値:
-      (close, change, change_pct, available, source_name)
+      (close, change, change_pct, previous_close, available, source_name)
     """
     if not isinstance(raw_payload, dict):
-        return 0.0, 0.0, 0.0, False, "unknown"
+        return 0.0, 0.0, 0.0, 0.0, False, "unknown"
 
     nikkei_spot = raw_payload.get("nikkei_spot") or {}
     available = bool(nikkei_spot.get("available"))
@@ -100,11 +101,16 @@ def _extract_nikkei_spot(raw_payload: dict | None) -> tuple[float, float, float,
     calc_dict = nikkei_spot.get("calc") or {}
     change_value = _safe_float(calc_dict.get("change"), 0.0)
     change_pct = _safe_float(calc_dict.get("pct"), 0.0)
+    previous_close = _safe_float(nikkei_spot.get("previous_close"), 0.0)
+
+    # previous_close が未保存でも、change が正しければ逆算する
+    if previous_close <= 0 and close_value > 0 and change_value != 0:
+        previous_close = close_value - change_value
 
     if not available or close_value <= 0:
-        return 0.0, 0.0, 0.0, False, source_name
+        return 0.0, 0.0, 0.0, 0.0, False, source_name
 
-    return close_value, change_value, change_pct, True, source_name
+    return close_value, change_value, change_pct, previous_close, True, source_name
 
 
 def _build_risk_context(latest: MarketIndicatorSnapshot) -> dict:
@@ -163,7 +169,14 @@ def _build_risk_context(latest: MarketIndicatorSnapshot) -> dict:
 
 
 def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) -> dict:
-    nikkei_spot_last, nikkei_spot_change, nikkei_spot_pct, spot_available, spot_source = _extract_nikkei_spot(latest.raw_payload)
+    (
+        nikkei_spot_last,
+        nikkei_spot_change,
+        nikkei_spot_pct,
+        nikkei_spot_prev_close,
+        spot_available,
+        spot_source,
+    ) = _extract_nikkei_spot(latest.raw_payload)
 
     nikkei_futures_pct = _safe_float(latest.nikkei_futures_change_pct, 0.0)
     fx_pct = _safe_float(latest.usdjpy_change_pct, 0.0)
@@ -217,7 +230,21 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
         badge_class = "ai-pred-badge ai-pred-badge-wait"
 
     predicted_value = nikkei_spot_last * (1.0 + (gap_pct_value / 100.0))
-    predicted_delta_abs = predicted_value - nikkei_spot_last
+
+    # ここを統一:
+    # 予想値も現在値も「前日終値比」で表示する
+    reference_close = nikkei_spot_prev_close if nikkei_spot_prev_close > 0 else (nikkei_spot_last - nikkei_spot_change)
+
+    if reference_close > 0:
+        predicted_delta_abs = predicted_value - reference_close
+        predicted_delta_pct = ((predicted_value / reference_close) - 1.0) * 100.0
+        current_delta_abs = nikkei_spot_last - reference_close
+        current_delta_pct = ((nikkei_spot_last / reference_close) - 1.0) * 100.0
+    else:
+        predicted_delta_abs = predicted_value - nikkei_spot_last
+        predicted_delta_pct = gap_pct_value
+        current_delta_abs = nikkei_spot_change
+        current_delta_pct = nikkei_spot_pct
 
     confidence_value = 52 + min(28, int(abs(signal) * 8))
     confidence_value = int(_clamp(confidence_value, 50, 80))
@@ -256,11 +283,11 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
 
     predicted_delta_display = (
         f"{_format_signed_number(predicted_delta_abs, 1)} "
-        f"({_format_signed_percent(gap_pct_value, 2)})"
+        f"({_format_signed_percent(predicted_delta_pct, 2)})"
     )
     current_delta_display = (
-        f"{_format_signed_number(nikkei_spot_change, 1)} "
-        f"({_format_signed_percent(nikkei_spot_pct, 2)})"
+        f"{_format_signed_number(current_delta_abs, 1)} "
+        f"({_format_signed_percent(current_delta_pct, 2)})"
     )
 
     return {
@@ -276,7 +303,7 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
         "predicted_delta_display": predicted_delta_display,
         "predicted_delta_class": _delta_class(predicted_delta_abs),
         "current_delta_display": current_delta_display,
-        "current_delta_class": _delta_class(nikkei_spot_change),
+        "current_delta_class": _delta_class(current_delta_abs),
     }
 
 
@@ -489,6 +516,7 @@ def _build_market_bias_context(latest: MarketIndicatorSnapshot) -> dict:
         mode_label, mode_class = _mode_meta_from_mode(None)
         summary_title = str(market_bias.get("summary_title") or "市場の偏り")
         summary_text = str(market_bias.get("summary_text") or "今日は市場の偏りが出ています。")
+
         tone = str(market_bias.get("tone") or "neutral")
 
         return {
