@@ -7,6 +7,10 @@
 - cron からはこの1本を呼ぶだけでよくなるようにします。
 
 対応 phase:
+- close
+    1) shihyo_load_daily_prices
+    2) shihyo_build_market_bias
+
 - preopen
     1) shihyo_load_daily_prices
     2) shihyo_build_market_bias
@@ -18,6 +22,9 @@
     2) shihyo_build_market_bias_open_1000
 
 使い方:
+- 引け後更新
+  python manage.py shihyo_run_pipeline --phase close
+
 - 朝予報の更新
   python manage.py shihyo_run_pipeline --phase preopen
 
@@ -44,7 +51,7 @@ class Command(BaseCommand):
             "--phase",
             type=str,
             required=True,
-            choices=["preopen", "open_1000"],
+            choices=["close", "preopen", "open_1000"],
             help="実行する phase を指定します。",
         )
         parser.add_argument(
@@ -86,6 +93,16 @@ class Command(BaseCommand):
         include_etf = bool(options.get("include_etf"))
 
         self.stdout.write(self.style.SUCCESS(f"[shihyo_run_pipeline] start phase={phase}"))
+
+        if phase == "close":
+            self.stdout.write("[1/2] shihyo_load_daily_prices")
+            call_command("shihyo_load_daily_prices")
+
+            self.stdout.write("[2/2] shihyo_build_market_bias")
+            call_command("shihyo_build_market_bias")
+
+            self.stdout.write(self.style.SUCCESS("[shihyo_run_pipeline] done phase=close"))
+            return
 
         if phase == "preopen":
             self.stdout.write("[1/4] shihyo_load_daily_prices")
