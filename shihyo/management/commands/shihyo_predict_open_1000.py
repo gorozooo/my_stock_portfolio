@@ -10,11 +10,11 @@
   10:00 → 引け の短期予想を保存します。
 
 今回の修正ポイント：
-- 10:00基準値を Yahoo Finance の current 値ではなく、
-  ^N225 の intraday 履歴(5分足)から取得する
-- 対象日の 10:00 JST 以下で最も近い足を優先し、
-  なければ 10:05 までの直後足を補助的に使う
-- Yahoo intraday が取れない場合だけ MarketIndicatorSnapshot を fallback に使う
+- 10:00基準値の fallback を厳格化
+- MarketIndicatorSnapshot を使う場合は、
+  同日 09:55〜10:05 JST の snapshot だけ許可
+- それ以外の時刻の snapshot は使わない
+- 10:00近辺データが無い日は open_1000 予想を保存しない
 """
 
 from __future__ import annotations
@@ -251,39 +251,53 @@ class Command(BaseCommand):
                 "source": "unavailable",
             }
 
-    def _fetch_current_n225_from_snapshot(self) -> dict[str, Optional[float]]:
+    def _fetch_current_n225_from_snapshot_1000_window(self, trade_date: date) -> dict[str, Optional[float]]:
         """
-        最新の MarketIndicatorSnapshot の raw_payload["nikkei_spot"] から
-        現在値と previous_close を拾う。
-        これは最後の fallback。
+        最新 snapshot fallback。
+        ただし同日 09:55〜10:05 JST の snapshot だけ許可する。
+        それ以外の時刻は 10:00基準として不正確なので使わない。
         """
-        latest_snapshot = MarketIndicatorSnapshot.objects.order_by("-created_at").first()
-        if not latest_snapshot:
+        tz_obj = timezone.get_current_timezone()
+
+        candidates = MarketIndicatorSnapshot.objects.order_by("-created_at")
+
+        for row in candidates:
+            local_dt = timezone.localtime(row.created_at, tz_obj)
+            if local_dt.date() != trade_date:
+                continue
+
+            local_t = local_dt.time()
+            if not (dt_time(9, 55) <= local_t <= dt_time(10, 5)):
+                continue
+
+            raw_payload = row.raw_payload if isinstance(row.raw_payload, dict) else {}
+            nikkei_spot = raw_payload.get("nikkei_spot") or {}
+
+            last_value = _safe_float(nikkei_spot.get("close"))
+            previous_close = _safe_float(nikkei_spot.get("previous_close"))
+
+            if (not _is_valid_number(previous_close)) or float(previous_close) <= 0:
+                previous_close = _safe_float(row.nikkei_spot_previous_close)
+
+            pct_vs_prev_close = _calc_pct(last_value, previous_close)
+
+            if not _is_valid_number(last_value):
+                continue
+
             return {
-                "last": None,
-                "previous_close": None,
-                "pct_vs_prev_close": None,
-                "captured_at": None,
-                "source": "unavailable",
+                "last": float(last_value),
+                "previous_close": previous_close if _is_valid_number(previous_close) else None,
+                "pct_vs_prev_close": pct_vs_prev_close if _is_valid_number(pct_vs_prev_close) else None,
+                "captured_at": local_dt.isoformat(),
+                "source": "market_indicator_snapshot_1000_window",
             }
 
-        raw_payload = latest_snapshot.raw_payload if isinstance(latest_snapshot.raw_payload, dict) else {}
-        nikkei_spot = raw_payload.get("nikkei_spot") or {}
-
-        last_value = _safe_float(nikkei_spot.get("close"))
-        previous_close = _safe_float(nikkei_spot.get("previous_close"))
-
-        if (not _is_valid_number(previous_close)) or float(previous_close) <= 0:
-            previous_close = _safe_float(latest_snapshot.nikkei_spot_previous_close)
-
-        pct_vs_prev_close = _calc_pct(last_value, previous_close)
-
         return {
-            "last": last_value if _is_valid_number(last_value) else None,
-            "previous_close": previous_close if _is_valid_number(previous_close) else None,
-            "pct_vs_prev_close": pct_vs_prev_close if _is_valid_number(pct_vs_prev_close) else None,
-            "captured_at": latest_snapshot.created_at.isoformat() if latest_snapshot.created_at else None,
-            "source": "market_indicator_snapshot",
+            "last": None,
+            "previous_close": None,
+            "pct_vs_prev_close": None,
+            "captured_at": None,
+            "source": "unavailable",
         }
 
     def _resolve_current_n225(self, trade_date: date) -> dict[str, Optional[float]]:
@@ -291,7 +305,7 @@ class Command(BaseCommand):
         if _is_valid_number(current_n225.get("last")):
             return current_n225
 
-        current_n225 = self._fetch_current_n225_from_snapshot()
+        current_n225 = self._fetch_current_n225_from_snapshot_1000_window(trade_date)
         if _is_valid_number(current_n225.get("last")):
             return current_n225
 
@@ -434,7 +448,7 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.ERROR(
                     "10:00時点の日経平均値が取得できません。"
-                    " Yahoo intraday と MarketIndicatorSnapshot の両方で取得できませんでした。"
+                    " Yahoo intraday 10:00近辺 と 09:55〜10:05 JST の MarketIndicatorSnapshot の両方で取得できませんでした。"
                 )
             )
             return
