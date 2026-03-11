@@ -10,16 +10,17 @@
   raw_payload["market_bias"] に保存します。
 
 今回の修正ポイント：
-- 日経平均の previous_close 解決ロジックを修正
+- 日経平均の previous_close 解決ロジックを再修正
 - previous_close は「過去 snapshot の previous_close」を引き継がない
-- DBの過去 MarketIndicatorSnapshot を新しい順に見て、
-  nikkei_spot.close が現在値と異なる最初の値を previous_close とする
+- previous_close は「異なる close」ではなく、
+  「現在の nikkei_spot.date より前の直近 market date の close」を使う
 - raw_payload["nikkei_spot"]["calc"] も previous_close 基準で再計算する
 """
 
 from __future__ import annotations
 
 import math
+from datetime import date as date_cls
 from typing import Any, Optional
 
 import requests
@@ -72,6 +73,45 @@ def _calc_from_prev_close(close_value: Optional[float], prev_close_value: Option
     change = close_f - prev_f
     pct = (change / prev_f) * 100.0
     return {"change": float(change), "pct": float(pct)}
+
+
+def _parse_spot_date(value: Any) -> Optional[date_cls]:
+    """
+    nikkei_spot.date を date に寄せる。
+    想定:
+    - YYYY-MM-DD
+    - YYYY/MM/DD
+    - YYYYMMDD
+    """
+    if value is None:
+        return None
+
+    s = str(value).strip()
+    if not s:
+        return None
+
+    try:
+        if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+            return date_cls.fromisoformat(s[:10])
+    except Exception:
+        pass
+
+    try:
+        if len(s) >= 10 and s[4] == "/" and s[7] == "/":
+            return date_cls.fromisoformat(s[:10].replace("/", "-"))
+    except Exception:
+        pass
+
+    try:
+        if len(s) >= 8 and s[:8].isdigit():
+            y = int(s[:4])
+            m = int(s[4:6])
+            d = int(s[6:8])
+            return date_cls(y, m, d)
+    except Exception:
+        pass
+
+    return None
 
 
 class Command(BaseCommand):
@@ -141,6 +181,7 @@ class Command(BaseCommand):
             close_value = meta.get("regularMarketPrice")
             prev_close_value = meta.get("previousClose")
             open_value = meta.get("regularMarketOpen")
+            market_date = meta.get("regularMarketTime")
 
             close_value = float(close_value) if close_value is not None else float("nan")
             prev_close_value = float(prev_close_value) if prev_close_value is not None else float("nan")
@@ -151,9 +192,17 @@ class Command(BaseCommand):
 
             calc = _calc_from_prev_close(close_value, prev_close_value)
 
+            quote_date = ""
+            if market_date is not None:
+                try:
+                    dt_local = timezone.datetime.fromtimestamp(int(market_date), tz=timezone.utc)
+                    quote_date = dt_local.astimezone(timezone.get_fixed_timezone(9 * 60)).date().isoformat()
+                except Exception:
+                    quote_date = ""
+
             quote = Quote(
                 symbol="^N225",
-                date="",
+                date=quote_date,
                 time="",
                 open=open_value,
                 high=float("nan"),
@@ -198,59 +247,68 @@ class Command(BaseCommand):
 
         return None, {"change": 0.0, "pct": 0.0}, "unavailable", None
 
-    def _extract_saved_nikkei_close_from_snapshot(self, snapshot: MarketIndicatorSnapshot) -> Optional[float]:
+    def _extract_saved_nikkei_spot_info(
+        self,
+        snapshot: MarketIndicatorSnapshot,
+    ) -> tuple[Optional[float], Optional[date_cls]]:
         raw_payload = snapshot.raw_payload if isinstance(snapshot.raw_payload, dict) else {}
         nikkei_spot = raw_payload.get("nikkei_spot") or {}
+
         close_value = nikkei_spot.get("close")
         close_value = float(close_value) if close_value is not None else float("nan")
-        if _is_valid_number(close_value) and close_value > 0:
-            return float(close_value)
-        return None
+        if not (_is_valid_number(close_value) and close_value > 0):
+            close_value = None
+        else:
+            close_value = float(close_value)
 
-    def _find_previous_session_close_from_db(self, current_close: Optional[float]) -> tuple[Optional[float], str]:
+        spot_date = _parse_spot_date(nikkei_spot.get("date"))
+
+        return close_value, spot_date
+
+    def _find_previous_session_close_from_db(
+        self,
+        current_spot_date: Optional[date_cls],
+    ) -> tuple[Optional[float], str]:
         """
         DB内の過去 snapshot を新しい順に見て、
-        nikkei_spot.close が現在値と異なる最初の値を previous_close とする。
+        nikkei_spot.date が現在の nikkei_spot.date より前の最初の行の close を使う。
 
         これにより、
-        - 前回保存した previous_close をさらに引き継いでしまう連鎖
-        - 一昨日基準へズレる事故
-        を防ぐ。
+        - 同じ営業日の場中値を previous_close に誤採用しない
+        - 前回保存した previous_close の連鎖を引き継がない
         """
-        if not _is_valid_number(current_close) or float(current_close) <= 0:
+        if current_spot_date is None:
             return None, "unavailable"
-
-        current_close_f = float(current_close)
 
         qs = MarketIndicatorSnapshot.objects.order_by("-created_at")
         for row in qs:
-            saved_close = self._extract_saved_nikkei_close_from_snapshot(row)
-            if not _is_valid_number(saved_close) or float(saved_close) <= 0:
+            saved_close, saved_spot_date = self._extract_saved_nikkei_spot_info(row)
+
+            if not (_is_valid_number(saved_close) and saved_close and saved_close > 0):
+                continue
+            if saved_spot_date is None:
                 continue
 
-            # 同じ close が続いている間は、同一営業日の重複保存とみなして飛ばす
-            if abs(float(saved_close) - current_close_f) < 0.0001:
-                continue
-
-            return float(saved_close), "db_last_different_spot_close"
+            if saved_spot_date < current_spot_date:
+                return float(saved_close), "db_last_prior_spot_date_close"
 
         return None, "unavailable"
 
     def _resolve_nikkei_previous_close(
         self,
-        current_close: Optional[float],
+        current_spot_date: Optional[date_cls],
         api_previous_close: Optional[float],
     ) -> tuple[Optional[float], str]:
         """
         previous_close の解決順:
           1) API が previousClose を返したらそれを使う
           2) 無ければ DB の過去 snapshot から
-             「現在 close と異なる直近の close」を使う
+             「現在の nikkei_spot.date より前」の直近 close を使う
         """
         if _is_valid_number(api_previous_close) and float(api_previous_close) > 0:
             return float(api_previous_close), "api_previous_close"
 
-        db_prev_close, db_source = self._find_previous_session_close_from_db(current_close)
+        db_prev_close, db_source = self._find_previous_session_close_from_db(current_spot_date)
         if _is_valid_number(db_prev_close) and float(db_prev_close) > 0:
             return float(db_prev_close), db_source
 
@@ -314,8 +372,10 @@ class Command(BaseCommand):
 
             q_ns, ns, nikkei_spot_source, nikkei_spot_api_prev_close = self._fetch_nikkei_spot(client)
 
+            current_spot_date = _parse_spot_date(q_ns.date) if q_ns else None
+
             nikkei_prev_close, nikkei_prev_source = self._resolve_nikkei_previous_close(
-                current_close=(q_ns.close if q_ns else None),
+                current_spot_date=current_spot_date,
                 api_previous_close=nikkei_spot_api_prev_close,
             )
 
