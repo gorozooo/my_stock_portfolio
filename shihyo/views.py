@@ -8,15 +8,14 @@
 - 最新スナップショットの実データから、
   1) リスクメーター用の score / title / needle角度
   2) 4カード（日経先物 / 日経 / ドル円 / VIX）
-  3) 日経平均AI予想カード用の label / 予想値 / 根拠
-  4) 市場の偏りカード用の表示データ
+  3) 日経平均AI予想カード
+  4) 市場の偏りカード
   を計算してテンプレートへ渡します。
 
 今回の修正ポイント：
-- 4カードの数値表示をすべて views.py 側で整形して統一
-- 日経先物 / 日経 は小数点以下2桁
-- ドル円は小数点以下3桁
-- VIXは小数点以下2桁
+- 日経平均AI予想カードは ShihyoPreopenPredictionSnapshot を最優先で使用
+- 基準値は必ず reference_close_n225（前営業日終値）
+- 保存済み予測が無い場合のみ、従来のロジックへフォールバック
 """
 
 from __future__ import annotations
@@ -27,7 +26,11 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 from django.utils import timezone
 
-from shihyo.models import MarketIndicatorSnapshot, ShihyoMarketBiasSnapshot
+from shihyo.models import (
+    MarketIndicatorSnapshot,
+    ShihyoMarketBiasSnapshot,
+    ShihyoPreopenPredictionSnapshot,
+)
 
 
 def _clamp(value: float, min_value: float, max_value: float) -> float:
@@ -262,7 +265,87 @@ def _build_vix_card_context(latest: MarketIndicatorSnapshot) -> dict:
     }
 
 
-def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) -> dict:
+def _get_latest_preopen_prediction() -> ShihyoPreopenPredictionSnapshot | None:
+    today_local = timezone.localdate()
+    return (
+        ShihyoPreopenPredictionSnapshot.objects
+        .filter(
+            slot=ShihyoPreopenPredictionSnapshot.SLOT_PREOPEN_0700,
+            trade_date__lte=today_local,
+        )
+        .order_by("-trade_date", "-predicted_at")
+        .first()
+    )
+
+
+def _build_ai_prediction_context_from_snapshot(
+    pred: ShihyoPreopenPredictionSnapshot,
+) -> dict:
+    reference_close = _safe_float(pred.reference_close_n225, 0.0)
+    pred_close_value = _safe_float(pred.pred_close_value, 0.0)
+    pred_close_pct = _safe_float(pred.pred_close_pct, None)
+    pred_confidence = _safe_float(pred.pred_confidence, None)
+
+    delta_abs = None
+    if reference_close > 0 and pred_close_value > 0:
+        delta_abs = pred_close_value - reference_close
+
+    reasons = [
+        str(pred.display_reason_1 or "").strip(),
+        str(pred.display_reason_2 or "").strip(),
+        str(pred.display_reason_3 or "").strip(),
+    ]
+    reasons = [x for x in reasons if x]
+    reason_text = " / ".join(reasons) if reasons else "朝7:00時点の保存済み予測を表示しています。"
+
+    label = str(pred.display_label or "").strip()
+    if not label:
+        if pred.pred_direction == ShihyoPreopenPredictionSnapshot.PRED_UP:
+            label = "上昇予想"
+        elif pred.pred_direction == ShihyoPreopenPredictionSnapshot.PRED_DOWN:
+            label = "下落予想"
+        else:
+            label = "様子見"
+
+    if pred.pred_direction == ShihyoPreopenPredictionSnapshot.PRED_UP:
+        badge_class = "ai-pred-badge ai-pred-badge-up"
+    elif pred.pred_direction == ShihyoPreopenPredictionSnapshot.PRED_DOWN:
+        badge_class = "ai-pred-badge ai-pred-badge-down"
+    else:
+        badge_class = "ai-pred-badge ai-pred-badge-wait"
+
+    if delta_abs is None or pred_close_pct is None:
+        predicted_delta_display = "-"
+        predicted_delta_class = "change-flat"
+    else:
+        predicted_delta_display = (
+            f"{_format_signed_number(delta_abs, 2)} "
+            f"({_format_signed_percent(pred_close_pct, 2)})"
+        )
+        predicted_delta_class = _delta_class(delta_abs)
+
+    confidence_text = "-"
+    if pred_confidence is not None:
+        confidence_text = f"{round(pred_confidence)}%"
+
+    return {
+        "subtitle": "日経平均ベース短期シナリオ",
+        "label": label,
+        "badge_class": badge_class,
+        "predicted_value": _format_price(pred_close_value, 2) if pred_close_value > 0 else "-",
+        "current_value": "-",
+        "gap_pct": _format_signed_percent(pred_close_pct, 2) if pred_close_pct is not None else "-",
+        "confidence": confidence_text,
+        "updated_at": pred.predicted_at.strftime("%H:%M") if pred.predicted_at else "-",
+        "reason": reason_text,
+        "predicted_delta_display": predicted_delta_display,
+        "predicted_delta_class": predicted_delta_class,
+        "current_delta_display": "-",
+        "current_delta_class": "change-flat",
+    }
+
+
+def _build_ai_prediction_context_legacy(latest: MarketIndicatorSnapshot, risk: dict) -> dict:
     (
         nikkei_spot_last,
         nikkei_spot_change,
@@ -401,6 +484,13 @@ def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) ->
         "current_delta_display": "-",
         "current_delta_class": "change-flat",
     }
+
+
+def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) -> dict:
+    saved_prediction = _get_latest_preopen_prediction()
+    if saved_prediction:
+        return _build_ai_prediction_context_from_snapshot(saved_prediction)
+    return _build_ai_prediction_context_legacy(latest, risk)
 
 
 def _select_market_bias_snapshot() -> ShihyoMarketBiasSnapshot | None:
