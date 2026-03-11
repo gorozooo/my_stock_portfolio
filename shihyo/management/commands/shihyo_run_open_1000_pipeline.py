@@ -14,6 +14,11 @@
 - 10:00時点の市場の偏り更新
 - 10:00再予想の保存
 までを一気に流せます。
+
+今回の修正ポイント：
+- shihyo_load_intraday_prices へ渡す引数名を
+  trade_date ではなく date に修正
+- 実コマンドの受け口に合わせる
 """
 
 from __future__ import annotations
@@ -101,7 +106,10 @@ class Command(BaseCommand):
             self.stdout.write("[2/4] shihyo_load_intraday_prices (skipped)")
         else:
             self.stdout.write("[2/4] shihyo_load_intraday_prices")
-            call_command("shihyo_load_intraday_prices", trade_date=trade_date.isoformat())
+            call_command(
+                "shihyo_load_intraday_prices",
+                date=trade_date.isoformat(),
+            )
 
         if options.get("skip_open_bias"):
             self.stdout.write("[3/4] shihyo_build_market_bias_open_1000 (skipped)")
