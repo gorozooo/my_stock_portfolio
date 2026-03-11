@@ -9,16 +9,15 @@
   2) ShihyoDailyPrice
   3) ShihyoIntradayPrice
   4) ShihyoMarketBiasSnapshot
-  に加えて、
-  5) 朝7時モデルの学習用特徴量保存: ShihyoPreopenFeatureSnapshot
-  6) 朝7時モデルの予測結果保存: ShihyoPreopenPredictionSnapshot
-  7) 朝7時モデルの週次診断レポート保存: ShihyoPreopenWeeklyReview
-  を追加します。
+  5) ShihyoPreopenFeatureSnapshot
+  6) ShihyoPreopenPredictionSnapshot
+  7) ShihyoPreopenWeeklyReview
+  を定義します。
 
-今回の実装方針：
-- まずはMVP版の最小構成で3モデルを追加
-- 学習用1行、予測結果、週次レビューを分離
-- 改善ループのための model_version / feature_version / review_payload を最初から持たせる
+今回の修正ポイント：
+- ShihyoPreopenPredictionSnapshot の slot に open_1000 を追加
+- これにより、朝7:00予想(preopen_0700) と 10:00再予想(open_1000) を
+  同じ予測保存テーブルで管理します
 """
 
 from django.db import models
@@ -324,14 +323,17 @@ class ShihyoPreopenFeatureSnapshot(models.Model):
 
 class ShihyoPreopenPredictionSnapshot(models.Model):
     """
-    朝7:00モデルの予測結果保存。
-    1営業日・1モデル版ごとの予測結果を残す。
+    予測結果保存。
+    - preopen_0700 : 朝7:00予想
+    - open_1000    : 10:00再予想
     画面表示・LINE通知・精度検証に使う。
     """
     SLOT_PREOPEN_0700 = "preopen_0700"
+    SLOT_OPEN_1000 = "open_1000"
 
     SLOT_CHOICES = [
         (SLOT_PREOPEN_0700, "朝7:00"),
+        (SLOT_OPEN_1000, "10:00再予想"),
     ]
 
     PRED_UP = "UP"
