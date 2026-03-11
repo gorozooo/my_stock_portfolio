@@ -13,9 +13,10 @@
   を計算してテンプレートへ渡します。
 
 今回の修正ポイント：
-- 日経平均AI予想カードは ShihyoPreopenPredictionSnapshot を最優先で使用
-- 基準値は必ず reference_close_n225（前営業日終値）
-- 保存済み予測が無い場合のみ、従来のロジックへフォールバック
+- 07:00〜09:59 は 朝予想(preopen_0700) を優先表示
+- 10:00〜15:29 は 10時再予想(open_1000) を優先表示
+- 15:30以降は、選ばれた予想に実績が入っていれば「結果表示」に切り替える
+- AI予想カードの基準値は、PredictionSnapshot の reference_close_n225 を必ず使う
 """
 
 from __future__ import annotations
@@ -106,7 +107,7 @@ def _extract_nikkei_spot(raw_payload: dict | None) -> tuple[float, float, float,
     previous_close = _safe_float(nikkei_spot.get("previous_close"), 0.0)
 
     if not available or close_value <= 0:
-        return 0.0, 0.0, 0.0, 0.0, False, source_name
+        return 0.0, 0.0, 0.0, 0.0, False, "unknown"
 
     return close_value, change_value, change_pct, previous_close, True, source_name
 
@@ -265,17 +266,48 @@ def _build_vix_card_context(latest: MarketIndicatorSnapshot) -> dict:
     }
 
 
-def _get_latest_preopen_prediction() -> ShihyoPreopenPredictionSnapshot | None:
-    today_local = timezone.localdate()
+def _latest_prediction_for_slot(slot: str, today_local):
     return (
         ShihyoPreopenPredictionSnapshot.objects
-        .filter(
-            slot=ShihyoPreopenPredictionSnapshot.SLOT_PREOPEN_0700,
-            trade_date__lte=today_local,
-        )
+        .filter(slot=slot, trade_date__lte=today_local)
         .order_by("-trade_date", "-predicted_at")
         .first()
     )
+
+
+def _select_ai_prediction_snapshot() -> ShihyoPreopenPredictionSnapshot | None:
+    now_local = timezone.localtime()
+    today_local = now_local.date()
+    current_time = now_local.time()
+
+    today_preopen = (
+        ShihyoPreopenPredictionSnapshot.objects
+        .filter(
+            slot=ShihyoPreopenPredictionSnapshot.SLOT_PREOPEN_0700,
+            trade_date=today_local,
+        )
+        .order_by("-predicted_at")
+        .first()
+    )
+    today_open = (
+        ShihyoPreopenPredictionSnapshot.objects
+        .filter(
+            slot=ShihyoPreopenPredictionSnapshot.SLOT_OPEN_1000,
+            trade_date=today_local,
+        )
+        .order_by("-predicted_at")
+        .first()
+    )
+    latest_preopen = _latest_prediction_for_slot(ShihyoPreopenPredictionSnapshot.SLOT_PREOPEN_0700, today_local)
+    latest_open = _latest_prediction_for_slot(ShihyoPreopenPredictionSnapshot.SLOT_OPEN_1000, today_local)
+
+    if current_time < dt_time(10, 0):
+        return today_preopen or latest_preopen or today_open or latest_open
+
+    if current_time < dt_time(15, 30):
+        return today_open or latest_open or today_preopen or latest_preopen
+
+    return today_open or today_preopen or latest_open or latest_preopen
 
 
 def _build_ai_prediction_context_from_snapshot(
@@ -285,6 +317,64 @@ def _build_ai_prediction_context_from_snapshot(
     pred_close_value = _safe_float(pred.pred_close_value, 0.0)
     pred_close_pct = _safe_float(pred.pred_close_pct, None)
     pred_confidence = _safe_float(pred.pred_confidence, None)
+
+    now_local = timezone.localtime()
+    after_close = now_local.time() >= dt_time(15, 30)
+    has_actual = _safe_float(pred.actual_close_value, None) is not None and pred.actual_direction_3 != ""
+
+    if after_close and has_actual:
+        actual_close_value = _safe_float(pred.actual_close_value, 0.0)
+        actual_close_pct = _safe_float(pred.actual_close_pct, None)
+        hit = pred.hit_direction is True
+
+        if hit:
+            label = "結果（的中）"
+            badge_class = "ai-pred-badge ai-pred-badge-up"
+        else:
+            label = "結果（外れ）"
+            badge_class = "ai-pred-badge ai-pred-badge-down"
+
+        delta_abs = None
+        if reference_close > 0 and actual_close_value > 0:
+            delta_abs = actual_close_value - reference_close
+
+        if delta_abs is None or actual_close_pct is None:
+            predicted_delta_display = "-"
+            predicted_delta_class = "change-flat"
+        else:
+            predicted_delta_display = (
+                f"{_format_signed_number(delta_abs, 2)} "
+                f"({_format_signed_percent(actual_close_pct, 2)})"
+            )
+            predicted_delta_class = _delta_class(delta_abs)
+
+        base_label = "朝7時予想" if pred.slot == ShihyoPreopenPredictionSnapshot.SLOT_PREOPEN_0700 else "10時予想"
+        expected = str(pred.display_label or pred.pred_direction or "").strip()
+        result_text = "的中" if hit else "外れ"
+        error_pct = _safe_float(pred.abs_error_pct, None)
+
+        reason_parts = [
+            f"{base_label}: {expected}",
+            f"判定: {result_text}",
+        ]
+        if error_pct is not None:
+            reason_parts.append(f"誤差: {error_pct:.2f}pt")
+
+        return {
+            "subtitle": "日経平均ベース短期シナリオ",
+            "label": label,
+            "badge_class": badge_class,
+            "predicted_value": _format_price(actual_close_value, 2) if actual_close_value > 0 else "-",
+            "current_value": "-",
+            "gap_pct": _format_signed_percent(actual_close_pct, 2) if actual_close_pct is not None else "-",
+            "confidence": "-",
+            "updated_at": pred.evaluated_at.strftime("%H:%M") if pred.evaluated_at else "-",
+            "reason": " / ".join(reason_parts),
+            "predicted_delta_display": predicted_delta_display,
+            "predicted_delta_class": predicted_delta_class,
+            "current_delta_display": "-",
+            "current_delta_class": "change-flat",
+        }
 
     delta_abs = None
     if reference_close > 0 and pred_close_value > 0:
@@ -296,7 +386,12 @@ def _build_ai_prediction_context_from_snapshot(
         str(pred.display_reason_3 or "").strip(),
     ]
     reasons = [x for x in reasons if x]
-    reason_text = " / ".join(reasons) if reasons else "朝7:00時点の保存済み予測を表示しています。"
+
+    slot_prefix = "朝予想" if pred.slot == ShihyoPreopenPredictionSnapshot.SLOT_PREOPEN_0700 else "10時再予想"
+    if reasons:
+        reason_text = f"{slot_prefix}: " + " / ".join(reasons)
+    else:
+        reason_text = f"{slot_prefix}の保存済み予測を表示しています。"
 
     label = str(pred.display_label or "").strip()
     if not label:
@@ -487,7 +582,7 @@ def _build_ai_prediction_context_legacy(latest: MarketIndicatorSnapshot, risk: d
 
 
 def _build_ai_prediction_context(latest: MarketIndicatorSnapshot, risk: dict) -> dict:
-    saved_prediction = _get_latest_preopen_prediction()
+    saved_prediction = _select_ai_prediction_snapshot()
     if saved_prediction:
         return _build_ai_prediction_context_from_snapshot(saved_prediction)
     return _build_ai_prediction_context_legacy(latest, risk)
