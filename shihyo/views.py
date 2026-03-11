@@ -13,10 +13,12 @@
   を計算してテンプレートへ渡します。
 
 今回の修正ポイント：
-- 07:00〜09:59 は 朝予想(preopen_0700) を優先表示
-- 10:00〜15:29 は 10時再予想(open_1000) を優先表示
-- 15:30以降は、選ばれた予想に実績が入っていれば「結果表示」に切り替える
-- AI予想カードの基準値は、PredictionSnapshot の reference_close_n225 を必ず使う
+- open_1000 の予測を画面に出す条件を厳格化
+- current_n225_source が
+    1) yahoo_intraday_1000
+    2) market_indicator_snapshot_1000_window
+  のどちらかでない open_1000 レコードは採用しない
+- これにより、古い不正確な open_1000 行が残っていても画面表示から除外する
 """
 
 from __future__ import annotations
@@ -266,13 +268,57 @@ def _build_vix_card_context(latest: MarketIndicatorSnapshot) -> dict:
     }
 
 
+def _is_valid_open_1000_prediction(pred: ShihyoPreopenPredictionSnapshot | None) -> bool:
+    """
+    open_1000 の表示に使ってよい予測かを判定する。
+    古い不正確な source の行を画面表示から除外する。
+    """
+    if pred is None:
+        return False
+
+    if pred.slot != ShihyoPreopenPredictionSnapshot.SLOT_OPEN_1000:
+        return True
+
+    raw_payload = pred.raw_prediction_payload if isinstance(pred.raw_prediction_payload, dict) else {}
+    source = str(raw_payload.get("current_n225_source") or "").strip()
+
+    allowed_sources = {
+        "yahoo_intraday_1000",
+        "market_indicator_snapshot_1000_window",
+    }
+    return source in allowed_sources
+
+
 def _latest_prediction_for_slot(slot: str, today_local):
-    return (
+    qs = (
         ShihyoPreopenPredictionSnapshot.objects
         .filter(slot=slot, trade_date__lte=today_local)
         .order_by("-trade_date", "-predicted_at")
-        .first()
     )
+
+    if slot != ShihyoPreopenPredictionSnapshot.SLOT_OPEN_1000:
+        return qs.first()
+
+    for obj in qs:
+        if _is_valid_open_1000_prediction(obj):
+            return obj
+    return None
+
+
+def _today_prediction_for_slot(slot: str, today_local):
+    qs = (
+        ShihyoPreopenPredictionSnapshot.objects
+        .filter(slot=slot, trade_date=today_local)
+        .order_by("-predicted_at")
+    )
+
+    if slot != ShihyoPreopenPredictionSnapshot.SLOT_OPEN_1000:
+        return qs.first()
+
+    for obj in qs:
+        if _is_valid_open_1000_prediction(obj):
+            return obj
+    return None
 
 
 def _select_ai_prediction_snapshot() -> ShihyoPreopenPredictionSnapshot | None:
@@ -280,26 +326,22 @@ def _select_ai_prediction_snapshot() -> ShihyoPreopenPredictionSnapshot | None:
     today_local = now_local.date()
     current_time = now_local.time()
 
-    today_preopen = (
-        ShihyoPreopenPredictionSnapshot.objects
-        .filter(
-            slot=ShihyoPreopenPredictionSnapshot.SLOT_PREOPEN_0700,
-            trade_date=today_local,
-        )
-        .order_by("-predicted_at")
-        .first()
+    today_preopen = _today_prediction_for_slot(
+        ShihyoPreopenPredictionSnapshot.SLOT_PREOPEN_0700,
+        today_local,
     )
-    today_open = (
-        ShihyoPreopenPredictionSnapshot.objects
-        .filter(
-            slot=ShihyoPreopenPredictionSnapshot.SLOT_OPEN_1000,
-            trade_date=today_local,
-        )
-        .order_by("-predicted_at")
-        .first()
+    today_open = _today_prediction_for_slot(
+        ShihyoPreopenPredictionSnapshot.SLOT_OPEN_1000,
+        today_local,
     )
-    latest_preopen = _latest_prediction_for_slot(ShihyoPreopenPredictionSnapshot.SLOT_PREOPEN_0700, today_local)
-    latest_open = _latest_prediction_for_slot(ShihyoPreopenPredictionSnapshot.SLOT_OPEN_1000, today_local)
+    latest_preopen = _latest_prediction_for_slot(
+        ShihyoPreopenPredictionSnapshot.SLOT_PREOPEN_0700,
+        today_local,
+    )
+    latest_open = _latest_prediction_for_slot(
+        ShihyoPreopenPredictionSnapshot.SLOT_OPEN_1000,
+        today_local,
+    )
 
     if current_time < dt_time(10, 0):
         return today_preopen or latest_preopen or today_open or latest_open
