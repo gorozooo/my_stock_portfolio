@@ -5,22 +5,22 @@
 このファイルは何？
 - 10:00時点の情報から、引けまでの再予想を作って
   ShihyoPreopenPredictionSnapshot(slot=open_1000) に保存するコマンドです。
-- 基準値は「10:00時点の日経平均値」です。
+- 基準値は「対象日の 10:00 時点に最も近い日経平均値」です。
 - 市場の偏り(open_1000) と 最新の外部指標スナップショットを使って、
-  10時→引け の短期予想を保存します。
+  10:00 → 引け の短期予想を保存します。
 
 今回の修正ポイント：
-- 10:00時点の日経平均値を Yahoo Finance だけに依存しない
-- 取得順を
-  1) Yahoo Finance
-  2) 最新の MarketIndicatorSnapshot.raw_payload["nikkei_spot"]
-  に変更
-- これにより、Yahoo current が取れない日でも 10:00再予想を保存できる
+- 10:00基準値を Yahoo Finance の current 値ではなく、
+  ^N225 の intraday 履歴(5分足)から取得する
+- 対象日の 10:00 JST 以下で最も近い足を優先し、
+  なければ 10:05 までの直後足を補助的に使う
+- Yahoo intraday が取れない場合だけ MarketIndicatorSnapshot を fallback に使う
 """
 
 from __future__ import annotations
 
 import math
+from datetime import date, datetime, time as dt_time
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -137,15 +137,19 @@ class Command(BaseCommand):
         except Exception:
             return None
 
-    def _fetch_current_n225_from_yahoo(self) -> dict[str, Optional[float]]:
+    def _fetch_intraday_n225_around_1000(self, trade_date: date) -> dict[str, Optional[float]]:
         """
-        Yahoo Finance chart API から ^N225 の現在値と previousClose を取得。
+        Yahoo Finance の intraday 履歴から、
+        対象日の 10:00 JST に最も近い日経平均値を取る。
+        優先順位:
+          1) 09:00〜10:00 の範囲で、10:00 以下の最新足
+          2) 10:00〜10:05 の範囲で、最も近い直後足
         """
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote('^N225', safe='')}"
         data = self._get_json(
             url=url,
             params={
-                "interval": "1d",
+                "interval": "5m",
                 "range": "5d",
                 "includePrePost": "false",
                 "events": "div,splits",
@@ -157,6 +161,7 @@ class Command(BaseCommand):
                 "last": None,
                 "previous_close": None,
                 "pct_vs_prev_close": None,
+                "captured_at": None,
                 "source": "unavailable",
             }
 
@@ -167,39 +172,82 @@ class Command(BaseCommand):
                     "last": None,
                     "previous_close": None,
                     "pct_vs_prev_close": None,
+                    "captured_at": None,
                     "source": "unavailable",
                 }
 
             meta = result.get("meta") or {}
-            last_value = _safe_float(meta.get("regularMarketPrice"))
-            prev_close = _safe_float(meta.get("previousClose"))
+            previous_close = _safe_float(meta.get("previousClose"))
 
-            if not _is_valid_number(last_value):
-                indicators = result.get("indicators") or {}
-                quote_list = indicators.get("quote") or []
-                quote0 = quote_list[0] if quote_list else {}
-                closes = quote0.get("close") or []
-                valid_closes = [
-                    float(_safe_float(x))
-                    for x in closes
-                    if _is_valid_number(_safe_float(x))
-                ]
-                if valid_closes:
-                    last_value = valid_closes[-1]
-                    if len(valid_closes) >= 2 and not _is_valid_number(prev_close):
-                        prev_close = valid_closes[-2]
+            timestamps = result.get("timestamp") or []
+            indicators = result.get("indicators") or {}
+            quote_list = indicators.get("quote") or []
+            quote0 = quote_list[0] if quote_list else {}
+            closes = quote0.get("close") or []
+
+            if not timestamps or not closes:
+                return {
+                    "last": None,
+                    "previous_close": previous_close if _is_valid_number(previous_close) else None,
+                    "pct_vs_prev_close": None,
+                    "captured_at": None,
+                    "source": "unavailable",
+                }
+
+            jst = timezone.get_fixed_timezone(9 * 60)
+
+            before_or_equal: list[tuple[datetime, float]] = []
+            after_small_window: list[tuple[datetime, float]] = []
+
+            for ts, close_value in zip(timestamps, closes):
+                close_f = _safe_float(close_value)
+                if not _is_valid_number(close_f):
+                    continue
+
+                dt_utc = datetime.fromtimestamp(int(ts), tz=timezone.utc)
+                dt_jst = dt_utc.astimezone(jst)
+
+                if dt_jst.date() != trade_date:
+                    continue
+
+                t = dt_jst.time()
+                if dt_time(9, 0) <= t <= dt_time(10, 0):
+                    before_or_equal.append((dt_jst, float(close_f)))
+                elif dt_time(10, 0) < t <= dt_time(10, 5):
+                    after_small_window.append((dt_jst, float(close_f)))
+
+            selected_dt: Optional[datetime] = None
+            selected_value: Optional[float] = None
+
+            if before_or_equal:
+                before_or_equal.sort(key=lambda x: x[0])
+                selected_dt, selected_value = before_or_equal[-1]
+            elif after_small_window:
+                after_small_window.sort(key=lambda x: x[0])
+                selected_dt, selected_value = after_small_window[0]
+
+            if not _is_valid_number(selected_value):
+                return {
+                    "last": None,
+                    "previous_close": previous_close if _is_valid_number(previous_close) else None,
+                    "pct_vs_prev_close": None,
+                    "captured_at": None,
+                    "source": "unavailable",
+                }
 
             return {
-                "last": last_value if _is_valid_number(last_value) else None,
-                "previous_close": prev_close if _is_valid_number(prev_close) else None,
-                "pct_vs_prev_close": _calc_pct(last_value, prev_close),
-                "source": "yahoo_current",
+                "last": float(selected_value),
+                "previous_close": previous_close if _is_valid_number(previous_close) else None,
+                "pct_vs_prev_close": _calc_pct(selected_value, previous_close),
+                "captured_at": selected_dt.isoformat() if selected_dt else None,
+                "source": "yahoo_intraday_1000",
             }
         except Exception:
             return {
                 "last": None,
                 "previous_close": None,
                 "pct_vs_prev_close": None,
+                "captured_at": None,
                 "source": "unavailable",
             }
 
@@ -207,6 +255,7 @@ class Command(BaseCommand):
         """
         最新の MarketIndicatorSnapshot の raw_payload["nikkei_spot"] から
         現在値と previous_close を拾う。
+        これは最後の fallback。
         """
         latest_snapshot = MarketIndicatorSnapshot.objects.order_by("-created_at").first()
         if not latest_snapshot:
@@ -214,6 +263,7 @@ class Command(BaseCommand):
                 "last": None,
                 "previous_close": None,
                 "pct_vs_prev_close": None,
+                "captured_at": None,
                 "source": "unavailable",
             }
 
@@ -232,11 +282,12 @@ class Command(BaseCommand):
             "last": last_value if _is_valid_number(last_value) else None,
             "previous_close": previous_close if _is_valid_number(previous_close) else None,
             "pct_vs_prev_close": pct_vs_prev_close if _is_valid_number(pct_vs_prev_close) else None,
+            "captured_at": latest_snapshot.created_at.isoformat() if latest_snapshot.created_at else None,
             "source": "market_indicator_snapshot",
         }
 
-    def _resolve_current_n225(self) -> dict[str, Optional[float]]:
-        current_n225 = self._fetch_current_n225_from_yahoo()
+    def _resolve_current_n225(self, trade_date: date) -> dict[str, Optional[float]]:
+        current_n225 = self._fetch_intraday_n225_around_1000(trade_date)
         if _is_valid_number(current_n225.get("last")):
             return current_n225
 
@@ -248,6 +299,7 @@ class Command(BaseCommand):
             "last": None,
             "previous_close": None,
             "pct_vs_prev_close": None,
+            "captured_at": None,
             "source": "unavailable",
         }
 
@@ -372,16 +424,17 @@ class Command(BaseCommand):
             y, m, d = [int(x) for x in trade_date_str.split("-")]
             trade_date = timezone.datetime(y, m, d).date()
 
-        current_n225 = self._resolve_current_n225()
+        current_n225 = self._resolve_current_n225(trade_date)
         reference_close = _safe_float(current_n225["last"])
         current_n225_pct = _safe_float(current_n225["pct_vs_prev_close"], 0.0) or 0.0
         current_source = str(current_n225.get("source") or "unavailable")
+        captured_at = current_n225.get("captured_at")
 
         if not _is_valid_number(reference_close) or float(reference_close) <= 0:
             self.stdout.write(
                 self.style.ERROR(
                     "10:00時点の日経平均値が取得できません。"
-                    " Yahoo Finance と MarketIndicatorSnapshot の両方で取得できませんでした。"
+                    " Yahoo intraday と MarketIndicatorSnapshot の両方で取得できませんでした。"
                 )
             )
             return
@@ -450,6 +503,7 @@ class Command(BaseCommand):
                 "current_n225_pct_vs_prev_close": current_n225_pct,
                 "previous_close_n225": current_n225.get("previous_close"),
                 "current_n225_source": current_source,
+                "current_n225_captured_at": captured_at,
                 "raw_signal": round(raw_signal, 6),
                 "open_bias_id": open_bias.id if open_bias else None,
                 "open_bias_tone": open_bias.tone if open_bias else "",
@@ -485,6 +539,7 @@ class Command(BaseCommand):
                 f"close_pct={obj.pred_close_pct} "
                 f"close_value={obj.pred_close_value} "
                 f"confidence={obj.pred_confidence} "
-                f"source={current_source}"
+                f"source={current_source} "
+                f"captured_at={captured_at}"
             )
         )
