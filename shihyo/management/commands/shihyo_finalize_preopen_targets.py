@@ -11,15 +11,15 @@
   3) hit_direction / abs_error_pct
   を埋めます。
 
-今回の方針：
-- まず Yahoo Finance の ^N225 履歴日足から対象日の終値を取得
-- 取れない場合だけ、当日引け後の MarketIndicatorSnapshot を fallback に使う
-- 基準は必ず prev_close_n225（前営業日終値）
+今回の修正ポイント：
+- PredictionSnapshot は preopen_0700 だけでなく open_1000 も更新する
+- actual_close_pct は Prediction ごとの reference_close_n225 基準で計算する
+  （朝7時予想は前営業日終値基準、10時再予想は10:00基準）
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -80,7 +80,7 @@ def _parse_date(value: str) -> date:
 
 
 class Command(BaseCommand):
-    help = "朝7:00モデルの正解ラベルを引け後に確定して保存します。"
+    help = "朝7:00 / 10:00モデルの正解ラベルを引け後に確定して保存します。"
 
     USER_AGENT = (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -102,9 +102,6 @@ class Command(BaseCommand):
             help="方向ラベルの閾値(%%)。既定 0.35。",
         )
 
-    # =========================
-    # 共通HTTP
-    # =========================
     def _get_json(self, url: str, params: dict, referer: str) -> Optional[dict]:
         headers = {
             "User-Agent": self.USER_AGENT,
@@ -118,9 +115,6 @@ class Command(BaseCommand):
         except Exception:
             return None
 
-    # =========================
-    # Yahoo から対象日の ^N225 終値を取得
-    # =========================
     def _fetch_n225_close_from_yahoo_history(self, trade_date: date) -> tuple[Optional[float], str]:
         """
         Yahoo Finance の chart API 日足から target_date の終値を取る。
@@ -173,9 +167,6 @@ class Command(BaseCommand):
         except Exception:
             return None, "unavailable"
 
-    # =========================
-    # fallback: 当日引け後の snapshot
-    # =========================
     def _fetch_n225_close_from_snapshot(self, trade_date: date) -> tuple[Optional[float], str]:
         """
         当日15:00 JST以降の MarketIndicatorSnapshot の raw_payload から
@@ -183,10 +174,7 @@ class Command(BaseCommand):
         """
         tz_obj = timezone.get_current_timezone()
 
-        candidates = (
-            MarketIndicatorSnapshot.objects
-            .order_by("-created_at")
-        )
+        candidates = MarketIndicatorSnapshot.objects.order_by("-created_at")
 
         for row in candidates:
             local_dt = timezone.localtime(row.created_at, tz_obj)
@@ -241,8 +229,8 @@ class Command(BaseCommand):
             )
             return
 
-        reference_close = _safe_float(feature.prev_close_n225)
-        if not _is_valid_number(reference_close) or float(reference_close) <= 0:
+        reference_close_feature = _safe_float(feature.prev_close_n225)
+        if not _is_valid_number(reference_close_feature) or float(reference_close_feature) <= 0:
             self.stdout.write(
                 self.style.ERROR(
                     "prev_close_n225 が入っていません。"
@@ -261,45 +249,50 @@ class Command(BaseCommand):
             )
             return
 
-        actual_close_pct = _calc_pct(actual_close, reference_close)
-        actual_direction = _direction_from_pct(actual_close_pct, threshold)
+        # --- FeatureSnapshot 更新（朝7:00用の学習正解） ---
+        feature_close_pct = _calc_pct(actual_close, reference_close_feature)
+        feature_direction = _direction_from_pct(feature_close_pct, threshold)
 
-        # --- FeatureSnapshot 更新 ---
         feature.target_close_value = float(actual_close)
-        feature.target_close_pct = float(actual_close_pct) if _is_valid_number(actual_close_pct) else None
-        feature.target_direction_3 = actual_direction
+        feature.target_close_pct = float(feature_close_pct) if _is_valid_number(feature_close_pct) else None
+        feature.target_direction_3 = feature_direction
         feature.is_target_fixed = True
 
         source_payload = feature.source_payload if isinstance(feature.source_payload, dict) else {}
         source_payload["target_finalize"] = {
             "actual_close_source": actual_source,
             "actual_close_value": float(actual_close),
-            "actual_close_pct": float(actual_close_pct) if _is_valid_number(actual_close_pct) else None,
-            "actual_direction_3": actual_direction,
+            "actual_close_pct": float(feature_close_pct) if _is_valid_number(feature_close_pct) else None,
+            "actual_direction_3": feature_direction,
             "threshold": threshold,
             "finalized_at": timezone.now().isoformat(),
         }
         feature.source_payload = source_payload
         feature.save()
 
-        # --- PredictionSnapshot 更新 ---
+        # --- PredictionSnapshot 更新（朝7:00 / 10:00 の両方） ---
         predictions = list(
             ShihyoPreopenPredictionSnapshot.objects.filter(
                 trade_date=trade_date,
-                slot=ShihyoPreopenPredictionSnapshot.SLOT_PREOPEN_0700,
-            ).order_by("model_version")
+            ).order_by("slot", "model_version")
         )
 
         updated_predictions = 0
         for pred in predictions:
+            pred_reference_close = _safe_float(pred.reference_close_n225)
+            pred_actual_close_pct = _calc_pct(actual_close, pred_reference_close)
+            pred_actual_direction = _direction_from_pct(pred_actual_close_pct, threshold)
+
             pred.actual_close_value = float(actual_close)
-            pred.actual_close_pct = float(actual_close_pct) if _is_valid_number(actual_close_pct) else None
-            pred.actual_direction_3 = actual_direction
-            pred.hit_direction = (pred.pred_direction == actual_direction) if pred.pred_direction else None
+            pred.actual_close_pct = (
+                float(pred_actual_close_pct) if _is_valid_number(pred_actual_close_pct) else None
+            )
+            pred.actual_direction_3 = pred_actual_direction
+            pred.hit_direction = (pred.pred_direction == pred_actual_direction) if pred.pred_direction else None
 
             pred_pct = _safe_float(pred.pred_close_pct)
-            if _is_valid_number(pred_pct) and _is_valid_number(actual_close_pct):
-                pred.abs_error_pct = abs(float(pred_pct) - float(actual_close_pct))
+            if _is_valid_number(pred_pct) and _is_valid_number(pred_actual_close_pct):
+                pred.abs_error_pct = abs(float(pred_pct) - float(pred_actual_close_pct))
             else:
                 pred.abs_error_pct = None
 
@@ -309,12 +302,15 @@ class Command(BaseCommand):
             raw_payload["evaluation"] = {
                 "actual_close_source": actual_source,
                 "actual_close_value": float(actual_close),
-                "actual_close_pct": float(actual_close_pct) if _is_valid_number(actual_close_pct) else None,
-                "actual_direction_3": actual_direction,
+                "actual_close_pct": (
+                    float(pred_actual_close_pct) if _is_valid_number(pred_actual_close_pct) else None
+                ),
+                "actual_direction_3": pred_actual_direction,
                 "hit_direction": pred.hit_direction,
                 "abs_error_pct": pred.abs_error_pct,
                 "evaluated_at": pred.evaluated_at.isoformat() if pred.evaluated_at else None,
                 "threshold": threshold,
+                "reference_close_n225": pred_reference_close,
             }
             pred.raw_prediction_payload = raw_payload
             pred.save()
@@ -325,8 +321,8 @@ class Command(BaseCommand):
                 f"[shihyo_finalize_preopen_targets] "
                 f"trade_date={trade_date} "
                 f"actual_close={actual_close} "
-                f"actual_close_pct={actual_close_pct} "
-                f"actual_direction={actual_direction} "
+                f"feature_close_pct={feature_close_pct} "
+                f"feature_direction={feature_direction} "
                 f"source={actual_source} "
                 f"feature_fixed=1 "
                 f"predictions_updated={updated_predictions}"
