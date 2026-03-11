@@ -133,6 +133,12 @@ def _tone_label_and_color(tone: str | None, summary_title: str | None) -> tuple[
     return title, "#4C3C12"
 
 
+def _chunk_list(items: list[str], size: int) -> list[list[str]]:
+    if size <= 0:
+        return [items]
+    return [items[i:i + size] for i in range(0, len(items), size)]
+
+
 # =========================
 # 予測選択（views.py と同じ思想）
 # =========================
@@ -352,7 +358,7 @@ def _kv_row(label: str, value: str) -> dict[str, Any]:
         "layout": "baseline",
         "spacing": "sm",
         "contents": [
-            _text(label, size="xs", color="#AEB7CC", flex=0 if False else None) if False else {
+            {
                 "type": "text",
                 "text": label,
                 "size": "xs",
@@ -375,11 +381,8 @@ def _kv_row(label: str, value: str) -> dict[str, Any]:
 
 
 def _section_title(left: str, right_chip: dict[str, Any] | None = None) -> dict[str, Any]:
-    contents: list[dict[str, Any]] = [
-        _text(left, size="md", color="#FFFFFF", weight="bold"),
-    ]
     if right_chip:
-        row = {
+        return {
             "type": "box",
             "layout": "horizontal",
             "justifyContent": "space-between",
@@ -389,26 +392,39 @@ def _section_title(left: str, right_chip: dict[str, Any] | None = None) -> dict[
                 right_chip,
             ],
         }
-        return row
 
     return {
         "type": "box",
         "layout": "horizontal",
-        "contents": contents,
+        "contents": [
+            _text(left, size="md", color="#FFFFFF", weight="bold"),
+        ],
     }
 
 
 def _chip_wrap(title: str, items: list[str], bg: str) -> list[dict[str, Any]]:
     chips = [_chip(x, bg) for x in items[:3]] if items else [_chip("-", "#2B3348")]
+
+    rows = []
+    for row_items in _chunk_list(chips, 2):
+        rows.append(
+            {
+                "type": "box",
+                "layout": "horizontal",
+                "margin": "sm" if rows else "sm",
+                "spacing": "sm",
+                "contents": row_items,
+            }
+        )
+
     return [
         _text(title, size="xs", color="#AEB7CC", weight="bold"),
         {
             "type": "box",
-            "layout": "horizontal",
+            "layout": "vertical",
             "margin": "sm",
             "spacing": "sm",
-            "wrap": True,
-            "contents": chips,
+            "contents": rows,
         },
     ]
 
@@ -468,7 +484,6 @@ def _build_flex_contents(
 
     body_contents: list[dict[str, Any]] = []
 
-    # ヘッダ
     body_contents.extend([
         {
             "type": "box",
@@ -481,7 +496,6 @@ def _build_flex_contents(
         _separator("lg"),
     ])
 
-    # 4指標
     body_contents.extend([
         _section_title("主要4指標"),
         {
@@ -552,7 +566,6 @@ def _build_flex_contents(
         _separator("lg"),
     ])
 
-    # AI予想
     body_contents.append(_section_title("AI予想"))
 
     if pred is None:
@@ -638,6 +651,43 @@ def _build_flex_contents(
             if pred.pred_direction == ShihyoPreopenPredictionSnapshot.PRED_FLAT:
                 badge_bg = "#4C3C12"
 
+            ai_box_contents: list[dict[str, Any]] = [
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "justifyContent": "space-between",
+                    "alignItems": "center",
+                    "contents": [
+                        _text(f"{slot_label}", size="sm", color="#AEB7CC", weight="bold"),
+                        _chip(pred.display_label or pred.pred_direction or "-", badge_bg),
+                    ],
+                },
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "justifyContent": "space-between",
+                    "margin": "md",
+                    "contents": [
+                        _text("確信度", size="xs", color="#AEB7CC"),
+                        _text(f"{round(pred_confidence)}%" if pred_confidence is not None else "-", size="sm", color="#FFFFFF", weight="bold"),
+                    ],
+                },
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "spacing": "sm",
+                    "margin": "md",
+                    "contents": [
+                        _kv_row("基準値", _format_price(reference_close, 2)),
+                        _kv_row("予想値", f"{_format_price(pred_close_value, 2)} ({_format_signed_number(pred_delta_abs, 2)} / {_format_signed_percent(pred_close_pct, 2)})"),
+                    ],
+                },
+                _text("理由", size="xs", color="#AEB7CC", weight="bold", margin="md"),
+            ]
+
+            for r in reasons[:3]:
+                ai_box_contents.append(_text(f"・{r}", size="sm", color="#FFFFFF", margin="sm"))
+
             body_contents.append(
                 {
                     "type": "box",
@@ -646,48 +696,12 @@ def _build_flex_contents(
                     "backgroundColor": "#151C2D",
                     "cornerRadius": "14px",
                     "paddingAll": "12px",
-                    "contents": [
-                        {
-                            "type": "box",
-                            "layout": "horizontal",
-                            "justifyContent": "space-between",
-                            "alignItems": "center",
-                            "contents": [
-                                _text(f"{slot_label}", size="sm", color="#AEB7CC", weight="bold"),
-                                _chip(pred.display_label or pred.pred_direction or "-", badge_bg),
-                            ],
-                        },
-                        {
-                            "type": "box",
-                            "layout": "horizontal",
-                            "justifyContent": "space-between",
-                            "margin": "md",
-                            "contents": [
-                                _text("確信度", size="xs", color="#AEB7CC"),
-                                _text(f"{round(pred_confidence)}%" if pred_confidence is not None else "-", size="sm", color="#FFFFFF", weight="bold"),
-                            ],
-                        },
-                        {
-                            "type": "box",
-                            "layout": "vertical",
-                            "spacing": "sm",
-                            "margin": "md",
-                            "contents": [
-                                _kv_row("基準値", _format_price(reference_close, 2)),
-                                _kv_row("予想値", f"{_format_price(pred_close_value, 2)} ({_format_signed_number(pred_delta_abs, 2)} / {_format_signed_percent(pred_close_pct, 2)})"),
-                            ],
-                        },
-                        _text("理由", size="xs", color="#AEB7CC", weight="bold", margin="md"),
-                    ] + [
-                        _text(f"・{r}", size="sm", color="#FFFFFF", margin="sm")
-                        for r in reasons[:3]
-                    ],
+                    "contents": ai_box_contents,
                 }
             )
 
     body_contents.append(_separator("lg"))
 
-    # 市場の偏り
     body_contents.append(
         _section_title(
             "市場の偏り",
