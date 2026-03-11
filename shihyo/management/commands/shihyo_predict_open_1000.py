@@ -9,11 +9,13 @@
 - 市場の偏り(open_1000) と 最新の外部指標スナップショットを使って、
   10時→引け の短期予想を保存します。
 
-今回の方針：
-- まず Yahoo Finance から ^N225 の現在値 / previousClose を取得
-- 市場の偏りは ShihyoMarketBiasSnapshot(mode=open_1000) の当日最新を使う
-- 外部環境は最新の MarketIndicatorSnapshot を使う
-- 保存先は既存の ShihyoPreopenPredictionSnapshot を slot=open_1000 で再利用する
+今回の修正ポイント：
+- 10:00時点の日経平均値を Yahoo Finance だけに依存しない
+- 取得順を
+  1) Yahoo Finance
+  2) 最新の MarketIndicatorSnapshot.raw_payload["nikkei_spot"]
+  に変更
+- これにより、Yahoo current が取れない日でも 10:00再予想を保存できる
 """
 
 from __future__ import annotations
@@ -135,7 +137,7 @@ class Command(BaseCommand):
         except Exception:
             return None
 
-    def _fetch_current_n225(self) -> dict[str, Optional[float]]:
+    def _fetch_current_n225_from_yahoo(self) -> dict[str, Optional[float]]:
         """
         Yahoo Finance chart API から ^N225 の現在値と previousClose を取得。
         """
@@ -151,12 +153,22 @@ class Command(BaseCommand):
             referer="https://finance.yahoo.com/quote/%5EN225/",
         )
         if not data:
-            return {"last": None, "previous_close": None, "pct_vs_prev_close": None}
+            return {
+                "last": None,
+                "previous_close": None,
+                "pct_vs_prev_close": None,
+                "source": "unavailable",
+            }
 
         try:
             result = (((data or {}).get("chart") or {}).get("result") or [None])[0]
             if not result:
-                return {"last": None, "previous_close": None, "pct_vs_prev_close": None}
+                return {
+                    "last": None,
+                    "previous_close": None,
+                    "pct_vs_prev_close": None,
+                    "source": "unavailable",
+                }
 
             meta = result.get("meta") or {}
             last_value = _safe_float(meta.get("regularMarketPrice"))
@@ -181,9 +193,63 @@ class Command(BaseCommand):
                 "last": last_value if _is_valid_number(last_value) else None,
                 "previous_close": prev_close if _is_valid_number(prev_close) else None,
                 "pct_vs_prev_close": _calc_pct(last_value, prev_close),
+                "source": "yahoo_current",
             }
         except Exception:
-            return {"last": None, "previous_close": None, "pct_vs_prev_close": None}
+            return {
+                "last": None,
+                "previous_close": None,
+                "pct_vs_prev_close": None,
+                "source": "unavailable",
+            }
+
+    def _fetch_current_n225_from_snapshot(self) -> dict[str, Optional[float]]:
+        """
+        最新の MarketIndicatorSnapshot の raw_payload["nikkei_spot"] から
+        現在値と previous_close を拾う。
+        """
+        latest_snapshot = MarketIndicatorSnapshot.objects.order_by("-created_at").first()
+        if not latest_snapshot:
+            return {
+                "last": None,
+                "previous_close": None,
+                "pct_vs_prev_close": None,
+                "source": "unavailable",
+            }
+
+        raw_payload = latest_snapshot.raw_payload if isinstance(latest_snapshot.raw_payload, dict) else {}
+        nikkei_spot = raw_payload.get("nikkei_spot") or {}
+
+        last_value = _safe_float(nikkei_spot.get("close"))
+        previous_close = _safe_float(nikkei_spot.get("previous_close"))
+
+        if (not _is_valid_number(previous_close)) or float(previous_close) <= 0:
+            previous_close = _safe_float(latest_snapshot.nikkei_spot_previous_close)
+
+        pct_vs_prev_close = _calc_pct(last_value, previous_close)
+
+        return {
+            "last": last_value if _is_valid_number(last_value) else None,
+            "previous_close": previous_close if _is_valid_number(previous_close) else None,
+            "pct_vs_prev_close": pct_vs_prev_close if _is_valid_number(pct_vs_prev_close) else None,
+            "source": "market_indicator_snapshot",
+        }
+
+    def _resolve_current_n225(self) -> dict[str, Optional[float]]:
+        current_n225 = self._fetch_current_n225_from_yahoo()
+        if _is_valid_number(current_n225.get("last")):
+            return current_n225
+
+        current_n225 = self._fetch_current_n225_from_snapshot()
+        if _is_valid_number(current_n225.get("last")):
+            return current_n225
+
+        return {
+            "last": None,
+            "previous_close": None,
+            "pct_vs_prev_close": None,
+            "source": "unavailable",
+        }
 
     def _build_signal_parts(
         self,
@@ -193,7 +259,6 @@ class Command(BaseCommand):
     ) -> list[dict[str, Any]]:
         parts: list[dict[str, Any]] = []
 
-        # 10:00時点の日経の動きは継続しやすいが、寄り直後の反動もあるのでやや弱め
         intraday_contrib = current_n225_pct * 0.18
         if abs(current_n225_pct) >= 1.2:
             intraday_contrib = current_n225_pct * 0.08
@@ -307,15 +372,16 @@ class Command(BaseCommand):
             y, m, d = [int(x) for x in trade_date_str.split("-")]
             trade_date = timezone.datetime(y, m, d).date()
 
-        current_n225 = self._fetch_current_n225()
+        current_n225 = self._resolve_current_n225()
         reference_close = _safe_float(current_n225["last"])
         current_n225_pct = _safe_float(current_n225["pct_vs_prev_close"], 0.0) or 0.0
+        current_source = str(current_n225.get("source") or "unavailable")
 
         if not _is_valid_number(reference_close) or float(reference_close) <= 0:
             self.stdout.write(
                 self.style.ERROR(
                     "10:00時点の日経平均値が取得できません。"
-                    " Yahoo Finance から ^N225 current を取得できませんでした。"
+                    " Yahoo Finance と MarketIndicatorSnapshot の両方で取得できませんでした。"
                 )
             )
             return
@@ -335,7 +401,6 @@ class Command(BaseCommand):
         )
         raw_signal = sum(float(x["contribution"]) for x in parts)
 
-        # 10:00→引け の残り時間なので振れ幅は朝より小さめにする
         pred_close_pct = round(_clamp(raw_signal, -1.50, 1.50), 4)
         pred_close_value = round(reference_close * (1.0 + pred_close_pct / 100.0), 2)
 
@@ -384,6 +449,7 @@ class Command(BaseCommand):
                 "reference_close_n225": reference_close,
                 "current_n225_pct_vs_prev_close": current_n225_pct,
                 "previous_close_n225": current_n225.get("previous_close"),
+                "current_n225_source": current_source,
                 "raw_signal": round(raw_signal, 6),
                 "open_bias_id": open_bias.id if open_bias else None,
                 "open_bias_tone": open_bias.tone if open_bias else "",
@@ -418,6 +484,7 @@ class Command(BaseCommand):
                 f"direction={obj.pred_direction} "
                 f"close_pct={obj.pred_close_pct} "
                 f"close_value={obj.pred_close_value} "
-                f"confidence={obj.pred_confidence}"
+                f"confidence={obj.pred_confidence} "
+                f"source={current_source}"
             )
         )
