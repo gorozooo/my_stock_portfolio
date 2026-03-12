@@ -18,8 +18,11 @@
 - ShihyoPreopenPredictionSnapshot の slot に open_1000 を追加
 - これにより、朝7:00予想(preopen_0700) と 10:00再予想(open_1000) を
   同じ予測保存テーブルで管理します
+- ShihyoPreopenWeeklyReview に、人の承認状態
+  （未確認 / 承認 / 保留 / 却下）を追加します
 """
 
+from django.conf import settings
 from django.db import models
 
 
@@ -447,6 +450,18 @@ class ShihyoPreopenWeeklyReview(models.Model):
         (COMPARISON_REJECT, "不採用"),
     ]
 
+    APPROVAL_PENDING = "pending"
+    APPROVAL_APPROVED = "approved"
+    APPROVAL_HOLD = "hold"
+    APPROVAL_REJECTED = "rejected"
+
+    APPROVAL_CHOICES = [
+        (APPROVAL_PENDING, "未確認"),
+        (APPROVAL_APPROVED, "承認"),
+        (APPROVAL_HOLD, "保留"),
+        (APPROVAL_REJECTED, "却下"),
+    ]
+
     week_start_date = models.DateField(db_index=True)
     week_end_date = models.DateField(db_index=True)
 
@@ -502,6 +517,22 @@ class ShihyoPreopenWeeklyReview(models.Model):
         db_index=True,
     )
 
+    approval_status = models.CharField(
+        max_length=16,
+        choices=APPROVAL_CHOICES,
+        default=APPROVAL_PENDING,
+        db_index=True,
+    )
+    approval_comment = models.TextField(default="", blank=True)
+    approval_updated_at = models.DateTimeField(null=True, blank=True)
+    approval_updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="shihyo_weekly_review_approvals",
+    )
+
     # --- 比較結果 ---
     comparison_target_model_version = models.CharField(max_length=64, default="", blank=True)
     comparison_target_feature_version = models.CharField(max_length=64, default="", blank=True)
@@ -526,6 +557,7 @@ class ShihyoPreopenWeeklyReview(models.Model):
         indexes = [
             models.Index(fields=["week_start_date", "week_end_date"]),
             models.Index(fields=["status", "week_start_date"]),
+            models.Index(fields=["approval_status", "week_start_date"]),
             models.Index(fields=["model_version", "week_start_date"]),
             models.Index(fields=["feature_version", "week_start_date"]),
         ]
