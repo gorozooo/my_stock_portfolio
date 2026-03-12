@@ -9,6 +9,7 @@
 - 下段に日経平均AI予想カードを表示する
 - 市場の偏りカードも表示する
 - 今回の修正で、引け後は AI予想カードで「予想値」と「実績値」を横並び表示する
+- 週次レビュー専用ページへの導線を追加する
 -->
 
 {% extends "base.html" %}
@@ -17,7 +18,7 @@
 {% block title %}指標ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=21">
+<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=22">
 
 <div class="shihyo-page">
 
@@ -30,6 +31,10 @@
         まだデータがありません
       {% endif %}
     </div>
+  </div>
+
+  <div class="shihyo-header-actions">
+    <a href="{% url 'shihyo:weekly_review' %}" class="shihyo-link-btn">週次レビューを見る</a>
   </div>
 
   {% if latest %}
