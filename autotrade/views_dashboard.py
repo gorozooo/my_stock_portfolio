@@ -1,16 +1,16 @@
 """
-[FILE] views_dashboard.py
+[FILE] autotrade/views_dashboard.py
 [PATH] <project_root>/autotrade/views_dashboard.py
 
 このファイルは何？
 - AutoTrade のダッシュボード表示（iPhone 1画面）用の View と整形関数です。
 - DB上の「DailyState（今日の状態）」＋「ACTIVE Snapshot（今日の設定）」＋「Execution（今日の事実ログ）」をまとめてテンプレへ渡します。
 
-今回の追加（UI用の実データ供給）：
-- 今日の Execution 一覧（PAPER/LIVE、BACKTEST除外）を ctx["executions_today"] に追加
-- PAPER の統計（N/勝率/勝敗/利益合計/損失合計/PF/最大DD）を ctx["paper_stats"] に追加
-- 簡易エクイティ推移（時刻→総資産）を ctx["equity_curve"] に追加
-- open_positions は将来拡張の枠として、現段階は空配列で返す（モデル的に未クローズを表現していないため）
+今回の変更：
+- デモ結果を専用ページへ分離し、dashboard は「運用モード」と「要点表示」に寄せる
+- execution_report() を追加して、PAPER/LIVE/ALL の専用結果ページを表示
+- dashboard では DEMO / LIVE 切替用の表示データを返す
+- mode別の open/pending/log を rules から読み取り、専用ページで見やすく出せるようにする
 """
 
 from __future__ import annotations
@@ -394,14 +394,102 @@ def build_active_detail_chips_for_template(*, active_snapshot: Optional[AutoTrad
     return chips
 
 
-# =========================================================
-# UI追加：Execution集計（PAPER統計 / 今日の履歴 / 簡易エクイティ推移）
-# =========================================================
+def _get_rules_dict(state: AutoTradeDailyState) -> Dict[str, Any]:
+    return state.rules if isinstance(state.rules, dict) else {}
+
+
+def _get_execution_mode_from_state(state: AutoTradeDailyState) -> str:
+    rules = _get_rules_dict(state)
+    mode = str(rules.get("execution_mode") or "PAPER").upper().strip()
+    if mode not in ["PAPER", "LIVE"]:
+        mode = "PAPER"
+    return mode
+
+
+def _fmt_dt_text(v: Any) -> str:
+    if not v:
+        return "-"
+    try:
+        dt = timezone.datetime.fromisoformat(str(v))
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt, timezone.get_current_timezone())
+        return timezone.localtime(dt).strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        s = str(v)
+        if len(s) >= 16:
+            return s[:16].replace("T", " ")
+        return s
+
+
+def _build_runtime_bucket(state: AutoTradeDailyState, *, mode: str) -> Dict[str, Any]:
+    """
+    state.rules の mode別バケツから open/pending/log を取り出して
+    テンプレで使いやすい形へ変換する。
+    """
+    mode_up = str(mode or "PAPER").upper().strip()
+    prefix = "live" if mode_up == "LIVE" else "paper"
+
+    rules = _get_rules_dict(state)
+
+    raw_open = rules.get(f"{prefix}_open_positions")
+    raw_pending = rules.get(f"{prefix}_pending_orders")
+    raw_logs = rules.get(f"{prefix}_logs")
+    last_bar_ts = rules.get(f"{prefix}_last_bar_ts")
+
+    raw_open = raw_open if isinstance(raw_open, dict) else {}
+    raw_pending = raw_pending if isinstance(raw_pending, dict) else {}
+    raw_logs = raw_logs if isinstance(raw_logs, list) else []
+
+    open_positions: List[Dict[str, Any]] = []
+    for ticker, p in raw_open.items():
+        p = p if isinstance(p, dict) else {}
+        open_positions.append({
+            "ticker": str(ticker),
+            "side": str(p.get("side") or "-"),
+            "size": _safe_int(p.get("size"), 0),
+            "entry_price": p.get("entry_price"),
+            "stop_price": p.get("stop_price"),
+            "take_price": p.get("take_price"),
+            "entry_at_text": _fmt_dt_text(p.get("entry_at")),
+            "expire_at_text": _fmt_dt_text(p.get("expire_at")),
+        })
+
+    pending_orders: List[Dict[str, Any]] = []
+    for ticker, p in raw_pending.items():
+        p = p if isinstance(p, dict) else {}
+        pending_orders.append({
+            "ticker": str(ticker),
+            "side": str(p.get("side") or "-"),
+            "created_at_text": _fmt_dt_text(p.get("created_at")),
+            "based_on_bar_ts": str(p.get("based_on_bar_ts") or "-"),
+        })
+
+    logs: List[Dict[str, Any]] = []
+    for x in reversed(raw_logs[-80:]):
+        if isinstance(x, dict):
+            logs.append({
+                "ts": _fmt_dt_text(x.get("ts")),
+                "msg": str(x.get("msg") or ""),
+            })
+        else:
+            logs.append({
+                "ts": "-",
+                "msg": str(x),
+            })
+
+    return {
+        "mode": mode_up,
+        "open_positions": open_positions,
+        "pending_orders": pending_orders,
+        "logs": logs,
+        "last_bar_ts": str(last_bar_ts or ""),
+        "open_count": len(open_positions),
+        "pending_count": len(pending_orders),
+        "log_count": len(logs),
+    }
+
+
 def _calc_max_drawdown_yen(equity_points: List[int]) -> int:
-    """
-    equity_points（時系列）から最大DD（円）を返す。
-    peakからの下落幅の最大値。
-    """
     peak = None
     max_dd = 0
     for x in equity_points or []:
@@ -418,21 +506,20 @@ def _calc_max_drawdown_yen(equity_points: List[int]) -> int:
     return int(max_dd)
 
 
-def _build_paper_stats(*, base_equity_yen: int, execs_paper: List[AutoTradeExecution]) -> Dict[str, Any]:
-    """
-    PAPERのExecution（事実）から統計を作る。
-    """
-    execs = list(execs_paper or [])
+def _build_execution_stats(*, base_equity_yen: int, executions: List[AutoTradeExecution]) -> Dict[str, Any]:
+    execs = list(executions or [])
     trades = len(execs)
 
     wins = 0
     losses = 0
     sum_win = 0
-    sum_loss = 0  # 負の合計（負値のまま）
+    sum_loss = 0  # 負値のまま
+    pnl_sum = 0
     pnls: List[int] = []
 
     for e in execs:
         pnl = _safe_int(getattr(e, "pnl_yen", 0), 0)
+        pnl_sum += pnl
         pnls.append(pnl)
         if pnl >= 0:
             wins += 1
@@ -442,19 +529,13 @@ def _build_paper_stats(*, base_equity_yen: int, execs_paper: List[AutoTradeExecu
             sum_loss += pnl
 
     sum_loss_abs = abs(sum_loss)
+    win_rate = (wins / trades) if trades > 0 else 0.0
 
-    if trades > 0:
-        win_rate = wins / trades
-    else:
-        win_rate = 0.0
-
-    # PF = 利益合計 / 損失合計(絶対値)
     if sum_loss_abs > 0:
         pf = float(sum_win) / float(sum_loss_abs)
     else:
         pf = 999.0 if sum_win > 0 else 0.0
 
-    # 最大DD（PAPERの当日推移：base_equityから pnls を順に加算）
     eq = int(base_equity_yen or 1_000_000)
     equity_points = [eq]
     for pnl in pnls:
@@ -471,19 +552,15 @@ def _build_paper_stats(*, base_equity_yen: int, execs_paper: List[AutoTradeExecu
         "win_rate_pct": round(_pct_100(win_rate), 1),
         "sum_win_yen": int(sum_win),
         "sum_loss_abs_yen": int(sum_loss_abs),
+        "pnl_sum_yen": int(pnl_sum),
         "pf": f"{pf:.3f}" if pf else f"{pf:.2f}",
         "dd_yen": int(dd_yen),
         "dd_pct": round(_pct_100(dd_pct), 1),
     }
 
 
-def _build_equity_curve(*, base_equity_yen: int, execs_for_curve: List[AutoTradeExecution]) -> List[Dict[str, Any]]:
-    """
-    簡易エクイティ推移（時刻→総資産）。
-    - base_equity_yen から pnl を順に反映していく
-    - ts は exit_at（なければ created_at）で表示
-    """
-    execs = list(execs_for_curve or [])
+def _build_equity_curve(*, base_equity_yen: int, executions: List[AutoTradeExecution]) -> List[Dict[str, Any]]:
+    execs = list(executions or [])
     eq = int(base_equity_yen or 1_000_000)
 
     out: List[Dict[str, Any]] = []
@@ -512,11 +589,9 @@ def dashboard(request: HttpRequest):
     state, _ = AutoTradeDailyState.objects.get_or_create(date=today)
 
     active_snapshot = _get_active_snapshot(request.user)
+    current_mode = _get_execution_mode_from_state(state)
 
-    # =========================================================
-    # 追加：今日のExecution（PAPER/LIVE、BACKTEST除外）
-    # =========================================================
-    executions_today = list(
+    executions_today_all = list(
         AutoTradeExecution.objects.filter(
             user=request.user,
             created_at__date=today,
@@ -525,47 +600,90 @@ def dashboard(request: HttpRequest):
         .order_by("exit_at", "id")
     )
 
-    # =========================================================
-    # PAPER統計（今日のPAPERのみ）
-    # - base_equity は「今日開始時点の推定」として state.equity_yen - state.pnl_day_yen を使う
-    #   ※今は “表示” が目的。将来は正式な日次確定ロジックで厳密化する。
-    # =========================================================
+    executions_current_mode = [
+        e for e in executions_today_all
+        if str(getattr(e, "mode", "")).upper() == current_mode
+    ]
+
     start_equity_yen = int(_safe_int(state.equity_yen, 1_000_000) - _safe_int(state.pnl_day_yen, 0))
-    execs_paper_today = [e for e in executions_today if str(getattr(e, "mode", "")).upper() == "PAPER"]
+    if start_equity_yen <= 0:
+        start_equity_yen = int(_safe_int(state.equity_yen, 1_000_000)) or 1_000_000
 
-    paper_stats = _build_paper_stats(
+    current_mode_stats = _build_execution_stats(
         base_equity_yen=start_equity_yen,
-        execs_paper=execs_paper_today,
+        executions=executions_current_mode,
     )
 
-    # =========================================================
-    # 簡易エクイティ推移（まずは “今日のPAPER” を反映）
-    # - ここは用途次第で “PAPER+LIVE” に変えられる
-    # =========================================================
-    equity_curve = _build_equity_curve(
-        base_equity_yen=start_equity_yen,
-        execs_for_curve=execs_paper_today,
-    )
-
-    # =========================================================
-    # 現在のポジション（将来拡張）
-    # - AutoTradeExecution は exit_at 必須のため、現段階では空
-    # =========================================================
-    open_positions: List[Dict[str, Any]] = []
+    runtime_summary = _build_runtime_bucket(state, mode=current_mode)
 
     ctx = {
         "state": state,
         "result_cards": build_result_cards_for_template(state),
         "thresholds": build_thresholds_for_template(),
-
-        # ACTIVE Snapshot 表示
         "active_summary_chips": build_active_summary_chips_for_template(active_snapshot=active_snapshot),
         "active_detail_chips": build_active_detail_chips_for_template(active_snapshot=active_snapshot),
 
-        # ★ UI追加：PAPER統計 / 今日の履歴 / ポジション / 推移
-        "paper_stats": paper_stats,
-        "executions_today": executions_today,
-        "open_positions": open_positions,
-        "equity_curve": equity_curve,
+        # 追加：運用モードと専用ページ導線
+        "current_mode": current_mode,
+        "current_mode_stats": current_mode_stats,
+        "runtime_summary": runtime_summary,
     }
     return render(request, "autotrade/dashboard.html", ctx)
+
+
+@login_required
+def execution_report(request: HttpRequest):
+    """
+    専用の結果ページ。
+    - PAPER / LIVE / ALL を切り替えて見られる
+    - open / pending / logs も mode別に表示
+    """
+    today = timezone.localdate()
+    state, _ = AutoTradeDailyState.objects.get_or_create(date=today)
+
+    current_mode = _get_execution_mode_from_state(state)
+    selected_mode = str(request.GET.get("mode") or current_mode).upper().strip()
+    if selected_mode not in ["PAPER", "LIVE", "ALL"]:
+        selected_mode = current_mode
+
+    qs = (
+        AutoTradeExecution.objects.filter(
+            user=request.user,
+            created_at__date=today,
+        )
+        .exclude(mode="BACKTEST")
+        .order_by("exit_at", "id")
+    )
+
+    if selected_mode in ["PAPER", "LIVE"]:
+        qs = qs.filter(mode=selected_mode)
+
+    executions_today = list(qs)
+
+    start_equity_yen = int(_safe_int(state.equity_yen, 1_000_000) - _safe_int(state.pnl_day_yen, 0))
+    if start_equity_yen <= 0:
+        start_equity_yen = int(_safe_int(state.equity_yen, 1_000_000)) or 1_000_000
+
+    report_stats = _build_execution_stats(
+        base_equity_yen=start_equity_yen,
+        executions=executions_today,
+    )
+
+    equity_curve = _build_equity_curve(
+        base_equity_yen=start_equity_yen,
+        executions=executions_today,
+    )
+
+    runtime_mode = selected_mode if selected_mode in ["PAPER", "LIVE"] else current_mode
+    runtime_bucket = _build_runtime_bucket(state, mode=runtime_mode)
+
+    ctx = {
+        "state": state,
+        "current_mode": current_mode,
+        "selected_mode": selected_mode,
+        "report_stats": report_stats,
+        "executions_today": executions_today,
+        "equity_curve": equity_curve,
+        "runtime_bucket": runtime_bucket,
+    }
+    return render(request, "autotrade/execution_report.html", ctx)
