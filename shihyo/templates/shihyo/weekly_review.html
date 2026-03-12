@@ -6,6 +6,11 @@
 - 指標アプリ専用の週次レビュー表示ページです。
 - 最新の ShihyoPreopenWeeklyReview を1件だけ表示します。
 - この画面から 承認 / 保留 / 却下 を更新します。
+
+今回の修正ポイント：
+- データ不足モードを追加
+- sample_count が少ない間は、空の詳細セクションを隠す
+- 一致率や差分の表示は view 側で整形済み文字列を使う
 -->
 
 {% extends "base.html" %}
@@ -14,7 +19,7 @@
 {% block title %}週次レビュー{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=22">
+<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=23">
 
 <div class="shihyo-page">
 
@@ -60,163 +65,128 @@
 
       <div class="weekly-kpi-card">
         <div class="weekly-kpi-label">方向一致率</div>
-        <div class="weekly-kpi-value">
-          {% if review.direction_accuracy is not None %}
-            {{ review.direction_accuracy|floatformat:1 }}%
-          {% else %}
-            -
-          {% endif %}
-        </div>
+        <div class="weekly-kpi-value">{{ direction_accuracy_display }}</div>
       </div>
 
       <div class="weekly-kpi-card">
         <div class="weekly-kpi-label">高信頼一致率</div>
-        <div class="weekly-kpi-value">
-          {% if review.high_conf_direction_accuracy is not None %}
-            {{ review.high_conf_direction_accuracy|floatformat:1 }}%
-          {% else %}
-            -
-          {% endif %}
-        </div>
+        <div class="weekly-kpi-value">{{ high_conf_direction_accuracy_display }}</div>
       </div>
 
       <div class="weekly-kpi-card">
         <div class="weekly-kpi-label">平均誤差</div>
-        <div class="weekly-kpi-value">
-          {% if review.mean_abs_error_pct is not None %}
-            {{ review.mean_abs_error_pct|floatformat:2 }}pt
-          {% else %}
-            -
-          {% endif %}
-        </div>
+        <div class="weekly-kpi-value">{{ mean_abs_error_pct_display }}</div>
       </div>
     </section>
 
-    <section class="shihyo-card weekly-card">
-      <div class="weekly-section-title">最大弱点</div>
-      <div class="weekly-info-list">
-        <div class="weekly-info-row">
-          <div class="weekly-info-key">ラベル</div>
-          <div class="weekly-info-val">{{ review.weakness_label|default:"-" }}</div>
+    {% if review_is_insufficient %}
+      <section class="shihyo-card weekly-card">
+        <div class="weekly-section-title">いまは週次判断の材料が不足しています</div>
+        <div class="weekly-proposal-reason">
+          現在の予測数は <strong>{{ review.sample_count }}</strong> 件です。<br>
+          まずは <strong>{{ min_weekly_review_sample_count }}</strong> 件程度たまるまで継続観測し、
+          その後に「最大弱点」「改善候補」「比較結果」を詳しく表示します。
         </div>
-        <div class="weekly-info-row">
-          <div class="weekly-info-key">コード</div>
-          <div class="weekly-info-val">{{ review.weakness_code|default:"-" }}</div>
-        </div>
-        <div class="weekly-info-row">
-          <div class="weekly-info-key">サンプル数</div>
-          <div class="weekly-info-val">{{ review.weakness_sample_count }}</div>
-        </div>
-        <div class="weekly-info-row">
-          <div class="weekly-info-key">一致率</div>
-          <div class="weekly-info-val">
-            {% if review.weakness_accuracy is not None %}
-              {{ review.weakness_accuracy|floatformat:1 }}%
-            {% else %}
-              -
-            {% endif %}
-          </div>
-        </div>
-        <div class="weekly-info-row">
-          <div class="weekly-info-key">全体差</div>
-          <div class="weekly-info-val">
-            {% if review.weakness_gap_vs_overall is not None %}
-              {{ review.weakness_gap_vs_overall|floatformat:1 }}pt
-            {% else %}
-              -
-            {% endif %}
-          </div>
-        </div>
-      </div>
-    </section>
+      </section>
+    {% endif %}
 
-    <section class="shihyo-card weekly-card">
-      <div class="weekly-section-title">次に試す改善候補</div>
-      <div class="weekly-info-list">
-        <div class="weekly-info-row">
-          <div class="weekly-info-key">候補名</div>
-          <div class="weekly-info-val">{{ review.proposal_label|default:"-" }}</div>
+    {% if show_detailed_sections %}
+      <section class="shihyo-card weekly-card">
+        <div class="weekly-section-title">最大弱点</div>
+        <div class="weekly-info-list">
+          <div class="weekly-info-row">
+            <div class="weekly-info-key">ラベル</div>
+            <div class="weekly-info-val">{{ review.weakness_label|default:"-" }}</div>
+          </div>
+          <div class="weekly-info-row">
+            <div class="weekly-info-key">コード</div>
+            <div class="weekly-info-val">{{ review.weakness_code|default:"-" }}</div>
+          </div>
+          <div class="weekly-info-row">
+            <div class="weekly-info-key">サンプル数</div>
+            <div class="weekly-info-val">{{ review.weakness_sample_count }}</div>
+          </div>
+          <div class="weekly-info-row">
+            <div class="weekly-info-key">一致率</div>
+            <div class="weekly-info-val">{{ weakness_accuracy_display }}</div>
+          </div>
+          <div class="weekly-info-row">
+            <div class="weekly-info-key">全体差</div>
+            <div class="weekly-info-val">{{ weakness_gap_vs_overall_display }}</div>
+          </div>
         </div>
-        <div class="weekly-info-row">
-          <div class="weekly-info-key">コード</div>
-          <div class="weekly-info-val">{{ review.proposal_code|default:"-" }}</div>
-        </div>
-        <div class="weekly-info-row">
-          <div class="weekly-info-key">特徴量グループ</div>
-          <div class="weekly-info-val">{{ review.proposal_feature_group|default:"-" }}</div>
-        </div>
-        <div class="weekly-info-row">
-          <div class="weekly-info-key">優先度</div>
-          <div class="weekly-info-val">{{ review.proposal_priority }}</div>
-        </div>
-        <div class="weekly-info-row">
-          <div class="weekly-info-key">コスト</div>
-          <div class="weekly-info-val">{{ review.proposal_cost_level|default:"-" }}</div>
-        </div>
-      </div>
+      </section>
 
-      <div class="weekly-proposal-reason">
-        {{ review.proposal_reason|default:"提案理由はまだありません。" }}
-      </div>
-    </section>
+      <section class="shihyo-card weekly-card">
+        <div class="weekly-section-title">次に試す改善候補</div>
+        <div class="weekly-info-list">
+          <div class="weekly-info-row">
+            <div class="weekly-info-key">候補名</div>
+            <div class="weekly-info-val">{{ review.proposal_label|default:"-" }}</div>
+          </div>
+          <div class="weekly-info-row">
+            <div class="weekly-info-key">コード</div>
+            <div class="weekly-info-val">{{ review.proposal_code|default:"-" }}</div>
+          </div>
+          <div class="weekly-info-row">
+            <div class="weekly-info-key">特徴量グループ</div>
+            <div class="weekly-info-val">{{ review.proposal_feature_group|default:"-" }}</div>
+          </div>
+          <div class="weekly-info-row">
+            <div class="weekly-info-key">優先度</div>
+            <div class="weekly-info-val">{{ review.proposal_priority }}</div>
+          </div>
+          <div class="weekly-info-row">
+            <div class="weekly-info-key">コスト</div>
+            <div class="weekly-info-val">{{ review.proposal_cost_level|default:"-" }}</div>
+          </div>
+        </div>
 
-    <section class="shihyo-card weekly-card">
-      <div class="weekly-section-title">比較結果</div>
-      <div class="weekly-info-list">
-        <div class="weekly-info-row">
-          <div class="weekly-info-key">比較状態</div>
-          <div class="weekly-info-val">
-            {% if review.comparison_result == "pending" %}
-              比較待ち
-            {% elif review.comparison_result == "adopt" %}
-              採用
-            {% elif review.comparison_result == "reject" %}
-              不採用
-            {% else %}
-              -
-            {% endif %}
+        <div class="weekly-proposal-reason">
+          {{ review.proposal_reason|default:"提案理由はまだありません。" }}
+        </div>
+      </section>
+
+      <section class="shihyo-card weekly-card">
+        <div class="weekly-section-title">比較結果</div>
+        <div class="weekly-info-list">
+          <div class="weekly-info-row">
+            <div class="weekly-info-key">比較状態</div>
+            <div class="weekly-info-val">
+              {% if review.comparison_result == "pending" %}
+                比較待ち
+              {% elif review.comparison_result == "adopt" %}
+                採用
+              {% elif review.comparison_result == "reject" %}
+                不採用
+              {% else %}
+                -
+              {% endif %}
+            </div>
+          </div>
+          <div class="weekly-info-row">
+            <div class="weekly-info-key">比較先 model</div>
+            <div class="weekly-info-val">{{ review.comparison_target_model_version|default:"-" }}</div>
+          </div>
+          <div class="weekly-info-row">
+            <div class="weekly-info-key">比較先 feature</div>
+            <div class="weekly-info-val">{{ review.comparison_target_feature_version|default:"-" }}</div>
+          </div>
+          <div class="weekly-info-row">
+            <div class="weekly-info-key">一致率差</div>
+            <div class="weekly-info-val">{{ accuracy_diff_display }}</div>
+          </div>
+          <div class="weekly-info-row">
+            <div class="weekly-info-key">高信頼一致率差</div>
+            <div class="weekly-info-val">{{ high_conf_accuracy_diff_display }}</div>
+          </div>
+          <div class="weekly-info-row">
+            <div class="weekly-info-key">MAE差</div>
+            <div class="weekly-info-val">{{ mae_diff_display }}</div>
           </div>
         </div>
-        <div class="weekly-info-row">
-          <div class="weekly-info-key">比較先 model</div>
-          <div class="weekly-info-val">{{ review.comparison_target_model_version|default:"-" }}</div>
-        </div>
-        <div class="weekly-info-row">
-          <div class="weekly-info-key">比較先 feature</div>
-          <div class="weekly-info-val">{{ review.comparison_target_feature_version|default:"-" }}</div>
-        </div>
-        <div class="weekly-info-row">
-          <div class="weekly-info-key">一致率差</div>
-          <div class="weekly-info-val">
-            {% if review.accuracy_diff is not None %}
-              {{ review.accuracy_diff|floatformat:1 }}pt
-            {% else %}
-              -
-            {% endif %}
-          </div>
-        </div>
-        <div class="weekly-info-row">
-          <div class="weekly-info-key">高信頼一致率差</div>
-          <div class="weekly-info-val">
-            {% if review.high_conf_accuracy_diff is not None %}
-              {{ review.high_conf_accuracy_diff|floatformat:1 }}pt
-            {% else %}
-              -
-            {% endif %}
-          </div>
-        </div>
-        <div class="weekly-info-row">
-          <div class="weekly-info-key">MAE差</div>
-          <div class="weekly-info-val">
-            {% if review.mae_diff is not None %}
-              {{ review.mae_diff|floatformat:2 }}pt
-            {% else %}
-              -
-            {% endif %}
-          </div>
-        </div>
-      </div>
-    </section>
+      </section>
+    {% endif %}
 
     <section class="shihyo-card weekly-card">
       <div class="weekly-section-title">承認操作</div>
