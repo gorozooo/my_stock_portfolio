@@ -7,10 +7,10 @@
   LINE Flex Message の altText と contents を組み立てるサービスです。
 - 見た目専用です。DB検索や LINE送信はしません。
 
-今回のポイント：
-- 主要4指標は今の見た目を維持
-- AI予想は「レポートらしい」構成に整理
-- 市場の偏りはチップではなく、読みやすい行形式に変更
+今回の修正ポイント：
+- AI予想ブロックから「基準値」の表示を削除
+- 主要4指標はそのまま維持
+- 市場の偏りは行形式のまま維持
 """
 
 from __future__ import annotations
@@ -352,7 +352,6 @@ def build_flex_contents(report: dict[str, Any]) -> dict[str, Any]:
                     "margin": "md",
                     "spacing": "sm",
                     "contents": [
-                        _kv_row("基準値", _format_price(ai["reference_close"], 2)),
                         _kv_row("予想値", f"{_format_price(ai['pred_close_value'], 2)} ({_format_signed_percent(ai['pred_close_pct'], 2)})"),
                         _kv_row(
                             "実績値",
@@ -374,15 +373,6 @@ def build_flex_contents(report: dict[str, Any]) -> dict[str, Any]:
                     weight="bold",
                     margin="sm",
                 ),
-                {
-                    "type": "box",
-                    "layout": "vertical",
-                    "margin": "md",
-                    "spacing": "sm",
-                    "contents": [
-                        _kv_row("基準値", _format_price(ai["reference_close"], 2)),
-                    ],
-                },
                 _text("理由", size="xs", color="#AEB7CC", weight="bold", margin="md"),
             ])
 
