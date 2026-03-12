@@ -19,6 +19,7 @@
     2) market_indicator_snapshot_1000_window
   のどちらかでない open_1000 レコードは採用しない
 - これにより、古い不正確な open_1000 行が残っていても画面表示から除外する
+- 引け後は AI予想カードで「予想値」と「実績値」を分けて表示する
 """
 
 from __future__ import annotations
@@ -364,6 +365,27 @@ def _build_ai_prediction_context_from_snapshot(
     after_close = now_local.time() >= dt_time(15, 30)
     has_actual = _safe_float(pred.actual_close_value, None) is not None and pred.actual_direction_3 != ""
 
+    predicted_delta_abs = None
+    if reference_close > 0 and pred_close_value > 0:
+        predicted_delta_abs = pred_close_value - reference_close
+
+    if pred.pred_direction == ShihyoPreopenPredictionSnapshot.PRED_UP:
+        predicted_badge_class = "ai-pred-badge ai-pred-badge-up"
+    elif pred.pred_direction == ShihyoPreopenPredictionSnapshot.PRED_DOWN:
+        predicted_badge_class = "ai-pred-badge ai-pred-badge-down"
+    else:
+        predicted_badge_class = "ai-pred-badge ai-pred-badge-wait"
+
+    if predicted_delta_abs is None or pred_close_pct is None:
+        predicted_delta_display = "-"
+        predicted_delta_class = "change-flat"
+    else:
+        predicted_delta_display = (
+            f"{_format_signed_number(predicted_delta_abs, 2)} "
+            f"({_format_signed_percent(pred_close_pct, 2)})"
+        )
+        predicted_delta_class = _delta_class(predicted_delta_abs)
+
     if after_close and has_actual:
         actual_close_value = _safe_float(pred.actual_close_value, 0.0)
         actual_close_pct = _safe_float(pred.actual_close_pct, None)
@@ -376,19 +398,19 @@ def _build_ai_prediction_context_from_snapshot(
             label = "結果（外れ）"
             badge_class = "ai-pred-badge ai-pred-badge-down"
 
-        delta_abs = None
+        actual_delta_abs = None
         if reference_close > 0 and actual_close_value > 0:
-            delta_abs = actual_close_value - reference_close
+            actual_delta_abs = actual_close_value - reference_close
 
-        if delta_abs is None or actual_close_pct is None:
-            predicted_delta_display = "-"
-            predicted_delta_class = "change-flat"
+        if actual_delta_abs is None or actual_close_pct is None:
+            actual_delta_display = "-"
+            actual_delta_class = "change-flat"
         else:
-            predicted_delta_display = (
-                f"{_format_signed_number(delta_abs, 2)} "
+            actual_delta_display = (
+                f"{_format_signed_number(actual_delta_abs, 2)} "
                 f"({_format_signed_percent(actual_close_pct, 2)})"
             )
-            predicted_delta_class = _delta_class(delta_abs)
+            actual_delta_class = _delta_class(actual_delta_abs)
 
         base_label = "朝7時予想" if pred.slot == ShihyoPreopenPredictionSnapshot.SLOT_PREOPEN_0700 else "10時予想"
         expected = str(pred.display_label or pred.pred_direction or "").strip()
@@ -406,21 +428,26 @@ def _build_ai_prediction_context_from_snapshot(
             "subtitle": "日経平均ベース短期シナリオ",
             "label": label,
             "badge_class": badge_class,
-            "predicted_value": _format_price(actual_close_value, 2) if actual_close_value > 0 else "-",
-            "current_value": "-",
-            "gap_pct": _format_signed_percent(actual_close_pct, 2) if actual_close_pct is not None else "-",
             "confidence": "-",
             "updated_at": pred.evaluated_at.strftime("%H:%M") if pred.evaluated_at else "-",
             "reason": " / ".join(reason_parts),
+
+            "is_result": True,
+
+            "predicted_label": "予想値",
+            "predicted_value": _format_price(pred_close_value, 2) if pred_close_value > 0 else "-",
             "predicted_delta_display": predicted_delta_display,
             "predicted_delta_class": predicted_delta_class,
-            "current_delta_display": "-",
-            "current_delta_class": "change-flat",
-        }
+            "predicted_badge_class": predicted_badge_class,
+            "predicted_badge_label": str(pred.display_label or pred.pred_direction or "").strip() or "予想",
 
-    delta_abs = None
-    if reference_close > 0 and pred_close_value > 0:
-        delta_abs = pred_close_value - reference_close
+            "actual_label": "実績値",
+            "actual_value": _format_price(actual_close_value, 2) if actual_close_value > 0 else "-",
+            "actual_delta_display": actual_delta_display,
+            "actual_delta_class": actual_delta_class,
+            "actual_badge_class": badge_class,
+            "actual_badge_label": result_text,
+        }
 
     reasons = [
         str(pred.display_reason_1 or "").strip(),
@@ -451,16 +478,6 @@ def _build_ai_prediction_context_from_snapshot(
     else:
         badge_class = "ai-pred-badge ai-pred-badge-wait"
 
-    if delta_abs is None or pred_close_pct is None:
-        predicted_delta_display = "-"
-        predicted_delta_class = "change-flat"
-    else:
-        predicted_delta_display = (
-            f"{_format_signed_number(delta_abs, 2)} "
-            f"({_format_signed_percent(pred_close_pct, 2)})"
-        )
-        predicted_delta_class = _delta_class(delta_abs)
-
     confidence_text = "-"
     if pred_confidence is not None:
         confidence_text = f"{round(pred_confidence)}%"
@@ -469,16 +486,25 @@ def _build_ai_prediction_context_from_snapshot(
         "subtitle": "日経平均ベース短期シナリオ",
         "label": label,
         "badge_class": badge_class,
-        "predicted_value": _format_price(pred_close_value, 2) if pred_close_value > 0 else "-",
-        "current_value": "-",
-        "gap_pct": _format_signed_percent(pred_close_pct, 2) if pred_close_pct is not None else "-",
         "confidence": confidence_text,
         "updated_at": pred.predicted_at.strftime("%H:%M") if pred.predicted_at else "-",
         "reason": reason_text,
+
+        "is_result": False,
+
+        "predicted_label": "予想値",
+        "predicted_value": _format_price(pred_close_value, 2) if pred_close_value > 0 else "-",
         "predicted_delta_display": predicted_delta_display,
         "predicted_delta_class": predicted_delta_class,
-        "current_delta_display": "-",
-        "current_delta_class": "change-flat",
+        "predicted_badge_class": badge_class,
+        "predicted_badge_label": label,
+
+        "actual_label": "",
+        "actual_value": "-",
+        "actual_delta_display": "-",
+        "actual_delta_class": "change-flat",
+        "actual_badge_class": "ai-pred-badge ai-pred-badge-wait",
+        "actual_badge_label": "",
     }
 
 
@@ -503,16 +529,25 @@ def _build_ai_prediction_context_legacy(latest: MarketIndicatorSnapshot, risk: d
             "subtitle": "日経平均ベース短期シナリオ",
             "label": "取得待ち",
             "badge_class": "ai-pred-badge ai-pred-badge-wait",
-            "predicted_value": "-",
-            "current_value": "-",
-            "gap_pct": "-",
             "confidence": "-",
             "updated_at": latest.created_at.strftime("%H:%M") if latest.created_at else "-",
             "reason": f"日経平均現物が取得できないため予想を停止中（source={spot_source}）。先物では代用しません。",
+
+            "is_result": False,
+
+            "predicted_label": "予想値",
+            "predicted_value": "-",
             "predicted_delta_display": "-",
             "predicted_delta_class": "change-flat",
-            "current_delta_display": "-",
-            "current_delta_class": "change-flat",
+            "predicted_badge_class": "ai-pred-badge ai-pred-badge-wait",
+            "predicted_badge_label": "取得待ち",
+
+            "actual_label": "",
+            "actual_value": "-",
+            "actual_delta_display": "-",
+            "actual_delta_class": "change-flat",
+            "actual_badge_class": "ai-pred-badge ai-pred-badge-wait",
+            "actual_badge_label": "",
         }
 
     signal = 0.0
@@ -610,16 +645,25 @@ def _build_ai_prediction_context_legacy(latest: MarketIndicatorSnapshot, risk: d
         "subtitle": "日経平均ベース短期シナリオ",
         "label": label,
         "badge_class": badge_class,
-        "predicted_value": _format_price(predicted_value, 1),
-        "current_value": _format_price(nikkei_spot_last, 1),
-        "gap_pct": _format_signed_percent(gap_pct_value, 2),
         "confidence": f"{confidence_value}%",
         "updated_at": latest.created_at.strftime("%H:%M") if latest.created_at else "-",
         "reason": reason_text,
+
+        "is_result": False,
+
+        "predicted_label": "予想値",
+        "predicted_value": _format_price(predicted_value, 1),
         "predicted_delta_display": predicted_delta_display,
         "predicted_delta_class": predicted_delta_class,
-        "current_delta_display": "-",
-        "current_delta_class": "change-flat",
+        "predicted_badge_class": badge_class,
+        "predicted_badge_label": label,
+
+        "actual_label": "",
+        "actual_value": "-",
+        "actual_delta_display": "-",
+        "actual_delta_class": "change-flat",
+        "actual_badge_class": "ai-pred-badge ai-pred-badge-wait",
+        "actual_badge_label": "",
     }
 
 
