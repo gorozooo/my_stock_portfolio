@@ -145,6 +145,7 @@ document.addEventListener("DOMContentLoaded", () => {
     home: [
       { section:"ホーム" },
       { label:"指標",  href:"/shihyo",     icon:"📊", tone:"info" },
+      { label:"指標週次レビュー",  href:"/shihyo/weekly-review",     icon:"📝", tone:"info" },
       { label:"トレンド",        href: URLS.trend_base,           icon:"📈", tone:"info" },
       { label:"設定を開く",      href:"/settings/trade",          icon:"⚙️", tone:"info" },
     ],
