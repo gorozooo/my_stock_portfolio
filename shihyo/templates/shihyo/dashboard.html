@@ -9,7 +9,7 @@
 - 下段に日経平均AI予想カードを表示する
 - 市場の偏りカードも表示する
 - 今回の修正で、4カードの表示値はすべて views.py 側で整形済み文字列を使う
-- AI予想カードは「予想値のみ」を表示する
+- 引け後は AI予想カードで「予想値」と「実績値」を分けて表示する
 -->
 
 {% extends "base.html" %}
@@ -18,7 +18,7 @@
 {% block title %}指標ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=19">
+<link rel="stylesheet" href="{% static 'shihyo/shihyo.css' %}?v=20">
 
 <div class="shihyo-page">
 
@@ -181,21 +181,53 @@
         </div>
       </div>
 
-      <section class="ai-mini-cards ai-mini-cards-1col">
-        <div class="mini-card ai-mini-card">
-          <div class="mini-card-head">
-            <span class="mini-name">予想値</span>
+      {% if ai_pred.is_result %}
+        <section class="ai-mini-cards ai-mini-cards-2col">
+          <div class="mini-card ai-mini-card">
+            <div class="mini-card-head">
+              <span class="mini-name">{{ ai_pred.predicted_label }}</span>
+            </div>
+
+            <div class="mini-value">
+              {{ ai_pred.predicted_value }}
+            </div>
+
+            <div class="mini-change {{ ai_pred.predicted_delta_class }}">
+              {{ ai_pred.predicted_delta_display }}
+            </div>
           </div>
 
-          <div class="mini-value">
-            {{ ai_pred.predicted_value }}
-          </div>
+          <div class="mini-card ai-mini-card">
+            <div class="mini-card-head">
+              <span class="mini-name">{{ ai_pred.actual_label }}</span>
+            </div>
 
-          <div class="mini-change {{ ai_pred.predicted_delta_class }}">
-            {{ ai_pred.predicted_delta_display }}
+            <div class="mini-value">
+              {{ ai_pred.actual_value }}
+            </div>
+
+            <div class="mini-change {{ ai_pred.actual_delta_class }}">
+              {{ ai_pred.actual_delta_display }}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      {% else %}
+        <section class="ai-mini-cards ai-mini-cards-1col">
+          <div class="mini-card ai-mini-card">
+            <div class="mini-card-head">
+              <span class="mini-name">{{ ai_pred.predicted_label }}</span>
+            </div>
+
+            <div class="mini-value">
+              {{ ai_pred.predicted_value }}
+            </div>
+
+            <div class="mini-change {{ ai_pred.predicted_delta_class }}">
+              {{ ai_pred.predicted_delta_display }}
+            </div>
+          </div>
+        </section>
+      {% endif %}
 
       <div class="ai-reason-box ai-reason-box-compact">
         <div class="ai-reason-title">根拠メモ</div>
