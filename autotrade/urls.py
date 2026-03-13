@@ -5,10 +5,10 @@
 # このファイルは何？
 # - autotrade アプリのURLルーティング（URLとView関数の紐付け）です。
 #
-# 安全装置（プロ運用品質）
-# - 存在しないViewを参照すると、Djangoの起動チェックで落ちて cron も止まります。
-# - よって、参照するViewは「views.pyのハブから再エクスポートされているものだけ」に限定します。
-# - 不要な2ボタンは撤去し、「rerun-refresh-picks」のみに統一します。
+# 今回の変更：
+# - 専用結果ページ execution_report を追加
+# - mode切替API api_set_execution_mode を追加
+# - 不要な2ボタンは撤去し、「rerun-refresh-picks」のみに統一
 # =========================================================
 
 from django.urls import path
@@ -18,9 +18,11 @@ app_name = "autotrade"
 
 urlpatterns = [
     path("", views.dashboard, name="dashboard"),
+    path("report/", views.execution_report, name="execution_report"),
 
     # --- API ---
     path("api/emergency-stop/", views.api_emergency_stop, name="api_emergency_stop"),
+    path("api/set-execution-mode/", views.api_set_execution_mode, name="api_set_execution_mode"),
 
     # --- Tuning ---
     path("lab/", views.tuning_list, name="tuning_list"),
@@ -34,7 +36,7 @@ urlpatterns = [
     # 検証結果（カード表示）
     path("lab/result/<int:snapshot_id>/", views.tuning_result, name="tuning_result"),
 
-    # ★ 残す：結果ページから再検証（picks更新）
+    # 残す：結果ページから再検証（picks更新）
     path(
         "lab/result/<int:snapshot_id>/rerun-refresh-picks/",
         views.tuning_rerun_snapshot_refresh_picks,
