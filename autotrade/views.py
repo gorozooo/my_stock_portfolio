@@ -7,16 +7,18 @@
 - views_dashboard.py / views_tuning.py / views_api.py に分割した各Viewを再エクスポートします。
 - urls.py からは常にここ（autotrade.views）を参照しても壊れないようにするためのハブです。
 
-安全装置（プロ運用品質）
-- 廃止済みのView名を残すと、urls.pyやimport時に落ちてcronまで止まります。
-- よって、存在するViewだけを import / __all__ に残します。
+今回の修正：
+- execution_report を export 追加
+- api_set_execution_mode を export 追加
+- urls.py から参照される View をここで必ず公開する
 """
 
 from __future__ import annotations
 
-# Dashboard
+# Dashboard / Report
 from .views_dashboard import (
     dashboard,
+    execution_report,
 )
 
 # Tuning（実験室）
@@ -36,11 +38,13 @@ from .views_tuning import (
 # API
 from .views_api import (
     api_emergency_stop,
+    api_set_execution_mode,
 )
 
 __all__ = [
-    # dashboard
+    # dashboard / report
     "dashboard",
+    "execution_report",
 
     # tuning
     "tuning_list",
@@ -56,4 +60,5 @@ __all__ = [
 
     # api
     "api_emergency_stop",
+    "api_set_execution_mode",
 ]
