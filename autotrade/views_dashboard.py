@@ -10,6 +10,8 @@
 - execution_report() を追加
 - dashboard では現在モードの要点だけ表示
 - 専用結果ページで、PAPER/LIVE/ALL の結果を見やすく出せるようにする
+- ★追加修正：エクイティ推移（equity_curve）が専用結果ページに表示されるように、
+  _build_equity_curve() を追加し、execution_report() の ctx に渡す
 """
 
 from __future__ import annotations
@@ -520,6 +522,37 @@ def _build_execution_stats(*, base_equity_yen: int, executions: List[AutoTradeEx
     }
 
 
+def _build_equity_curve(*, base_equity_yen: int, executions: List[AutoTradeExecution]) -> List[Dict[str, Any]]:
+    """
+    簡易エクイティ推移（時刻 → 総資産）。
+    - base_equity から pnl を順に加算
+    - 表示時刻は exit_at 優先、無ければ created_at
+    """
+    execs = list(executions or [])
+    eq = int(base_equity_yen or 1_000_000)
+
+    out: List[Dict[str, Any]] = [{"ts": "start", "equity_yen": int(eq)}]
+
+    for e in execs:
+        pnl = _safe_int(getattr(e, "pnl_yen", 0), 0)
+        eq += int(pnl)
+
+        ts = "-"
+        try:
+            t = getattr(e, "exit_at", None) or getattr(e, "created_at", None)
+            if t is not None:
+                ts = timezone.localtime(t).strftime("%H:%M")
+        except Exception:
+            ts = "-"
+
+        out.append({
+            "ts": ts,
+            "equity_yen": int(eq),
+        })
+
+    return out
+
+
 @login_required
 def dashboard(request: HttpRequest):
     today = timezone.localdate()
@@ -599,6 +632,11 @@ def execution_report(request: HttpRequest):
         executions=executions_today,
     )
 
+    equity_curve = _build_equity_curve(
+        base_equity_yen=start_equity_yen,
+        executions=executions_today,
+    )
+
     runtime_mode = selected_mode if selected_mode in ["PAPER", "LIVE"] else current_mode
     runtime_bucket = _build_runtime_bucket(state, mode=runtime_mode)
 
@@ -609,5 +647,6 @@ def execution_report(request: HttpRequest):
         "report_stats": report_stats,
         "executions_today": executions_today,
         "runtime_bucket": runtime_bucket,
+        "equity_curve": equity_curve,
     }
     return render(request, "autotrade/execution_report.html", ctx)
