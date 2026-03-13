@@ -6,11 +6,10 @@
 - AutoTrade のダッシュボード表示（iPhone 1画面）用の View と整形関数です。
 - DB上の「DailyState（今日の状態）」＋「ACTIVE Snapshot（今日の設定）」＋「Execution（今日の事実ログ）」をまとめてテンプレへ渡します。
 
-今回の変更：
-- デモ結果を専用ページへ分離し、dashboard は「運用モード」と「要点表示」に寄せる
-- execution_report() を追加して、PAPER/LIVE/ALL の専用結果ページを表示
-- dashboard では DEMO / LIVE 切替用の表示データを返す
-- mode別の open/pending/log を rules から読み取り、専用ページで見やすく出せるようにする
+今回の修正：
+- execution_report() を追加
+- dashboard では現在モードの要点だけ表示
+- 専用結果ページで、PAPER/LIVE/ALL の結果を見やすく出せるようにする
 """
 
 from __future__ import annotations
@@ -49,10 +48,6 @@ def _pct_100(x01: Any) -> float:
 
 
 def _level_by_thresholds(metrics: Dict[str, Any]) -> str:
-    """
-    metrics（PF/DD/N/勝率）から FULL/LIGHT/STOP を決める。
-    ※gate.pyそのものは変更せず、表示用に “同じ基準” で判定する。
-    """
     dd = _safe_float(metrics.get("max_drawdown_pct"), 1.0)
     pf = _safe_float(metrics.get("profit_factor"), 0.0)
     trades = _safe_int(metrics.get("trades"), 0)
@@ -73,7 +68,6 @@ def _level_by_thresholds(metrics: Dict[str, Any]) -> str:
             return False
         if trades < _safe_int(th.get("min_trades"), 0):
             return False
-
         if "min_win_rate" in th and th.get("min_win_rate") is not None:
             if win_rate < _safe_float(th.get("min_win_rate"), 0.0):
                 return False
@@ -87,10 +81,6 @@ def _level_by_thresholds(metrics: Dict[str, Any]) -> str:
 
 
 def _miss_points(metrics: Dict[str, Any], *, base: str = "LIGHT") -> List[str]:
-    """
-    未達ポイントを初心者向けの日本語にして返す（最大3つ）。
-    base="LIGHT" を基準にする（現実的な安全ライン）。
-    """
     th = (GATE_THRESHOLDS.get(base) or {}).copy()
 
     dd = _safe_float(metrics.get("max_drawdown_pct"), 1.0)
@@ -133,10 +123,6 @@ def _one_liner(level: str) -> str:
 
 
 def build_result_cards_for_template(state: AutoTradeDailyState) -> List[Dict[str, Any]]:
-    """
-    state.backtest['by_window'][window]['BREAKOUT'] の metrics から
-    期間ごとの “結果カード” を作る。
-    """
     bt = state.backtest if isinstance(state.backtest, dict) else {}
     by_window = bt.get("by_window") if isinstance(bt.get("by_window"), dict) else {}
 
@@ -179,21 +165,17 @@ def build_result_cards_for_template(state: AutoTradeDailyState) -> List[Dict[str
         out.append({
             "strategy": "BREAKOUT",
             "window": int(w),
-
             "level": str(level),
             "one_liner": _one_liner(str(level)),
             "miss_points": _miss_points(m, base="LIGHT"),
-
             "trades": int(trades),
             "wins": int(wins),
             "losses": int(losses),
-
             "win_rate_pct": round(_pct_100(win_rate), 1),
             "pf": f"{pf:.3f}" if pf else f"{pf:.2f}",
             "dd_pct": round(_pct_100(dd_pct), 1),
             "dd_yen": int(dd_yen),
             "pnl_yen": int(pnl_yen),
-
             "sum_win_yen": int(sum_win_yen),
             "sum_loss_abs_yen": int(sum_loss_abs_yen),
         })
@@ -202,9 +184,6 @@ def build_result_cards_for_template(state: AutoTradeDailyState) -> List[Dict[str
 
 
 def build_thresholds_for_template() -> Dict[str, Any]:
-    """
-    GATE_THRESHOLDS をテンプレ表示用に整形する。
-    """
     def _pack(name: str) -> Dict[str, Any]:
         th = (GATE_THRESHOLDS.get(name) or {}).copy()
         out: Dict[str, Any] = {
@@ -259,9 +238,6 @@ def _pretty_value(v: Any) -> str:
 
 
 def _get_active_snapshot(user) -> Optional[AutoTradeSettingSnapshot]:
-    """
-    ★唯一の真実：ACTIVE snapshot をDBから取得する
-    """
     return (
         AutoTradeSettingSnapshot.objects
         .filter(user=user, status="ACTIVE")
@@ -280,11 +256,6 @@ def _get_nested(d: Dict[str, Any], keys: List[str], default: Any = None) -> Any:
 
 
 def build_active_summary_chips_for_template(*, active_snapshot: Optional[AutoTradeSettingSnapshot]) -> List[str]:
-    """
-    実験室（検証結果）の白枠と同じ “項目セット” を、初心者向けの日本語で表示する。
-    対象：
-    - rr / stop_pct / lookback_bars / max_hold_min / daily_filter / sma_days / direction
-    """
     if active_snapshot is None:
         return ["ACTIVE Snapshot がありません（まだ昇格していない可能性）"]
 
@@ -294,7 +265,6 @@ def build_active_summary_chips_for_template(*, active_snapshot: Optional[AutoTra
     stop_pct_ui = _get_nested(sdict, ["lab", "BREAKOUT", "stop_pct_ui"], None)
     lookback_bars = _get_nested(sdict, ["lab", "BREAKOUT", "lookback_bars"], None)
     max_hold_min = _get_nested(sdict, ["lab", "BREAKOUT", "max_hold_min"], None)
-
     daily_filter = _get_nested(sdict, ["lab", "BREAKOUT", "daily_filter"], None)
     sma_days = _get_nested(sdict, ["lab", "BREAKOUT", "sma_days"], None)
     direction = _get_nested(sdict, ["lab", "BREAKOUT", "direction"], None)
@@ -318,7 +288,6 @@ def build_active_summary_chips_for_template(*, active_snapshot: Optional[AutoTra
     dr_label = "TREND_ONLY（トレンド方向だけ）" if dr == "TREND_ONLY" else "BOTH（両方向OK）"
 
     out: List[str] = []
-
     out.append(f"採用中の設定：ID {active_snapshot.id}（{active_snapshot.label}）")
     out.append(f"利確RR：{_pretty_value(rr)}（利確幅＝損切り幅×RR）")
     out.append(f"損切り幅：{_pretty_value(stop_pct_ui)}%（逆行したら損切り）")
@@ -327,14 +296,10 @@ def build_active_summary_chips_for_template(*, active_snapshot: Optional[AutoTra
     out.append(f"日足フィルタ：{df_label}")
     out.append(f"SMA日数：{_pretty_value(sma_days)}（例：20/50）")
     out.append(f"方向：{dr_label}")
-
     return out
 
 
 def build_active_detail_chips_for_template(*, active_snapshot: Optional[AutoTradeSettingSnapshot]) -> List[str]:
-    """
-    デバッグ用：ACTIVE Snapshot の生キーをできるだけ表示（折りたたみ前提）
-    """
     if active_snapshot is None:
         return ["ACTIVE Snapshot がありません（まだ昇格していない可能性）"]
 
@@ -422,10 +387,6 @@ def _fmt_dt_text(v: Any) -> str:
 
 
 def _build_runtime_bucket(state: AutoTradeDailyState, *, mode: str) -> Dict[str, Any]:
-    """
-    state.rules の mode別バケツから open/pending/log を取り出して
-    テンプレで使いやすい形へ変換する。
-    """
     mode_up = str(mode or "PAPER").upper().strip()
     prefix = "live" if mode_up == "LIVE" else "paper"
 
@@ -513,7 +474,7 @@ def _build_execution_stats(*, base_equity_yen: int, executions: List[AutoTradeEx
     wins = 0
     losses = 0
     sum_win = 0
-    sum_loss = 0  # 負値のまま
+    sum_loss = 0
     pnl_sum = 0
     pnls: List[int] = []
 
@@ -559,30 +520,6 @@ def _build_execution_stats(*, base_equity_yen: int, executions: List[AutoTradeEx
     }
 
 
-def _build_equity_curve(*, base_equity_yen: int, executions: List[AutoTradeExecution]) -> List[Dict[str, Any]]:
-    execs = list(executions or [])
-    eq = int(base_equity_yen or 1_000_000)
-
-    out: List[Dict[str, Any]] = []
-    out.append({"ts": "start", "equity_yen": int(eq)})
-
-    for e in execs:
-        pnl = _safe_int(getattr(e, "pnl_yen", 0), 0)
-        eq += int(pnl)
-
-        ts = "-"
-        try:
-            t = getattr(e, "exit_at", None) or getattr(e, "created_at", None)
-            if t is not None:
-                ts = timezone.localtime(t).strftime("%H:%M")
-        except Exception:
-            ts = "-"
-
-        out.append({"ts": ts, "equity_yen": int(eq)})
-
-    return out
-
-
 @login_required
 def dashboard(request: HttpRequest):
     today = timezone.localdate()
@@ -622,8 +559,6 @@ def dashboard(request: HttpRequest):
         "thresholds": build_thresholds_for_template(),
         "active_summary_chips": build_active_summary_chips_for_template(active_snapshot=active_snapshot),
         "active_detail_chips": build_active_detail_chips_for_template(active_snapshot=active_snapshot),
-
-        # 追加：運用モードと専用ページ導線
         "current_mode": current_mode,
         "current_mode_stats": current_mode_stats,
         "runtime_summary": runtime_summary,
@@ -633,11 +568,6 @@ def dashboard(request: HttpRequest):
 
 @login_required
 def execution_report(request: HttpRequest):
-    """
-    専用の結果ページ。
-    - PAPER / LIVE / ALL を切り替えて見られる
-    - open / pending / logs も mode別に表示
-    """
     today = timezone.localdate()
     state, _ = AutoTradeDailyState.objects.get_or_create(date=today)
 
@@ -669,11 +599,6 @@ def execution_report(request: HttpRequest):
         executions=executions_today,
     )
 
-    equity_curve = _build_equity_curve(
-        base_equity_yen=start_equity_yen,
-        executions=executions_today,
-    )
-
     runtime_mode = selected_mode if selected_mode in ["PAPER", "LIVE"] else current_mode
     runtime_bucket = _build_runtime_bucket(state, mode=runtime_mode)
 
@@ -683,7 +608,6 @@ def execution_report(request: HttpRequest):
         "selected_mode": selected_mode,
         "report_stats": report_stats,
         "executions_today": executions_today,
-        "equity_curve": equity_curve,
         "runtime_bucket": runtime_bucket,
     }
     return render(request, "autotrade/execution_report.html", ctx)
