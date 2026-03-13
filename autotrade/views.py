@@ -1,24 +1,26 @@
-"""
-[FILE] autotrade/views.py
-[PATH] <project_root>/autotrade/views.py
-
-このファイルは何？
-- autotrade の View の “入口（ハブ）” です。
-- views_dashboard.py / views_tuning.py / views_api.py に分割した各Viewを再エクスポートします。
-- urls.py からは常にここ（autotrade.views）を参照しても壊れないようにするためのハブです。
-
-今回の修正：
-- execution_report を export 追加
-- api_set_execution_mode を export 追加
-- urls.py から参照される View をここで必ず公開する
-"""
+# =========================================================
+# [FILE] autotrade/views.py
+# [PATH] <project_root>/autotrade/views.py
+#
+# このファイルは何？
+# - autotrade の View の “入口（ハブ）” です。
+# - views_dashboard.py / views_tuning.py / views_api.py に分割した各Viewを再エクスポートします。
+# - urls.py からは常にここ（autotrade.views）を参照しても壊れないようにするためのハブです。
+#
+# 今回の修正：
+# - execution_report を export 維持
+# - demo_daily_history を export 追加
+# - api_set_execution_mode を export 維持
+# - urls.py から参照される View をここで必ず公開する
+# =========================================================
 
 from __future__ import annotations
 
-# Dashboard / Report
+# Dashboard / Report / History
 from .views_dashboard import (
     dashboard,
     execution_report,
+    demo_daily_history,
 )
 
 # Tuning（実験室）
@@ -42,9 +44,10 @@ from .views_api import (
 )
 
 __all__ = [
-    # dashboard / report
+    # dashboard / report / history
     "dashboard",
     "execution_report",
+    "demo_daily_history",
 
     # tuning
     "tuning_list",
