@@ -1,0 +1,301 @@
+<!--
+[FILE] execution_report.html
+[PATH] <project_root>/templates/autotrade/execution_report.html
+
+このファイルは何？
+- AutoTrade の「専用結果ページ」です。
+- DEMO / LIVE / ALL で、今日の結果・open・pending・ログを見やすく確認するための画面です。
+
+今回のポイント：
+- ダッシュボードから分離して、運用結果の確認を1ページに集約
+- mode別の統計 / open / pending / logs / 履歴 / エクイティ推移 を表示
+-->
+{% extends "base.html" %}
+{% load humanize %}
+{% load static %}
+{% block title %}AutoTrade Result Report{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{% static 'autotrade/dashboard.css' %}?v=3">
+{% endblock %}
+
+{% block content %}
+<div class="autotrade-wrap">
+
+  <div class="autotrade-top">
+    <div>
+      <div class="autotrade-muted">Auto DayTrade</div>
+      <div class="autotrade-title">専用結果ページ</div>
+      <div class="autotrade-muted autotrade-mt6">
+        現在モード：
+        {% if current_mode == "LIVE" %}
+          <span class="is-warn">LIVE</span>
+        {% else %}
+          <span class="is-ok">DEMO</span>
+        {% endif %}
+        / 表示中：
+        {% if selected_mode == "ALL" %}
+          <span>ALL</span>
+        {% elif selected_mode == "LIVE" %}
+          <span class="is-warn">LIVE</span>
+        {% else %}
+          <span class="is-ok">DEMO</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <a class="autotrade-linkbtn" href="{% url 'autotrade:dashboard' %}">ダッシュボードへ戻る</a>
+  </div>
+
+  <div class="autotrade-grid">
+
+    <!-- モード切替 -->
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div>
+          <div class="autotrade-h">運用モード切替</div>
+          <div class="autotrade-muted">途中で切り替える時は open / pending が無い状態だけ許可します</div>
+        </div>
+      </div>
+
+      <div class="autotrade-segment autotrade-mt10">
+        <button
+          type="button"
+          class="autotrade-segment-btn js-mode-btn {% if current_mode == 'PAPER' %}is-active{% endif %}"
+          data-url="{% url 'autotrade:api_set_execution_mode' %}"
+          data-mode="PAPER"
+        >
+          DEMO
+        </button>
+
+        <button
+          type="button"
+          class="autotrade-segment-btn js-mode-btn {% if current_mode == 'LIVE' %}is-active{% endif %}"
+          data-url="{% url 'autotrade:api_set_execution_mode' %}"
+          data-mode="LIVE"
+        >
+          LIVE
+        </button>
+      </div>
+
+      {% if current_mode == "LIVE" %}
+        <div class="autotrade-note autotrade-mt10">
+          LIVEは今は安全装置で停止します。実発注API未接続のため、新規発注は行いません。
+        </div>
+      {% endif %}
+    </section>
+
+    <!-- 表示フィルタ -->
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div>
+          <div class="autotrade-h">表示フィルタ</div>
+          <div class="autotrade-muted">結果の見たい mode を切り替えます</div>
+        </div>
+      </div>
+
+      <div class="autotrade-segment autotrade-mt10">
+        <a href="{% url 'autotrade:execution_report' %}?mode=PAPER"
+           class="autotrade-segment-btn {% if selected_mode == 'PAPER' %}is-active{% endif %}">
+          DEMO
+        </a>
+        <a href="{% url 'autotrade:execution_report' %}?mode=LIVE"
+           class="autotrade-segment-btn {% if selected_mode == 'LIVE' %}is-active{% endif %}">
+          LIVE
+        </a>
+        <a href="{% url 'autotrade:execution_report' %}?mode=ALL"
+           class="autotrade-segment-btn {% if selected_mode == 'ALL' %}is-active{% endif %}">
+          ALL
+        </a>
+      </div>
+    </section>
+
+    <!-- 統計 -->
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div class="autotrade-h">今日の統計</div>
+        <div class="autotrade-muted">表示中 mode の Execution から計算</div>
+      </div>
+
+      <div class="autotrade-kpi autotrade-mt10">
+        <div class="autotrade-box">
+          <div class="autotrade-label">取引回数</div>
+          <div class="autotrade-val">{{ report_stats.trades|default:"0" }}</div>
+        </div>
+
+        <div class="autotrade-box">
+          <div class="autotrade-label">損益合計</div>
+          <div class="autotrade-val {% if report_stats.pnl_sum_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
+            {{ report_stats.pnl_sum_yen|intcomma }}
+          </div>
+        </div>
+
+        <div class="autotrade-box">
+          <div class="autotrade-label">勝率</div>
+          <div class="autotrade-val">{{ report_stats.win_rate_pct|default:"0" }}%</div>
+        </div>
+
+        <div class="autotrade-box">
+          <div class="autotrade-label">PF</div>
+          <div class="autotrade-val">{{ report_stats.pf|default:"0.00" }}</div>
+        </div>
+      </div>
+
+      <div class="autotrade-chips autotrade-mt10">
+        <div class="autotrade-chip">勝 / 負：{{ report_stats.wins|default:"0" }} / {{ report_stats.losses|default:"0" }}</div>
+        <div class="autotrade-chip">利益合計：+{{ report_stats.sum_win_yen|intcomma }}</div>
+        <div class="autotrade-chip">損失合計：-{{ report_stats.sum_loss_abs_yen|intcomma }}</div>
+        <div class="autotrade-chip">最大DD：-{{ report_stats.dd_yen|intcomma }}円（-{{ report_stats.dd_pct }}%）</div>
+      </div>
+    </section>
+
+    <!-- open positions -->
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div class="autotrade-h">現在のポジション</div>
+        <div class="autotrade-muted">表示中 mode の runtime 状態</div>
+      </div>
+
+      <div class="autotrade-list autotrade-mt10">
+        {% if runtime_bucket.open_positions %}
+          {% for p in runtime_bucket.open_positions %}
+            <div class="autotrade-list-row" style="align-items:flex-start;">
+              <div class="autotrade-mono autotrade-ticker" style="min-width:78px;">{{ p.ticker }}</div>
+
+              <div style="flex:1;">
+                <div class="autotrade-mono">{{ p.side }} / size={{ p.size }}</div>
+                <div class="autotrade-muted autotrade-mt6">
+                  入場: {{ p.entry_at_text }}
+                  / stop: {{ p.stop_price|default:"-" }}
+                  / take: {{ p.take_price|default:"-" }}
+                  / 期限: {{ p.expire_at_text }}
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="autotrade-muted">今はポジションがありません</div>
+        {% endif %}
+      </div>
+    </section>
+
+    <!-- pending -->
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div class="autotrade-h">pending 注文</div>
+        <div class="autotrade-muted">次足OPEN待ちの注文</div>
+      </div>
+
+      <div class="autotrade-list autotrade-mt10">
+        {% if runtime_bucket.pending_orders %}
+          {% for p in runtime_bucket.pending_orders %}
+            <div class="autotrade-list-row" style="align-items:flex-start;">
+              <div class="autotrade-mono autotrade-ticker" style="min-width:78px;">{{ p.ticker }}</div>
+
+              <div style="flex:1;">
+                <div class="autotrade-mono">{{ p.side }}</div>
+                <div class="autotrade-muted autotrade-mt6">
+                  作成: {{ p.created_at_text }}
+                  / 元バー: {{ p.based_on_bar_ts }}
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="autotrade-muted">今は pending 注文がありません</div>
+        {% endif %}
+      </div>
+    </section>
+
+    <!-- logs -->
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div class="autotrade-h">runtime ログ</div>
+        <div class="autotrade-muted">表示中 mode のジョブログ</div>
+      </div>
+
+      <div class="autotrade-list autotrade-mt10">
+        {% if runtime_bucket.logs %}
+          {% for x in runtime_bucket.logs %}
+            <div class="autotrade-list-row" style="align-items:flex-start;">
+              <div class="autotrade-mono" style="min-width:110px;">{{ x.ts }}</div>
+              <div style="flex:1;">{{ x.msg }}</div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="autotrade-muted">まだログがありません</div>
+        {% endif %}
+      </div>
+
+      <div class="autotrade-muted autotrade-mt10">
+        last_bar_ts: {{ runtime_bucket.last_bar_ts|default:"-" }}
+      </div>
+    </section>
+
+    <!-- 履歴 -->
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div class="autotrade-h">今日のトレード履歴</div>
+        <div class="autotrade-muted">PAPER / LIVE の約定ログ（事実）</div>
+      </div>
+
+      <div class="autotrade-list autotrade-mt10">
+        {% if executions_today %}
+          {% for e in executions_today %}
+            <div class="autotrade-list-row" style="align-items:flex-start;">
+              <div class="autotrade-mono autotrade-ticker" style="min-width:78px;">
+                {{ e.ticker }}
+              </div>
+
+              <div style="flex:1;">
+                <div class="autotrade-mono" style="opacity:0.95;">
+                  {{ e.mode }} | {{ e.strategy }} | {{ e.side }}
+                </div>
+
+                <div class="autotrade-muted" style="margin-top:4px;">
+                  入: {{ e.entry_at|date:"H:i" }}（{{ e.entry_price }}）
+                  →
+                  出: {{ e.exit_at|date:"H:i" }}（{{ e.exit_price }}）
+                  / 理由: {{ e.exit_reason }}
+                  / 保有: {{ e.holding_minutes }}分
+                  / RR: {{ e.rr|floatformat:2 }}
+                </div>
+              </div>
+
+              <div class="autotrade-pill {% if e.pnl_yen >= 0 %}is-ok{% else %}is-bad{% endif %}" style="white-space:nowrap;">
+                {{ e.pnl_yen|intcomma }}円
+              </div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="autotrade-muted">まだ履歴がありません</div>
+        {% endif %}
+      </div>
+    </section>
+
+    <!-- 推移 -->
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div class="autotrade-h">エクイティ推移（簡易）</div>
+        <div class="autotrade-muted">時刻 → 総資産</div>
+      </div>
+
+      <div class="autotrade-mt10 autotrade-mono" style="line-height:1.85;">
+        {% if equity_curve %}
+          {% for x in equity_curve %}
+            <div class="autotrade-row">
+              <div>{{ x.ts|default:"-" }}</div>
+              <div class="autotrade-pill">{{ x.equity_yen|intcomma }}円</div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="autotrade-muted">まだ推移データがありません</div>
+        {% endif %}
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script src="{% static 'autotrade/dashboard.js' %}?v=3" defer></script>
+{% endblock %}
