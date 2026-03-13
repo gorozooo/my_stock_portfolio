@@ -6,8 +6,9 @@
 # - autotrade アプリのURLルーティング（URLとView関数の紐付け）です。
 #
 # 今回の変更：
-# - 専用結果ページ execution_report を追加
-# - mode切替API api_set_execution_mode を追加
+# - 専用結果ページ execution_report を維持
+# - 日別のデモ成績履歴ページ demo_daily_history を追加
+# - mode切替API api_set_execution_mode を維持
 # - 不要な2ボタンは撤去し、「rerun-refresh-picks」のみに統一
 # =========================================================
 
@@ -19,6 +20,7 @@ app_name = "autotrade"
 urlpatterns = [
     path("", views.dashboard, name="dashboard"),
     path("report/", views.execution_report, name="execution_report"),
+    path("history/demo-daily/", views.demo_daily_history, name="demo_daily_history"),
 
     # --- API ---
     path("api/emergency-stop/", views.api_emergency_stop, name="api_emergency_stop"),
