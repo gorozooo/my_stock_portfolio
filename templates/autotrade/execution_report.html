@@ -9,6 +9,7 @@
 今回のポイント：
 - ダッシュボードから分離して、運用結果の確認を1ページに集約
 - mode別の統計 / open / pending / logs / 履歴 / エクイティ推移 を表示
+- ★追加：日別のデモ成績履歴ページへの導線を追加
 -->
 {% extends "base.html" %}
 {% load humanize %}
@@ -16,7 +17,7 @@
 {% block title %}AutoTrade Result Report{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'autotrade/dashboard.css' %}?v=3">
+<link rel="stylesheet" href="{% static 'autotrade/dashboard.css' %}?v=4">
 {% endblock %}
 
 {% block content %}
@@ -44,7 +45,10 @@
       </div>
     </div>
 
-    <a class="autotrade-linkbtn" href="{% url 'autotrade:dashboard' %}">ダッシュボードへ戻る</a>
+    <div class="autotrade-segment">
+      <a class="autotrade-linkbtn" href="{% url 'autotrade:dashboard' %}">ダッシュボードへ戻る</a>
+      <a class="autotrade-linkbtn" href="{% url 'autotrade:demo_daily_history' %}">日別デモ履歴</a>
+    </div>
   </div>
 
   <div class="autotrade-grid">
@@ -297,5 +301,5 @@
   </div>
 </div>
 
-<script src="{% static 'autotrade/dashboard.js' %}?v=3" defer></script>
+<script src="{% static 'autotrade/dashboard.js' %}?v=4" defer></script>
 {% endblock %}
