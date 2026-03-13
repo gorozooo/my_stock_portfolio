@@ -3,11 +3,11 @@
 [PATH] <project_root>/static/autotrade/dashboard.css
 
 このファイルは何？
-- AutoTrade ダッシュボード（iPhone 1画面）の見た目（ガラス系UI）を定義します。
+- AutoTrade ダッシュボード / 専用結果ページの見た目を定義します。
 
-今回のポイント：
-- VWAP/BREAKOUT タブUIを追加
-- 判定理由（reasons）の読みやすさを強化
+今回の変更：
+- DEMO / LIVE 切替UIの見た目を追加
+- 専用結果ページでも使える共通スタイルへ整理
 */
 
 :root{
@@ -142,11 +142,6 @@
   font-weight:900;
 }
 
-.autotrade-reason{
-  font-size:13px;
-  line-height:1.55;
-}
-
 .autotrade-btn-stop{
   width:100%;
   padding:12px;
@@ -155,36 +150,6 @@
   background:rgba(248,113,113,.10);
   color:var(--autotrade-txt);
   font-weight:900;
-}
-
-.autotrade-mt10{ margin-top:10px; }
-.autotrade-mb8{ margin-bottom:8px; }
-.autotrade-mt6{ margin-top:6px; }
-
-.is-ok{ color:var(--autotrade-ok); }
-.is-warn{ color:var(--autotrade-warn); }
-.is-bad{ color:var(--autotrade-bad); }
-
-/* --- Gate reasons layout --- */
-.autotrade-gate-grid{
-  display:grid;
-  grid-template-columns:1fr;
-  gap:10px;
-}
-
-.autotrade-gate-box{
-  border:1px solid var(--autotrade-bd);
-  border-radius:14px;
-  background:rgba(0,0,0,.18);
-  padding:10px;
-}
-
-.autotrade-gate-head{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
-  margin-bottom:8px;
 }
 
 .autotrade-pill{
@@ -196,55 +161,72 @@
   letter-spacing:.02em;
 }
 
-.autotrade-reason-list{
-  font-size:12.5px;
-  line-height:1.6;
-}
-
-.autotrade-reason-row{
-  padding:6px 0;
-  border-top:1px solid rgba(255,255,255,.08);
-}
-.autotrade-reason-row:first-child{
-  border-top:none;
-  padding-top:0;
-}
-
-/* --- Tabs --- */
-.autotrade-tabs{
-  display:flex;
-  gap:8px;
-  flex-wrap:wrap;
-}
-
-.autotrade-tab{
-  appearance:none;
-  border:none;
-  cursor:pointer;
+.autotrade-linkbtn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:38px;
   padding:8px 12px;
   border-radius:999px;
   border:1px solid var(--autotrade-bd);
   background:rgba(0,0,0,.18);
   color:var(--autotrade-txt);
+  text-decoration:none;
   font-weight:900;
 }
 
-.autotrade-tab.is-active{
-  background:rgba(255,255,255,.10);
-  border-color:rgba(255,255,255,.22);
+.autotrade-linkbtn:hover{
+  background:rgba(255,255,255,.08);
 }
 
-.autotrade-pane{
-  display:none;
+.autotrade-segment{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
 }
 
-.autotrade-pane.is-active{
-  display:block;
+.autotrade-segment-btn{
+  appearance:none;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:40px;
+  padding:8px 14px;
+  border-radius:999px;
+  border:1px solid var(--autotrade-bd);
+  background:rgba(0,0,0,.18);
+  color:var(--autotrade-txt);
+  text-decoration:none;
+  font-weight:900;
+  cursor:pointer;
 }
 
-/* PC幅なら2列に（iPhoneは1列） */
+.autotrade-segment-btn.is-active{
+  background:rgba(255,255,255,.12);
+  border-color:rgba(255,255,255,.24);
+}
+
+.autotrade-note{
+  padding:10px 12px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.05);
+  color:var(--autotrade-mut);
+  line-height:1.6;
+  font-size:12.5px;
+}
+
+.autotrade-mt10{ margin-top:10px; }
+.autotrade-mb8{ margin-bottom:8px; }
+.autotrade-mt6{ margin-top:6px; }
+
+.is-ok{ color:var(--autotrade-ok); }
+.is-warn{ color:var(--autotrade-warn); }
+.is-bad{ color:var(--autotrade-bad); }
+
+/* PC幅なら少しだけ詰めて見やすく */
 @media (min-width: 860px){
-  .autotrade-gate-grid{
-    grid-template-columns:1fr 1fr;
+  .autotrade-grid{
+    grid-template-columns:1fr;
   }
 }
