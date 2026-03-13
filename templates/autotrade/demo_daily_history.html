@@ -1,0 +1,175 @@
+<!--
+[FILE] demo_daily_history.html
+[PATH] <project_root>/templates/autotrade/demo_daily_history.html
+
+このファイルは何？
+- AutoTrade の「日別のデモ成績履歴ページ」です。
+- 1営業日ごとの DEMO(PAPER) 成績を一覧で確認できます。
+- 直近5営業日 / 10営業日のまとまりも上で見せるので、
+  デモ運用の継続・見直し判断をしやすくするためのページです。
+-->
+{% extends "base.html" %}
+{% load humanize %}
+{% load static %}
+{% block title %}AutoTrade Demo Daily History{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{% static 'autotrade/dashboard.css' %}?v=4">
+{% endblock %}
+
+{% block content %}
+<div class="autotrade-wrap">
+
+  <div class="autotrade-top">
+    <div>
+      <div class="autotrade-muted">Auto DayTrade</div>
+      <div class="autotrade-title">日別のデモ成績履歴</div>
+      <div class="autotrade-muted autotrade-mt6">
+        直近5営業日 / 10営業日で、DEMOの安定度を見やすく確認します
+      </div>
+    </div>
+
+    <div class="autotrade-segment">
+      <a class="autotrade-linkbtn" href="{% url 'autotrade:dashboard' %}">ダッシュボードへ戻る</a>
+      <a class="autotrade-linkbtn" href="{% url 'autotrade:execution_report' %}?mode=PAPER">今日の結果ページ</a>
+    </div>
+  </div>
+
+  <div class="autotrade-grid">
+
+    <!-- 5営業日サマリー -->
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div class="autotrade-h">直近5営業日サマリー</div>
+        <div class="autotrade-pill {{ summary_5.judge_class }}">{{ summary_5.judge_text }}</div>
+      </div>
+
+      <div class="autotrade-kpi autotrade-mt10">
+        <div class="autotrade-box">
+          <div class="autotrade-label">営業日数</div>
+          <div class="autotrade-val">{{ summary_5.days }}</div>
+        </div>
+        <div class="autotrade-box">
+          <div class="autotrade-label">取引した日数</div>
+          <div class="autotrade-val">{{ summary_5.active_days }}</div>
+        </div>
+        <div class="autotrade-box">
+          <div class="autotrade-label">取引回数</div>
+          <div class="autotrade-val">{{ summary_5.trades }}</div>
+        </div>
+        <div class="autotrade-box">
+          <div class="autotrade-label">損益合計</div>
+          <div class="autotrade-val {% if summary_5.pnl_sum_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
+            {{ summary_5.pnl_sum_yen|intcomma }}
+          </div>
+        </div>
+      </div>
+
+      <div class="autotrade-chips autotrade-mt10">
+        <div class="autotrade-chip">勝 / 負：{{ summary_5.wins }} / {{ summary_5.losses }}</div>
+        <div class="autotrade-chip">勝率：{{ summary_5.win_rate_pct }}%</div>
+        <div class="autotrade-chip">PF：{{ summary_5.pf }}</div>
+        <div class="autotrade-chip">最大DD：-{{ summary_5.dd_yen|intcomma }}円</div>
+        <div class="autotrade-chip">プラス日：{{ summary_5.plus_days }}</div>
+        <div class="autotrade-chip">マイナス日：{{ summary_5.minus_days }}</div>
+        <div class="autotrade-chip">ノートレ日：{{ summary_5.flat_days }}</div>
+      </div>
+
+      <div class="autotrade-note autotrade-mt10">
+        参考判定です。まずは「損益合計がプラスか」「PFが1.0以上か」「マイナス日が続いていないか」を見ると判断しやすいです。
+      </div>
+    </section>
+
+    <!-- 10営業日サマリー -->
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div class="autotrade-h">直近10営業日サマリー</div>
+        <div class="autotrade-pill {{ summary_10.judge_class }}">{{ summary_10.judge_text }}</div>
+      </div>
+
+      <div class="autotrade-kpi autotrade-mt10">
+        <div class="autotrade-box">
+          <div class="autotrade-label">営業日数</div>
+          <div class="autotrade-val">{{ summary_10.days }}</div>
+        </div>
+        <div class="autotrade-box">
+          <div class="autotrade-label">取引した日数</div>
+          <div class="autotrade-val">{{ summary_10.active_days }}</div>
+        </div>
+        <div class="autotrade-box">
+          <div class="autotrade-label">取引回数</div>
+          <div class="autotrade-val">{{ summary_10.trades }}</div>
+        </div>
+        <div class="autotrade-box">
+          <div class="autotrade-label">損益合計</div>
+          <div class="autotrade-val {% if summary_10.pnl_sum_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
+            {{ summary_10.pnl_sum_yen|intcomma }}
+          </div>
+        </div>
+      </div>
+
+      <div class="autotrade-chips autotrade-mt10">
+        <div class="autotrade-chip">勝 / 負：{{ summary_10.wins }} / {{ summary_10.losses }}</div>
+        <div class="autotrade-chip">勝率：{{ summary_10.win_rate_pct }}%</div>
+        <div class="autotrade-chip">PF：{{ summary_10.pf }}</div>
+        <div class="autotrade-chip">最大DD：-{{ summary_10.dd_yen|intcomma }}円</div>
+        <div class="autotrade-chip">プラス日：{{ summary_10.plus_days }}</div>
+        <div class="autotrade-chip">マイナス日：{{ summary_10.minus_days }}</div>
+        <div class="autotrade-chip">ノートレ日：{{ summary_10.flat_days }}</div>
+      </div>
+
+      <div class="autotrade-note autotrade-mt10">
+        10営業日でプラス維持できるかを見ると、たまたま勝っただけか、少し安定してきたかが見えやすくなります。
+      </div>
+    </section>
+
+    <!-- 日別一覧 -->
+    <section class="autotrade-card">
+      <div class="autotrade-row">
+        <div>
+          <div class="autotrade-h">日別デモ成績一覧</div>
+          <div class="autotrade-muted">新しい日が上 / 1営業日ごとの DEMO 集計</div>
+        </div>
+      </div>
+
+      <div class="autotrade-list autotrade-mt10">
+        {% if rows %}
+          {% for row in rows %}
+            <div class="autotrade-list-row" style="align-items:flex-start;">
+              <div style="min-width:108px;">
+                <div class="autotrade-mono autotrade-ticker">{{ row.date_text }}</div>
+                <div class="autotrade-muted">{{ row.weekday_text }}</div>
+              </div>
+
+              <div style="flex:1;">
+                <div class="autotrade-mono">
+                  gate={{ row.gate_level }} / strategy={{ row.strategy }} / trades={{ row.trades }}
+                </div>
+
+                <div class="autotrade-muted autotrade-mt6" style="line-height:1.7;">
+                  勝率 {{ row.win_rate_pct }}%
+                  / PF {{ row.pf }}
+                  / DD -{{ row.dd_yen|intcomma }}円
+                  / 勝 {{ row.wins }} / 負 {{ row.losses }}
+                  <br>
+                  利益合計 +{{ row.sum_win_yen|intcomma }}円
+                  / 損失合計 -{{ row.sum_loss_abs_yen|intcomma }}円
+                  <br>
+                  理由メモ: {{ row.gate_reason_first }}
+                </div>
+              </div>
+
+              <div class="autotrade-pill {% if row.pnl_sum_yen >= 0 %}is-ok{% else %}is-bad{% endif %}" style="white-space:nowrap;">
+                {{ row.pnl_sum_yen|intcomma }}円
+              </div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="autotrade-muted">まだ日別データがありません</div>
+        {% endif %}
+      </div>
+    </section>
+
+  </div>
+</div>
+{% endblock %}
