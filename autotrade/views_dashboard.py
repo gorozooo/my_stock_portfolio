@@ -1,21 +1,25 @@
-"""
-[FILE] autotrade/views_dashboard.py
-[PATH] <project_root>/autotrade/views_dashboard.py
-
-このファイルは何？
-- AutoTrade のダッシュボード表示（iPhone 1画面）用の View と整形関数です。
-- DB上の「DailyState（今日の状態）」＋「ACTIVE Snapshot（今日の設定）」＋「Execution（今日の事実ログ）」をまとめてテンプレへ渡します。
-
-今回の修正：
-- execution_report() を追加
-- dashboard では現在モードの要点だけ表示
-- 専用結果ページで、PAPER/LIVE/ALL の結果を見やすく出せるようにする
-- ★追加修正：エクイティ推移（equity_curve）が専用結果ページに表示されるように、
-  _build_equity_curve() を追加し、execution_report() の ctx に渡す
-"""
+# =========================================================
+# [FILE] autotrade/views_dashboard.py
+# [PATH] <project_root>/autotrade/views_dashboard.py
+#
+# このファイルは何？
+# - AutoTrade のダッシュボード表示 / 専用結果ページ / 日別デモ成績履歴ページ
+#   の View と整形関数です。
+# - DB上の「DailyState（今日の状態）」＋「ACTIVE Snapshot（今日の設定）」＋
+#   「Execution（今日の事実ログ）」をまとめてテンプレへ渡します。
+#
+# 今回の修正：
+# - execution_report() を維持
+# - dashboard では現在モードの要点だけ表示
+# - 専用結果ページで、PAPER/LIVE/ALL の結果を見やすく出せるようにする
+# - エクイティ推移（equity_curve）が専用結果ページに表示されるようにする
+# - ★追加：demo_daily_history() を追加し、
+#   日別のデモ成績履歴を 5営業日 / 10営業日で見やすく確認できるようにする
+# =========================================================
 
 from __future__ import annotations
 
+from datetime import datetime, time as dt_time
 from typing import Any, Dict, List, Optional, Tuple
 
 from django.contrib.auth.decorators import login_required
@@ -495,9 +499,11 @@ def _build_execution_stats(*, base_equity_yen: int, executions: List[AutoTradeEx
     win_rate = (wins / trades) if trades > 0 else 0.0
 
     if sum_loss_abs > 0:
-        pf = float(sum_win) / float(sum_loss_abs)
+        pf_raw = float(sum_win) / float(sum_loss_abs)
+        pf_text = f"{pf_raw:.3f}"
     else:
-        pf = 999.0 if sum_win > 0 else 0.0
+        pf_raw = 999.0 if sum_win > 0 else 0.0
+        pf_text = "999.000" if sum_win > 0 else "0.000"
 
     eq = int(base_equity_yen or 1_000_000)
     equity_points = [eq]
@@ -514,9 +520,11 @@ def _build_execution_stats(*, base_equity_yen: int, executions: List[AutoTradeEx
         "losses": int(losses),
         "win_rate_pct": round(_pct_100(win_rate), 1),
         "sum_win_yen": int(sum_win),
+        "sum_loss_yen": int(sum_loss),
         "sum_loss_abs_yen": int(sum_loss_abs),
         "pnl_sum_yen": int(pnl_sum),
-        "pf": f"{pf:.3f}" if pf else f"{pf:.2f}",
+        "pf_raw": float(pf_raw),
+        "pf": pf_text,
         "dd_yen": int(dd_yen),
         "dd_pct": round(_pct_100(dd_pct), 1),
     }
@@ -551,6 +559,183 @@ def _build_equity_curve(*, base_equity_yen: int, executions: List[AutoTradeExecu
         })
 
     return out
+
+
+def _build_demo_daily_rows(*, user, limit_days: int = 30) -> List[Dict[str, Any]]:
+    """
+    日別のデモ成績履歴を作る。
+    - DailyState をベースに「営業日単位」で表示
+    - その日にクローズした PAPER Execution を集計して 1日成績にする
+    """
+    states = list(
+        AutoTradeDailyState.objects.order_by("-date")[:max(10, int(limit_days))]
+    )
+    if not states:
+        return []
+
+    earliest_date = states[-1].date
+    tz = timezone.get_current_timezone()
+    start_dt = timezone.make_aware(datetime.combine(earliest_date, dt_time.min), tz)
+
+    paper_execs = list(
+        AutoTradeExecution.objects.filter(
+            user=user,
+            mode="PAPER",
+            exit_at__gte=start_dt,
+        ).order_by("exit_at", "id")
+    )
+
+    exec_map: Dict[Any, List[AutoTradeExecution]] = {}
+    for e in paper_execs:
+        base_dt = getattr(e, "exit_at", None) or getattr(e, "created_at", None)
+        if base_dt is None:
+            continue
+        jst_day = timezone.localtime(base_dt).date()
+        exec_map.setdefault(jst_day, []).append(e)
+
+    rows: List[Dict[str, Any]] = []
+    for state in states:
+        day_execs = exec_map.get(state.date, [])
+
+        start_equity_yen = int(_safe_int(state.equity_yen, 1_000_000) - _safe_int(state.pnl_day_yen, 0))
+        if start_equity_yen <= 0:
+            start_equity_yen = int(_safe_int(state.equity_yen, 1_000_000)) or 1_000_000
+
+        stats = _build_execution_stats(
+            base_equity_yen=start_equity_yen,
+            executions=day_execs,
+        )
+
+        gate_reason_first = "-"
+        if str(state.gate_reason or "").strip():
+            gate_reason_first = str(state.gate_reason or "").strip().splitlines()[0]
+
+        rows.append({
+            "date": state.date,
+            "date_text": state.date.strftime("%Y-%m-%d"),
+            "weekday_text": state.date.strftime("%a"),
+            "gate_level": str(state.gate_level or "-"),
+            "strategy": str(state.strategy or "-"),
+            "trades": stats["trades"],
+            "wins": stats["wins"],
+            "losses": stats["losses"],
+            "win_rate_pct": stats["win_rate_pct"],
+            "pnl_sum_yen": stats["pnl_sum_yen"],
+            "sum_win_yen": stats["sum_win_yen"],
+            "sum_loss_yen": stats["sum_loss_yen"],
+            "sum_loss_abs_yen": stats["sum_loss_abs_yen"],
+            "pf": stats["pf"],
+            "pf_raw": stats["pf_raw"],
+            "dd_yen": stats["dd_yen"],
+            "dd_pct": stats["dd_pct"],
+            "gate_reason_first": gate_reason_first,
+        })
+
+    return rows
+
+
+def _judge_daily_window(summary: Dict[str, Any], required_days: int) -> Tuple[str, str]:
+    """
+    日別履歴ページ用の参考判定。
+    - あくまで“見やすくするための補助表示”
+    - 実運用ゲートそのものではない
+    """
+    days = _safe_int(summary.get("days"), 0)
+    trades = _safe_int(summary.get("trades"), 0)
+    pnl = _safe_int(summary.get("pnl_sum_yen"), 0)
+    pf_raw = _safe_float(summary.get("pf_raw"), 0.0)
+    plus_days = _safe_int(summary.get("plus_days"), 0)
+    minus_days = _safe_int(summary.get("minus_days"), 0)
+
+    if days < required_days:
+        return ("データ不足", "is-warn")
+    if trades == 0:
+        return ("取引なし", "is-warn")
+    if pnl > 0 and pf_raw >= 1.10 and plus_days >= minus_days:
+        return ("良好", "is-ok")
+    if pnl >= 0 and pf_raw >= 1.00:
+        return ("様子見", "is-warn")
+    return ("要見直し", "is-bad")
+
+
+def _build_demo_window_summary(rows: List[Dict[str, Any]], *, window: int) -> Dict[str, Any]:
+    picked = list(rows[:max(0, int(window))])
+    if not picked:
+        judge_text, judge_class = _judge_daily_window({"days": 0}, int(window))
+        return {
+            "label": f"直近{window}営業日",
+            "days": 0,
+            "active_days": 0,
+            "plus_days": 0,
+            "minus_days": 0,
+            "flat_days": 0,
+            "trades": 0,
+            "wins": 0,
+            "losses": 0,
+            "win_rate_pct": 0.0,
+            "pnl_sum_yen": 0,
+            "sum_win_yen": 0,
+            "sum_loss_abs_yen": 0,
+            "pf": "0.000",
+            "pf_raw": 0.0,
+            "dd_yen": 0,
+            "judge_text": judge_text,
+            "judge_class": judge_class,
+        }
+
+    trades = sum(_safe_int(x.get("trades"), 0) for x in picked)
+    wins = sum(_safe_int(x.get("wins"), 0) for x in picked)
+    losses = sum(_safe_int(x.get("losses"), 0) for x in picked)
+    pnl_sum_yen = sum(_safe_int(x.get("pnl_sum_yen"), 0) for x in picked)
+    sum_win_yen = sum(_safe_int(x.get("sum_win_yen"), 0) for x in picked)
+    sum_loss_abs_yen = sum(_safe_int(x.get("sum_loss_abs_yen"), 0) for x in picked)
+
+    days = len(picked)
+    active_days = sum(1 for x in picked if _safe_int(x.get("trades"), 0) > 0)
+    plus_days = sum(1 for x in picked if _safe_int(x.get("pnl_sum_yen"), 0) > 0)
+    minus_days = sum(1 for x in picked if _safe_int(x.get("pnl_sum_yen"), 0) < 0)
+    flat_days = days - plus_days - minus_days
+
+    win_rate_pct = round((wins / trades) * 100.0, 1) if trades > 0 else 0.0
+
+    if sum_loss_abs_yen > 0:
+        pf_raw = float(sum_win_yen) / float(sum_loss_abs_yen)
+        pf_text = f"{pf_raw:.3f}"
+    else:
+        pf_raw = 999.0 if sum_win_yen > 0 else 0.0
+        pf_text = "999.000" if sum_win_yen > 0 else "0.000"
+
+    # 日別の損益推移からDDを出す
+    cumulative = 0
+    points = [0]
+    for row in reversed(picked):
+        cumulative += _safe_int(row.get("pnl_sum_yen"), 0)
+        points.append(int(cumulative))
+    dd_yen = _calc_max_drawdown_yen(points)
+
+    summary = {
+        "label": f"直近{window}営業日",
+        "days": int(days),
+        "active_days": int(active_days),
+        "plus_days": int(plus_days),
+        "minus_days": int(minus_days),
+        "flat_days": int(flat_days),
+        "trades": int(trades),
+        "wins": int(wins),
+        "losses": int(losses),
+        "win_rate_pct": float(win_rate_pct),
+        "pnl_sum_yen": int(pnl_sum_yen),
+        "sum_win_yen": int(sum_win_yen),
+        "sum_loss_abs_yen": int(sum_loss_abs_yen),
+        "pf": pf_text,
+        "pf_raw": float(pf_raw),
+        "dd_yen": int(dd_yen),
+    }
+
+    judge_text, judge_class = _judge_daily_window(summary, int(window))
+    summary["judge_text"] = judge_text
+    summary["judge_class"] = judge_class
+    return summary
 
 
 @login_required
@@ -650,3 +835,22 @@ def execution_report(request: HttpRequest):
         "equity_curve": equity_curve,
     }
     return render(request, "autotrade/execution_report.html", ctx)
+
+
+@login_required
+def demo_daily_history(request: HttpRequest):
+    """
+    日別のデモ成績履歴ページ。
+    - DailyState を1営業日単位で並べる
+    - 直近5営業日 / 10営業日の見やすい集計も出す
+    """
+    rows = _build_demo_daily_rows(user=request.user, limit_days=30)
+    summary_5 = _build_demo_window_summary(rows, window=5)
+    summary_10 = _build_demo_window_summary(rows, window=10)
+
+    ctx = {
+        "rows": rows,
+        "summary_5": summary_5,
+        "summary_10": summary_10,
+    }
+    return render(request, "autotrade/demo_daily_history.html", ctx)
