@@ -1,64 +1,14 @@
-// 
+//
 // [FILE] static/autotrade/dashboard.js
 // [PATH] <project_root>/static/autotrade/dashboard.js
 //
 // このファイルは何？
-// - ダッシュボードのフロント操作を担当します。
-// - 非常停止ボタン（API呼び出し）と、VWAP/BREAKOUT タブ切り替えを行います。
+// - ダッシュボード / 専用結果ページのフロント操作を担当します。
+// - 非常停止ボタン（API呼び出し）
+// - DEMO / LIVE モード切替（API呼び出し）
+//
 
 (() => {
-  // =========================
-  // Tabs (VWAP / BREAKOUT)
-  // =========================
-  const tabsRoot = document.querySelector(".autotrade-tabs");
-  const panesRoot = document.querySelector(".autotrade-tabpanes");
-  if (tabsRoot && panesRoot) {
-    const tabs = Array.from(tabsRoot.querySelectorAll(".autotrade-tab"));
-    const panes = Array.from(panesRoot.querySelectorAll(".autotrade-pane"));
-    const initial = (tabsRoot.getAttribute("data-initial") || "VWAP").trim();
-
-    const setActive = (name) => {
-      tabs.forEach((t) => {
-        const isOn = (t.getAttribute("data-tab") === name);
-        t.classList.toggle("is-active", isOn);
-      });
-      panes.forEach((p) => {
-        const isOn = (p.getAttribute("data-pane") === name);
-        p.classList.toggle("is-active", isOn);
-      });
-      try {
-        localStorage.setItem("autotrade_dashboard_tab", name);
-      } catch (e) {}
-    };
-
-    let start = initial;
-    try {
-      const saved = localStorage.getItem("autotrade_dashboard_tab");
-      if (saved) start = saved;
-    } catch (e) {}
-
-    // 存在しない値だったらVWAPへ
-    if (!["VWAP", "BREAKOUT"].includes(start)) start = "VWAP";
-    setActive(start);
-
-    tabs.forEach((t) => {
-      t.addEventListener("click", () => {
-        const name = t.getAttribute("data-tab");
-        if (!name) return;
-        setActive(name);
-      });
-    });
-  }
-
-  // =========================
-  // Emergency Stop Button
-  // =========================
-  const btn = document.getElementById("btnStop");
-  if (!btn) return;
-
-  const url = btn.getAttribute("data-url");
-  if (!url) return; // 停止中などで data-url が無い時
-
   const getCookie = (name) => {
     const value = `; ${document.cookie}`;
     const parts = value.split(`; ${name}=`);
@@ -66,40 +16,95 @@
     return null;
   };
 
-  btn.addEventListener("click", async () => {
-    const ok = confirm("非常停止します。以後の自動売買を止めます。よろしいですか？");
-    if (!ok) return;
+  const postJson = async (url, payload) => {
+    const csrftoken = getCookie("csrftoken");
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": csrftoken || "",
+      },
+      body: JSON.stringify(payload || {}),
+      credentials: "same-origin",
+    });
 
-    btn.disabled = true;
-    btn.textContent = "停止中…";
+    const data = await res.json().catch(() => ({}));
+    return { res, data };
+  };
 
-    try {
-      const csrftoken = getCookie("csrftoken");
+  // =========================
+  // Execution Mode Button
+  // =========================
+  const modeButtons = Array.from(document.querySelectorAll(".js-mode-btn"));
+  modeButtons.forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const url = btn.getAttribute("data-url");
+      const mode = (btn.getAttribute("data-mode") || "").trim().toUpperCase();
+      if (!url || !mode) return;
 
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": csrftoken || "",
-        },
-        body: JSON.stringify({ reason: "manual" }),
-        credentials: "same-origin",
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok) {
-        alert("非常停止に失敗しました（API）");
-        btn.disabled = false;
-        btn.textContent = "非常停止（ワンタップ）";
-        return;
+      let ok = false;
+      if (mode === "LIVE") {
+        ok = confirm(
+          "LIVEに切り替えます。\n\n" +
+          "ただし現段階では安全装置により、実発注は行いません。\n" +
+          "状態確認用の準備モードとして切り替えます。よろしいですか？"
+        );
+      } else {
+        ok = confirm("DEMOに切り替えます。よろしいですか？");
       }
+      if (!ok) return;
 
-      // 成功 → 画面更新（表示が「非常停止中」に切り替わる）
-      location.reload();
-    } catch (e) {
-      alert("非常停止に失敗しました（通信）");
-      btn.disabled = false;
-      btn.textContent = "非常停止（ワンタップ）";
-    }
+      const buttons = Array.from(document.querySelectorAll(".js-mode-btn"));
+      buttons.forEach((x) => { x.disabled = true; });
+
+      try {
+        const { res, data } = await postJson(url, { mode });
+
+        if (!res.ok || !data.ok) {
+          alert(data.detail || "モード切替に失敗しました。");
+          buttons.forEach((x) => { x.disabled = false; });
+          return;
+        }
+
+        location.reload();
+      } catch (e) {
+        alert("モード切替に失敗しました（通信）。");
+        buttons.forEach((x) => { x.disabled = false; });
+      }
+    });
   });
+
+  // =========================
+  // Emergency Stop Button
+  // =========================
+  const btnStop = document.getElementById("btnStop");
+  if (btnStop) {
+    const url = btnStop.getAttribute("data-url");
+    if (url) {
+      btnStop.addEventListener("click", async () => {
+        const ok = confirm("非常停止します。以後の自動売買を止めます。よろしいですか？");
+        if (!ok) return;
+
+        btnStop.disabled = true;
+        btnStop.textContent = "停止中…";
+
+        try {
+          const { res, data } = await postJson(url, { reason: "manual" });
+
+          if (!res.ok || !data.ok) {
+            alert("非常停止に失敗しました。");
+            btnStop.disabled = false;
+            btnStop.textContent = "非常停止（ワンタップ）";
+            return;
+          }
+
+          location.reload();
+        } catch (e) {
+          alert("非常停止に失敗しました（通信）。");
+          btnStop.disabled = false;
+          btnStop.textContent = "非常停止（ワンタップ）";
+        }
+      });
+    }
+  }
 })();
