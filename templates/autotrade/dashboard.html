@@ -10,6 +10,7 @@
 - デモ結果の詳細は専用ページへ移動
 - ダッシュボードでは DEMO / LIVE 切替を追加
 - 現在モードの要点（N / 損益 / PF / open / pending）だけを見やすく表示
+- ★追加：日別のデモ成績履歴ページへの導線を追加
 -->
 {% extends "base.html" %}
 {% load humanize %}
@@ -17,7 +18,7 @@
 {% block title %}AutoTrade Dashboard{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'autotrade/dashboard.css' %}?v=3">
+<link rel="stylesheet" href="{% static 'autotrade/dashboard.css' %}?v=4">
 {% endblock %}
 
 {% block content %}
@@ -81,10 +82,16 @@
       <div class="autotrade-row">
         <div>
           <div class="autotrade-h">運用モード</div>
-          <div class="autotrade-muted">DEMO / LIVE の切替と、専用結果ページへの入口</div>
+          <div class="autotrade-muted">DEMO / LIVE の切替と、結果確認ページへの入口</div>
         </div>
+      </div>
+
+      <div class="autotrade-segment autotrade-mt10">
         <a class="autotrade-linkbtn" href="{% url 'autotrade:execution_report' %}?mode={{ current_mode }}">
-          専用ページへ
+          今日の結果ページ
+        </a>
+        <a class="autotrade-linkbtn" href="{% url 'autotrade:demo_daily_history' %}">
+          日別デモ履歴
         </a>
       </div>
 
@@ -111,11 +118,11 @@
       {% if current_mode == "LIVE" %}
         <div class="autotrade-note autotrade-mt10">
           LIVEは今は「準備モード」です。安全装置により、現段階では実発注を行いません。
-          専用ページで状態確認だけできます。
+          今日の結果ページで状態確認だけできます。
         </div>
       {% else %}
         <div class="autotrade-note autotrade-mt10">
-          現在は DEMO で稼働中です。専用ページで結果を確認してから LIVE 判断へ進めます。
+          現在は DEMO で稼働中です。今日の結果ページと日別デモ履歴ページで確認してから LIVE 判断へ進めます。
         </div>
       {% endif %}
 
@@ -357,5 +364,5 @@
   </div>
 </div>
 
-<script src="{% static 'autotrade/dashboard.js' %}?v=3" defer></script>
+<script src="{% static 'autotrade/dashboard.js' %}?v=4" defer></script>
 {% endblock %}
