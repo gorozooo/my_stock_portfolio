@@ -3,11 +3,13 @@
 [PATH] <project_root>/static/autotrade/dashboard.css
 
 このファイルは何？
-- AutoTrade ダッシュボード / 専用結果ページの見た目を定義します。
+- AutoTrade ダッシュボード / 専用結果ページ / 日別デモ履歴ページ
+  の見た目を定義する共通CSSです。
 
-今回の変更：
-- DEMO / LIVE 切替UIの見た目を追加
-- 専用結果ページでも使える共通スタイルへ整理
+今回の修正：
+- iPhone幅でカード枠が画面外にはみ出す問題を修正
+- 上部ボタン群、セグメント、行レイアウト、長文テキストの折り返しを強化
+- 「枠が画面に納まる」ことを最優先に、mobile safe なCSSに調整
 */
 
 :root{
@@ -21,33 +23,63 @@
   --autotrade-bad:#f87171;
 }
 
+*,
+*::before,
+*::after{
+  box-sizing:border-box;
+}
+
+html,
+body{
+  max-width:100%;
+  overflow-x:hidden;
+}
+
 /* base.html 側の背景がある想定でも、wrap 内はこのテーマで整う */
 .autotrade-wrap{
+  width:100%;
   max-width:980px;
   margin:12px auto 0;
   padding:14px 12px 140px;
   color:var(--autotrade-txt);
+  overflow-x:hidden;
 }
 
 .autotrade-top{
   display:flex;
-  align-items:center;
+  align-items:flex-start;
   justify-content:space-between;
   gap:10px;
   margin-bottom:12px;
+  flex-wrap:wrap;
+  min-width:0;
+}
+
+.autotrade-top > *{
+  min-width:0;
+  max-width:100%;
 }
 
 .autotrade-title{
   font-size:18px;
   font-weight:900;
+  line-height:1.35;
+  word-break:break-word;
+  overflow-wrap:anywhere;
 }
 
 .autotrade-muted{
   color:var(--autotrade-mut);
   font-size:12px;
+  line-height:1.6;
+  word-break:break-word;
+  overflow-wrap:anywhere;
 }
 
 .autotrade-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
   padding:8px 10px;
   border:1px solid var(--autotrade-bd);
   border-radius:14px;
@@ -55,44 +87,62 @@
   backdrop-filter:blur(10px);
   font-weight:800;
   letter-spacing:.02em;
+  max-width:100%;
+  white-space:normal;
+  word-break:break-word;
 }
 
 .autotrade-grid{
   display:grid;
-  grid-template-columns:1fr;
+  grid-template-columns:minmax(0,1fr);
   gap:12px;
+  min-width:0;
 }
 
 .autotrade-card{
+  width:100%;
+  min-width:0;
+  max-width:100%;
   border:1px solid var(--autotrade-bd);
   border-radius:16px;
   background:var(--autotrade-card);
   padding:12px;
   backdrop-filter:blur(10px);
+  overflow:hidden;
 }
 
 .autotrade-kpi{
   display:grid;
-  grid-template-columns:1fr 1fr;
+  grid-template-columns:repeat(2, minmax(0,1fr));
   gap:10px;
+  min-width:0;
 }
 
 .autotrade-box{
+  min-width:0;
+  max-width:100%;
   border:1px solid var(--autotrade-bd);
   border-radius:14px;
   padding:10px;
   background:rgba(0,0,0,.18);
+  overflow:hidden;
 }
 
 .autotrade-label{
   color:var(--autotrade-mut);
   font-size:12px;
   margin-bottom:4px;
+  line-height:1.5;
+  word-break:break-word;
+  overflow-wrap:anywhere;
 }
 
 .autotrade-val{
   font-size:20px;
   font-weight:900;
+  line-height:1.25;
+  word-break:break-word;
+  overflow-wrap:anywhere;
 }
 
 .autotrade-row{
@@ -101,32 +151,57 @@
   justify-content:space-between;
   gap:10px;
   flex-wrap:wrap;
+  min-width:0;
+}
+
+.autotrade-row > *{
+  min-width:0;
+  max-width:100%;
 }
 
 .autotrade-h{
   font-weight:900;
+  line-height:1.35;
+  word-break:break-word;
+  overflow-wrap:anywhere;
 }
 
 .autotrade-mono{
-  font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  word-break:break-word;
+  overflow-wrap:anywhere;
 }
 
 .autotrade-chips{
   display:flex;
   gap:8px;
   flex-wrap:wrap;
+  min-width:0;
+}
+
+.autotrade-chips > *{
+  min-width:0;
+  max-width:100%;
 }
 
 .autotrade-chip{
+  display:inline-flex;
+  align-items:center;
+  max-width:100%;
   padding:6px 10px;
   border-radius:999px;
   border:1px solid var(--autotrade-bd);
   font-size:12px;
+  line-height:1.45;
   background:rgba(0,0,0,.18);
+  word-break:break-word;
+  overflow-wrap:anywhere;
+  white-space:normal;
 }
 
 .autotrade-list{
   margin-top:10px;
+  min-width:0;
 }
 
 .autotrade-list-row{
@@ -136,29 +211,51 @@
   gap:10px;
   padding:8px 0;
   border-bottom:1px solid rgba(255,255,255,.08);
+  flex-wrap:wrap;
+  min-width:0;
+}
+
+.autotrade-list-row > *{
+  min-width:0;
+  max-width:100%;
 }
 
 .autotrade-ticker{
   font-weight:900;
+  word-break:break-word;
+  overflow-wrap:anywhere;
 }
 
 .autotrade-btn-stop{
   width:100%;
+  max-width:100%;
   padding:12px;
   border-radius:14px;
   border:1px solid rgba(248,113,113,.55);
   background:rgba(248,113,113,.10);
   color:var(--autotrade-txt);
   font-weight:900;
+  line-height:1.4;
+  white-space:normal;
+  word-break:break-word;
+  overflow-wrap:anywhere;
 }
 
 .autotrade-pill{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  max-width:100%;
   padding:4px 10px;
   border-radius:999px;
   border:1px solid var(--autotrade-bd);
   background:rgba(255,255,255,.06);
   font-weight:900;
   letter-spacing:.02em;
+  line-height:1.4;
+  white-space:normal;
+  word-break:break-word;
+  overflow-wrap:anywhere;
 }
 
 .autotrade-linkbtn{
@@ -166,6 +263,7 @@
   align-items:center;
   justify-content:center;
   min-height:38px;
+  max-width:100%;
   padding:8px 12px;
   border-radius:999px;
   border:1px solid var(--autotrade-bd);
@@ -173,6 +271,11 @@
   color:var(--autotrade-txt);
   text-decoration:none;
   font-weight:900;
+  text-align:center;
+  line-height:1.35;
+  white-space:normal;
+  word-break:break-word;
+  overflow-wrap:anywhere;
 }
 
 .autotrade-linkbtn:hover{
@@ -183,6 +286,13 @@
   display:flex;
   gap:8px;
   flex-wrap:wrap;
+  min-width:0;
+  max-width:100%;
+}
+
+.autotrade-segment > *{
+  min-width:0;
+  max-width:100%;
 }
 
 .autotrade-segment-btn{
@@ -191,6 +301,7 @@
   align-items:center;
   justify-content:center;
   min-height:40px;
+  max-width:100%;
   padding:8px 14px;
   border-radius:999px;
   border:1px solid var(--autotrade-bd);
@@ -199,6 +310,11 @@
   text-decoration:none;
   font-weight:900;
   cursor:pointer;
+  text-align:center;
+  line-height:1.35;
+  white-space:normal;
+  word-break:break-word;
+  overflow-wrap:anywhere;
 }
 
 .autotrade-segment-btn.is-active{
@@ -214,6 +330,8 @@
   color:var(--autotrade-mut);
   line-height:1.6;
   font-size:12.5px;
+  word-break:break-word;
+  overflow-wrap:anywhere;
 }
 
 .autotrade-mt10{ margin-top:10px; }
@@ -224,7 +342,49 @@
 .is-warn{ color:var(--autotrade-warn); }
 .is-bad{ color:var(--autotrade-bad); }
 
-/* PC幅なら少しだけ詰めて見やすく */
+/* summary の長文が横にはみ出さないようにする */
+summary{
+  max-width:100%;
+  word-break:break-word;
+  overflow-wrap:anywhere;
+}
+
+/* スマホ最適化 */
+@media (max-width: 640px){
+  .autotrade-wrap{
+    padding:12px 10px 140px;
+  }
+
+  .autotrade-top{
+    align-items:stretch;
+  }
+
+  .autotrade-top .autotrade-segment{
+    width:100%;
+  }
+
+  .autotrade-linkbtn{
+    width:100%;
+  }
+
+  .autotrade-segment-btn{
+    flex:1 1 calc(50% - 4px);
+    min-height:42px;
+  }
+
+  .autotrade-pill{
+    max-width:100%;
+  }
+}
+
+/* かなり狭い幅では KPI を1列にして確実に納める */
+@media (max-width: 380px){
+  .autotrade-kpi{
+    grid-template-columns:1fr;
+  }
+}
+
+/* PC幅でも1列維持 */
 @media (min-width: 860px){
   .autotrade-grid{
     grid-template-columns:1fr;
