@@ -30,6 +30,10 @@
 # ★修正（バグ修正：今回）
 # - HOUSEのカード請求のキーワード集計で、memo/categoryでは拾えず card フィールド側に入っているため0になる問題を修正。
 #   → memo / category.name / card(文字 or FK) のどれでも拾う。
+# 今回の追加：
+# - 月ごとの自由メモ（MonthlyDashboardMemo）を保存/表示
+# - 選択中の month に対応するメモを読み込み
+# - POST action=save_dashboard_memo でその月のメモを保存
 # =========================================
 
 from decimal import Decimal
@@ -49,6 +53,7 @@ from ..models import (
     BankBalance,
     Account,
     MonthlySnapshot,
+    MonthlyDashboardMemo,
 )
 
 
@@ -208,7 +213,7 @@ def _bank_groups_all_accounts(month: date) -> tuple[dict, dict]:
             owner = (acc.owner or "").strip()
             name = (acc.name or "").strip()
 
-            # ✅ Bの楽天銀行はトップで見えてるので除外
+            # Bの楽天銀行はトップで見えてるので除外
             if owner == "B" and "楽天銀行" in name:
                 continue
 
@@ -418,6 +423,9 @@ def _year_options() -> list[int]:
     for y in MonthlySnapshot.objects.values_list("month__year", flat=True).distinct():
         if y:
             ys.add(int(y))
+    for y in MonthlyDashboardMemo.objects.values_list("month__year", flat=True).distinct():
+        if y:
+            ys.add(int(y))
     if not ys:
         ys.add(timezone.localdate().year)
     return sorted(list(ys), reverse=True)
@@ -438,7 +446,7 @@ def _month_options(today: date, months_back: int = 24) -> list[dict]:
 
 
 # -----------------------
-# ✅ 個人カード除外ルールつき集計ヘルパ
+# 個人カード除外ルールつき集計ヘルパ
 # -----------------------
 def _var_sum_for_expense(month: date) -> int:
     """
@@ -527,7 +535,7 @@ def _house_card_bill_sum_by_keyword(month: date, keyword: str) -> int:
     """
     何をする？
     - HOUSE のカード請求（var_type=CARD）から、keyword（例：エポス）に一致する分を合計
-    - memo / category.name / card（FK or 文字） のどれかに入っていれば拾う
+    - memo か category.name のどちらかに入っていれば拾う
     """
     kw = (keyword or "").strip()
     if not kw:
@@ -535,52 +543,21 @@ def _house_card_bill_sum_by_keyword(month: date, keyword: str) -> int:
 
     qs = MonthlyVariableExpense.objects.filter(month=month, owner="HOUSE", var_type="CARD")
 
-    # まず memo/category は共通で検索
-    q = Q(memo__icontains=kw) | Q(category__name__icontains=kw)
-
-    # card フィールドが「FK」か「文字」かを実行時に判定して、安全に検索する
     try:
-        card_field = MonthlyVariableExpense._meta.get_field("card")
-
-        # FKっぽい（relation）なら related model の文字フィールドを探して検索
-        if getattr(card_field, "is_relation", False) and getattr(card_field, "many_to_one", False):
-            rel_model = getattr(getattr(card_field, "remote_field", None), "model", None)
-
-            # よくある名前候補を優先して、存在するやつだけ OR
-            candidates = ["name", "title", "label", "memo", "display_name"]
-            rel_field_names = set()
-            if rel_model is not None:
-                try:
-                    rel_field_names = set(f.name for f in rel_model._meta.fields)
-                except Exception:
-                    rel_field_names = set()
-
-            q_card = Q()
-            for fname in candidates:
-                if fname in rel_field_names:
-                    q_card |= Q(**{f"card__{fname}__icontains": kw})
-
-            # もし候補が1つも無い（= 検索できない）なら何もしない
-            if q_card:
-                q |= q_card
-
-        else:
-            # 文字フィールドならそのまま icontains
-            q |= Q(card__icontains=kw)
-
+        qs = qs.filter(memo__icontains=kw) | MonthlyVariableExpense.objects.filter(
+            month=month, owner="HOUSE", var_type="CARD", category__name__icontains=kw
+        )
+        return _sum_qs(qs, "amount")
     except Exception:
-        # 何があっても落とさない（最悪 memo/category だけで動く）
-        pass
-
-    return _sum_qs(qs.filter(q), "amount")
+        qs = MonthlyVariableExpense.objects.filter(month=month, owner="HOUSE", var_type="CARD", memo__icontains=kw)
+        return _sum_qs(qs, "amount")
 
 
 def _house_pension_insurance_fixed_sum() -> int:
     """
     何をする？
-    - HOUSE の固定費テンプレから「年金」「保険」っぽいものを合算（★二重計上しない）
+    - HOUSE の固定費テンプレから「年金」「保険」っぽいものを合算（重複計上しない）
     - 「年金/保険」など複合名でも、OR条件で1回だけ拾う
-    - category.name / memo のどちらでも拾う
     """
     qs = FixedExpenseTemplate.objects.filter(is_active=True, owner="HOUSE").filter(
         Q(category__name__icontains="年金") |
@@ -710,6 +687,23 @@ def dashboard(request):
             q += "&debug=1"
         return redirect(request.path + q)
 
+    # POST：月メモ保存
+    if request.method == "POST" and (request.POST.get("action") or "").strip() == "save_dashboard_memo":
+        memo_text = request.POST.get("dashboard_memo", "")
+        memo_text = memo_text.replace("\r\n", "\n").replace("\r", "\n")
+
+        MonthlyDashboardMemo.objects.update_or_create(
+            month=m,
+            defaults={
+                "memo": memo_text,
+            }
+        )
+
+        q = f"?year={selected_year}&month={selected_month}"
+        if debug:
+            q += "&debug=1"
+        return redirect(request.path + q)
+
     # 表示：snapshot優先
     snap = MonthlySnapshot.objects.filter(month=m).first()
     is_snapshot = bool(snap)
@@ -765,11 +759,15 @@ def dashboard(request):
         aeon_bank_month_used = dyn["aeon_bank_month_used"]
         aeon_bank_account_name_used = dyn["aeon_bank_account_name_used"]
 
+    # 月メモ
+    dashboard_memo_obj = MonthlyDashboardMemo.objects.filter(month=m).first()
+    dashboard_memo = getattr(dashboard_memo_obj, "memo", "") or ""
+
     # 銀行残高（全口座）
     bank_groups, bank_totals = _bank_groups_all_accounts(month=m)
 
     # -----------------------
-    # ✅ 資金移動（Excel式）
+    # 資金移動（Excel式）
     # -----------------------
 
     # ① 千葉銀行（給与口座）
@@ -865,12 +863,10 @@ def dashboard(request):
         aeon_house_month = None
         aeon_house_account_name = None
 
-    # カード請求（HOUSE）：エポス + イオン + ヨドバシ
     house_bill_epos = _house_card_bill_sum_by_keyword(m, "エポス")
     house_bill_aeon = _house_card_bill_sum_by_keyword(m, "イオン")
     house_bill_yodobashi = _house_card_bill_sum_by_keyword(m, "ヨドバシ")
 
-    # 年金・保険（HOUSE）：固定費テンプレから（★二重計上しない版）
     house_pension_insurance = _house_pension_insurance_fixed_sum()
 
     aeon_house_required_min = _int(
@@ -1014,7 +1010,7 @@ def dashboard(request):
         "okodukai_g": okodukai_g,
         "okodukai_total": okodukai_total,
 
-        # 銀行残高（新セクション用）
+        # 銀行残高
         "bank_groups": bank_groups,
         "bank_totals": bank_totals,
 
@@ -1031,7 +1027,6 @@ def dashboard(request):
         "rakuten_g_need": rakuten_g_need,
         "rakuten_g_delta": rakuten_g_delta,
 
-        # イオン銀行(HOUSE)
         "aeon_house_balance": aeon_house_balance,
         "aeon_house_month": aeon_house_month,
         "aeon_house_account_name": aeon_house_account_name,
@@ -1043,6 +1038,9 @@ def dashboard(request):
 
         "aeon_house_required_min": aeon_house_required_min,
         "aeon_house_delta": aeon_house_delta,
+
+        # 月メモ
+        "dashboard_memo": dashboard_memo,
     }
 
     return render(request, "kakeibo/dashboard.html", context)
