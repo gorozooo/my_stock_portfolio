@@ -19,6 +19,9 @@
     - HOUSE：イオン銀行（必要最低残高＝カード＋年金・保険）との差分（不足/余剰）
     - B：千葉銀行（引出し上限はマイナス表示）＋ 三井住友銀行（必要額＝お小遣い＋立替）
     - G：楽天銀行（必要額＝お小遣い＋立替−楽天カード確定請求）
+  - ✅ 追加：月メモ
+    - 画面一番下に自由入力メモ欄を追加
+    - 選択中の年月に対応
 =========================================
 -->
 {% extends "kakeibo/base_kakeibo.html" %}
@@ -184,8 +187,6 @@
         </div>
       </div>
     </div>
-
-    
   </section>
 
   <div class="kb-divider kb-divider-lg"></div>
@@ -524,6 +525,41 @@
       </div>
     </div>
   
+  </section>
+
+  <div class="kb-divider kb-divider-lg"></div>
+
+  <!-- =========================
+       月メモ
+  ========================== -->
+  <section class="kb-section" id="month-memo">
+    <div class="kb-section-head">
+      <div class="kb-section-title">メモ</div>
+      <div class="kb-section-side">{{ selected_month }}</div>
+    </div>
+
+    <div class="kb-muted">
+      この月専用の自由メモです。あとで見返したいことを残せます。
+    </div>
+
+    <form method="post" class="kb-form" style="margin-top:12px;">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="save_dashboard_memo">
+      <input type="hidden" name="year" value="{{ selected_year }}">
+      <input type="hidden" name="month" value="{{ selected_month }}">
+      {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
+
+      <textarea
+        name="dashboard_memo"
+        rows="8"
+        placeholder="この月のメモを入力"
+        style="width:100%; box-sizing:border-box; padding:12px; border-radius:12px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.92); resize:vertical; font:inherit;"
+      >{{ dashboard_memo }}</textarea>
+
+      <div style="margin-top:12px;">
+        <button type="submit" class="kb-btn kb-btn-primary">メモを保存</button>
+      </div>
+    </form>
   </section>
 
 </div>
