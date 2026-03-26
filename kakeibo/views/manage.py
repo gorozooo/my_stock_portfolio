@@ -13,6 +13,12 @@
 # - 編集/削除後も、同じ month/owner に戻る
 #
 # ★今回：更新/削除が成功したら「何を」までトースト表示する
+#
+# ★今回の重さ対策
+# - GET表示のたびに session を毎回保存しない
+#   → 値が明示的に変更された時だけ session 更新
+# - 一覧系クエリに select_related を追加
+#   → category / card / account を行ごとに取りに行かないようにする
 # =========================================
 
 from django.contrib import messages
@@ -66,23 +72,33 @@ def _sess_key_month(kind: str) -> str:
 
 
 def _get_owner(request, kind: str) -> str:
-    owner = (request.GET.get("owner") or "").strip()
-    if owner == "":
-        owner = (request.session.get(_sess_key_owner(kind)) or "").strip()
-    request.session[_sess_key_owner(kind)] = owner
-    return owner
+    """
+    何をする？
+    - owner は「GETに明示指定がある時だけ」session を更新する
+    - ただの表示GETでは毎回session保存しない（SQLite lock回避）
+    """
+    key = _sess_key_owner(kind)
+
+    if "owner" in request.GET:
+        owner = (request.GET.get("owner") or "").strip()
+        if request.session.get(key) != owner:
+            request.session[key] = owner
+        return owner
+
+    return (request.session.get(key) or "").strip()
 
 
 def _month_from_get_or_session(request, kind: str):
+    """
+    何をする？
+    - month は「GETに明示指定がある時だけ」session を更新する
+    - ただの表示GETでは毎回session保存しない（SQLite lock回避）
+    """
     today = timezone.localdate().replace(day=1)
+    key = _sess_key_month(kind)
 
-    s = (request.GET.get("month") or "").strip()
-    if not s:
-        s = (request.session.get(_sess_key_month(kind)) or "").strip()
-
-    if not s:
-        d = today
-    else:
+    if "month" in request.GET:
+        s = (request.GET.get("month") or "").strip()
         try:
             y, m = s.split("-")
             y = int(y)
@@ -91,8 +107,22 @@ def _month_from_get_or_session(request, kind: str):
         except Exception:
             d = today
 
-    request.session[_sess_key_month(kind)] = d.strftime("%Y-%m")
-    return d
+        month_str = d.strftime("%Y-%m")
+        if request.session.get(key) != month_str:
+            request.session[key] = month_str
+        return d
+
+    s = (request.session.get(key) or "").strip()
+    if not s:
+        return today
+
+    try:
+        y, m = s.split("-")
+        y = int(y)
+        m = int(m)
+        return today.replace(year=y, month=m, day=1)
+    except Exception:
+        return today
 
 
 def _month_str(d) -> str:
@@ -130,7 +160,12 @@ def manage_income(request):
     month = _month_from_get_or_session(request, kind)
     owner = _get_owner(request, kind)
 
-    qs = MonthlyIncome.objects.filter(month=month).order_by("-id")
+    qs = (
+        MonthlyIncome.objects
+        .filter(month=month)
+        .select_related("category")
+        .order_by("-id")
+    )
     if owner:
         qs = qs.filter(owner=owner)
 
@@ -139,7 +174,10 @@ def manage_income(request):
     edit_obj = None
 
     if edit_id:
-        edit_obj = get_object_or_404(MonthlyIncome, id=edit_id)
+        edit_obj = get_object_or_404(
+            MonthlyIncome.objects.select_related("category"),
+            id=edit_id,
+        )
         edit_mode = True
 
     if request.method == "POST":
@@ -191,7 +229,12 @@ def manage_variable(request):
     month = _month_from_get_or_session(request, kind)
     owner = _get_owner(request, kind)
 
-    qs = MonthlyVariableExpense.objects.filter(month=month).order_by("-id")
+    qs = (
+        MonthlyVariableExpense.objects
+        .filter(month=month)
+        .select_related("category", "card")
+        .order_by("-id")
+    )
     if owner:
         qs = qs.filter(owner=owner)
 
@@ -200,7 +243,10 @@ def manage_variable(request):
     edit_obj = None
 
     if edit_id:
-        edit_obj = get_object_or_404(MonthlyVariableExpense, id=edit_id)
+        edit_obj = get_object_or_404(
+            MonthlyVariableExpense.objects.select_related("category", "card"),
+            id=edit_id,
+        )
         edit_mode = True
 
     if request.method == "POST":
@@ -260,7 +306,12 @@ def manage_bank(request):
     month = _month_from_get_or_session(request, kind)
     owner = _get_owner(request, kind)
 
-    qs = BankBalance.objects.filter(month=month).select_related("account").order_by("-id")
+    qs = (
+        BankBalance.objects
+        .filter(month=month)
+        .select_related("account")
+        .order_by("-id")
+    )
     if owner:
         qs = qs.filter(account__owner=owner)
 
@@ -269,7 +320,10 @@ def manage_bank(request):
     edit_obj = None
 
     if edit_id:
-        edit_obj = get_object_or_404(BankBalance, id=edit_id)
+        edit_obj = get_object_or_404(
+            BankBalance.objects.select_related("account"),
+            id=edit_id,
+        )
         edit_mode = True
 
     if request.method == "POST":
@@ -323,7 +377,7 @@ def manage_fixed(request):
     kind = "fixed"
     owner = _get_owner(request, kind)
 
-    qs = FixedExpenseTemplate.objects.order_by("-is_active", "id")
+    qs = FixedExpenseTemplate.objects.select_related("category").order_by("-is_active", "id")
     if owner:
         qs = qs.filter(owner=owner)
 
@@ -332,7 +386,10 @@ def manage_fixed(request):
     edit_obj = None
 
     if edit_id:
-        edit_obj = get_object_or_404(FixedExpenseTemplate, id=edit_id)
+        edit_obj = get_object_or_404(
+            FixedExpenseTemplate.objects.select_related("category"),
+            id=edit_id,
+        )
         edit_mode = True
 
     if request.method == "POST":
