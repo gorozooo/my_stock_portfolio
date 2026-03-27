@@ -1,4 +1,22 @@
-# portfolio/services/cash_updater.py
+# [FILE] cash_updater.py
+# [PATH] portfolio/services/cash_updater.py
+#
+# このファイルは何？
+# - Holding / Dividend / RealizedTrade から CashLedger を再同期するサービスです。
+# - 現金台帳の元データを「source_type + source_id」で upsert します。
+#
+# 今回の修正ポイント
+# - 現物 / NISA の CashLedger 金額は RealizedTrade.cashflow を信用しない
+# - qty / price / fee / tax / FX から「受渡額」を再計算して台帳へ入れる
+# - 理由：
+#   realized.py 側では cashflow に「投資家PnL（実損）」を保存しているケースがあるため、
+#   それをそのまま台帳へ使うと、受渡額ではなく実損だけが入金されてしまうから
+#
+# これで、
+# - 信用(MARGIN) → pnl_jpy を台帳へ
+# - 現物 / NISA   → 売買受渡額を台帳へ
+# という正しい分岐になります。
+
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from django.db import transaction
@@ -47,6 +65,51 @@ def _as_int(x) -> int:
         return int(round(float(x or 0)))
     except Exception:
         return 0
+
+
+def _spot_settlement_delta_jpy(r: RealizedTrade) -> int:
+    """
+    現物 / NISA の売買受渡額を JPY で返す。
+
+    重要:
+    - RealizedTrade.cashflow は、このプロジェクトでは
+      「投資家PnL（手入力の実損）」として使われているケースがある。
+    - そのため、現金台帳には cashflow_effective_jpy を使わず、
+      qty / price / fee / tax / FX から受渡額を再計算する。
+
+    ルール:
+    - SELL: +(qty * price) - fee - tax
+    - BUY : -(qty * price) - fee - tax
+    - USD等の外貨建て:
+        SELL は close FX
+        BUY  は open FX
+      で JPY 換算する
+    """
+    qty = float(r.qty or 0)
+    price = float(r.price or 0)
+    fee = float(r.fee or 0)
+    tax = float(r.tax or 0)
+    side = (r.side or "").upper()
+
+    gross_ccy = qty * price
+    if side == "SELL":
+        cashflow_ccy = gross_ccy - fee - tax
+    else:
+        cashflow_ccy = -gross_ccy - fee - tax
+
+    currency = (r.currency or "").upper()
+    if currency == "JPY":
+        return _as_int(cashflow_ccy)
+
+    try:
+        fx = float(r._fx_close() if side == "SELL" else r._fx_open())
+    except Exception:
+        fx = 1.0
+
+    if fx <= 0:
+        fx = 1.0
+
+    return _as_int(cashflow_ccy * fx)
 
 
 # =============================
@@ -165,8 +228,8 @@ def sync_from_realized() -> dict:
       - 対象: SPEC/NISA/MARGIN すべて
       - 日付: r.trade_at（取引日）
       - 金額:
-          現物/NISA : r.cashflow_effective_jpy（受渡キャッシュフロー JPY）
           信用(MARGIN): r.pnl_jpy（投資家PnL JPY）
+          現物/NISA   : qty/price/fee/tax/FX から再計算した受渡キャッシュフロー JPY
       - 種別: 正なら DEPOSIT, 負なら WITHDRAW
       - Holding: broker/ticker/口座でできるだけ一致を探す
     """
@@ -178,14 +241,16 @@ def sync_from_realized() -> dict:
         if not acc:
             continue
 
-        # --- 現物/NISAと信用で、Ledger に載せる金額の定義を変える ---
         account = (r.account or "").upper()
+
         if account == "MARGIN":
             # 信用：口座に最終的に残るのは損益のみ
             delta = _as_int(r.pnl_jpy)
         else:
-            # 現物 / NISA：受渡キャッシュフロー（売却代金ベース）
-            delta = _as_int(r.cashflow_effective_jpy)
+            # 現物 / NISA：
+            # RealizedTrade.cashflow は「投資家PnL」として使われている可能性があるため、
+            # 受渡額は必ず qty/price/fee/tax/FX から再計算する
+            delta = _spot_settlement_delta_jpy(r)
 
         if delta == 0:
             continue
@@ -279,7 +344,10 @@ def sync_all() -> dict:
     """
     - 現物保有（SPEC/NISA）：opened_at/created_at で『初回出金』を upsert
     - 配当：支払日で upsert（税引後net）＋ Holding 紐付け
-    - 実損：取引日で upsert（現物/信用すべて）＋ Holding 紐付け
+    - 実損：取引日で upsert
+        * 信用(MARGIN) は pnl_jpy
+        * 現物/NISA は qty/price/fee/tax/FX から再計算した受渡額
+      ＋ Holding 紐付け
     - すべて source_type + source_id で完全 upsert（重複なし、毎回上書き）
     """
     svc.ensure_default_accounts()
