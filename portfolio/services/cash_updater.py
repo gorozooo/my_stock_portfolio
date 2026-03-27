@@ -3,19 +3,20 @@
 #
 # このファイルは何？
 # - Holding / Dividend / RealizedTrade から CashLedger を再同期するサービスです。
-# - 現金台帳の元データを「source_type + source_id」で upsert します。
+# - 現金ダッシュボード・現金履歴の元データを source_type + source_id で upsert します。
 #
-# 今回の修正ポイント
-# - 現物 / NISA の CashLedger 金額は RealizedTrade.cashflow を信用しない
-# - qty / price / fee / tax / FX から「受渡額」を再計算して台帳へ入れる
-# - 理由：
-#   realized.py 側では cashflow に「投資家PnL（実損）」を保存しているケースがあるため、
-#   それをそのまま台帳へ使うと、受渡額ではなく実損だけが入金されてしまうから
+# 今回の修正方針
+# - このアプリでは「今使える金額（余力）」を正しく出すことを最優先にする。
+# - そのため RealizedTrade 由来の CashLedger.amount は
+#   「受渡額フル」ではなく「円換算の実現損益（pnl_jpy）」を入れる。
+# - 理由:
+#   取得原価残(invested_cost) を別で控除して余力を計算しているため、
+#   現物/NISA売却を売却代金フルで入れると元本が二重に戻ってしまうから。
 #
 # これで、
-# - 信用(MARGIN) → pnl_jpy を台帳へ
-# - 現物 / NISA   → 売買受渡額を台帳へ
-# という正しい分岐になります。
+# - 信用(MARGIN) → pnl_jpy
+# - 現物 / NISA   → pnl_jpy
+# という統一ロジックになり、余力表示を安定させます。
 
 # -*- coding: utf-8 -*-
 from __future__ import annotations
@@ -67,51 +68,6 @@ def _as_int(x) -> int:
         return 0
 
 
-def _spot_settlement_delta_jpy(r: RealizedTrade) -> int:
-    """
-    現物 / NISA の売買受渡額を JPY で返す。
-
-    重要:
-    - RealizedTrade.cashflow は、このプロジェクトでは
-      「投資家PnL（手入力の実損）」として使われているケースがある。
-    - そのため、現金台帳には cashflow_effective_jpy を使わず、
-      qty / price / fee / tax / FX から受渡額を再計算する。
-
-    ルール:
-    - SELL: +(qty * price) - fee - tax
-    - BUY : -(qty * price) - fee - tax
-    - USD等の外貨建て:
-        SELL は close FX
-        BUY  は open FX
-      で JPY 換算する
-    """
-    qty = float(r.qty or 0)
-    price = float(r.price or 0)
-    fee = float(r.fee or 0)
-    tax = float(r.tax or 0)
-    side = (r.side or "").upper()
-
-    gross_ccy = qty * price
-    if side == "SELL":
-        cashflow_ccy = gross_ccy - fee - tax
-    else:
-        cashflow_ccy = -gross_ccy - fee - tax
-
-    currency = (r.currency or "").upper()
-    if currency == "JPY":
-        return _as_int(cashflow_ccy)
-
-    try:
-        fx = float(r._fx_close() if side == "SELL" else r._fx_open())
-    except Exception:
-        fx = 1.0
-
-    if fx <= 0:
-        fx = 1.0
-
-    return _as_int(cashflow_ccy * fx)
-
-
 # =============================
 # Holding 検索（希望口座優先）
 # =============================
@@ -127,7 +83,7 @@ def _find_holding(broker: str, ticker: str, desired_account: str | None = None) 
         return None
 
     code = _norm_broker(broker)
-    ja   = _label_from_code(code)
+    ja = _label_from_code(code)
 
     base = Holding.objects.filter(ticker=ticker)
 
@@ -220,18 +176,20 @@ def sync_from_dividends() -> dict:
 
 
 # =============================
-# 同期ロジック：実損（現物・信用 含む）
+# 同期ロジック：実現損益
 # =============================
 def sync_from_realized() -> dict:
     """
-    実損（売買・受渡）：
-      - 対象: SPEC/NISA/MARGIN すべて
+    実現トレード：
       - 日付: r.trade_at（取引日）
-      - 金額:
-          信用(MARGIN): r.pnl_jpy（投資家PnL JPY）
-          現物/NISA   : qty/price/fee/tax/FX から再計算した受渡キャッシュフロー JPY
+      - 金額: r.pnl_jpy（円換算の実現損益）
       - 種別: 正なら DEPOSIT, 負なら WITHDRAW
       - Holding: broker/ticker/口座でできるだけ一致を探す
+
+    重要:
+      - このアプリでは余力計算で取得原価残(invested_cost)を別控除しているため、
+        現物/NISA売却を売却代金フルで台帳に入れると二重計上になる。
+      - そのため、CashLedger には「損益だけ」を入れる。
     """
     created = 0
     updated = 0
@@ -241,17 +199,7 @@ def sync_from_realized() -> dict:
         if not acc:
             continue
 
-        account = (r.account or "").upper()
-
-        if account == "MARGIN":
-            # 信用：口座に最終的に残るのは損益のみ
-            delta = _as_int(r.pnl_jpy)
-        else:
-            # 現物 / NISA：
-            # RealizedTrade.cashflow は「投資家PnL」として使われている可能性があるため、
-            # 受渡額は必ず qty/price/fee/tax/FX から再計算する
-            delta = _spot_settlement_delta_jpy(r)
-
+        delta = _as_int(r.pnl_jpy)
         if delta == 0:
             continue
 
@@ -344,23 +292,20 @@ def sync_all() -> dict:
     """
     - 現物保有（SPEC/NISA）：opened_at/created_at で『初回出金』を upsert
     - 配当：支払日で upsert（税引後net）＋ Holding 紐付け
-    - 実損：取引日で upsert
-        * 信用(MARGIN) は pnl_jpy
-        * 現物/NISA は qty/price/fee/tax/FX から再計算した受渡額
-      ＋ Holding 紐付け
+    - 実現：取引日で upsert（円換算の実現損益）＋ Holding 紐付け
     - すべて source_type + source_id で完全 upsert（重複なし、毎回上書き）
     """
     svc.ensure_default_accounts()
 
     res_hold = sync_from_holdings()
-    res_div  = sync_from_dividends()
+    res_div = sync_from_dividends()
     res_real = sync_from_realized()
 
     return {
-        "holdings_created":  res_hold["created"],
-        "holdings_updated":  res_hold["updated"],
+        "holdings_created": res_hold["created"],
+        "holdings_updated": res_hold["updated"],
         "dividends_created": res_div["created"],
         "dividends_updated": res_div["updated"],
-        "realized_created":  res_real["created"],
-        "realized_updated":  res_real["updated"],
+        "realized_created": res_real["created"],
+        "realized_updated": res_real["updated"],
     }
