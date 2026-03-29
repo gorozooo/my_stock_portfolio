@@ -1,42 +1,45 @@
-from django.conf import settings
-from django.db import models
-from django.contrib.auth import get_user_model
+# [FILE] models.py
+# [PATH] portfolio/models.py
+#
+# このファイルは何？
+# - portfolio アプリの主要モデル定義
+#
+# 今回の方針
+# - Holding は「現在保有」だけ
+# - TradeEvent を追加して、買い/売り/信用返済/現引の原簿にする
+# - RealizedTrade はクローズ履歴・分析用として残す
+# - CashLedger は TradeEvent をソースに現金化する
+
+from __future__ import annotations
+
 from decimal import Decimal
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.db import models
+from django.utils import timezone
 
 from .models_market import *
 
 User = get_user_model()
 
 
-# =============================
-# ユーザー設定（AIの数量計算・倍率/ヘアカット率など）
-# =============================
 class UserSetting(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
 
-    # 旧：口座残高＆リスク％（既存）
     account_equity = models.BigIntegerField("口座残高(円)", default=1_000_000)
     risk_pct = models.FloatField("1トレードのリスク％", default=1.0)
 
-    # 追加：信用余力の使用上限（％）
-    # 例: 70.0 なら「信用余力の 70% までを数量計算に使う」
     credit_usage_pct = models.FloatField("信用余力の使用上限％", default=70.0)
 
-    # 追加：証券会社ごとの倍率/ヘアカット率（既定はあなたの運用に合わせて設定）
     leverage_rakuten = models.FloatField("楽天 倍率", default=2.90)
-    haircut_rakuten  = models.FloatField("楽天 ヘアカット率", default=0.30)  # 30%
+    haircut_rakuten = models.FloatField("楽天 ヘアカット率", default=0.30)
 
-    leverage_matsui  = models.FloatField("松井 倍率", default=2.80)
-    haircut_matsui   = models.FloatField("松井 ヘアカット率", default=0.00)
+    leverage_matsui = models.FloatField("松井 倍率", default=2.80)
+    haircut_matsui = models.FloatField("松井 ヘアカット率", default=0.00)
 
-    leverage_sbi  = models.FloatField("SBI 倍率", default=2.80)
-    haircut_sbi   = models.FloatField("SBI ヘアカット率", default=0.00)
+    leverage_sbi = models.FloatField("SBI 倍率", default=2.80)
+    haircut_sbi = models.FloatField("SBI ヘアカット率", default=0.00)
 
-    # =========================================================
-    # ★追加：実現損益 目標（年）
-    # - 全体：year_goal_total
-    # - 証券会社別：year_goal_by_broker（JSON: {"SBI": 600000, "RAKUTEN": 300000, ...}）
-    # =========================================================
     year_goal_total = models.BigIntegerField("年間目標（全体・円）", default=0)
     year_goal_by_broker = models.JSONField("年間目標（証券会社別）", default=dict, blank=True)
 
@@ -44,16 +47,13 @@ class UserSetting(models.Model):
         return f"{self.user.username} 設定"
 
 
-# ==== Holding ============================================================
 class Holding(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
 
-    # === 銘柄基本情報 ===
     ticker = models.CharField(max_length=16)
-    name   = models.CharField(max_length=128, blank=True)
-    sector = models.CharField(max_length=64, blank=True, default="")  # 33業種
+    name = models.CharField(max_length=128, blank=True)
+    sector = models.CharField(max_length=64, blank=True, default="")
 
-    # === 市場・通貨（★追加済） ===
     MARKET_CHOICES = (
         ("JP", "日本株"),
         ("US", "米国株"),
@@ -62,34 +62,34 @@ class Holding(models.Model):
         ("JPY", "JPY"),
         ("USD", "USD"),
     )
-    market   = models.CharField(max_length=4, choices=MARKET_CHOICES, default="JP")
+    market = models.CharField(max_length=4, choices=MARKET_CHOICES, default="JP")
     currency = models.CharField(max_length=4, choices=CURRENCY_CHOICES, default="JPY")
 
-    # ★ ここを追加：取得時の為替レート（証券会社の約定レートをそのまま入れる）
     fx_rate = models.DecimalField(
         max_digits=12,
         decimal_places=6,
         null=True,
         blank=True,
-        help_text="1通貨あたりの円レート（例: 155.250000）"
+        help_text="1通貨あたりの円レート（例: 155.250000）",
     )
 
-    # === 保有データ ===
     quantity = models.IntegerField(default=0)
     avg_cost = models.DecimalField(max_digits=14, decimal_places=2, default=0)
 
     last_price = models.DecimalField(
-        max_digits=14, decimal_places=2, null=True, blank=True,
-        help_text="最終終値（1株・自動更新）"
+        max_digits=14,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="最終終値（1株・自動更新）",
     )
     last_price_updated = models.DateTimeField(null=True, blank=True)
 
-    # === 口座・属性 ===
     BROKER_CHOICES = (
         ("RAKUTEN", "楽天証券"),
-        ("SBI",     "SBI証券"),
-        ("MATSUI",  "松井証券"),
-        ("OTHER",   "その他"),
+        ("SBI", "SBI証券"),
+        ("MATSUI", "松井証券"),
+        ("OTHER", "その他"),
     )
     SIDE_CHOICES = (("BUY", "BUY"), ("SELL", "SELL"))
     ACCOUNT_CHOICES = (
@@ -98,17 +98,13 @@ class Holding(models.Model):
         ("NISA", "NISA"),
     )
 
-    broker  = models.CharField(max_length=16, choices=BROKER_CHOICES, default="OTHER")
-    side    = models.CharField(max_length=4,  choices=SIDE_CHOICES,   default="BUY")
+    broker = models.CharField(max_length=16, choices=BROKER_CHOICES, default="OTHER")
+    side = models.CharField(max_length=4, choices=SIDE_CHOICES, default="BUY")
     account = models.CharField(max_length=10, choices=ACCOUNT_CHOICES, default="SPEC")
 
-    # === 日付系 ===
-    opened_at  = models.DateField(null=True, blank=True)
-
-    # === メモ ===
+    opened_at = models.DateField(null=True, blank=True)
     memo = models.TextField(blank=True, default="")
 
-    # === タイムスタンプ ===
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -119,146 +115,129 @@ class Holding(models.Model):
         return f"{self.ticker} x{self.quantity}"
 
 
-# ==== RealizedTrade ======================================================
 class RealizedTrade(models.Model):
+    """
+    クローズ履歴・分析用。
+    - 売却 / 返済の分析・ランキング・月次集計はこちらを使う
+    - 現金台帳の source-of-truth は TradeEvent に寄せる
+    """
+
     BROKER_CHOICES = (
         ("RAKUTEN", "楽天証券"),
-        ("SBI",     "SBI証券"),
-        ("MATSUI",  "松井証券"),
-        ("OTHER",   "その他"),
+        ("SBI", "SBI証券"),
+        ("MATSUI", "松井証券"),
+        ("OTHER", "その他"),
     )
     ACCOUNT_CHOICES = (
-        ("SPEC",   "特定"),
+        ("SPEC", "特定"),
         ("MARGIN", "信用"),
-        ("NISA",   "NISA"),
+        ("NISA", "NISA"),
     )
     SIDE_CHOICES = (("SELL", "SELL"), ("BUY", "BUY"))
 
-    user      = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
 
-    # 取引日（クローズ日）
-    trade_at  = models.DateField(db_index=True)
-
-    # 🔸 新規：保有開始日（エントリー日）
+    trade_at = models.DateField(db_index=True)
     opened_at = models.DateField(
-        null=True, blank=True,
-        help_text="このポジションの保有開始日（エントリー日）"
+        null=True,
+        blank=True,
+        help_text="このポジションの保有開始日（エントリー日）",
     )
 
-    side      = models.CharField(max_length=4, choices=SIDE_CHOICES, db_index=True)
+    side = models.CharField(max_length=4, choices=SIDE_CHOICES, db_index=True)
 
-    # ティッカー / 銘柄名
-    ticker    = models.CharField(max_length=20, db_index=True)
-    name      = models.CharField(max_length=120, blank=True, default="")
+    ticker = models.CharField(max_length=20, db_index=True)
+    name = models.CharField(max_length=120, blank=True, default="")
 
-    # 🔸 新規：33業種（コード＋名前）
     sector33_code = models.CharField(
-        max_length=8,
+        max_length=16,
         blank=True,
         default="",
-        help_text="33業種コード（例: 6050）"
+        help_text="33業種コード",
     )
     sector33_name = models.CharField(
         max_length=64,
         blank=True,
         default="",
-        help_text="33業種名（例: 情報・通信業）"
+        help_text="33業種名",
     )
 
-    qty       = models.IntegerField()
-    price     = models.DecimalField(max_digits=14, decimal_places=2)
-    basis     = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
-    fee       = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    tax       = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    sector33_code = models.CharField(max_length=16, blank=True, default="")
+    qty = models.IntegerField()
+    price = models.DecimalField(max_digits=14, decimal_places=2)
+    basis = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    fee = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    tax = models.DecimalField(max_digits=14, decimal_places=2, default=0)
 
-    broker    = models.CharField(max_length=16, choices=BROKER_CHOICES, default="OTHER")
-    account   = models.CharField(
+    broker = models.CharField(max_length=16, choices=BROKER_CHOICES, default="OTHER")
+    account = models.CharField(
         max_length=10,
         choices=ACCOUNT_CHOICES,
         default="SPEC",
-        help_text="口座区分（特定/信用/NISA）"
+        help_text="口座区分（特定/信用/NISA）",
     )
 
-    # 🔸 新規：国・通貨・為替
     country = models.CharField(
         max_length=8,
         blank=True,
         default="JP",
-        help_text="上場国コード（JP / US など）"
+        help_text="上場国コード（JP / US など）",
     )
     currency = models.CharField(
         max_length=8,
         blank=True,
         default="JPY",
-        help_text="取引通貨（JPY, USD など）"
+        help_text="取引通貨（JPY, USD など）",
     )
 
-    # 互換用：従来のFX（基本は「クローズ時FX」として扱う）
     fx_rate = models.DecimalField(
-        max_digits=12, decimal_places=6,
-        null=True, blank=True,
-        help_text="基準通貨(JPY)への為替レート。1通貨あたり何円か（例: 1USD=150.250000）"
+        max_digits=12,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="互換用FX。基本はクローズ時FXとして扱う",
     )
-
-    # ★追加：オープン/クローズ FX（米国株の円PnLを正しく出すため）
     open_fx_rate = models.DecimalField(
-        max_digits=12, decimal_places=6,
-        null=True, blank=True,
-        help_text="オープン（購入/建て）時の為替レート。1通貨あたり何円か（例: 1USD=150.250000）"
+        max_digits=12,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="オープン時の為替レート",
     )
     close_fx_rate = models.DecimalField(
-        max_digits=12, decimal_places=6,
-        null=True, blank=True,
-        help_text="クローズ（決済）時の為替レート。1通貨あたり何円か（例: 1USD=150.250000）"
-    )
-
-    cashflow  = models.DecimalField(
-        max_digits=16, decimal_places=2, null=True, blank=True,
-        help_text="受渡金額（現金フロー）。SELL=＋/BUY=−。未入力なら自動推定。"
-    )
-
-    # クローズ時に保存する保有日数（平均集計用）
-    hold_days = models.IntegerField(null=True, blank=True, help_text="保有日数（未入力は平均集計から除外）")
-
-    # 🔸 新規：戦略 / ポリシー / AIフラグ / ポジションキー
-    strategy_label = models.CharField(
-        max_length=64,
+        max_digits=12,
+        decimal_places=6,
+        null=True,
         blank=True,
-        default="",
-        help_text="手動入力用のざっくり戦略ラベル（例: スイング, デイトレ, NISA長期など）"
-    )
-    policy_key = models.CharField(
-        max_length=64,
-        blank=True,
-        default="",
-        help_text="AdvisorPolicy等と紐づけるためのキー（例: core_v1, swing_breakout_v2 など）"
-    )
-    is_ai_signal = models.BooleanField(
-        default=False,
-        help_text="AIアドバイザーのシグナルに基づくトレードかどうか"
-    )
-    position_key = models.CharField(
-        max_length=64,
-        blank=True,
-        default="",
-        help_text="同一ポジション（分割エントリー・分割決済）を識別するためのキー"
+        help_text="クローズ時の為替レート",
     )
 
-    memo      = models.TextField(blank=True, default="")
-    created_at= models.DateTimeField(auto_now_add=True)
+    cashflow = models.DecimalField(
+        max_digits=16,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="表示互換用。現金台帳の元データには使わない",
+    )
+
+    hold_days = models.IntegerField(null=True, blank=True, help_text="保有日数")
+
+    strategy_label = models.CharField(max_length=64, blank=True, default="")
+    policy_key = models.CharField(max_length=64, blank=True, default="")
+    is_ai_signal = models.BooleanField(default=False)
+    position_key = models.CharField(max_length=64, blank=True, default="")
+
+    memo = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-trade_at", "-id"]
         indexes = [
             models.Index(fields=["trade_at", "side"]),
             models.Index(fields=["ticker", "trade_at"]),
-            # 🔸 将来の集計用に軽くインデックス追加（任意）
             models.Index(fields=["sector33_code", "trade_at"]),
             models.Index(fields=["country", "trade_at"]),
         ]
 
-    # --------- Helpers ---------
     @property
     def is_buy(self) -> bool:
         return (self.side or "").upper() == "BUY"
@@ -269,15 +248,10 @@ class RealizedTrade(models.Model):
 
     @property
     def amount(self):
-        """取引金額（qty * price）"""
         return float(self.qty) * float(self.price)
 
     @property
     def pnl(self):
-        """
-        手数料・税控除後の取引PnL（トレード起点）。
-        BUYはオープン側なので0扱い、SELLのみ (price - basis) * qty - fee - tax。
-        """
         if self.is_buy:
             gross = 0.0
         else:
@@ -287,23 +261,12 @@ class RealizedTrade(models.Model):
 
     @property
     def cashflow_effective(self):
-        """
-        実際の現金増減（受渡ベース）。
-        cashflow があればそれを優先。無ければ
-          SELL: +(qty*price) - fee - tax
-          BUY : -(qty*price) - fee - tax
-        を自動算出。
-        """
         if self.cashflow is not None:
             return float(self.cashflow)
         signed = self.amount if self.is_sell else -self.amount
         return signed - float(self.fee) - float(self.tax)
 
-    # ---- FX helpers（互換含む） ----
     def _fx_open(self) -> float:
-        """
-        オープン時FX（無ければ fx_rate をフォールバック）
-        """
         if self.open_fx_rate:
             return float(self.open_fx_rate)
         if self.fx_rate:
@@ -311,41 +274,35 @@ class RealizedTrade(models.Model):
         return 1.0
 
     def _fx_close(self) -> float:
-        """
-        クローズ時FX（無ければ fx_rate をフォールバック）
-        """
         if self.close_fx_rate:
             return float(self.close_fx_rate)
         if self.fx_rate:
             return float(self.fx_rate)
         return 1.0
 
-    # 🔸 追加：JPY換算PnL（US株で使える・DBには保存しない）
     @property
     def pnl_jpy(self):
-        """
-        円換算PnL（SELLのみ正しく計算）：
-          (売却円額 - 取得円額) - (手数料・税の円換算)
-        ※ open/close FX が揃っていない場合は、従来互換として
-           「通貨建て pnl × close_fx」を返す（現状ビューと同等の挙動）
-        """
         cur = (self.currency or "").upper()
         if cur == "JPY":
             return self.pnl
 
-        # SELL で basis があり、open/close FX が使えるなら「真の円PnL」
-        if self.is_sell and self.basis is not None:
+        if self.basis is not None:
             try:
                 open_fx = self._fx_open()
                 close_fx = self._fx_close()
-                yen_sell = float(self.price) * float(self.qty) * close_fx
-                yen_buy  = float(self.basis) * float(self.qty) * open_fx
-                yen_fee_tax = (float(self.fee) + float(self.tax)) * close_fx  # まずは close で円換算
-                return (yen_sell - yen_buy) - yen_fee_tax
+                if self.is_sell:
+                    yen_close = float(self.price) * float(self.qty) * close_fx
+                    yen_open = float(self.basis) * float(self.qty) * open_fx
+                    yen_fee_tax = (float(self.fee) + float(self.tax)) * close_fx
+                    return (yen_close - yen_open) - yen_fee_tax
+                else:
+                    yen_open = float(self.price) * float(self.qty) * open_fx
+                    yen_close = float(self.basis) * float(self.qty) * close_fx
+                    yen_fee_tax = (float(self.fee) + float(self.tax)) * close_fx
+                    return (yen_close - yen_open) - yen_fee_tax
             except Exception:
                 pass
 
-        # フォールバック（従来互換）
         try:
             return float(self.pnl) * float(self._fx_close())
         except Exception:
@@ -353,12 +310,8 @@ class RealizedTrade(models.Model):
 
     @property
     def cashflow_effective_jpy(self):
-        """
-        通貨がJPY以外で FX があれば、JPY換算した実現キャッシュフロー。
-        BUYは open_fx、SELL は close_fx を使う（受渡の考え方に合わせる）
-        """
-        cf = self.cashflow_effective
         cur = (self.currency or "").upper()
+        cf = self.cashflow_effective
         if cur == "JPY":
             return cf
         try:
@@ -369,115 +322,266 @@ class RealizedTrade(models.Model):
                 return float(cf) * float(self.fx_rate)
             return cf
 
-    # --------- Normalize / Defaults ---------
     def save(self, *args, **kwargs):
-        """
-        - BUY で basis 未入力なら、分析の整合性のため basis=price を自動補完
-        - ティッカーは大文字に正規化
-        - country / currency のデフォルト補正
-        - open/close FX が空で fx_rate がある場合は互換として補完（DB保存はそのまま）
-        """
-        # 正規化
         if self.ticker:
             self.ticker = self.ticker.upper().strip()
 
-        # BUY のとき basis を price で補完（None のままでも壊れないが指標計算が楽）
         if self.is_buy and self.basis is None:
             self.basis = self.price
 
-        # 国 / 通貨が空ならデフォルト補完
         if not self.country:
             self.country = "JP"
         if not self.currency:
             self.currency = "JPY"
 
-        # 互換：fx_rate が入っていて open/close が無いなら、close として扱う
-        # （ここで勝手に open_fx_rate まで埋めない。open は Holding 由来を優先したい）
         if self.fx_rate and not self.close_fx_rate:
             self.close_fx_rate = self.fx_rate
 
         super().save(*args, **kwargs)
 
 
-# ==== Dividend ======================================================
-class Dividend(models.Model):
+class TradeEvent(models.Model):
     """
-    配当（Holding が無くても記録可）
-    - holding を指定したら ticker/name/broker/account/purchase_price を不足分だけ補完
-    - holding 未指定なら ticker は必須（バリデーションは Form 側で実施する前提）
-    - KPI 用に数量・取得単価・証券会社・口座区分も保持
+    売買イベントの原簿。
+    ここから CashLedger を組み立てる。
     """
 
-    # ====== 参照 ======
+    class EventType(models.TextChoices):
+        SPOT_BUY = "SPOT_BUY", "現物買い"
+        SPOT_SELL = "SPOT_SELL", "現物売り"
+        MARGIN_OPEN = "MARGIN_OPEN", "信用新規"
+        MARGIN_CLOSE = "MARGIN_CLOSE", "信用返済"
+        MARGIN_TO_SPOT = "MARGIN_TO_SPOT", "現引"
+
+    BROKER_CHOICES = RealizedTrade.BROKER_CHOICES
+    ACCOUNT_CHOICES = RealizedTrade.ACCOUNT_CHOICES
+    SIDE_CHOICES = RealizedTrade.SIDE_CHOICES
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     holding = models.ForeignKey(
-        'portfolio.Holding',
-        on_delete=models.SET_NULL,           # 保有を消しても配当は残す
-        null=True, blank=True,
-        related_name='dividends'
+        "portfolio.Holding",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="trade_events",
+    )
+    realized_trade = models.ForeignKey(
+        "portfolio.RealizedTrade",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="trade_events",
     )
 
-    # ====== 基本情報（holding 無しでも記録できるように） ======
+    trade_at = models.DateField(db_index=True)
+    opened_at = models.DateField(null=True, blank=True)
+
+    event_type = models.CharField(max_length=20, choices=EventType.choices, db_index=True)
+    side = models.CharField(max_length=4, choices=SIDE_CHOICES, db_index=True)
+
+    ticker = models.CharField(max_length=20, db_index=True)
+    name = models.CharField(max_length=120, blank=True, default="")
+    sector33_code = models.CharField(max_length=16, blank=True, default="")
+    sector33_name = models.CharField(max_length=64, blank=True, default="")
+
+    qty = models.IntegerField()
+    price = models.DecimalField(max_digits=14, decimal_places=2)
+    basis = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    fee = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    tax = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+
+    broker = models.CharField(max_length=16, choices=BROKER_CHOICES, default="OTHER")
+    account = models.CharField(max_length=10, choices=ACCOUNT_CHOICES, default="SPEC")
+
+    country = models.CharField(max_length=8, blank=True, default="JP")
+    currency = models.CharField(max_length=8, blank=True, default="JPY")
+
+    fx_rate = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
+    open_fx_rate = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
+    close_fx_rate = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
+
+    cash_amount_jpy = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="このイベントが現金に与えるJPY増減。＋入金 / −出金",
+    )
+
+    memo = models.TextField(blank=True, default="")
+    position_key = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-trade_at", "-id"]
+        indexes = [
+            models.Index(fields=["trade_at", "event_type"]),
+            models.Index(fields=["ticker", "trade_at"]),
+            models.Index(fields=["broker", "trade_at"]),
+            models.Index(fields=["position_key"]),
+        ]
+
+    @property
+    def is_buy(self) -> bool:
+        return (self.side or "").upper() == "BUY"
+
+    @property
+    def is_sell(self) -> bool:
+        return (self.side or "").upper() == "SELL"
+
+    @property
+    def amount(self) -> float:
+        return float(self.qty or 0) * float(self.price or 0)
+
+    def _fx_open(self) -> float:
+        if self.open_fx_rate:
+            return float(self.open_fx_rate)
+        if self.fx_rate:
+            return float(self.fx_rate)
+        return 1.0
+
+    def _fx_close(self) -> float:
+        if self.close_fx_rate:
+            return float(self.close_fx_rate)
+        if self.fx_rate:
+            return float(self.fx_rate)
+        return 1.0
+
+    def settlement_amount_native(self) -> float:
+        gross = float(self.qty or 0) * float(self.price or 0)
+        fee = float(self.fee or 0)
+        tax = float(self.tax or 0)
+        return gross - fee - tax if self.is_sell else -(gross + fee + tax)
+
+    def realized_pnl_jpy(self) -> int:
+        if self.basis is None:
+            return 0
+
+        qty = float(self.qty or 0)
+        fee = float(self.fee or 0)
+        tax = float(self.tax or 0)
+
+        cur = (self.currency or "").upper()
+        if cur == "JPY":
+            if self.is_sell:
+                pnl = (float(self.price) - float(self.basis)) * qty - fee - tax
+            else:
+                pnl = (float(self.basis) - float(self.price)) * qty - fee - tax
+            return int(round(pnl))
+
+        open_fx = self._fx_open()
+        close_fx = self._fx_close()
+
+        if self.is_sell:
+            yen_close = float(self.price) * qty * close_fx
+            yen_open = float(self.basis) * qty * open_fx
+            pnl = (yen_close - yen_open) - ((fee + tax) * close_fx)
+        else:
+            yen_open = float(self.price) * qty * open_fx
+            yen_close = float(self.basis) * qty * close_fx
+            pnl = (yen_close - yen_open) - ((fee + tax) * close_fx)
+
+        return int(round(pnl))
+
+    def compute_cash_amount_jpy(self) -> int:
+        if self.event_type == self.EventType.MARGIN_OPEN:
+            return 0
+
+        if self.event_type == self.EventType.MARGIN_CLOSE:
+            return self.realized_pnl_jpy()
+
+        if self.event_type == self.EventType.MARGIN_TO_SPOT:
+            base = float(self.basis if self.basis is not None else self.price)
+            qty = float(self.qty or 0)
+            fee = float(self.fee or 0)
+            tax = float(self.tax or 0)
+            native = -((base * qty) + fee + tax)
+            if (self.currency or "").upper() == "JPY":
+                return int(round(native))
+            return int(round(native * self._fx_open()))
+
+        native = self.settlement_amount_native()
+        if (self.currency or "").upper() == "JPY":
+            return int(round(native))
+
+        fx = self._fx_close() if self.is_sell else self._fx_open()
+        return int(round(native * fx))
+
+    def save(self, *args, **kwargs):
+        if self.ticker:
+            self.ticker = self.ticker.upper().strip()
+
+        if not self.country:
+            self.country = "JP"
+        if not self.currency:
+            self.currency = "JPY"
+
+        if self.fx_rate and not self.close_fx_rate:
+            self.close_fx_rate = self.fx_rate
+
+        if self.cash_amount_jpy is None:
+            self.cash_amount_jpy = self.compute_cash_amount_jpy()
+
+        super().save(*args, **kwargs)
+
+
+class Dividend(models.Model):
+    holding = models.ForeignKey(
+        "portfolio.Holding",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="dividends",
+    )
+
     ticker = models.CharField(max_length=16, blank=True, default="")
-    name   = models.CharField(max_length=128, blank=True, default="")
+    name = models.CharField(max_length=128, blank=True, default="")
+    date = models.DateField()
 
-    # 支払日（既存の date を Phase2 でも支払日として利用）
-    date   = models.DateField()
-
-    # --- Phase2: 予測・カレンダー強化用の日時/属性 ---
-    ex_date     = models.DateField(null=True, blank=True, help_text="権利落ち日（任意）")
+    ex_date = models.DateField(null=True, blank=True, help_text="権利落ち日（任意）")
     record_date = models.DateField(null=True, blank=True, help_text="基準日（任意）")
 
     PERIOD_CHOICES = (
-        ("FY",  "期末"),
-        ("HY",  "中間"),
-        ("Q",   "四半期"),
+        ("FY", "期末"),
+        ("HY", "中間"),
+        ("Q", "四半期"),
         ("UNK", "不明/その他"),
     )
     period = models.CharField(max_length=8, choices=PERIOD_CHOICES, default="UNK", blank=True)
 
-    # 想定頻度のヒント（年1/2/4）
     FREQ_CHOICES = ((1, "年1"), (2, "年2"), (4, "年4"))
-    freq_hint = models.PositiveSmallIntegerField(choices=FREQ_CHOICES, null=True, blank=True,
-                                                 help_text="配当頻度の推定（任意）")
+    freq_hint = models.PositiveSmallIntegerField(choices=FREQ_CHOICES, null=True, blank=True)
 
-    # 数量（何株分の配当か）
-    quantity = models.IntegerField(default=0, help_text="株数（KPI計算に使用）")
-
-    # 取得単価（holding が無い場合に利回りを出すための単価）
+    quantity = models.IntegerField(default=0)
     purchase_price = models.DecimalField(
-        max_digits=14, decimal_places=2, null=True, blank=True,
-        help_text="1株あたりの取得単価（holding未指定時に利回り算出で使用）"
+        max_digits=14,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="1株あたりの取得単価",
     )
 
-    # ====== 金額（UIは税引後入力がデフォルト） ======
     amount = models.DecimalField(max_digits=12, decimal_places=2, help_text="受取額")
-    is_net = models.BooleanField(default=True, help_text="True=税引後として入力 / False=税引前")
+    is_net = models.BooleanField(default=True, help_text="True=税引後入力 / False=税引前入力")
 
-    # 税額／税率（保存しておくと集計が速い）
-    tax            = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
-    tax_rate_pct   = models.DecimalField(
-        max_digits=6, decimal_places=3, null=True, blank=True,
-        help_text="適用税率（例 20.315）"
-    )
+    tax = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    tax_rate_pct = models.DecimalField(max_digits=6, decimal_places=3, null=True, blank=True)
 
-    # ====== 区分（証券会社別KPI用） ======
     BROKER_CHOICES = (
         ("RAKUTEN", "楽天証券"),
-        ("SBI",     "SBI証券"),
-        ("MATSUI",  "松井証券"),
-        ("OTHER",   "その他"),
+        ("SBI", "SBI証券"),
+        ("MATSUI", "松井証券"),
+        ("OTHER", "その他"),
     )
     ACCOUNT_CHOICES = (
-        ("SPEC",   "特定"),
+        ("SPEC", "特定"),
         ("MARGIN", "信用"),
-        ("NISA",   "NISA"),
-        ("OTHER",  "その他"),
+        ("NISA", "NISA"),
+        ("OTHER", "その他"),
     )
 
-    broker  = models.CharField(max_length=16, choices=BROKER_CHOICES, default="OTHER")
+    broker = models.CharField(max_length=16, choices=BROKER_CHOICES, default="OTHER")
     account = models.CharField(max_length=10, choices=ACCOUNT_CHOICES, default="SPEC")
 
-    memo   = models.CharField(max_length=255, blank=True, default="")
+    memo = models.CharField(max_length=255, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -493,7 +597,6 @@ class Dividend(models.Model):
         label = self.display_ticker or "—"
         return f"{label} {self.date} {self.amount}"
 
-    # ---- 表示用（holding 優先） ----
     @property
     def display_ticker(self) -> str:
         if self.holding and self.holding.ticker:
@@ -506,37 +609,27 @@ class Dividend(models.Model):
             return self.holding.name
         return self.name or ""
 
-    # alias: pay_date（カレンダー側の語彙に合わせたい時に使える）
     @property
     def pay_date(self):
         return self.date
 
-    # ---- 金額：税引前/税引後 ----
     def gross_amount(self):
-        """税引前金額"""
         try:
             amt = float(self.amount or 0)
-            tx  = float(self.tax or 0)
+            tx = float(self.tax or 0)
             return amt + tx if self.is_net else amt
         except Exception:
             return 0.0
 
     def net_amount(self):
-        """税引後金額"""
         try:
             amt = float(self.amount or 0)
-            tx  = float(self.tax or 0)
+            tx = float(self.tax or 0)
             return amt if self.is_net else max(0.0, amt - tx)
         except Exception:
             return 0.0
 
-    # ---- 利回り計算（KPI）----
     def _unit_cost(self):
-        """
-        単価の優先度:
-        1) holding.avg_cost があればそれ
-        2) purchase_price（手入力）
-        """
         if self.holding and self.holding.avg_cost:
             return float(self.holding.avg_cost)
         if self.purchase_price:
@@ -544,40 +637,32 @@ class Dividend(models.Model):
         return 0.0
 
     def acquisition_value(self):
-        """取得額 = 単価 × 株数（利回りの分母）"""
         unit = self._unit_cost()
-        qty  = int(self.quantity or 0)
+        qty = int(self.quantity or 0)
         return unit * qty if unit > 0 and qty > 0 else 0.0
 
     def yoc_net_pct(self):
-        """配当利回り（取得ベース・税引後%）"""
         base = self.acquisition_value()
         return (self.net_amount() / base * 100.0) if base > 0 else None
 
     def yoc_gross_pct(self):
-        """配当利回り（取得ベース・税引前%）"""
         base = self.acquisition_value()
         return (self.gross_amount() / base * 100.0) if base > 0 else None
 
     def per_share_dividend_net(self):
-        """1株あたり配当（税引後）"""
         qty = int(self.quantity or 0)
         return (self.net_amount() / qty) if qty > 0 else None
 
     def per_share_dividend_gross(self):
-        """1株あたり配当（税引前）"""
         qty = int(self.quantity or 0)
         return (self.gross_amount() / qty) if qty > 0 else None
 
-    # ---- 補完 & 整合性 ----
     def save(self, *args, **kwargs):
-        # holding があれば不足分を補完
         if self.holding:
             if not self.ticker:
                 self.ticker = self.holding.ticker
             if not self.name:
                 self.name = self.holding.name
-            # broker/account/purchase_price も穴埋め
             if (not self.broker or self.broker == "OTHER") and self.holding.broker:
                 self.broker = self.holding.broker
             if (not self.account or self.account == "SPEC") and self.holding.account:
@@ -585,16 +670,10 @@ class Dividend(models.Model):
             if not self.purchase_price and self.holding.avg_cost:
                 self.purchase_price = self.holding.avg_cost
 
-        # 税率が入っていれば税額を補完（is_net=True 前提のUI）
         try:
             if (self.tax is None or float(self.tax) == 0.0) and self.tax_rate_pct:
                 rate = float(self.tax_rate_pct) / 100.0
-                if self.is_net:
-                    # amount は税引後 → 税額 = net * rate
-                    self.tax = float(self.amount or 0) * rate
-                else:
-                    # amount は税引前 → 税額 = gross * rate
-                    self.tax = float(self.amount or 0) * rate
+                self.tax = float(self.amount or 0) * rate
         except Exception:
             pass
 
@@ -602,9 +681,9 @@ class Dividend(models.Model):
 
 
 class DividendGoal(models.Model):
-    user      = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, db_index=True)
-    year      = models.IntegerField(db_index=True)
-    amount    = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, db_index=True)
+    year = models.IntegerField(db_index=True)
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -617,9 +696,6 @@ class DividendGoal(models.Model):
         return f"{self.user} {self.year} → {self.amount}"
 
 
-# =============================
-# ポジション管理（信用トレード専用）
-# =============================
 class Position(models.Model):
     SIDE_CHOICES = [
         ("LONG", "買い"),
