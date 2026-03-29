@@ -6,9 +6,9 @@
   - フィルタ、集計、履歴カード表示を担当します。
 
   今回の修正ポイント
-  - src_badge の種類を「配当 / 実損 / 保有」固定で分岐しない
-  - TradeEvent 由来の「現物買 / 現物売 / 信用新規 / 信用返済 / 現引」もそのまま表示する
-  - backend が返した r.src_badge.class / r.src_badge.kind / r.src_badge.label を素直に描画する
+  - 配当を紫に戻す
+  - 現物買 / 現物売 / 信用新規 / 信用返済 / 現引 を全部別色にする
+  - TradeEvent / Dividend / RealizedTrade の detail_lines をカードに表示する
 #}
 {% extends "base.html" %}
 {% load humanize %}
@@ -37,7 +37,6 @@
         border-radius:8px; padding:6px 8px; text-align:center; font-size:12px; color:#cbd5e1}
   .sum-total{grid-column:1/-1; background:rgba(255,255,255,.07); font-weight:600}
 
-  /* ===== 各カード ===== */
   .card{
     border:1px solid rgba(255,255,255,.08);
     background:rgba(255,255,255,.04);
@@ -55,19 +54,28 @@
     white-space:nowrap; margin-bottom:2px;
   }
 
-  /* ソース付き（backend から class を受ける） */
-  .chip-violet{border-color:rgba(139,92,246,.35); color:#ddd6fe; background:rgba(139,92,246,.10)}   /* 配当 */
-  .chip-emerald{border-color:rgba(16,185,129,.35); color:#bbf7d0; background:rgba(16,185,129,.08)} /* 実損 */
-  .chip-amber{border-color:rgba(245,158,11,.35); color:#fde68a; background:rgba(245,158,11,.10)}   /* 売買/保有/現引系 */
-
-  /* 手入力/メモ用（入金/出金/振替/その他） */
-  .chip-blue{border-color:rgba(59,130,246,.35); color:#bfdbfe; background:rgba(59,130,246,.10)}    /* 入金 */
-  .chip-rose{border-color:rgba(244,63,94,.35); color:#fecdd3; background:rgba(244,63,94,.10)}      /* 出金 */
-  .chip-cyan{border-color:rgba(34,211,238,.35); color:#a5f3fc; background:rgba(34,211,238,.10)}    /* 振替(入) */
-  .chip-fuchsia{border-color:rgba(217,70,239,.35); color:#f5d0fe; background:rgba(217,70,239,.10)} /* 振替(出) */
-  .chip-slate{border-color:rgba(148,163,184,.35); color:#e2e8f0; background:rgba(148,163,184,.10)} /* その他/システム */
+  /* ソース付き */
+  .chip-violet{border-color:rgba(139,92,246,.45); color:#ddd6fe; background:rgba(139,92,246,.12)}   /* 配当 */
+  .chip-emerald{border-color:rgba(16,185,129,.40); color:#bbf7d0; background:rgba(16,185,129,.10)} /* 実損 */
+  .chip-amber{border-color:rgba(245,158,11,.42); color:#fde68a; background:rgba(245,158,11,.11)}   /* 現物売 */
+  .chip-blue{border-color:rgba(59,130,246,.40); color:#bfdbfe; background:rgba(59,130,246,.10)}    /* 現物買 */
+  .chip-cyan{border-color:rgba(34,211,238,.42); color:#a5f3fc; background:rgba(34,211,238,.12)}    /* 信用返済 */
+  .chip-fuchsia{border-color:rgba(217,70,239,.42); color:#f5d0fe; background:rgba(217,70,239,.12)} /* 現引 */
+  .chip-rose{border-color:rgba(244,63,94,.42); color:#fecdd3; background:rgba(244,63,94,.12)}      /* 信用新規 */
+  .chip-slate{border-color:rgba(148,163,184,.35); color:#e2e8f0; background:rgba(148,163,184,.10)} /* 保有/その他 */
 
   .meta{font-size:11px; color:#94a3b8}
+  .detail-lines{
+    margin-top:2px;
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+  }
+  .detail-line{
+    font-size:11px;
+    color:#cbd5e1;
+    line-height:1.4;
+  }
   .amount{
     text-align:right; font-size:20px; font-weight:800; color:#e6ebff; letter-spacing:0.02em;
   }
@@ -123,7 +131,6 @@
 {% for r in page.object_list %}
   <div class="card" data-ledger-id="{{ r.id }}">
 
-    {# === 1行目：チップ（ソースがあれば backend の src_badge をそのまま使う） === #}
     {% if r.src_badge %}
       <span class="{{ r.src_badge.class|default:'chip chip-slate' }}">
         【{{ r.src_badge.kind|default:"履歴" }}】 {{ r.src_badge.label|default:"—" }}
@@ -144,7 +151,6 @@
       {% endwith %}
     {% endif %}
 
-    {# === 2行目：日付 | 証券会社 | 種別 === #}
     <div class="meta">
       {{ r.at|default:"" }} ｜ {{ r.account.broker|default:"" }} ｜ 種別：
       {% if r.kind == r.Kind.DEPOSIT %}入金{% elif r.kind == r.Kind.WITHDRAW %}出金
@@ -152,10 +158,16 @@
       {% else %}その他{% endif %}
     </div>
 
-    {# === 3行目：金額（右寄せ） === #}
+    {% if r.src_badge and r.src_badge.detail_lines %}
+      <div class="detail-lines">
+        {% for line in r.src_badge.detail_lines %}
+          <div class="detail-line">{{ line }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
     <div class="amount">{{ r.amount|intcomma }} 円</div>
 
-    {# === 任意：手入力メモだけ下に出す === #}
     {% if not r.src_badge and r.memo %}
       <div class="memo">{{ r.memo }}</div>
     {% endif %}
