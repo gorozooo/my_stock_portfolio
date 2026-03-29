@@ -1,6 +1,6 @@
-{# [FILE] history.html #}
-{# [PATH] templates/cash/history.html #}
-{#
+<!--
+[FILE] history.html #}
+[PATH] templates/cash/history.html 
   このファイルは何？
   - 現金台帳の一覧画面テンプレートです。
   - フィルタ、集計、履歴カード表示を担当します。
@@ -9,7 +9,8 @@
   - 配当を紫に戻す
   - 現物買 / 現物売 / 信用新規 / 信用返済 / 現引 を全部別色にする
   - TradeEvent / Dividend / RealizedTrade の detail_lines をカードに表示する
-#}
+-->
+
 {% extends "base.html" %}
 {% load humanize %}
 {% block title %}現金台帳{% endblock %}
