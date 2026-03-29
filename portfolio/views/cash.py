@@ -4,9 +4,10 @@
 # このファイルは何？
 # - 現金ダッシュボード / 現金履歴の表示ビュー
 #
-# 今回の方針
-# - 余力は本物口座方式（cash + collateral - restricted）
-# - 履歴は TradeEvent を source に持てるようにする
+# 今回の修正ポイント
+# - 配当の色を紫に戻す
+# - 現物買 / 現物売 / 信用新規 / 信用返済 / 現引 を全部別色にする
+# - 現金履歴カードに、受渡額 / 実現損益 / 口座区分 を表示できるようにする
 
 # -*- coding: utf-8 -*-
 from __future__ import annotations
@@ -46,6 +47,24 @@ def _severity_for(b: dict, low_ratio: float = 0.30) -> str:
 
 def _format_int(n: int) -> str:
     return f"{n:,}"
+
+
+def _format_yen(n, signed: bool = False) -> str:
+    try:
+        v = int(round(float(n or 0)))
+    except Exception:
+        return "—"
+    return f"{v:+,} 円" if signed else f"{v:,} 円"
+
+
+def _account_label(raw: str) -> str:
+    s = (raw or "").upper()
+    return {
+        "SPEC": "特定",
+        "NISA": "NISA",
+        "MARGIN": "信用",
+        "OTHER": "その他",
+    }.get(s, raw or "—")
 
 
 def _make_negative_toast(negatives: list[tuple[str, int]]) -> str:
@@ -322,6 +341,60 @@ def _extract_ticker_from_text(text: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _trade_badge_class(t: TradeEvent) -> str:
+    return {
+        TradeEvent.EventType.SPOT_BUY: "chip chip-blue",
+        TradeEvent.EventType.SPOT_SELL: "chip chip-amber",
+        TradeEvent.EventType.MARGIN_OPEN: "chip chip-rose",
+        TradeEvent.EventType.MARGIN_CLOSE: "chip chip-cyan",
+        TradeEvent.EventType.MARGIN_TO_SPOT: "chip chip-fuchsia",
+    }.get(t.event_type, "chip chip-slate")
+
+
+def _trade_kind_label(t: TradeEvent) -> str:
+    return {
+        TradeEvent.EventType.SPOT_BUY: "現物買",
+        TradeEvent.EventType.SPOT_SELL: "現物売",
+        TradeEvent.EventType.MARGIN_OPEN: "信用新規",
+        TradeEvent.EventType.MARGIN_CLOSE: "信用返済",
+        TradeEvent.EventType.MARGIN_TO_SPOT: "現引",
+    }.get(t.event_type, "売買")
+
+
+def _trade_detail_lines(t: TradeEvent) -> list[str]:
+    lines: list[str] = []
+
+    if t.event_type == TradeEvent.EventType.MARGIN_TO_SPOT:
+        account_txt = "信用 → 現物"
+    else:
+        account_txt = _account_label(t.account)
+    lines.append(f"口座区分: {account_txt}")
+
+    cash_jpy = int(t.cash_amount_jpy or 0)
+    if t.event_type in (TradeEvent.EventType.SPOT_BUY, TradeEvent.EventType.SPOT_SELL):
+        lines.append(f"受渡額: {_format_yen(cash_jpy, signed=True)}")
+    elif t.event_type == TradeEvent.EventType.MARGIN_CLOSE:
+        lines.append(f"損益反映額: {_format_yen(cash_jpy, signed=True)}")
+    elif t.event_type == TradeEvent.EventType.MARGIN_TO_SPOT:
+        lines.append(f"現引額: {_format_yen(cash_jpy, signed=True)}")
+    elif t.event_type == TradeEvent.EventType.MARGIN_OPEN:
+        lines.append("損益反映額: —")
+
+    if t.event_type in (TradeEvent.EventType.SPOT_SELL, TradeEvent.EventType.MARGIN_CLOSE):
+        try:
+            if t.realized_trade_id and t.realized_trade is not None:
+                pnl_jpy = int(round(float(t.realized_trade.pnl_jpy or 0)))
+            else:
+                pnl_jpy = int(round(float(t.realized_pnl_jpy() or 0)))
+            lines.append(f"実現損益: {_format_yen(pnl_jpy, signed=True)}")
+        except Exception:
+            lines.append("実現損益: —")
+    else:
+        lines.append("実現損益: —")
+
+    return lines
+
+
 def _attach_source_labels(page):
     items = list(page.object_list or [])
     if not items:
@@ -352,7 +425,10 @@ def _attach_source_labels(page):
     div_map = {d.id: d for d in Dividend.objects.filter(id__in=div_ids)}
     real_map = {x.id: x for x in RealizedTrade.objects.filter(id__in=real_ids)}
     hold_map = {h.id: h for h in Holding.objects.filter(id__in=hold_ids)}
-    trade_map = {t.id: t for t in TradeEvent.objects.filter(id__in=trade_ids)}
+    trade_map = {
+        t.id: t
+        for t in TradeEvent.objects.select_related("realized_trade").filter(id__in=trade_ids)
+    }
 
     def build_label_from_div(d: Dividend) -> str:
         tkr = _safe_str(getattr(d, "display_ticker", None) or getattr(d, "ticker", None)).upper()
@@ -374,15 +450,6 @@ def _attach_source_labels(page):
         name = _safe_str(getattr(t, "name", None))
         return (f"{tkr} {name}".strip() or "—")
 
-    def trade_kind_label(t: TradeEvent) -> str:
-        return {
-            TradeEvent.EventType.SPOT_BUY: "現物買",
-            TradeEvent.EventType.SPOT_SELL: "現物売",
-            TradeEvent.EventType.MARGIN_OPEN: "信用新規",
-            TradeEvent.EventType.MARGIN_CLOSE: "信用返済",
-            TradeEvent.EventType.MARGIN_TO_SPOT: "現引",
-        }.get(t.event_type, "売買")
-
     for r in items:
         r.src_badge = None
         st = getattr(r, "source_type", None)
@@ -395,33 +462,83 @@ def _attach_source_labels(page):
             sid_int = None
 
         if sid_int is not None and _source_is_dividend(st):
-            label = build_label_from_div(div_map[sid_int]) if sid_int in div_map else f"DIV:{sid_int}"
-            r.src_badge = {"kind": "配当", "class": "chip chip-sky", "label": label}
+            if sid_int in div_map:
+                d = div_map[sid_int]
+                label = build_label_from_div(d)
+                detail_lines = [
+                    f"口座区分: {_account_label(d.account)}",
+                    f"受取額(税引後): {_format_yen(d.net_amount(), signed=False)}",
+                ]
+            else:
+                label = f"DIV:{sid_int}"
+                detail_lines = []
+            r.src_badge = {
+                "kind": "配当",
+                "class": "chip chip-violet",
+                "label": label,
+                "detail_lines": detail_lines,
+            }
             continue
 
         if sid_int is not None and _source_is_trade(st):
             if sid_int in trade_map:
                 t = trade_map[sid_int]
                 label = build_label_from_trade(t)
-                kind = trade_kind_label(t)
+                kind = _trade_kind_label(t)
+                css = _trade_badge_class(t)
+                detail_lines = _trade_detail_lines(t)
             else:
                 label = f"TRD:{sid_int}"
                 kind = "売買"
-            r.src_badge = {"kind": kind, "class": "chip chip-amber", "label": label}
+                css = "chip chip-slate"
+                detail_lines = []
+
+            r.src_badge = {
+                "kind": kind,
+                "class": css,
+                "label": label,
+                "detail_lines": detail_lines,
+            }
             continue
 
         if sid_int is not None and _source_is_realized(st):
-            label = build_label_from_real(real_map[sid_int]) if sid_int in real_map else f"REAL:{sid_int}"
-            r.src_badge = {"kind": "実損", "class": "chip chip-emerald", "label": label}
+            if sid_int in real_map:
+                x = real_map[sid_int]
+                label = build_label_from_real(x)
+                detail_lines = [
+                    f"口座区分: {_account_label(x.account)}",
+                    f"実現損益: {_format_yen(x.pnl_jpy, signed=True)}",
+                ]
+            else:
+                label = f"REAL:{sid_int}"
+                detail_lines = []
+            r.src_badge = {
+                "kind": "実損",
+                "class": "chip chip-emerald",
+                "label": label,
+                "detail_lines": detail_lines,
+            }
             continue
 
         if _source_is_holding(st, mm):
             if sid_int is not None and sid_int in hold_map:
-                label = build_label_from_hold(hold_map[sid_int])
+                h = hold_map[sid_int]
+                label = build_label_from_hold(h)
+                detail_lines = [
+                    f"口座区分: {_account_label(h.account)}",
+                    f"保有数量: {int(h.quantity or 0):,} 株",
+                ]
             else:
                 tkr = _extract_ticker_from_text(mm)
                 label = (tkr or "保有")
-            r.src_badge = {"kind": "保有", "class": "chip chip-sky", "label": label}
+                detail_lines = []
+
+            r.src_badge = {
+                "kind": "保有",
+                "class": "chip chip-slate",
+                "label": label,
+                "detail_lines": detail_lines,
+            }
             continue
 
     page.object_list = items
