@@ -1,11 +1,35 @@
+# [FILE] models_cash.py
+# [PATH] portfolio/models_cash.py
+#
+# このファイルは何？
+# - 証券会社ごとの現金口座（BrokerAccount）
+# - 実際の現金増減（CashLedger）
+# - 信用余力のスナップショット（MarginState）
+#
+# 今回の方針
+# - CashLedger は「実際の現金」だけを記録する
+# - source_type に TradeEvent を追加
+# - 旧 REAL / HOLD は互換のため残すが、新規運用では TradeEvent を主に使う
+
 from __future__ import annotations
 from django.db import models
 from django.utils import timezone
 
+
 class BrokerAccount(models.Model):
-    """証券会社 × 口座区分 × 通貨 の“財布”"""
-    BROKER_CHOICES = [("SBI","SBI"),("楽天","楽天"),("松井","松井"),("moomoo","moomoo")]
-    ACCOUNT_CHOICES = [("現物","現物"),("NISA","NISA"),("信用","信用")]
+    """証券会社 × 口座区分 × 通貨 の財布"""
+
+    BROKER_CHOICES = [
+        ("SBI", "SBI"),
+        ("楽天", "楽天"),
+        ("松井", "松井"),
+        ("moomoo", "moomoo"),
+    ]
+    ACCOUNT_CHOICES = [
+        ("現物", "現物"),
+        ("NISA", "NISA"),
+        ("信用", "信用"),
+    ]
 
     broker = models.CharField(max_length=20, choices=BROKER_CHOICES)
     account_type = models.CharField(max_length=10, choices=ACCOUNT_CHOICES)
@@ -25,32 +49,42 @@ class BrokerAccount(models.Model):
 
 class CashLedger(models.Model):
     class Kind(models.TextChoices):
-        DEPOSIT  = "DEPOSIT",  "入金"
+        DEPOSIT = "DEPOSIT", "入金"
         WITHDRAW = "WITHDRAW", "出金"
-        XFER_IN  = "XFER_IN",  "振替入金"
+        XFER_IN = "XFER_IN", "振替入金"
         XFER_OUT = "XFER_OUT", "振替出金"
-        SYSTEM   = "SYSTEM",   "システム調整"  # ★ 罠対応：参照されていたSYSTEMを正式に定義
+        SYSTEM = "SYSTEM", "システム調整"
 
     class SourceType(models.TextChoices):
-        DIVIDEND = "DIV",   "Dividend"
-        REALIZED = "REAL",  "RealizedTrade"
-        HOLDING  = "HOLD",  "Holding 初回買付"
+        DIVIDEND = "DIV", "Dividend"
+        TRADE_EVENT = "TRD", "TradeEvent"
+        REALIZED = "REAL", "RealizedTrade(legacy)"
+        HOLDING = "HOLD", "Holding(legacy)"
 
     account = models.ForeignKey(
-        BrokerAccount, on_delete=models.CASCADE, related_name="ledgers"
+        BrokerAccount,
+        on_delete=models.CASCADE,
+        related_name="ledgers",
     )
-    amount  = models.BigIntegerField(help_text="現金増減。入金は＋、出金は−")
-    kind    = models.CharField(max_length=16, choices=Kind.choices)
-    memo    = models.CharField(max_length=255, blank=True, default="")
-    at      = models.DateField(default=timezone.localdate)
+    amount = models.BigIntegerField(help_text="現金増減。入金は＋、出金は−")
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    memo = models.CharField(max_length=255, blank=True, default="")
+    at = models.DateField(default=timezone.localdate)
 
     holding = models.ForeignKey(
-        "portfolio.Holding", null=True, blank=True,
-        on_delete=models.SET_NULL, related_name="cash_ledgers"
+        "portfolio.Holding",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="cash_ledgers",
     )
 
     source_type = models.CharField(
-        max_length=8, choices=SourceType.choices, null=True, blank=True, db_index=True
+        max_length=8,
+        choices=SourceType.choices,
+        null=True,
+        blank=True,
+        db_index=True,
     )
     source_id = models.BigIntegerField(null=True, blank=True, db_index=True)
 
@@ -70,13 +104,18 @@ class CashLedger(models.Model):
             models.Index(fields=["source_type", "source_id"]),
         ]
 
+    @property
+    def signed_amount(self) -> int:
+        return int(self.amount or 0)
+
     def __str__(self):
         src = f"{self.source_type}:{self.source_id}" if self.source_type and self.source_id else "-"
         return f"[{self.at}] {self.account} {self.amount} {self.kind} ({src})"
 
 
 class MarginState(models.Model):
-    """信用余力スナップショット（管理画面用）"""
+    """信用余力スナップショット"""
+
     account = models.ForeignKey(BrokerAccount, on_delete=models.CASCADE)
     as_of = models.DateField()
     cash_free = models.IntegerField(default=0)
