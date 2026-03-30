@@ -17,6 +17,7 @@ from .views import dev_tools as dev_views
 from .views import holding as hv
 from .views import holding_actions as hv_actions
 from .views import realized_actions as realized_actions_views
+from .views import margin_to_spot as v_margin_to_spot
 from .views import dividend as v_div
 from .views import cash as v_cash
 from .views import home
@@ -51,6 +52,8 @@ urlpatterns = [
     path("holdings/", hv.holding_list, name="holding_list"),
     path("holdings/<int:pk>/close", realized_views.close_sheet, name="holding_close_sheet"),
     path("holdings/<int:pk>/close/submit", realized_actions_views.close_submit, name="holding_close_submit"),
+    path("holdings/<int:pk>/margin-to-spot/", v_margin_to_spot.margin_to_spot_sheet, name="holding_margin_to_spot_sheet"),
+    path("holdings/<int:pk>/margin-to-spot/submit/", v_margin_to_spot.margin_to_spot_submit, name="holding_margin_to_spot_submit"),
     path("holdings/new/", hv_actions.holding_create, name="holding_create"),
     path("holdings/<int:pk>/edit/", hv_actions.holding_edit, name="holding_edit"),
     path("holdings/<int:pk>/delete/", hv_actions.holding_delete, name="holding_delete"),
