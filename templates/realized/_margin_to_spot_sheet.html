@@ -1,86 +1,437 @@
 <!--
-[FILE] _margin_to_spot_sheet.html 
-[PATH] templates/realized/_margin_to_spot_sheet.html #}
-  このファイルは何？
-  - 現引専用の入力シート
-  - 信用保有 → 現物(特定)へ移すための確認フォーム
+[FILE] _margin_to_spot_sheet.html
+[PATH] templates/realized/_margin_to_spot_sheet.html
+
+このファイルは何？
+- 現引専用の入力ページ
+- 信用保有を現物（特定）へ移すための確認・登録画面
+- base.html を継承して、スマホ下タブ込みで見やすく表示する
 -->
 
-<div class="sheet" style="padding:16px; color:#e5e7eb;">
-  <div class="sheet-title" style="font-weight:700; font-size:16px; margin-bottom:12px;">
-    現引
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}{{ h.ticker }} 現引{% endblock %}
+
+{% block head %}
+<style>
+  .mts-page{
+    max-width: 720px;
+    margin: 12px auto;
+    padding: 12px;
+    color:#e9ecff;
+  }
+
+  .mts-head{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:12px;
+    margin-bottom:14px;
+  }
+
+  .mts-title{
+    font-size:22px;
+    font-weight:800;
+    line-height:1.2;
+    margin:0;
+  }
+
+  .mts-sub{
+    margin-top:4px;
+    font-size:12px;
+    color:#9fb0c8;
+    line-height:1.5;
+  }
+
+  .mts-close{
+    flex:0 0 auto;
+    border:1px solid rgba(255,255,255,.16);
+    background:rgba(255,255,255,.05);
+    color:#c7d2fe;
+    border-radius:12px;
+    padding:10px 12px;
+    font-size:13px;
+    font-weight:700;
+  }
+
+  .mts-note{
+    border:1px solid rgba(251,191,36,.28);
+    background:rgba(251,191,36,.10);
+    color:#fde68a;
+    border-radius:14px;
+    padding:12px 14px;
+    margin-bottom:14px;
+    font-size:13px;
+    line-height:1.7;
+  }
+
+  .mts-card{
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.05);
+    border-radius:16px;
+    padding:14px;
+    margin-bottom:14px;
+    box-shadow:0 1px 0 rgba(255,255,255,.05) inset;
+  }
+
+  .mts-card-title{
+    font-size:18px;
+    font-weight:800;
+    margin-bottom:8px;
+  }
+
+  .mts-badges{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-bottom:10px;
+  }
+
+  .mts-badge{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:5px 10px;
+    border-radius:9999px;
+    font-size:12px;
+    font-weight:700;
+    border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.05);
+    color:#dbe3f4;
+  }
+
+  .mts-badge.margin{
+    border-color:rgba(244,63,94,.38);
+    background:rgba(244,63,94,.10);
+    color:#fecdd3;
+  }
+
+  .mts-badge.spot{
+    border-color:rgba(34,197,94,.38);
+    background:rgba(34,197,94,.10);
+    color:#bbf7d0;
+  }
+
+  .mts-info{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px 14px;
+  }
+
+  .mts-kv{
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+  }
+
+  .mts-k{
+    font-size:12px;
+    color:#9fb0c8;
+  }
+
+  .mts-v{
+    font-size:16px;
+    font-weight:700;
+    color:#f8fafc;
+    line-height:1.3;
+  }
+
+  .mts-form{
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.04);
+    border-radius:16px;
+    padding:14px;
+  }
+
+  .mts-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+  }
+
+  .mts-field{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    margin-bottom:12px;
+  }
+
+  .mts-label{
+    font-size:12px;
+    color:#a7b1d8;
+    font-weight:700;
+  }
+
+  .mts-help{
+    font-size:11px;
+    color:#94a3b8;
+    line-height:1.5;
+  }
+
+  .mts-in{
+    appearance:none;
+    -webkit-appearance:none;
+    width:100%;
+    height:48px;
+    border-radius:14px;
+    padding:0 14px;
+    background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.16);
+    color:#eef2ff;
+    font-size:16px;
+    outline:none;
+    transition:.15s;
+    color-scheme: dark;
+  }
+
+  textarea.mts-in{
+    height:auto;
+    min-height:96px;
+    padding:12px 14px;
+    resize:vertical;
+  }
+
+  .mts-in::placeholder{
+    color:rgba(238,242,255,.42);
+  }
+
+  .mts-in:focus{
+    border-color:rgba(99,102,241,.55);
+    box-shadow:0 0 0 3px rgba(99,102,241,.22);
+  }
+
+  .mts-est{
+    border:1px solid rgba(56,189,248,.28);
+    background:rgba(56,189,248,.08);
+    color:#e0f2fe;
+    border-radius:14px;
+    padding:12px 14px;
+    margin:4px 0 14px;
+  }
+
+  .mts-est .k{
+    font-size:12px;
+    color:#a5f3fc;
+    margin-bottom:4px;
+  }
+
+  .mts-est .v{
+    font-size:22px;
+    font-weight:800;
+    color:#f0f9ff;
+    line-height:1.2;
+  }
+
+  .mts-actions{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+    margin-top:14px;
+  }
+
+  .mts-btn-primary,
+  .mts-btn-ghost{
+    width:100%;
+    height:50px;
+    border-radius:14px;
+    font-size:16px;
+    font-weight:800;
+  }
+
+  .mts-btn-primary{
+    border:0;
+    background:linear-gradient(180deg,#22c55e,#16a34a);
+    color:#ffffff;
+    box-shadow:0 6px 16px rgba(34,197,94,.22);
+  }
+
+  .mts-btn-ghost{
+    border:1px solid rgba(255,255,255,.16);
+    background:transparent;
+    color:#e9ecff;
+  }
+
+  @media (max-width: 640px){
+    .mts-page{
+      padding:10px;
+    }
+    .mts-info,
+    .mts-grid,
+    .mts-actions{
+      grid-template-columns:1fr;
+    }
+    .mts-title{
+      font-size:20px;
+    }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mts-page" id="marginToSpotPage" data-unit-cost="{{ h.avg_cost|default:'0' }}" data-currency="{{ h.currency|default:'JPY' }}">
+  <div class="mts-head">
+    <div>
+      <h1 class="mts-title">{{ h.ticker }}{% if h.name %}（{{ h.name }}）{% endif %} を現引</h1>
+      <div class="mts-sub">
+        信用保有を現物（特定）へ移します。<br>
+        実現損益は作らず、現金台帳には現引額が出金として記録されます。
+      </div>
+    </div>
+    <button type="button" class="mts-close" onclick="history.back()">閉じる</button>
   </div>
 
-  <div style="font-size:12px; color:#94a3b8; margin-bottom:12px; line-height:1.6;">
-    信用保有を <strong style="color:#e5e7eb;">現物（特定）</strong> へ移します。<br>
-    この処理では <strong style="color:#e5e7eb;">実現損益は作られません</strong>。<br>
-    現金台帳には <strong style="color:#e5e7eb;">現引額（出金）</strong> が記録されます。
+  <div class="mts-note">
+    現引は <strong>「信用 → 現物（特定）」へ移すだけ</strong> の処理です。<br>
+    そのため、<strong>実現損益一覧には追加されません</strong>。
   </div>
 
-  <div style="border:1px solid rgba(255,255,255,.10); border-radius:12px; padding:12px; background:rgba(255,255,255,.04); margin-bottom:12px;">
-    <div style="font-weight:700; margin-bottom:6px;">{{ h.ticker }} {{ h.name }}</div>
-    <div style="font-size:12px; color:#cbd5e1; line-height:1.6;">
-      証券会社: {{ h.broker }}<br>
-      現在口座: 信用<br>
-      現引先: 特定<br>
-      保有数量: {{ h.quantity }} 株<br>
-      平均取得: {{ h.avg_cost }} {% if h.currency %}{{ h.currency }}{% endif %}<br>
-      建玉日: {{ h.opened_at|default:"—" }}
+  <div class="mts-card">
+    <div class="mts-card-title">{{ h.ticker }} {% if h.name %}{{ h.name }}{% endif %}</div>
+
+    <div class="mts-badges">
+      <span class="mts-badge">{{ h.get_broker_display }}</span>
+      <span class="mts-badge margin">現在：信用</span>
+      <span class="mts-badge spot">移動先：特定</span>
+    </div>
+
+    <div class="mts-info">
+      <div class="mts-kv">
+        <div class="mts-k">保有数量</div>
+        <div class="mts-v">{{ h.quantity|intcomma }} 株</div>
+      </div>
+      <div class="mts-kv">
+        <div class="mts-k">平均取得単価</div>
+        <div class="mts-v">{{ h.avg_cost }} {{ h.currency|default:"JPY" }}</div>
+      </div>
+      <div class="mts-kv">
+        <div class="mts-k">建玉日</div>
+        <div class="mts-v">{{ h.opened_at|default:"—" }}</div>
+      </div>
+      <div class="mts-kv">
+        <div class="mts-k">口座</div>
+        <div class="mts-v">信用 → 特定</div>
+      </div>
     </div>
   </div>
 
-  <form method="post" action="{% url 'holding_margin_to_spot_submit' h.id %}">
+  <form method="post" action="{% url 'holding_margin_to_spot_submit' h.id %}" class="mts-form" id="marginToSpotForm" autocomplete="off">
     {% csrf_token %}
 
-    <div style="display:grid; gap:10px;">
-      <div>
-        <label style="display:block; font-size:12px; color:#94a3b8; margin-bottom:4px;">現引日</label>
+    <div class="mts-grid">
+      <label class="mts-field">
+        <span class="mts-label">現引日</span>
         <input
           type="date"
           name="date"
           value="{{ today }}"
-          style="width:100%; height:40px; border-radius:10px; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.05); color:#e5e7eb; padding:0 10px;"
+          class="mts-in"
         >
-      </div>
+      </label>
 
-      <div>
-        <label style="display:block; font-size:12px; color:#94a3b8; margin-bottom:4px;">現引数量</label>
+      <label class="mts-field">
+        <span class="mts-label">現引数量</span>
         <input
-          type="number"
+          type="text"
           name="qty"
-          min="1"
-          max="{{ h.quantity }}"
+          inputmode="numeric"
+          pattern="[0-9]*"
           value="{{ h.quantity }}"
-          style="width:100%; height:40px; border-radius:10px; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.05); color:#e5e7eb; padding:0 10px;"
+          data-min="1"
+          data-max="{{ h.quantity }}"
+          class="mts-in"
+          placeholder="例: 100"
         >
-      </div>
-
-      <div>
-        <label style="display:block; font-size:12px; color:#94a3b8; margin-bottom:4px;">メモ</label>
-        <textarea
-          name="memo"
-          rows="3"
-          placeholder="任意メモ"
-          style="width:100%; border-radius:10px; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.05); color:#e5e7eb; padding:10px;"
-        ></textarea>
-      </div>
+        <span class="mts-help">1 ～ {{ h.quantity|intcomma }} 株まで入力できます</span>
+      </label>
     </div>
 
-    <div style="display:flex; gap:8px; margin-top:14px;">
-      <button
-        type="submit"
-        style="flex:1; height:42px; border-radius:10px; border:1px solid rgba(34,197,94,.35); background:rgba(34,197,94,.14); color:#dcfce7; font-weight:700;"
-      >
-        現引する
-      </button>
+    <div class="mts-est">
+      <div class="k">今回の現引予定額（参考）</div>
+      <div class="v" id="mtsEstAmount">—</div>
+    </div>
 
-      <button
-        type="button"
-        data-dismiss="sheet"
-        style="flex:1; height:42px; border-radius:10px; border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.06); color:#e5e7eb; font-weight:700;"
-      >
-        閉じる
-      </button>
+    <label class="mts-field">
+      <span class="mts-label">メモ</span>
+      <textarea
+        name="memo"
+        rows="4"
+        class="mts-in"
+        placeholder="任意メモ"
+      ></textarea>
+    </label>
+
+    <div class="mts-actions">
+      <button type="button" class="mts-btn-ghost" onclick="history.back()">キャンセル</button>
+      <button type="submit" class="mts-btn-primary">現引する</button>
     </div>
   </form>
 </div>
+
+<script>
+(function(){
+  const root = document.getElementById('marginToSpotPage');
+  if (!root) return;
+
+  const form = document.getElementById('marginToSpotForm');
+  if (!form) return;
+
+  const qtyInput = form.querySelector('input[name="qty"]');
+  const estEl = document.getElementById('mtsEstAmount');
+
+  const unitCost = parseFloat(root.dataset.unitCost || '0') || 0;
+  const currency = root.dataset.currency || 'JPY';
+
+  function sanitizeQty() {
+    let v = (qtyInput.value || '').replace(/\D/g, '');
+    v = v.replace(/^0+(\d)/, '$1');
+    qtyInput.value = v;
+  }
+
+  function clampQty() {
+    sanitizeQty();
+    const min = parseInt(qtyInput.dataset.min || '1', 10);
+    const max = parseInt(qtyInput.dataset.max || '0', 10);
+    let val = parseInt(qtyInput.value || '0', 10);
+
+    if (isNaN(val) || val < min) val = min;
+    if (max > 0 && val > max) val = max;
+
+    qtyInput.value = String(val);
+    return val;
+  }
+
+  function formatAmount(num) {
+    try {
+      return new Intl.NumberFormat('ja-JP', {
+        maximumFractionDigits: 0
+      }).format(num);
+    } catch(e) {
+      return String(Math.round(num));
+    }
+  }
+
+  function renderEstimate() {
+    const qty = clampQty();
+    const est = qty * unitCost;
+
+    if (!estEl) return;
+
+    if (currency === 'USD') {
+      estEl.textContent = '$' + formatAmount(est);
+    } else {
+      estEl.textContent = '¥' + formatAmount(est);
+    }
+  }
+
+  qtyInput.addEventListener('input', () => {
+    sanitizeQty();
+    renderEstimate();
+  });
+
+  qtyInput.addEventListener('blur', renderEstimate);
+
+  renderEstimate();
+})();
+</script>
+{% endblock %}
