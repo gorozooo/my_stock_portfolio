@@ -4,7 +4,6 @@
 
 {% block content %}
 <style>
-/* ===== Global ===== */
 *,
 *::before,
 *::after{
@@ -15,7 +14,6 @@ html,body{
   overflow-x:hidden;
 }
 
-/* ===== Layout ===== */
 .cash-wrap{
   max-width:980px;
   margin:12px auto 0;
@@ -34,7 +32,7 @@ html,body{
   color:#9aa4b2;
 }
 
-/* ===== Slider ===== */
+/* ===== slider ===== */
 .cash-carousel{
   position:relative;
 }
@@ -60,7 +58,7 @@ html,body{
   padding:0 2px;
 }
 
-/* ===== Broker Card ===== */
+/* ===== card ===== */
 .broker-card{
   padding:12px;
   border-radius:18px;
@@ -68,7 +66,7 @@ html,body{
   border:1px solid rgba(255,255,255,.08);
   backdrop-filter:blur(8px);
   overflow:hidden;
-  min-height:500px;
+  min-height:470px;
 }
 .broker-card-head{
   display:flex;
@@ -94,14 +92,14 @@ html,body{
   background:rgba(255,255,255,.05);
 }
 
-/* ===== Hero KPI ===== */
+/* ===== hero ===== */
 .hero-kpi{
   padding:14px 14px 12px;
   border-radius:16px;
   background:linear-gradient(135deg,rgba(45,212,191,.15),rgba(56,189,248,.10));
   border:1px solid rgba(45,212,191,.45);
   box-shadow:0 0 0 1px rgba(15,118,110,.35) inset;
-  margin-bottom:10px;
+  margin-bottom:12px;
 }
 .hero-kpi.warn{
   background:linear-gradient(135deg,rgba(234,179,8,.18),rgba(248,250,252,.03));
@@ -139,20 +137,43 @@ html,body{
   font-size:13px;
   opacity:.82;
 }
-.hero-pct{
-  font-size:13px;
-  color:#e5e7eb;
+.hero-sub{
+  margin-top:10px;
+  font-size:12px;
+  color:#dbe3f4;
   opacity:.9;
-  white-space:nowrap;
-  flex-shrink:0;
+}
+
+/* ===== meter ===== */
+.ratio-card{
+  padding:12px 12px 10px;
+  border-radius:14px;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.08);
+  margin-bottom:12px;
+}
+.ratio-head{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:8px;
+}
+.ratio-label{
+  font-size:12px;
+  color:#cbd5e1;
   font-weight:700;
 }
+.ratio-pct{
+  font-size:20px;
+  font-weight:800;
+  color:#f8fafc;
+}
 .meter{
-  height:8px;
+  height:10px;
   border-radius:999px;
-  background:rgba(148,163,184,.35);
+  background:rgba(148,163,184,.25);
   overflow:hidden;
-  margin-top:10px;
 }
 .meter-inner{
   height:100%;
@@ -160,75 +181,68 @@ html,body{
   background:linear-gradient(90deg,#22c55e,#eab308,#ef4444);
   transform-origin:left center;
 }
-
-/* ===== KPI Grid ===== */
-.kpi-grid{
-  display:grid;
-  grid-template-columns:repeat(2,minmax(0,1fr));
-  gap:10px;
+.ratio-note{
+  margin-top:8px;
+  font-size:11px;
+  color:#94a3b8;
+  line-height:1.5;
 }
-.kpi{
+
+/* ===== month section ===== */
+.month-card{
   padding:12px;
   border-radius:14px;
-  background:rgba(255,255,255,.05);
+  background:rgba(255,255,255,.04);
   border:1px solid rgba(255,255,255,.08);
-  min-height:92px;
 }
-.kpi .head{
-  display:flex;
-  align-items:center;
-  gap:4px;
-  margin-bottom:6px;
+.month-title{
+  font-size:12px;
+  color:#cbd5e1;
+  font-weight:700;
+  margin-bottom:10px;
 }
-.kpi .label{
-  font-size:11px;
-  color:#9aa4b2;
-  letter-spacing:.03em;
-  line-height:1.4;
-}
-.kpi .value{
-  line-height:1.12;
+.month-main{
   display:flex;
   align-items:baseline;
-  gap:4px;
-  flex-wrap:wrap;
+  gap:6px;
+  margin-bottom:10px;
 }
-.kpi .num{
-  font-size:26px;
-  font-weight:800;
-  letter-spacing:.01em;
+.month-main-num{
+  font-size:32px;
+  font-weight:900;
+  line-height:1;
 }
-.kpi .unit{
-  font-size:12px;
-  opacity:.75;
+.month-main-num.pos{ color:#22c55e; }
+.month-main-num.neg{ color:#ef4444; }
+.month-main-unit{
+  font-size:13px;
+  opacity:.82;
 }
-.kpi .sub{
-  margin-top:6px;
+.month-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+.month-box{
+  padding:10px;
+  border-radius:12px;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.08);
+}
+.month-box-label{
   font-size:11px;
-  color:#9aa4b2;
-  line-height:1.4;
+  color:#94a3b8;
+  margin-bottom:6px;
 }
+.month-box-value{
+  font-size:22px;
+  font-weight:800;
+  line-height:1.1;
+}
+.month-box-value.in{ color:#22c55e; }
+.month-box-value.out{ color:#f8fafc; }
 
-.kpi.cash{
-  border-color:rgba(125,160,255,.24);
-  box-shadow:0 0 0 1px rgba(125,160,255,.10) inset;
-}
-.kpi.invested{
-  border-color:rgba(168,85,247,.32);
-  box-shadow:0 0 0 1px rgba(168,85,247,.14) inset;
-}
-.kpi.restricted{
-  border-color:rgba(255,90,90,.26);
-  box-shadow:0 0 0 1px rgba(255,255,255,.12) inset;
-}
-.kpi.month{
-  border-color:rgba(45,212,191,.30);
-  box-shadow:0 0 0 1px rgba(45,212,191,.12) inset;
-}
-.kpi.month.pos .num{ color:#22c55e; }
-.kpi.month.neg .num{ color:#ef4444; }
-
-/* ===== Dots only ===== */
+/* ===== dots ===== */
 .cash-dots{
   margin-top:12px;
   display:flex;
@@ -250,7 +264,6 @@ html,body{
   background:linear-gradient(90deg,#6d73ff,#22d3ee);
 }
 
-/* ===== Empty ===== */
 .empty-card{
   padding:16px;
   border-radius:16px;
@@ -259,7 +272,7 @@ html,body{
   color:#cbd5e1;
 }
 
-/* ===== Bottom Action Dock ===== */
+/* ===== bottom dock ===== */
 .cash-dock{
   position:fixed;
   left:0;
@@ -281,7 +294,7 @@ html,body{
 }
 .cash-dock .bar{
   display:grid;
-  grid-template-columns:repeat(4,1fr);
+  grid-template-columns:repeat(3,1fr);
   gap:8px;
 }
 .cash-dock .bar button{
@@ -294,7 +307,7 @@ html,body{
   font-weight:700;
 }
 
-/* ===== Modal ===== */
+/* ===== modal ===== */
 .modal{
   position:fixed;
   inset:0;
@@ -356,7 +369,6 @@ html,body{
   margin-top:6px;
 }
 
-/* ===== Responsive ===== */
 @media (max-width:480px){
   .cash-wrap{
     padding:12px 8px 150px;
@@ -365,7 +377,7 @@ html,body{
     font-size:20px;
   }
   .broker-card{
-    min-height:470px;
+    min-height:450px;
     padding:10px;
   }
   .broker-card-title{
@@ -378,16 +390,11 @@ html,body{
   .hero-main-num{
     font-size:30px;
   }
-  .kpi-grid{
-    grid-template-columns:1fr 1fr;
-    gap:8px;
+  .month-main-num{
+    font-size:28px;
   }
-  .kpi{
-    min-height:88px;
-    padding:10px;
-  }
-  .kpi .num{
-    font-size:22px;
+  .month-box-value{
+    font-size:20px;
   }
 }
 </style>
@@ -400,7 +407,7 @@ html,body{
     <div class="cash-carousel">
       <div class="cash-track" id="cashTrack">
         {% for b in brokers %}
-        {% with pct=b.pct_available|default_if_none:0 %}
+        {% with meter_pct=b.cash_ratio_pct|default_if_none:0 %}
         <section class="cash-slide" data-broker="{{ b.broker }}" data-index="{{ forloop.counter0 }}">
           <div class="broker-card">
             <div class="broker-card-head">
@@ -417,55 +424,55 @@ html,body{
                     <span class="hero-main-unit">円</span>
                   </div>
                 </div>
-                {% if b.pct_available is not None %}
-                  <div class="hero-pct">{{ b.pct_available|floatformat:1 }}%</div>
-                {% endif %}
               </div>
-
-              {% if b.pct_available is not None %}
-              <div class="meter">
-                {% if pct < 0 %}
-                  <div class="meter-inner" style="width:0%;"></div>
-                {% elif pct > 100 %}
-                  <div class="meter-inner" style="width:100%;"></div>
-                {% else %}
-                  <div class="meter-inner" style="width:{{ pct|floatformat:0 }}%;"></div>
-                {% endif %}
-              </div>
-              {% endif %}
+              <div class="hero-sub">いま新しく使える金額</div>
             </div>
 
-            <div class="kpi-grid">
-              <div class="kpi cash">
-                <div class="head"><div class="label">🏦 預り金</div></div>
-                <div class="value">
-                  <span class="num">{{ b.cash|default:0|intcomma }}</span><span class="unit">円</span>
-                </div>
-                <div class="sub">口座に残っている現金</div>
+            <div class="ratio-card">
+              <div class="ratio-head">
+                <div class="ratio-label">現金余り率</div>
+                {% if b.cash_ratio_pct is not None %}
+                  <div class="ratio-pct">{{ b.cash_ratio_pct|floatformat:1 }}%</div>
+                {% else %}
+                  <div class="ratio-pct">—</div>
+                {% endif %}
               </div>
 
-              <div class="kpi invested">
-                <div class="head"><div class="label">📉 取得原価残</div></div>
-                <div class="value">
-                  <span class="num">{{ b.invested_cost|default:0|intcomma }}</span><span class="unit">円</span>
-                </div>
-                <div class="sub">まだ保有中の買付済み元本</div>
+              <div class="meter">
+                {% if meter_pct < 0 %}
+                  <div class="meter-inner" style="width:0%;"></div>
+                {% elif meter_pct > 100 %}
+                  <div class="meter-inner" style="width:100%;"></div>
+                {% else %}
+                  <div class="meter-inner" style="width:{{ meter_pct|floatformat:0 }}%;"></div>
+                {% endif %}
               </div>
 
-              <div class="kpi restricted">
-                <div class="head"><div class="label">🔒 拘束金</div></div>
-                <div class="value">
-                  <span class="num">{{ b.restricted|default:0|intcomma }}</span><span class="unit">円</span>
-                </div>
-                <div class="sub">注文などで使えない金額</div>
+              <div class="ratio-note">
+                現物総資産 {{ b.spot_total_asset|default:0|intcomma }} 円 に対して、
+                現金がどれだけ残っているか
+              </div>
+            </div>
+
+            <div class="month-card">
+              <div class="month-title">📅 今月の入出金</div>
+
+              <div class="month-main">
+                <span class="month-main-num {% if b.month_net < 0 %}neg{% else %}pos{% endif %}">
+                  {{ b.month_net|default:0|intcomma }}
+                </span>
+                <span class="month-main-unit">円</span>
               </div>
 
-              <div class="kpi month {% if b.month_net < 0 %}neg{% else %}pos{% endif %}">
-                <div class="head"><div class="label">📅 今月の入出金差分</div></div>
-                <div class="value">
-                  <span class="num">{{ b.month_net|default:0|intcomma }}</span><span class="unit">円</span>
+              <div class="month-grid">
+                <div class="month-box">
+                  <div class="month-box-label">入金</div>
+                  <div class="month-box-value in">{{ b.month_deposit|default:0|intcomma }} 円</div>
                 </div>
-                <div class="sub">今月の現金増減の合計</div>
+                <div class="month-box">
+                  <div class="month-box-label">出金</div>
+                  <div class="month-box-value out">{{ b.month_withdraw|default:0|intcomma }} 円</div>
+                </div>
               </div>
             </div>
           </div>
@@ -487,23 +494,20 @@ html,body{
       </div>
     </div>
   {% else %}
-    <div class="empty-card">まずは管理画面で「BrokerAccount」を作成してね（楽天 / 松井 / SBI のどれかでOK）。</div>
+    <div class="empty-card">まずは管理画面で「BrokerAccount」を作成してください。</div>
   {% endif %}
 </div>
 
-<!-- === Bottom Action Dock === -->
 <div class="cash-dock" aria-label="Cash Actions">
   <div class="inner">
     <div class="bar">
       <button data-open="deposit">入金</button>
       <button data-open="withdraw">出金</button>
-      <button data-open="restrict">拘束金</button>
       <button data-open="tax">税金</button>
     </div>
   </div>
 </div>
 
-<!-- ===== Modals ===== -->
 <div class="modal" id="modal-deposit" aria-hidden="true">
   <div class="box">
     <h3>➕ 入金</h3>
@@ -568,38 +572,9 @@ html,body{
   </div>
 </div>
 
-<div class="modal" id="modal-restrict" aria-hidden="true">
-  <div class="box">
-    <h3>⛔ 拘束金を設定</h3>
-    <form method="post" action="{% url 'cash_dashboard' %}">
-      {% csrf_token %}
-      <input type="hidden" name="op" value="restrict">
-      <div class="form-grid">
-        <div>
-          <label>証券会社</label>
-          <select name="broker" id="rs-broker" required>
-            <option value="楽天">楽天証券</option>
-            <option value="松井">松井証券</option>
-            <option value="SBI">SBI証券</option>
-          </select>
-        </div>
-        <div>
-          <label>拘束金（円）</label>
-          <input type="number" name="amount" inputmode="numeric" min="0" required>
-        </div>
-      </div>
-      <div class="form-note">※保存すると当日の拘束金を<strong>上書き</strong>します（過去分は変更しません）。</div>
-      <div class="form-actions">
-        <button type="button" class="btn" data-close>閉じる</button>
-        <button class="btn primary" type="submit">保存</button>
-      </div>
-    </form>
-  </div>
-</div>
-
 <div class="modal" id="modal-tax" aria-hidden="true">
   <div class="box">
-    <h3>🧾 税金（源泉徴収）を月次で記録</h3>
+    <h3>🧾 税金（月次）</h3>
     <form method="post" action="{% url 'cash_dashboard' %}" id="tax-form">
       {% csrf_token %}
       <input type="hidden" name="op" value="tax">
@@ -630,10 +605,10 @@ html,body{
         </div>
         <div>
           <label>メモ</label>
-          <input type="text" name="memo" placeholder="任意（例：所得＋住民の合算）">
+          <input type="text" name="memo" placeholder="任意">
         </div>
       </div>
-      <div class="form-note">※対象月の<strong>月末日</strong>で「出金」として記帳します。同月・同社は再保存で上書き。</div>
+      <div class="form-note">対象月の月末日で記帳します。同月・同社は再保存で上書きされます。</div>
       <div class="form-actions">
         <button type="button" class="btn" data-close>閉じる</button>
         <button class="btn primary" type="submit">保存</button>
@@ -666,7 +641,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function setActiveBrokerToForms(broker){
-    const ids = ["dep-broker", "wd-broker", "rs-broker", "tx-broker"];
+    const ids = ["dep-broker", "wd-broker", "tx-broker"];
     ids.forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
@@ -759,7 +734,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const modals = {
     deposit : document.getElementById("modal-deposit"),
     withdraw: document.getElementById("modal-withdraw"),
-    restrict: document.getElementById("modal-restrict"),
     tax     : document.getElementById("modal-tax"),
   };
 
