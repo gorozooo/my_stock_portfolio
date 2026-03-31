@@ -2,13 +2,13 @@
 # [PATH] portfolio/services/cash/balance_service.py
 #
 # このファイルは何？
-# - 現金残高 / 余力 / 取得原価残 の集計専用サービス
+# - 現金残高 / 余力 / 現物総資産 / 月次入出金の集計専用サービス
 #
 # 今回の方針
 # - 余力 = 現金 + 担保 - 拘束
-# - invested_cost（取得原価残）は「表示専用」で計算する
-# - invested_cost は余力計算には使わない
-# - CashLedger は「実際の現金」をそのまま合計する
+# - メーターは「現物総資産に対して現金が何%残っているか」を表示
+# - 現物総資産 = 現金 + 現物保有評価額
+# - 月次は 差額 / 入金合計 / 出金合計 を返す
 
 # -*- coding: utf-8 -*-
 from __future__ import annotations
@@ -18,7 +18,7 @@ from datetime import date
 from typing import Optional
 
 from django.db import transaction
-from django.db.models import Q, Sum, F, DecimalField, ExpressionWrapper
+from django.db.models import Q, Sum
 
 from ...models import Holding, Dividend, RealizedTrade, TradeEvent
 from ...models_cash import BrokerAccount, CashLedger, MarginState
@@ -78,38 +78,102 @@ def month_netflow(account: BrokerAccount, year: int, month: int) -> int:
     return int(agg)
 
 
+def month_deposit_total(account: BrokerAccount, year: int, month: int) -> int:
+    agg = (
+        CashLedger.objects.filter(
+            account=account,
+            at__year=year,
+            at__month=month,
+            kind=CashLedger.Kind.DEPOSIT,
+        ).aggregate(s=Sum("amount"))["s"]
+        or 0
+    )
+    return int(agg)
+
+
+def month_withdraw_total(account: BrokerAccount, year: int, month: int) -> int:
+    agg = (
+        CashLedger.objects.filter(
+            account=account,
+            at__year=year,
+            at__month=month,
+            kind=CashLedger.Kind.WITHDRAW,
+        ).aggregate(s=Sum("amount"))["s"]
+        or 0
+    )
+    # WITHDRAW は台帳にマイナスで入っているので、表示用に絶対値に直す
+    return abs(int(agg))
+
+
 def latest_margin(account: BrokerAccount) -> MarginState | None:
     return MarginState.objects.filter(account=account).order_by("-as_of").first()
 
 
+def _holding_broker_q(broker_ja: str) -> Q:
+    code = BROKER_JA_TO_CODE.get((broker_ja or "").strip(), "")
+    if code:
+        return Q(broker=broker_ja) | Q(broker=code)
+    return Q(broker=broker_ja)
+
+
+def _to_float(v) -> float:
+    try:
+        return float(v or 0)
+    except Exception:
+        return 0.0
+
+
 def acquisition_cost_remaining_for_broker(broker_ja: str) -> int:
     """
-    指定ブローカーの未売却現物（特定 / NISA）の取得原価残を返す。
-    これは「表示専用」で、余力計算には使わない。
-
-    計算対象:
-    - Holding.broker が対象ブローカー
-    - account が SPEC / NISA
-    - quantity > 0
-    - 平均取得単価 × 残数量
+    指定ブローカーの未売却現物（特定 / NISA）の取得原価残（JPY換算）を返す。
+    ※ 今回の画面では直接表示しないが、互換のため返せるようにしておく。
     """
-    code = BROKER_JA_TO_CODE.get((broker_ja or "").strip())
-    if not code:
-        return 0
-
     try:
         qs = Holding.objects.filter(
-            Q(broker=code) | Q(broker=broker_ja),
+            _holding_broker_q(broker_ja),
             account__in=["SPEC", "NISA"],
             quantity__gt=0,
-        )
+        ).only("quantity", "avg_cost", "currency", "fx_rate")
 
-        expr = ExpressionWrapper(
-            F("quantity") * F("avg_cost"),
-            output_field=DecimalField(max_digits=20, decimal_places=2),
-        )
-        total = qs.aggregate(total=Sum(expr))["total"] or 0
-        return int(total)
+        total = 0.0
+        for h in qs:
+            qty = int(h.quantity or 0)
+            avg_cost = _to_float(h.avg_cost)
+            cur = (getattr(h, "currency", "") or "JPY").upper()
+            fx = 1.0 if cur == "JPY" else max(_to_float(getattr(h, "fx_rate", None)), 1.0)
+            total += qty * avg_cost * fx
+        return int(round(total))
+    except Exception:
+        return 0
+
+
+def spot_market_value_for_broker(broker_ja: str) -> int:
+    """
+    指定ブローカーの現物（特定 / NISA）保有評価額（JPY換算）を返す。
+    - last_price があればそれを優先
+    - 無ければ avg_cost を使う
+    - USD など外貨は holding.fx_rate で JPY 換算
+    """
+    try:
+        qs = Holding.objects.filter(
+            _holding_broker_q(broker_ja),
+            account__in=["SPEC", "NISA"],
+            quantity__gt=0,
+        ).only("quantity", "last_price", "avg_cost", "currency", "fx_rate")
+
+        total = 0.0
+        for h in qs:
+            qty = int(h.quantity or 0)
+            last_price = _to_float(getattr(h, "last_price", None))
+            avg_cost = _to_float(getattr(h, "avg_cost", None))
+            unit_price = last_price if last_price > 0 else avg_cost
+
+            cur = (getattr(h, "currency", "") or "JPY").upper()
+            fx = 1.0 if cur == "JPY" else max(_to_float(getattr(h, "fx_rate", None)), 1.0)
+
+            total += qty * unit_price * fx
+
+        return int(round(total))
     except Exception:
         return 0
 
@@ -126,12 +190,22 @@ def account_summary(account: BrokerAccount, today: date):
         restricted_amount = int(getattr(m, "restricted_amount", 0) or 0)
         restricted = required_margin + restricted_amount
 
-    invested_cost = acquisition_cost_remaining_for_broker(account.broker)
-
-    # 方針:
-    # 余力は「実際の現金 + 担保 - 拘束」
-    # invested_cost は表示だけで使い、余力からは引かない
     available = int(bal + collateral_usable - restricted)
+
+    invested_cost = acquisition_cost_remaining_for_broker(account.broker)
+    spot_market_value = spot_market_value_for_broker(account.broker)
+
+    # 現物総資産 = 現金 + 現物保有評価額
+    spot_total_asset = int(bal + spot_market_value)
+
+    # 現物総資産に対して現金が何%残っているか
+    cash_ratio_pct = None
+    if spot_total_asset > 0:
+        cash_ratio_pct = (bal / spot_total_asset) * 100.0
+
+    month_dep = month_deposit_total(account, today.year, today.month)
+    month_wd = month_withdraw_total(account, today.year, today.month)
+    month_net = int(month_dep - month_wd)
 
     return {
         "broker": account.broker,
@@ -141,9 +215,14 @@ def account_summary(account: BrokerAccount, today: date):
         "restricted": int(restricted),
         "available": int(available),
         "currency": account.currency,
-        "month_net": month_netflow(account, today.year, today.month),
+        "month_net": int(month_net),
+        "month_deposit": int(month_dep),
+        "month_withdraw": int(month_wd),
         "collateral_usable": int(collateral_usable),
         "invested_cost": int(invested_cost),
+        "spot_market_value": int(spot_market_value),
+        "spot_total_asset": int(spot_total_asset),
+        "cash_ratio_pct": cash_ratio_pct,
     }
 
 
@@ -157,7 +236,11 @@ def total_summary(today: date):
         "cash_total": sum(r["cash"] for r in rows) if rows else 0,
         "restricted": sum(r["restricted"] for r in rows) if rows else 0,
         "month_net": sum(r["month_net"] for r in rows) if rows else 0,
+        "month_deposit": sum(r["month_deposit"] for r in rows) if rows else 0,
+        "month_withdraw": sum(r["month_withdraw"] for r in rows) if rows else 0,
         "invested_cost": sum(r["invested_cost"] for r in rows) if rows else 0,
+        "spot_market_value": sum(r["spot_market_value"] for r in rows) if rows else 0,
+        "spot_total_asset": sum(r["spot_total_asset"] for r in rows) if rows else 0,
     }
     return total, rows
 
@@ -175,7 +258,11 @@ def broker_summaries(today: date):
             "restricted": 0,
             "available": 0,
             "month_net": 0,
+            "month_deposit": 0,
+            "month_withdraw": 0,
             "invested_cost": 0,
+            "spot_market_value": 0,
+            "spot_total_asset": 0,
         }
     )
 
@@ -185,12 +272,21 @@ def broker_summaries(today: date):
         g["restricted"] += r["restricted"]
         g["available"] += r["available"]
         g["month_net"] += r["month_net"]
+        g["month_deposit"] += r["month_deposit"]
+        g["month_withdraw"] += r["month_withdraw"]
         g["invested_cost"] += r["invested_cost"]
+        g["spot_market_value"] += r["spot_market_value"]
+        g["spot_total_asset"] += r["spot_total_asset"]
 
     items = []
     for broker, v in grouped.items():
         cash = int(v["cash"])
         available = int(v["available"])
+        spot_total_asset = int(v["spot_total_asset"])
+
+        cash_ratio_pct = None
+        if spot_total_asset > 0:
+            cash_ratio_pct = (cash / spot_total_asset) * 100.0
 
         pct_available = None
         if cash > 0:
@@ -209,7 +305,12 @@ def broker_summaries(today: date):
                 "restricted": int(v["restricted"]),
                 "available": available,
                 "month_net": int(v["month_net"]),
+                "month_deposit": int(v["month_deposit"]),
+                "month_withdraw": int(v["month_withdraw"]),
                 "invested_cost": int(v["invested_cost"]),
+                "spot_market_value": int(v["spot_market_value"]),
+                "spot_total_asset": spot_total_asset,
+                "cash_ratio_pct": cash_ratio_pct,
                 "pct_available": pct_available,
                 "severity": severity,
             }
