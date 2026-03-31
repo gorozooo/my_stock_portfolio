@@ -66,7 +66,7 @@ html,body{
   border:1px solid rgba(255,255,255,.08);
   backdrop-filter:blur(8px);
   overflow:hidden;
-  min-height:470px;
+  min-height:430px;
 }
 .broker-card-head{
   display:flex;
@@ -137,6 +137,12 @@ html,body{
   font-size:13px;
   opacity:.82;
 }
+.hero-pct{
+  font-size:18px;
+  font-weight:800;
+  color:#f8fafc;
+  white-space:nowrap;
+}
 .hero-sub{
   margin-top:10px;
   font-size:12px;
@@ -144,48 +150,28 @@ html,body{
   opacity:.9;
 }
 
-/* ===== meter ===== */
-.ratio-card{
-  padding:12px 12px 10px;
-  border-radius:14px;
-  background:rgba(255,255,255,.04);
-  border:1px solid rgba(255,255,255,.08);
-  margin-bottom:12px;
+/* ===== meter (hero内) ===== */
+.hero-meter-wrap{
+  margin-top:12px;
 }
-.ratio-head{
-  display:flex;
-  align-items:flex-end;
-  justify-content:space-between;
-  gap:8px;
-  margin-bottom:8px;
-}
-.ratio-label{
-  font-size:12px;
-  color:#cbd5e1;
-  font-weight:700;
-}
-.ratio-pct{
-  font-size:20px;
-  font-weight:800;
-  color:#f8fafc;
-}
-.meter{
+.hero-meter{
   height:10px;
   border-radius:999px;
   background:rgba(148,163,184,.25);
   overflow:hidden;
 }
-.meter-inner{
+.hero-meter-inner{
   height:100%;
   border-radius:inherit;
   background:linear-gradient(90deg,#22c55e,#eab308,#ef4444);
   transform-origin:left center;
 }
-.ratio-note{
+.hero-meter-note{
   margin-top:8px;
   font-size:11px;
-  color:#94a3b8;
-  line-height:1.5;
+  color:#cbd5e1;
+  opacity:.82;
+  line-height:1.45;
 }
 
 /* ===== month section ===== */
@@ -377,7 +363,7 @@ html,body{
     font-size:20px;
   }
   .broker-card{
-    min-height:450px;
+    min-height:410px;
     padding:10px;
   }
   .broker-card-title{
@@ -389,6 +375,9 @@ html,body{
   }
   .hero-main-num{
     font-size:30px;
+  }
+  .hero-pct{
+    font-size:16px;
   }
   .month-main-num{
     font-size:28px;
@@ -424,33 +413,29 @@ html,body{
                     <span class="hero-main-unit">円</span>
                   </div>
                 </div>
-              </div>
-              <div class="hero-sub">いま新しく使える金額</div>
-            </div>
 
-            <div class="ratio-card">
-              <div class="ratio-head">
-                <div class="ratio-label">現金余り率</div>
                 {% if b.cash_ratio_pct is not None %}
-                  <div class="ratio-pct">{{ b.cash_ratio_pct|floatformat:1 }}%</div>
+                  <div class="hero-pct">{{ b.cash_ratio_pct|floatformat:1 }}%</div>
                 {% else %}
-                  <div class="ratio-pct">—</div>
+                  <div class="hero-pct">—</div>
                 {% endif %}
               </div>
 
-              <div class="meter">
-                {% if meter_pct < 0 %}
-                  <div class="meter-inner" style="width:0%;"></div>
-                {% elif meter_pct > 100 %}
-                  <div class="meter-inner" style="width:100%;"></div>
-                {% else %}
-                  <div class="meter-inner" style="width:{{ meter_pct|floatformat:0 }}%;"></div>
-                {% endif %}
-              </div>
+              <div class="hero-sub">いま新しく使える金額</div>
 
-              <div class="ratio-note">
-                現物総資産 {{ b.spot_total_asset|default:0|intcomma }} 円 に対して、
-                現金がどれだけ残っているか
+              <div class="hero-meter-wrap">
+                <div class="hero-meter">
+                  {% if meter_pct < 0 %}
+                    <div class="hero-meter-inner" style="width:0%;"></div>
+                  {% elif meter_pct > 100 %}
+                    <div class="hero-meter-inner" style="width:100%;"></div>
+                  {% else %}
+                    <div class="hero-meter-inner" style="width:{{ meter_pct|floatformat:0 }}%;"></div>
+                  {% endif %}
+                </div>
+                <div class="hero-meter-note">
+                  現物総資産 {{ b.spot_total_asset|default:0|intcomma }} 円 に対して、現金がどれだけ残っているか
+                </div>
               </div>
             </div>
 
