@@ -23,7 +23,7 @@ html,body{
 }
 
 .cash-page-title{
-  margin:6px 2px 6px;
+  margin:6px 2px 4px;
   font-size:22px;
   font-weight:800;
   letter-spacing:.02em;
@@ -32,79 +32,6 @@ html,body{
   margin:0 2px 12px;
   font-size:12px;
   color:#9aa4b2;
-}
-
-/* ===== Top Switcher ===== */
-.cash-switcher{
-  position:sticky;
-  top:calc(env(safe-area-inset-top, 0px) + 4px);
-  z-index:20;
-  margin-bottom:12px;
-  padding:10px;
-  border-radius:16px;
-  background:rgba(17,22,33,.82);
-  backdrop-filter:blur(12px);
-  -webkit-backdrop-filter:blur(12px);
-  border:1px solid rgba(255,255,255,.09);
-  box-shadow:0 12px 28px rgba(0,0,0,.16);
-}
-.cash-switcher-top{
-  display:grid;
-  grid-template-columns:44px 1fr 44px;
-  align-items:center;
-  gap:10px;
-}
-.switch-btn{
-  width:44px;
-  height:44px;
-  border-radius:12px;
-  border:1px solid rgba(255,255,255,.14);
-  background:rgba(255,255,255,.05);
-  color:#e6ebff;
-  font-size:18px;
-  font-weight:700;
-}
-.switch-center{
-  min-width:0;
-  text-align:center;
-}
-.switch-label{
-  font-size:11px;
-  color:#9aa4b2;
-  letter-spacing:.06em;
-  margin-bottom:2px;
-}
-.switch-broker{
-  font-size:20px;
-  font-weight:800;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-}
-.switch-meta{
-  margin-top:2px;
-  font-size:11px;
-  color:#9aa4b2;
-}
-.cash-dots{
-  margin-top:10px;
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  gap:8px;
-  flex-wrap:wrap;
-}
-.cash-dot{
-  width:10px;
-  height:10px;
-  border-radius:999px;
-  border:0;
-  background:rgba(255,255,255,.22);
-  transition:transform .18s ease, background .18s ease, width .18s ease;
-}
-.cash-dot.is-active{
-  width:24px;
-  background:linear-gradient(90deg,#6d73ff,#22d3ee);
 }
 
 /* ===== Slider ===== */
@@ -141,7 +68,7 @@ html,body{
   border:1px solid rgba(255,255,255,.08);
   backdrop-filter:blur(8px);
   overflow:hidden;
-  min-height:520px;
+  min-height:500px;
 }
 .broker-card-head{
   display:flex;
@@ -151,7 +78,7 @@ html,body{
   margin-bottom:10px;
 }
 .broker-card-title{
-  font-size:22px;
+  font-size:24px;
   font-weight:800;
   line-height:1.2;
   margin:0;
@@ -167,7 +94,7 @@ html,body{
   background:rgba(255,255,255,.05);
 }
 
-/* ===== KPI ===== */
+/* ===== Hero KPI ===== */
 .hero-kpi{
   padding:14px 14px 12px;
   border-radius:16px;
@@ -220,8 +147,6 @@ html,body{
   flex-shrink:0;
   font-weight:700;
 }
-
-/* meter */
 .meter{
   height:8px;
   border-radius:999px;
@@ -236,47 +161,14 @@ html,body{
   transform-origin:left center;
 }
 
-/* formula */
-.hero-sub{
-  margin-top:10px;
-  font-size:12px;
-  color:#d6deef;
-  line-height:1.6;
-}
-.hero-sub-title{
-  display:inline-block;
-  margin-right:6px;
-  font-weight:700;
-}
-.hero-sub-list{
-  margin-top:4px;
-  display:grid;
-  gap:2px;
-}
-.hero-sub-list .row{
-  display:flex;
-  justify-content:space-between;
-  align-items:baseline;
-  gap:10px;
-}
-.hero-sub-list .k{
-  color:#aeb8d0;
-  font-size:12px;
-}
-.hero-sub-list .v{
-  color:#f8fafc;
-  font-size:13px;
-  font-weight:700;
-  white-space:nowrap;
-}
-
+/* ===== KPI Grid ===== */
 .kpi-grid{
   display:grid;
   grid-template-columns:repeat(2,minmax(0,1fr));
   gap:10px;
 }
 .kpi{
-  padding:12px 12px;
+  padding:12px;
   border-radius:14px;
   background:rgba(255,255,255,.05);
   border:1px solid rgba(255,255,255,.08);
@@ -317,7 +209,6 @@ html,body{
   line-height:1.4;
 }
 
-/* tile colors */
 .kpi.cash{
   border-color:rgba(125,160,255,.24);
   box-shadow:0 0 0 1px rgba(125,160,255,.10) inset;
@@ -336,6 +227,28 @@ html,body{
 }
 .kpi.month.pos .num{ color:#22c55e; }
 .kpi.month.neg .num{ color:#ef4444; }
+
+/* ===== Dots only ===== */
+.cash-dots{
+  margin-top:12px;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.cash-dot{
+  width:10px;
+  height:10px;
+  border-radius:999px;
+  border:0;
+  background:rgba(255,255,255,.22);
+  transition:transform .18s ease, background .18s ease, width .18s ease;
+}
+.cash-dot.is-active{
+  width:24px;
+  background:linear-gradient(90deg,#6d73ff,#22d3ee);
+}
 
 /* ===== Empty ===== */
 .empty-card{
@@ -451,15 +364,12 @@ html,body{
   .cash-page-title{
     font-size:20px;
   }
-  .switch-broker{
-    font-size:18px;
-  }
   .broker-card{
-    min-height:500px;
+    min-height:470px;
     padding:10px;
   }
   .broker-card-title{
-    font-size:20px;
+    font-size:22px;
   }
   .hero-top{
     flex-direction:column;
@@ -484,35 +394,9 @@ html,body{
 
 <div class="cash-wrap">
   <h1 class="cash-page-title">💵 現金ダッシュボード</h1>
-  <div class="cash-page-sub">証券会社ごとに横スワイプで切り替えできます</div>
+  <div class="cash-page-sub">横スワイプで証券会社を切り替えできます</div>
 
   {% if brokers %}
-    <div class="cash-switcher">
-      <div class="cash-switcher-top">
-        <button type="button" class="switch-btn" id="cashPrevBtn" aria-label="前の証券会社">‹</button>
-
-        <div class="switch-center">
-          <div class="switch-label">現在表示中</div>
-          <div class="switch-broker" id="cashCurrentBroker">{{ brokers.0.broker }}証券</div>
-          <div class="switch-meta"><span id="cashCurrentIndex">1</span> / {{ brokers|length }}</div>
-        </div>
-
-        <button type="button" class="switch-btn" id="cashNextBtn" aria-label="次の証券会社">›</button>
-      </div>
-
-      <div class="cash-dots" id="cashDots">
-        {% for b in brokers %}
-          <button
-            type="button"
-            class="cash-dot {% if forloop.first %}is-active{% endif %}"
-            data-index="{{ forloop.counter0 }}"
-            data-broker="{{ b.broker }}"
-            aria-label="{{ b.broker }}証券へ移動"
-          ></button>
-        {% endfor %}
-      </div>
-    </div>
-
     <div class="cash-carousel">
       <div class="cash-track" id="cashTrack">
         {% for b in brokers %}
@@ -549,24 +433,6 @@ html,body{
                 {% endif %}
               </div>
               {% endif %}
-
-              <div class="hero-sub">
-                <span class="hero-sub-title">余力の式</span>
-                <div class="hero-sub-list">
-                  <div class="row">
-                    <span class="k">預り金</span>
-                    <span class="v">{{ b.cash|default:0|intcomma }} 円</span>
-                  </div>
-                  <div class="row">
-                    <span class="k">取得原価残</span>
-                    <span class="v">{{ b.invested_cost|default:0|intcomma }} 円</span>
-                  </div>
-                  <div class="row">
-                    <span class="k">拘束</span>
-                    <span class="v">{{ b.restricted|default:0|intcomma }} 円</span>
-                  </div>
-                </div>
-              </div>
             </div>
 
             <div class="kpi-grid">
@@ -605,6 +471,18 @@ html,body{
           </div>
         </section>
         {% endwith %}
+        {% endfor %}
+      </div>
+
+      <div class="cash-dots" id="cashDots">
+        {% for b in brokers %}
+          <button
+            type="button"
+            class="cash-dot {% if forloop.first %}is-active{% endif %}"
+            data-index="{{ forloop.counter0 }}"
+            data-broker="{{ b.broker }}"
+            aria-label="{{ b.broker }}証券へ移動"
+          ></button>
         {% endfor %}
       </div>
     </div>
@@ -771,17 +649,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const dotsWrap = document.getElementById("cashDots");
   const dots = dotsWrap ? Array.from(dotsWrap.querySelectorAll(".cash-dot")) : [];
   const slides = track ? Array.from(track.querySelectorAll(".cash-slide")) : [];
-  const currentBrokerEl = document.getElementById("cashCurrentBroker");
-  const currentIndexEl = document.getElementById("cashCurrentIndex");
-  const prevBtn = document.getElementById("cashPrevBtn");
-  const nextBtn = document.getElementById("cashNextBtn");
 
   let currentIndex = 0;
   let scrollTimer = null;
-
-  function brokerLabel(raw){
-    return (raw || "") + "証券";
-  }
 
   function slideLeft(index){
     const slide = slides[index];
@@ -795,16 +665,24 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  function updateHeader(index){
+  function setActiveBrokerToForms(broker){
+    const ids = ["dep-broker", "wd-broker", "rs-broker", "tx-broker"];
+    ids.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const hasOption = Array.from(el.options).some(opt => opt.value === broker);
+      if (hasOption) el.value = broker;
+    });
+  }
+
+  function updateActive(index){
     const slide = slides[index];
     if (!slide) return;
-    const broker = slide.dataset.broker || "";
-    if (currentBrokerEl) currentBrokerEl.textContent = brokerLabel(broker);
-    if (currentIndexEl) currentIndexEl.textContent = String(index + 1);
+    currentIndex = index;
     updateDots(index);
-    setActiveBrokerToForms(broker);
+    setActiveBrokerToForms(slide.dataset.broker || "");
     try{
-      localStorage.setItem(LSKEY, broker);
+      localStorage.setItem(LSKEY, slide.dataset.broker || "");
     }catch(e){}
   }
 
@@ -812,12 +690,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!track || !slides.length) return;
     if (index < 0) index = 0;
     if (index > slides.length - 1) index = slides.length - 1;
-    currentIndex = index;
     track.scrollTo({
       left: slideLeft(index),
       behavior: smooth ? "smooth" : "auto",
     });
-    updateHeader(index);
+    updateActive(index);
   }
 
   function detectCurrentIndex(){
@@ -835,16 +712,6 @@ document.addEventListener("DOMContentLoaded", () => {
     return bestIndex;
   }
 
-  function setActiveBrokerToForms(broker){
-    const ids = ["dep-broker", "wd-broker", "rs-broker", "tx-broker"];
-    ids.forEach((id) => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      const hasOption = Array.from(el.options).some(opt => opt.value === broker);
-      if (hasOption) el.value = broker;
-    });
-  }
-
   function initSavedBroker(){
     if (!slides.length) return;
     let saved = null;
@@ -852,14 +719,14 @@ document.addEventListener("DOMContentLoaded", () => {
       saved = localStorage.getItem(LSKEY);
     }catch(e){}
     if (!saved) {
-      updateHeader(0);
+      updateActive(0);
       return;
     }
     const idx = slides.findIndex(slide => (slide.dataset.broker || "") === saved);
     if (idx >= 0) {
       goToIndex(idx, false);
     } else {
-      updateHeader(0);
+      updateActive(0);
     }
   }
 
@@ -871,27 +738,14 @@ document.addEventListener("DOMContentLoaded", () => {
       scrollTimer = setTimeout(() => {
         const idx = detectCurrentIndex();
         if (idx !== currentIndex) {
-          currentIndex = idx;
+          updateActive(idx);
         }
-        updateHeader(idx);
       }, 70);
     });
 
     window.addEventListener("resize", () => {
       goToIndex(currentIndex, false);
       adjust();
-    });
-  }
-
-  if (prevBtn) {
-    prevBtn.addEventListener("click", () => {
-      goToIndex(currentIndex - 1, true);
-    });
-  }
-
-  if (nextBtn) {
-    nextBtn.addEventListener("click", () => {
-      goToIndex(currentIndex + 1, true);
     });
   }
 
