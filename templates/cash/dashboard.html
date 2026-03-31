@@ -419,8 +419,6 @@ html,body{
                 {% endif %}
               </div>
 
-              <div class="hero-sub">いま新しく使える金額</div>
-
               <div class="hero-meter-wrap">
                 <div class="hero-meter">
                   {% if meter_pct < 0 %}
@@ -432,7 +430,7 @@ html,body{
                   {% endif %}
                 </div>
                 <div class="hero-meter-note">
-                  現物総資産 {{ b.spot_total_asset|default:0|intcomma }} 円 に対して、現金がどれだけ残っているか
+                  現物総資産 {{ b.spot_total_asset|default:0|intcomma }} 円 
                 </div>
               </div>
             </div>
