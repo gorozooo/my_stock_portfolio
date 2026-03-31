@@ -8,6 +8,7 @@
 # - 配当の色を紫に戻す
 # - 現物買 / 現物売 / 信用新規 / 信用返済 / 現引 を全部別色にする
 # - 現金履歴カードに、受渡額 / 実現損益 / 口座区分 を表示できるようにする
+# - 現金ダッシュボードへ invested_cost を正しく渡す
 
 # -*- coding: utf-8 -*-
 from __future__ import annotations
@@ -217,6 +218,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         avail = int(row.get("available", 0))
         restr = int(row.get("restricted", 0))
         month_net = int(row.get("month_net", 0))
+        invested_cost = int(row.get("invested_cost", 0))
 
         pct = (avail / cash * 100.0) if cash > 0 else None
         severity = _severity_for(row, LOW_RATIO)
@@ -233,6 +235,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 "available": avail,
                 "restricted": restr,
                 "month_net": month_net,
+                "invested_cost": invested_cost,
                 "pct_available": pct,
                 "severity": severity,
             }
