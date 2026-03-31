@@ -8,7 +8,7 @@
 # - 配当の色を紫に戻す
 # - 現物買 / 現物売 / 信用新規 / 信用返済 / 現引 を全部別色にする
 # - 現金履歴カードに、受渡額 / 実現損益 / 口座区分 を表示できるようにする
-# - 現金ダッシュボードへ invested_cost を正しく渡す
+# - 現金ダッシュボードは「今すぐ使える資金 / 現金余りメーター / 今月の入出金」に整理
 
 # -*- coding: utf-8 -*-
 from __future__ import annotations
@@ -218,7 +218,12 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         avail = int(row.get("available", 0))
         restr = int(row.get("restricted", 0))
         month_net = int(row.get("month_net", 0))
+        month_deposit = int(row.get("month_deposit", 0))
+        month_withdraw = int(row.get("month_withdraw", 0))
         invested_cost = int(row.get("invested_cost", 0))
+        spot_market_value = int(row.get("spot_market_value", 0))
+        spot_total_asset = int(row.get("spot_total_asset", 0))
+        cash_ratio_pct = row.get("cash_ratio_pct", None)
 
         pct = (avail / cash * 100.0) if cash > 0 else None
         severity = _severity_for(row, LOW_RATIO)
@@ -235,7 +240,12 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 "available": avail,
                 "restricted": restr,
                 "month_net": month_net,
+                "month_deposit": month_deposit,
+                "month_withdraw": month_withdraw,
                 "invested_cost": invested_cost,
+                "spot_market_value": spot_market_value,
+                "spot_total_asset": spot_total_asset,
+                "cash_ratio_pct": cash_ratio_pct,
                 "pct_available": pct,
                 "severity": severity,
             }
