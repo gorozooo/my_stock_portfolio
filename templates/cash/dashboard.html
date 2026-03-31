@@ -19,77 +19,162 @@ html,body{
 .cash-wrap{
   max-width:980px;
   margin:12px auto 0;
-  padding:12px 10px 140px;
+  padding:12px 10px 150px;
+}
+
+.cash-page-title{
+  margin:6px 2px 6px;
+  font-size:22px;
+  font-weight:800;
+  letter-spacing:.02em;
+}
+.cash-page-sub{
+  margin:0 2px 12px;
+  font-size:12px;
+  color:#9aa4b2;
+}
+
+/* ===== Top Switcher ===== */
+.cash-switcher{
+  position:sticky;
+  top:calc(env(safe-area-inset-top, 0px) + 4px);
+  z-index:20;
+  margin-bottom:12px;
+  padding:10px;
+  border-radius:16px;
+  background:rgba(17,22,33,.82);
+  backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,.09);
+  box-shadow:0 12px 28px rgba(0,0,0,.16);
+}
+.cash-switcher-top{
+  display:grid;
+  grid-template-columns:44px 1fr 44px;
+  align-items:center;
+  gap:10px;
+}
+.switch-btn{
+  width:44px;
+  height:44px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.05);
+  color:#e6ebff;
+  font-size:18px;
+  font-weight:700;
+}
+.switch-center{
+  min-width:0;
+  text-align:center;
+}
+.switch-label{
+  font-size:11px;
+  color:#9aa4b2;
+  letter-spacing:.06em;
+  margin-bottom:2px;
+}
+.switch-broker{
+  font-size:20px;
+  font-weight:800;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.switch-meta{
+  margin-top:2px;
+  font-size:11px;
+  color:#9aa4b2;
+}
+.cash-dots{
+  margin-top:10px;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.cash-dot{
+  width:10px;
+  height:10px;
+  border-radius:999px;
+  border:0;
+  background:rgba(255,255,255,.22);
+  transition:transform .18s ease, background .18s ease, width .18s ease;
+}
+.cash-dot.is-active{
+  width:24px;
+  background:linear-gradient(90deg,#6d73ff,#22d3ee);
+}
+
+/* ===== Slider ===== */
+.cash-carousel{
+  position:relative;
+}
+.cash-track{
+  display:flex;
+  gap:0;
+  overflow-x:auto;
+  scroll-snap-type:x mandatory;
+  scroll-behavior:smooth;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+  overscroll-behavior-x:contain;
+  border-radius:18px;
+}
+.cash-track::-webkit-scrollbar{
+  display:none;
+}
+.cash-slide{
+  flex:0 0 100%;
+  min-width:100%;
+  scroll-snap-align:start;
+  scroll-snap-stop:always;
+  padding:0 2px;
 }
 
 /* ===== Broker Card ===== */
-.grid-broker{
-  display:grid;
-  grid-template-columns:1fr;
-  gap:16px;
-}
-.card{
-  padding:10px 12px 12px;
-  border-radius:14px;
+.broker-card{
+  padding:12px;
+  border-radius:18px;
   background:rgba(255,255,255,.04);
   border:1px solid rgba(255,255,255,.08);
   backdrop-filter:blur(8px);
   overflow:hidden;
+  min-height:520px;
 }
-.card h3{
-  font-size:15px;
-  margin:0 0 8px;
+.broker-card-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:10px;
+}
+.broker-card-title{
+  font-size:22px;
+  font-weight:800;
+  line-height:1.2;
+  margin:0;
+}
+.broker-card-badge{
+  flex:0 0 auto;
+  padding:6px 10px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:700;
+  color:#dbe3f4;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.05);
 }
 
 /* ===== KPI ===== */
-.kpi-row{
-  display:grid;
-  grid-template-columns:repeat(3,1fr);
-  gap:8px;
-}
-.kpi{
-  padding:8px 8px;
-  border-radius:10px;
-  background:rgba(255,255,255,.05);
-  border:1px solid rgba(255,255,255,.08);
-}
-.kpi .head{
-  display:flex;
-  align-items:center;
-  gap:4px;
-  margin-bottom:2px;
-  min-height:18px;
-}
-.kpi .label{
-  font-size:10px;
-  color:#9aa4b2;
-  letter-spacing:.03em;
-  white-space:nowrap;
-}
-.kpi .value{
-  line-height:1.1;
-  display:flex;
-  align-items:baseline;
-  gap:3px;
-}
-.kpi .num{
-  font-size:13px;
-  font-weight:700;
-  letter-spacing:.01em;
-}
-.kpi .unit{
-  font-size:11px;
-  opacity:.75;
-}
-
-/* 余力のヒーロー表示＋メーター */
 .hero-kpi{
-  padding:10px 10px;
-  border-radius:12px;
+  padding:14px 14px 12px;
+  border-radius:16px;
   background:linear-gradient(135deg,rgba(45,212,191,.15),rgba(56,189,248,.10));
   border:1px solid rgba(45,212,191,.45);
   box-shadow:0 0 0 1px rgba(15,118,110,.35) inset;
-  margin-bottom:8px;
+  margin-bottom:10px;
 }
 .hero-kpi.warn{
   background:linear-gradient(135deg,rgba(234,179,8,.18),rgba(248,250,252,.03));
@@ -118,29 +203,31 @@ html,body{
   gap:4px;
 }
 .hero-main-num{
-  font-size:18px;
-  font-weight:800;
+  font-size:34px;
+  font-weight:900;
   letter-spacing:.03em;
+  line-height:1;
 }
 .hero-main-unit{
-  font-size:11px;
-  opacity:.8;
+  font-size:13px;
+  opacity:.82;
 }
 .hero-pct{
-  font-size:11px;
+  font-size:13px;
   color:#e5e7eb;
-  opacity:.8;
+  opacity:.9;
   white-space:nowrap;
   flex-shrink:0;
+  font-weight:700;
 }
 
-/* メーター */
+/* meter */
 .meter{
-  height:6px;
+  height:8px;
   border-radius:999px;
   background:rgba(148,163,184,.35);
   overflow:hidden;
-  margin-top:6px;
+  margin-top:10px;
 }
 .meter-inner{
   height:100%;
@@ -149,19 +236,88 @@ html,body{
   transform-origin:left center;
 }
 
-/* 内訳の式（3行に分割） */
+/* formula */
 .hero-sub{
-  margin-top:6px;
-  font-size:11px;
-  color:#a1a8c4;
-  line-height:1.4;
+  margin-top:10px;
+  font-size:12px;
+  color:#d6deef;
+  line-height:1.6;
 }
-.hero-sub-label{
+.hero-sub-title{
   display:inline-block;
-  margin-right:4px;
+  margin-right:6px;
+  font-weight:700;
+}
+.hero-sub-list{
+  margin-top:4px;
+  display:grid;
+  gap:2px;
+}
+.hero-sub-list .row{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  gap:10px;
+}
+.hero-sub-list .k{
+  color:#aeb8d0;
+  font-size:12px;
+}
+.hero-sub-list .v{
+  color:#f8fafc;
+  font-size:13px;
+  font-weight:700;
+  white-space:nowrap;
 }
 
-/* 小KPI枠色 */
+.kpi-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+}
+.kpi{
+  padding:12px 12px;
+  border-radius:14px;
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.08);
+  min-height:92px;
+}
+.kpi .head{
+  display:flex;
+  align-items:center;
+  gap:4px;
+  margin-bottom:6px;
+}
+.kpi .label{
+  font-size:11px;
+  color:#9aa4b2;
+  letter-spacing:.03em;
+  line-height:1.4;
+}
+.kpi .value{
+  line-height:1.12;
+  display:flex;
+  align-items:baseline;
+  gap:4px;
+  flex-wrap:wrap;
+}
+.kpi .num{
+  font-size:26px;
+  font-weight:800;
+  letter-spacing:.01em;
+}
+.kpi .unit{
+  font-size:12px;
+  opacity:.75;
+}
+.kpi .sub{
+  margin-top:6px;
+  font-size:11px;
+  color:#9aa4b2;
+  line-height:1.4;
+}
+
+/* tile colors */
 .kpi.cash{
   border-color:rgba(125,160,255,.24);
   box-shadow:0 0 0 1px rgba(125,160,255,.10) inset;
@@ -174,11 +330,20 @@ html,body{
   border-color:rgba(255,90,90,.26);
   box-shadow:0 0 0 1px rgba(255,255,255,.12) inset;
 }
+.kpi.month{
+  border-color:rgba(45,212,191,.30);
+  box-shadow:0 0 0 1px rgba(45,212,191,.12) inset;
+}
+.kpi.month.pos .num{ color:#22c55e; }
+.kpi.month.neg .num{ color:#ef4444; }
 
-.small{
-  font-size:11px;
-  margin-top:8px;
-  color:#a1a8c4;
+/* ===== Empty ===== */
+.empty-card{
+  padding:16px;
+  border-radius:16px;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.08);
+  color:#cbd5e1;
 }
 
 /* ===== Bottom Action Dock ===== */
@@ -187,7 +352,7 @@ html,body{
   left:0;
   right:0;
   bottom:0;
-  z-index:2000;      /* ★ ボトムタブより前面に出す */
+  z-index:2000;
   pointer-events:none;
 }
 .cash-dock .inner{
@@ -209,11 +374,11 @@ html,body{
 .cash-dock .bar button{
   padding:10px;
   font-size:14px;
-  border-radius:10px;
+  border-radius:12px;
   border:1px solid rgba(255,255,255,.16);
   background:rgba(255,255,255,.06);
   color:#e6ebff;
-  font-weight:600;
+  font-weight:700;
 }
 
 /* ===== Modal ===== */
@@ -269,117 +434,182 @@ html,body{
   background:rgba(255,255,255,.05);
   color:#e6ebff;
 }
-.btn.primary{border-color:rgba(0,255,209,.45)}
+.btn.primary{
+  border-color:rgba(0,255,209,.45);
+}
 .form-note{
   font-size:11px;
   color:#9aa4b2;
   margin-top:6px;
 }
 
-/* ===== Responsive (スマホ幅) ===== */
+/* ===== Responsive ===== */
 @media (max-width:480px){
   .cash-wrap{
-    padding:12px 8px 140px;
+    padding:12px 8px 150px;
+  }
+  .cash-page-title{
+    font-size:20px;
+  }
+  .switch-broker{
+    font-size:18px;
+  }
+  .broker-card{
+    min-height:500px;
+    padding:10px;
+  }
+  .broker-card-title{
+    font-size:20px;
   }
   .hero-top{
     flex-direction:column;
     align-items:flex-start;
   }
   .hero-main-num{
-    font-size:16px;
+    font-size:30px;
   }
-  .hero-pct{
-    margin-top:2px;
+  .kpi-grid{
+    grid-template-columns:1fr 1fr;
+    gap:8px;
   }
-  .kpi-row{
-    grid-template-columns:1fr;
+  .kpi{
+    min-height:88px;
+    padding:10px;
+  }
+  .kpi .num{
+    font-size:22px;
   }
 }
 </style>
 
 <div class="cash-wrap">
-  <h1 style="margin:6px 2px 12px">💵 現金ダッシュボード（証券会社別）</h1>
+  <h1 class="cash-page-title">💵 現金ダッシュボード</h1>
+  <div class="cash-page-sub">証券会社ごとに横スワイプで切り替えできます</div>
 
   {% if brokers %}
-    <div class="grid-broker">
-      {% for b in brokers %}
-      {% with pct=b.pct_available %}
-      <div class="card">
-        <h3>{{ b.broker }} 証券</h3>
+    <div class="cash-switcher">
+      <div class="cash-switcher-top">
+        <button type="button" class="switch-btn" id="cashPrevBtn" aria-label="前の証券会社">‹</button>
 
-        {# ===== 余力ヒーロー＋メーター ===== #}
-        <div class="hero-kpi
-          {% if b.available < 0 %}danger{% elif pct and pct <= 30 and b.available >= 0 %}warn{% endif %}">
-          <div class="hero-top">
-            <div>
-              <div class="hero-main-label">💰 余力（今すぐ使える資金）</div>
-              <div class="hero-main-value">
-                <span class="hero-main-num">{{ b.available|intcomma }}</span>
-                <span class="hero-main-unit">円</span>
+        <div class="switch-center">
+          <div class="switch-label">現在表示中</div>
+          <div class="switch-broker" id="cashCurrentBroker">{{ brokers.0.broker }}証券</div>
+          <div class="switch-meta"><span id="cashCurrentIndex">1</span> / {{ brokers|length }}</div>
+        </div>
+
+        <button type="button" class="switch-btn" id="cashNextBtn" aria-label="次の証券会社">›</button>
+      </div>
+
+      <div class="cash-dots" id="cashDots">
+        {% for b in brokers %}
+          <button
+            type="button"
+            class="cash-dot {% if forloop.first %}is-active{% endif %}"
+            data-index="{{ forloop.counter0 }}"
+            data-broker="{{ b.broker }}"
+            aria-label="{{ b.broker }}証券へ移動"
+          ></button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="cash-carousel">
+      <div class="cash-track" id="cashTrack">
+        {% for b in brokers %}
+        {% with pct=b.pct_available|default_if_none:0 %}
+        <section class="cash-slide" data-broker="{{ b.broker }}" data-index="{{ forloop.counter0 }}">
+          <div class="broker-card">
+            <div class="broker-card-head">
+              <h2 class="broker-card-title">{{ b.broker }}証券</h2>
+              <div class="broker-card-badge">{{ forloop.counter }} / {{ brokers|length }}</div>
+            </div>
+
+            <div class="hero-kpi {% if b.severity == 'danger' %}danger{% elif b.severity == 'warn' %}warn{% endif %}">
+              <div class="hero-top">
+                <div>
+                  <div class="hero-main-label">💰 今すぐ使える資金</div>
+                  <div class="hero-main-value">
+                    <span class="hero-main-num">{{ b.available|default:0|intcomma }}</span>
+                    <span class="hero-main-unit">円</span>
+                  </div>
+                </div>
+                {% if b.pct_available is not None %}
+                  <div class="hero-pct">{{ b.pct_available|floatformat:1 }}%</div>
+                {% endif %}
+              </div>
+
+              {% if b.pct_available is not None %}
+              <div class="meter">
+                {% if pct < 0 %}
+                  <div class="meter-inner" style="width:0%;"></div>
+                {% elif pct > 100 %}
+                  <div class="meter-inner" style="width:100%;"></div>
+                {% else %}
+                  <div class="meter-inner" style="width:{{ pct|floatformat:0 }}%;"></div>
+                {% endif %}
+              </div>
+              {% endif %}
+
+              <div class="hero-sub">
+                <span class="hero-sub-title">余力の式</span>
+                <div class="hero-sub-list">
+                  <div class="row">
+                    <span class="k">預り金</span>
+                    <span class="v">{{ b.cash|default:0|intcomma }} 円</span>
+                  </div>
+                  <div class="row">
+                    <span class="k">取得原価残</span>
+                    <span class="v">{{ b.invested_cost|default:0|intcomma }} 円</span>
+                  </div>
+                  <div class="row">
+                    <span class="k">拘束</span>
+                    <span class="v">{{ b.restricted|default:0|intcomma }} 円</span>
+                  </div>
+                </div>
               </div>
             </div>
-            {% if pct is not None %}
-              <div class="hero-pct">{{ pct|floatformat:1 }}%</div>
-            {% endif %}
-          </div>
 
-          {% if pct is not None %}
-          <div class="meter">
-            {% with raw=pct %}
-              {% if raw < 0 %}
-                {% with w=0 %}
-                  <div class="meter-inner" style="width:{{ w }}%;"></div>
-                {% endwith %}
-              {% elif raw > 100 %}
-                {% with w=100 %}
-                  <div class="meter-inner" style="width:{{ w }}%;"></div>
-                {% endwith %}
-              {% else %}
-                <div class="meter-inner" style="width:{{ raw|floatformat:0 }}%;"></div>
-              {% endif %}
-            {% endwith %}
-          </div>
-          {% endif %}
+            <div class="kpi-grid">
+              <div class="kpi cash">
+                <div class="head"><div class="label">🏦 預り金</div></div>
+                <div class="value">
+                  <span class="num">{{ b.cash|default:0|intcomma }}</span><span class="unit">円</span>
+                </div>
+                <div class="sub">口座に残っている現金</div>
+              </div>
 
-          <div class="hero-sub">
-            <span class="hero-sub-label">＝ 余力の内訳</span><br>
-            ・預り金 {{ b.cash|intcomma }} 円<br>
-            ・取得原価残 {{ b.invested_cost|intcomma }} 円<br>
-            ・拘束 {{ b.restricted|intcomma }} 円
-          </div>
-        </div>
+              <div class="kpi invested">
+                <div class="head"><div class="label">📉 取得原価残</div></div>
+                <div class="value">
+                  <span class="num">{{ b.invested_cost|default:0|intcomma }}</span><span class="unit">円</span>
+                </div>
+                <div class="sub">まだ保有中の買付済み元本</div>
+              </div>
 
-        {# ===== 内訳3ボックス ===== #}
-        <div class="kpi-row">
-          <div class="kpi cash">
-            <div class="head"><div class="label">🏦 預り金（口座の現金）</div></div>
-            <div class="value">
-              <span class="num">{{ b.cash|intcomma }}</span><span class="unit">円</span>
+              <div class="kpi restricted">
+                <div class="head"><div class="label">🔒 拘束金</div></div>
+                <div class="value">
+                  <span class="num">{{ b.restricted|default:0|intcomma }}</span><span class="unit">円</span>
+                </div>
+                <div class="sub">注文などで使えない金額</div>
+              </div>
+
+              <div class="kpi month {% if b.month_net < 0 %}neg{% else %}pos{% endif %}">
+                <div class="head"><div class="label">📅 今月の入出金差分</div></div>
+                <div class="value">
+                  <span class="num">{{ b.month_net|default:0|intcomma }}</span><span class="unit">円</span>
+                </div>
+                <div class="sub">今月の現金増減の合計</div>
+              </div>
             </div>
           </div>
-
-          <div class="kpi invested">
-            <div class="head"><div class="label">📉 取得原価残（買付済み元本）</div></div>
-            <div class="value">
-              <span class="num">{{ b.invested_cost|intcomma }}</span><span class="unit">円</span>
-            </div>
-          </div>
-
-          <div class="kpi restricted">
-            <div class="head"><div class="label">🔒 拘束金</div></div>
-            <div class="value">
-              <span class="num">{{ b.restricted|intcomma }}</span><span class="unit">円</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="small">📅 今月の入出金差分：{{ b.month_net|intcomma }} 円</div>
+        </section>
+        {% endwith %}
+        {% endfor %}
       </div>
-      {% endwith %}
-      {% endfor %}
     </div>
   {% else %}
-    <div class="card">まずは管理画面で「BrokerAccount」を作成してね（楽天/松井/SBIのどれかでOK）。</div>
+    <div class="empty-card">まずは管理画面で「BrokerAccount」を作成してね（楽天 / 松井 / SBI のどれかでOK）。</div>
   {% endif %}
 </div>
 
@@ -510,7 +740,6 @@ html,body{
         </div>
         <div>
           <label>税額（合計／円）</label>
-          {# ★ iPhoneでも「-」が打てるように type=text にする #}
           <input
             type="text"
             name="amount"
@@ -537,16 +766,154 @@ html,body{
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
+  const LSKEY = "cash.dashboard.activeBroker";
+  const track = document.getElementById("cashTrack");
+  const dotsWrap = document.getElementById("cashDots");
+  const dots = dotsWrap ? Array.from(dotsWrap.querySelectorAll(".cash-dot")) : [];
+  const slides = track ? Array.from(track.querySelectorAll(".cash-slide")) : [];
+  const currentBrokerEl = document.getElementById("cashCurrentBroker");
+  const currentIndexEl = document.getElementById("cashCurrentIndex");
+  const prevBtn = document.getElementById("cashPrevBtn");
+  const nextBtn = document.getElementById("cashNextBtn");
+
+  let currentIndex = 0;
+  let scrollTimer = null;
+
+  function brokerLabel(raw){
+    return (raw || "") + "証券";
+  }
+
+  function slideLeft(index){
+    const slide = slides[index];
+    if (!slide) return 0;
+    return slide.offsetLeft;
+  }
+
+  function updateDots(index){
+    dots.forEach((dot, i) => {
+      dot.classList.toggle("is-active", i === index);
+    });
+  }
+
+  function updateHeader(index){
+    const slide = slides[index];
+    if (!slide) return;
+    const broker = slide.dataset.broker || "";
+    if (currentBrokerEl) currentBrokerEl.textContent = brokerLabel(broker);
+    if (currentIndexEl) currentIndexEl.textContent = String(index + 1);
+    updateDots(index);
+    setActiveBrokerToForms(broker);
+    try{
+      localStorage.setItem(LSKEY, broker);
+    }catch(e){}
+  }
+
+  function goToIndex(index, smooth = true){
+    if (!track || !slides.length) return;
+    if (index < 0) index = 0;
+    if (index > slides.length - 1) index = slides.length - 1;
+    currentIndex = index;
+    track.scrollTo({
+      left: slideLeft(index),
+      behavior: smooth ? "smooth" : "auto",
+    });
+    updateHeader(index);
+  }
+
+  function detectCurrentIndex(){
+    if (!track || !slides.length) return 0;
+    const left = track.scrollLeft;
+    let bestIndex = 0;
+    let bestDiff = Infinity;
+    slides.forEach((slide, i) => {
+      const diff = Math.abs(slide.offsetLeft - left);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestIndex = i;
+      }
+    });
+    return bestIndex;
+  }
+
+  function setActiveBrokerToForms(broker){
+    const ids = ["dep-broker", "wd-broker", "rs-broker", "tx-broker"];
+    ids.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const hasOption = Array.from(el.options).some(opt => opt.value === broker);
+      if (hasOption) el.value = broker;
+    });
+  }
+
+  function initSavedBroker(){
+    if (!slides.length) return;
+    let saved = null;
+    try{
+      saved = localStorage.getItem(LSKEY);
+    }catch(e){}
+    if (!saved) {
+      updateHeader(0);
+      return;
+    }
+    const idx = slides.findIndex(slide => (slide.dataset.broker || "") === saved);
+    if (idx >= 0) {
+      goToIndex(idx, false);
+    } else {
+      updateHeader(0);
+    }
+  }
+
+  if (track && slides.length) {
+    initSavedBroker();
+
+    track.addEventListener("scroll", () => {
+      if (scrollTimer) clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => {
+        const idx = detectCurrentIndex();
+        if (idx !== currentIndex) {
+          currentIndex = idx;
+        }
+        updateHeader(idx);
+      }, 70);
+    });
+
+    window.addEventListener("resize", () => {
+      goToIndex(currentIndex, false);
+      adjust();
+    });
+  }
+
+  if (prevBtn) {
+    prevBtn.addEventListener("click", () => {
+      goToIndex(currentIndex - 1, true);
+    });
+  }
+
+  if (nextBtn) {
+    nextBtn.addEventListener("click", () => {
+      goToIndex(currentIndex + 1, true);
+    });
+  }
+
+  dots.forEach((dot) => {
+    dot.addEventListener("click", () => {
+      const idx = parseInt(dot.dataset.index || "0", 10);
+      goToIndex(idx, true);
+    });
+  });
+
   const modals = {
     deposit : document.getElementById("modal-deposit"),
     withdraw: document.getElementById("modal-withdraw"),
     restrict: document.getElementById("modal-restrict"),
     tax     : document.getElementById("modal-tax"),
   };
-  document.querySelectorAll("[data-open]").forEach(b=>{
-    b.addEventListener("click", ()=> show(modals[b.dataset.open]));
+
+  document.querySelectorAll("[data-open]").forEach((b) => {
+    b.addEventListener("click", () => show(modals[b.dataset.open]));
   });
-  document.querySelectorAll("[data-close]").forEach(b=>{
+
+  document.querySelectorAll("[data-close]").forEach((b) => {
     b.addEventListener("click", closeAll);
   });
 
@@ -558,14 +925,14 @@ document.addEventListener("DOMContentLoaded", () => {
     el.classList.add("show");
     el.setAttribute("aria-hidden","false");
   }
+
   function closeAll(){
-    document.querySelectorAll(".modal.show").forEach(m=>{
+    document.querySelectorAll(".modal.show").forEach((m) => {
       m.classList.remove("show");
       m.setAttribute("aria-hidden","true");
     });
   }
 
-  // ===== 税額（text）を数値文字列に正規化して送信 =====
   const taxModal = modals.tax;
   if (taxModal) {
     const form = taxModal.querySelector("#tax-form");
@@ -574,27 +941,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const normalizeIntString = (s) => {
       if (s == null) return "";
       s = String(s).trim();
-
-      // 全角マイナス/ダッシュ系 -> "-"
       s = s.replace(/[−ー―]/g, "-");
-
-      // カンマ除去（"1,200" みたいなのも許容）
       s = s.replace(/,/g, "");
-
-      // いったん数字とマイナス以外を除去
       s = s.replace(/[^\d-]/g, "");
-
-      // マイナスは先頭に1つだけ許容
       const neg = s.startsWith("-") ? "-" : "";
       s = s.replace(/-/g, "");
       s = neg + s;
-
       return s;
     };
 
     if (amountEl) {
       amountEl.addEventListener("input", () => {
-        // 入力中にガッツリ書き換えると打ちにくい場合があるので、軽めに全角だけ直す
         amountEl.value = String(amountEl.value).replace(/[−ー―]/g, "-");
       });
     }
@@ -603,14 +960,13 @@ document.addEventListener("DOMContentLoaded", () => {
       form.addEventListener("submit", (e) => {
         const v = normalizeIntString(amountEl.value);
 
-        if (!v || v === "-" ) {
+        if (!v || v === "-") {
           e.preventDefault();
           alert("税額を入力してください（例：-1200）");
           amountEl.focus();
           return;
         }
 
-        // 数値として解釈できるかチェック（整数限定）
         if (!/^-?\d+$/.test(v)) {
           e.preventDefault();
           alert("税額は整数で入力してください（例：-1200）");
@@ -618,7 +974,7 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
 
-        amountEl.value = v; // 正規化して送信
+        amountEl.value = v;
       });
     }
   }
@@ -627,16 +983,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const dock = document.querySelector(".cash-dock");
   const inner = document.querySelector(".cash-dock .inner");
   const bottomTab = document.getElementById("bottomTabRoot");
-  const adjust = ()=>{
+
+  const adjust = () => {
     const dockH = inner ? inner.getBoundingClientRect().height : 0;
     const tabH  = bottomTab ? bottomTab.getBoundingClientRect().height : 0;
     if(dock){
       dock.style.bottom = tabH + "px";
     }
     if(wrap){
-      wrap.style.paddingBottom = (dockH + tabH + 24) + "px";
+      wrap.style.paddingBottom = (dockH + tabH + 26) + "px";
     }
   };
+
   adjust();
   window.addEventListener("resize", adjust);
 });
