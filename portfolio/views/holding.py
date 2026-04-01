@@ -5,7 +5,7 @@
 # - Holding 一覧表示と銘柄APIだけを担当する view
 #
 # 今回の修正
-# - 保有ページのサブナビから「要注意」へ遷移できるようにする
+# - 保有ページのサブナビから「AI提案」へ遷移できるようにする
 # - 保有ページ自体は引き続き「操作専用」を維持する
 
 # -*- coding: utf-8 -*-
@@ -162,7 +162,7 @@ def _build_subnav(active_key: str = "holdings"):
         {"key": "holdings", "label": "保有", "url": reverse("holding_list")},
         {"key": "summary", "label": "サマリー", "url": reverse("holding_summary")},
         {"key": "attention", "label": "要注意", "url": reverse("holding_attention")},
-        {"key": "ai", "label": "AI提案", "url": None},
+        {"key": "ai", "label": "AI提案", "url": reverse("holding_ai")},
     ]
     for item in items:
         item["is_active"] = item["key"] == active_key
