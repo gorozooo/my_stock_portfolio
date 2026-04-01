@@ -3,8 +3,8 @@
 <!--
 このファイルは何？
 - /holdings/ の本体テンプレート
-- 保有ページを「見る・触る」専用に絞った1ページ構成
-- KPI / フィルター / ソート / スパーク / partial include は廃止
+- 保有ページを「一覧主役」の行レイアウトで表示する
+- 操作ボタンは常時表示、詳細は補足だけを展開する
 -->
 
 {% extends "base.html" %}
@@ -18,9 +18,9 @@
   html,body{max-width:100%;overflow-x:hidden}
 
   .holdings-page{
-    max-width: 980px;
-    margin: 0 auto;
-    padding: 12px 10px 120px;
+    max-width:980px;
+    margin:0 auto;
+    padding:12px 10px 120px;
   }
 
   .page-head{
@@ -95,7 +95,7 @@
   }
 
   .tab-block{
-    margin-bottom:12px;
+    margin-bottom:10px;
   }
   .tab-scroll{
     display:flex;
@@ -140,34 +140,34 @@
     font-size:11px;
   }
 
-  .account-section{
-    margin-bottom:14px;
+  .section-block{
+    margin-top:14px;
     border:1px solid rgba(255,255,255,.08);
     border-radius:16px;
     background:rgba(255,255,255,.03);
     overflow:hidden;
   }
-  .account-head{
+  .section-head{
     display:flex;
     align-items:center;
     justify-content:space-between;
-    gap:8px;
+    gap:10px;
     padding:12px 14px;
     border-bottom:1px solid rgba(255,255,255,.08);
     background:rgba(255,255,255,.04);
   }
-  .account-title{
+  .section-title{
     display:flex;
     align-items:center;
     gap:8px;
     min-width:0;
   }
-  .account-name{
+  .section-name{
     font-size:15px;
     font-weight:800;
     color:#eef2ff;
   }
-  .account-count{
+  .section-count{
     display:inline-flex;
     align-items:center;
     justify-content:center;
@@ -182,27 +182,16 @@
   }
 
   .section-body{
-    padding:10px;
+    padding:8px 10px 10px;
   }
 
   .holding-row{
-    border:1px solid rgba(255,255,255,.08);
-    border-radius:14px;
-    background:rgba(255,255,255,.03);
-    overflow:hidden;
+    border-bottom:1px solid rgba(255,255,255,.08);
+    padding:12px 4px;
   }
-  .holding-row + .holding-row{
-    margin-top:10px;
-  }
-  .holding-row summary{
-    list-style:none;
-    cursor:pointer;
-    padding:12px;
-  }
-  .holding-row summary::-webkit-details-marker{display:none}
-  .holding-row[open]{
-    border-color:rgba(99,102,241,.22);
-    background:rgba(255,255,255,.045);
+  .holding-row:last-child{
+    border-bottom:none;
+    padding-bottom:4px;
   }
 
   .row-top{
@@ -210,18 +199,16 @@
     align-items:flex-start;
     justify-content:space-between;
     gap:10px;
-    margin-bottom:8px;
   }
   .row-title-wrap{
     min-width:0;
     flex:1 1 auto;
   }
   .row-name{
-    font-size:16px;
+    font-size:17px;
     font-weight:800;
     color:#eef2ff;
     line-height:1.2;
-    letter-spacing:.01em;
     word-break:break-word;
   }
   .row-code{
@@ -229,6 +216,7 @@
     font-size:12px;
     color:#93c5fd;
     font-weight:700;
+    letter-spacing:.02em;
   }
 
   .side-badge{
@@ -236,7 +224,7 @@
     display:inline-flex;
     align-items:center;
     justify-content:center;
-    min-width:56px;
+    min-width:58px;
     height:28px;
     padding:0 10px;
     border-radius:999px;
@@ -259,7 +247,7 @@
     display:flex;
     flex-wrap:wrap;
     gap:6px;
-    margin-bottom:10px;
+    margin-top:8px;
   }
   .chip{
     display:inline-flex;
@@ -281,51 +269,95 @@
     color:#e0f2fe;
   }
 
-  .metric-grid{
+  .action-row{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    margin-top:10px;
+  }
+  .action-btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:32px;
+    padding:0 10px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.05);
+    color:#e5e7eb;
+    font-size:11px;
+    font-weight:800;
+    text-decoration:none;
+    line-height:1;
+    white-space:nowrap;
+  }
+  .action-btn.subtle{
+    background:rgba(255,255,255,.04);
+    color:#cbd5e1;
+  }
+  .action-btn.warn{
+    background:rgba(168,85,247,.10);
+    border-color:rgba(168,85,247,.35);
+    color:#f3e8ff;
+  }
+  .action-btn.danger{
+    background:rgba(239,68,68,.10);
+    border-color:rgba(239,68,68,.35);
+    color:#fee2e2;
+  }
+
+  .metric-lines{
+    margin-top:10px;
+    border-top:1px dashed rgba(255,255,255,.08);
+    padding-top:10px;
     display:grid;
-    grid-template-columns:repeat(3,minmax(0,1fr));
     gap:8px;
   }
-  .metric{
+  .metric-line{
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+    gap:10px;
+  }
+  .metric-item{
     min-width:0;
-    padding:9px 10px;
-    border-radius:12px;
-    background:rgba(255,255,255,.04);
-    border:1px solid rgba(255,255,255,.08);
   }
   .metric-k{
     font-size:10px;
     color:#94a3b8;
-    margin-bottom:4px;
-    letter-spacing:.02em;
+    margin-bottom:3px;
     line-height:1.2;
+    letter-spacing:.02em;
   }
   .metric-v{
     font-size:13px;
     font-weight:800;
     color:#eef2ff;
-    line-height:1.25;
+    line-height:1.3;
     word-break:break-word;
   }
   .metric-v.pos{color:#22c55e}
   .metric-v.neg{color:#ef4444}
 
-  .detail-panel{
-    padding:0 12px 12px;
-    border-top:1px dashed rgba(255,255,255,.10);
+  .detail-wrap{
+    display:none;
+    margin-top:10px;
+    padding-top:10px;
+    border-top:1px dashed rgba(255,255,255,.08);
+  }
+  .holding-row.is-open .detail-wrap{
+    display:block;
   }
   .detail-grid{
     display:grid;
-    grid-template-columns:repeat(2,minmax(0,1fr));
+    grid-template-columns:repeat(2, minmax(0,1fr));
     gap:8px;
-    padding-top:10px;
   }
   .detail-item{
-    padding:9px 10px;
+    min-width:0;
+    padding:10px;
     border-radius:12px;
     background:rgba(255,255,255,.04);
     border:1px solid rgba(255,255,255,.08);
-    min-width:0;
   }
   .detail-item.full{
     grid-column:1 / -1;
@@ -344,39 +376,8 @@
     word-break:break-word;
   }
 
-  .action-row{
-    display:flex;
-    gap:8px;
-    flex-wrap:wrap;
-    margin-top:10px;
-  }
-  .action-btn{
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    gap:6px;
-    min-height:38px;
-    padding:0 12px;
-    border-radius:12px;
-    border:1px solid rgba(255,255,255,.12);
-    background:rgba(255,255,255,.05);
-    color:#e5e7eb;
-    font-size:12px;
-    font-weight:700;
-    text-decoration:none;
-  }
-  .action-btn.warn{
-    background:rgba(168,85,247,.10);
-    border-color:rgba(168,85,247,.35);
-    color:#f3e8ff;
-  }
-  .action-btn.danger{
-    background:rgba(239,68,68,.10);
-    border-color:rgba(239,68,68,.35);
-    color:#fee2e2;
-  }
-
   .empty-box{
+    margin-top:12px;
     padding:20px 16px;
     border:1px solid rgba(255,255,255,.08);
     border-radius:16px;
@@ -401,11 +402,11 @@
     }
 
     .head-btn{
-      flex:1 1 auto;
+      width:100%;
     }
 
-    .metric-grid{
-      grid-template-columns:repeat(2,minmax(0,1fr));
+    .metric-line{
+      grid-template-columns:repeat(2, minmax(0, 1fr));
     }
 
     .detail-grid{
@@ -421,7 +422,7 @@
   <div class="page-head">
     <div>
       <h1 class="page-title">保有一覧</h1>
-      <div class="page-note">保有ページは「見る・触る」専用です。評価額と損益は円換算で表示します。</div>
+      <div class="page-note">保有ページは「見る・触る」専用です。証券会社 → 口座区分の順で見やすく整理しています。</div>
     </div>
     <div class="head-actions">
       <a href="{% url 'holding_create' %}" class="head-btn">＋ 新規登録</a>
@@ -462,41 +463,52 @@
 
   {% if has_rows %}
     {% for section in sections %}
-      <section class="account-section">
-        <div class="account-head">
-          <div class="account-title">
-            <div class="account-name">{{ section.label }}</div>
-            <div class="account-count">{{ section.count }}</div>
+      <section class="section-block">
+        <div class="section-head">
+          <div class="section-title">
+            <div class="section-name">{{ section.label }}</div>
+            <div class="section-count">{{ section.count }}</div>
           </div>
         </div>
 
         <div class="section-body">
           {% for r in section.rows %}
             {% with h=r.obj %}
-            <details class="holding-row">
-              <summary>
-                <div class="row-top">
-                  <div class="row-title-wrap">
-                    <div class="row-name">{{ h.name|default:"-" }}</div>
-                    <div class="row-code">{{ h.ticker }}</div>
-                  </div>
-                  <div class="side-badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">
-                    {{ h.side }}
-                  </div>
+            <article class="holding-row" data-holding-row>
+              <div class="row-top">
+                <div class="row-title-wrap">
+                  <div class="row-name">{{ h.name|default:"-" }}</div>
+                  <div class="row-code">{{ h.ticker }}</div>
                 </div>
-
-                <div class="chip-row">
-                  <span class="chip">{{ h.get_broker_display }}</span>
-                  <span class="chip">{{ h.get_account_display }}</span>
-                  {% if h.currency == "USD" %}
-                    <span class="chip currency">USD</span>
-                  {% else %}
-                    <span class="chip currency">JPY</span>
-                  {% endif %}
+                <div class="side-badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">
+                  {{ h.side }}
                 </div>
+              </div>
 
-                <div class="metric-grid">
-                  <div class="metric">
+              <div class="chip-row">
+                <span class="chip">{{ h.get_broker_display }}</span>
+                <span class="chip">{{ h.get_account_display }}</span>
+                <span class="chip currency">{% if h.currency == "USD" %}USD{% else %}JPY{% endif %}</span>
+              </div>
+
+              <div class="action-row">
+                <button type="button" class="action-btn subtle" data-detail-toggle>詳細</button>
+                <a href="{% url 'holding_edit' h.id %}" class="action-btn">編集</a>
+                <a href="{% url 'holding_close_sheet' h.id %}" class="action-btn">手仕舞い</a>
+
+                {% if r.can_margin_to_spot %}
+                  <a href="{% url 'holding_margin_to_spot_sheet' h.id %}" class="action-btn warn">現引</a>
+                {% endif %}
+
+                <form method="post" action="{% url 'holding_delete' h.id %}" onsubmit="return confirm('削除しますか？');" style="display:inline;">
+                  {% csrf_token %}
+                  <button type="submit" class="action-btn danger">削除</button>
+                </form>
+              </div>
+
+              <div class="metric-lines">
+                <div class="metric-line">
+                  <div class="metric-item">
                     <div class="metric-k">現在値</div>
                     <div class="metric-v">
                       {% if r.price_now is not None %}
@@ -511,7 +523,7 @@
                     </div>
                   </div>
 
-                  <div class="metric">
+                  <div class="metric-item">
                     <div class="metric-k">取得単価</div>
                     <div class="metric-v">
                       {% if h.currency == "USD" %}
@@ -522,12 +534,14 @@
                     </div>
                   </div>
 
-                  <div class="metric">
+                  <div class="metric-item">
                     <div class="metric-k">保有数</div>
                     <div class="metric-v">{{ h.quantity|intcomma }} 株</div>
                   </div>
+                </div>
 
-                  <div class="metric">
+                <div class="metric-line">
+                  <div class="metric-item">
                     <div class="metric-k">評価額</div>
                     <div class="metric-v">
                       {% if r.valuation is not None %}
@@ -538,7 +552,7 @@
                     </div>
                   </div>
 
-                  <div class="metric">
+                  <div class="metric-item">
                     <div class="metric-k">含み損益</div>
                     <div class="metric-v {% if r.pnl is not None %}{% if r.pnl < 0 %}neg{% else %}pos{% endif %}{% endif %}">
                       {% if r.pnl is not None %}
@@ -549,7 +563,7 @@
                     </div>
                   </div>
 
-                  <div class="metric">
+                  <div class="metric-item">
                     <div class="metric-k">損益率</div>
                     <div class="metric-v {% if r.pnl_pct is not None %}{% if r.pnl_pct < 0 %}neg{% else %}pos{% endif %}{% endif %}">
                       {% if r.pnl_pct is not None %}
@@ -560,13 +574,11 @@
                     </div>
                   </div>
                 </div>
-              </summary>
 
-              <div class="detail-panel">
-                <div class="detail-grid">
-                  <div class="detail-item">
-                    <div class="detail-k">年間配当</div>
-                    <div class="detail-v">
+                <div class="metric-line">
+                  <div class="metric-item">
+                    <div class="metric-k">年間配当</div>
+                    <div class="metric-v">
                       {% if r.div_annual is not None %}
                         {% if h.currency == "USD" %}
                           ${{ r.div_annual|floatformat:0|intcomma }}
@@ -579,9 +591,9 @@
                     </div>
                   </div>
 
-                  <div class="detail-item">
-                    <div class="detail-k">累計配当</div>
-                    <div class="detail-v">
+                  <div class="metric-item">
+                    <div class="metric-k">累計配当</div>
+                    <div class="metric-v">
                       {% if r.div_received is not None %}
                         {% if h.currency == "USD" %}
                           ${{ r.div_received|floatformat:0|intcomma }}
@@ -594,6 +606,21 @@
                     </div>
                   </div>
 
+                  <div class="metric-item">
+                    <div class="metric-k">保有日数</div>
+                    <div class="metric-v">
+                      {% if r.days is not None %}
+                        {{ r.days }} 日
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="detail-wrap" data-detail-panel>
+                <div class="detail-grid">
                   <div class="detail-item">
                     <div class="detail-k">保有開始</div>
                     <div class="detail-v">
@@ -606,10 +633,10 @@
                   </div>
 
                   <div class="detail-item">
-                    <div class="detail-k">保有日数</div>
+                    <div class="detail-k">現在利回り</div>
                     <div class="detail-v">
-                      {% if r.days is not None %}
-                        {{ r.days }} 日
+                      {% if r.yield_now is not None %}
+                        {{ r.yield_now|floatformat:2 }}%
                       {% else %}
                         —
                       {% endif %}
@@ -617,10 +644,10 @@
                   </div>
 
                   <div class="detail-item">
-                    <div class="detail-k">更新日</div>
+                    <div class="detail-k">取得利回り</div>
                     <div class="detail-v">
-                      {% if h.updated_at %}
-                        {{ h.updated_at|date:"Y-m-d" }}
+                      {% if r.yield_cost is not None %}
+                        {{ r.yield_cost|floatformat:2 }}%
                       {% else %}
                         —
                       {% endif %}
@@ -628,8 +655,8 @@
                   </div>
 
                   <div class="detail-item">
-                    <div class="detail-k">売買方向</div>
-                    <div class="detail-v">{{ h.side }}</div>
+                    <div class="detail-k">通貨</div>
+                    <div class="detail-v">{{ h.currency|default:"—" }}</div>
                   </div>
 
                   {% if h.memo %}
@@ -639,22 +666,8 @@
                     </div>
                   {% endif %}
                 </div>
-
-                <div class="action-row">
-                  <a href="{% url 'holding_edit' h.id %}" class="action-btn">✏️ 編集</a>
-                  <a href="{% url 'holding_close_sheet' h.id %}" class="action-btn">💱 手仕舞い</a>
-
-                  {% if r.can_margin_to_spot %}
-                    <a href="{% url 'holding_margin_to_spot_sheet' h.id %}" class="action-btn warn">🔁 現引</a>
-                  {% endif %}
-
-                  <form method="post" action="{% url 'holding_delete' h.id %}" onsubmit="return confirm('削除しますか？');" style="display:inline;">
-                    {% csrf_token %}
-                    <button type="submit" class="action-btn danger">🗑️ 削除</button>
-                  </form>
-                </div>
               </div>
-            </details>
+            </article>
             {% endwith %}
           {% endfor %}
         </div>
@@ -669,5 +682,5 @@
 
 </div>
 
-<script src="{% static 'js/holdings.js' %}?v=200"></script>
+<script src="{% static 'js/holdings.js' %}?v=210"></script>
 {% endblock %}
