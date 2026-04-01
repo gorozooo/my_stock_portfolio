@@ -1,5 +1,12 @@
 # [FILE] urls.py
 # [PATH] portfolio/urls.py
+#
+# このファイルは何？
+# - portfolio アプリ全体のURL定義
+#
+# 今回の修正ポイント
+# - 保有ページは partial 依存を外し、/holdings/ の1ページ構成へ寄せる
+# - holding_list_partial はURLから外す
 
 from django.http import HttpResponse
 from django.urls import path, include
@@ -58,7 +65,6 @@ urlpatterns = [
     path("holdings/<int:pk>/edit/", hv_actions.holding_edit, name="holding_edit"),
     path("holdings/<int:pk>/delete/", hv_actions.holding_delete, name="holding_delete"),
     path("api/ticker-name", hv.api_ticker_name, name="api_ticker_name"),
-    path("holdings/partial/list", hv.holding_list_partial, name="holding_list_partial"),
 
     # 配当
     path("dividends/dashboard/", v_div.dashboard, name="dividend_dashboard"),
