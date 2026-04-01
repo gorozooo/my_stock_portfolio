@@ -10,6 +10,7 @@
 # - 初回描画時に必要な組み合わせを全部作っておき、
 #   タブ切替はフロント側で行う
 # - 対象タブは「全体 / 現物 / 信用」
+# - サブナビは4ページ共通で、常に相互遷移できるようにする
 
 # -*- coding: utf-8 -*-
 from __future__ import annotations
@@ -67,8 +68,8 @@ def _build_subnav(active_key: str = "summary"):
     items = [
         {"key": "holdings", "label": "保有", "url": reverse("holding_list")},
         {"key": "summary", "label": "サマリー", "url": reverse("holding_summary")},
-        {"key": "attention", "label": "要注意", "url": None},
-        {"key": "ai", "label": "AI提案", "url": None},
+        {"key": "attention", "label": "要注意", "url": reverse("holding_attention")},
+        {"key": "ai", "label": "AI提案", "url": reverse("holding_ai")},
     ]
     for item in items:
         item["is_active"] = item["key"] == active_key
@@ -138,7 +139,10 @@ def holding_summary(request):
         )
 
     scope_tabs = []
-    active_counts = broker_scope_counts.get(active_broker, {"all": 0, "spot": 0, "margin": 0})
+    active_counts = broker_scope_counts.get(
+        active_broker,
+        {"all": 0, "spot": 0, "margin": 0},
+    )
     for scope_key, scope_label in SCOPE_TABS:
         scope_tabs.append(
             {
