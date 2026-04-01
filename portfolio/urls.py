@@ -5,8 +5,8 @@
 # - portfolio アプリのURL定義
 #
 # 今回の修正
-# - /holdings/attention/ を追加
-# - 要注意ページの view をルーティングする
+# - /holdings/ai/ を追加
+# - AI提案ページの view をルーティングする
 
 from django.http import HttpResponse
 from django.urls import path, include
@@ -24,6 +24,7 @@ from .views import dev_tools as dev_views
 from .views import holding as hv
 from .views import holding_summary as hv_summary
 from .views import holding_attention as hv_attention
+from .views import holding_ai as hv_ai
 from .views import holding_actions as hv_actions
 from .views import realized_actions as realized_actions_views
 from .views import margin_to_spot as v_margin_to_spot
@@ -61,6 +62,7 @@ urlpatterns = [
     path("holdings/", hv.holding_list, name="holding_list"),
     path("holdings/summary/", hv_summary.holding_summary, name="holding_summary"),
     path("holdings/attention/", hv_attention.holding_attention, name="holding_attention"),
+    path("holdings/ai/", hv_ai.holding_ai, name="holding_ai"),
     path("holdings/<int:pk>/close", realized_views.close_sheet, name="holding_close_sheet"),
     path("holdings/<int:pk>/close/submit", realized_actions_views.close_submit, name="holding_close_submit"),
     path("holdings/<int:pk>/margin-to-spot/", v_margin_to_spot.margin_to_spot_sheet, name="holding_margin_to_spot_sheet"),
