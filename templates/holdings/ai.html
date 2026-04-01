@@ -4,7 +4,7 @@
 このファイルは何？
 - /holdings/ai/ の本体テンプレート
 - 証券会社タブ / 対象タブ / 提案カテゴリタブでAI提案候補を切り替える
-- 総合 / 利確 / 損切り警戒 / 継続 / 現引 / NISA / 慎重 を見られる
+- AI総括 + 1銘柄1結論 + フレンドリー自然文コメント を表示する
 -->
 
 {% extends "base.html" %}
@@ -21,23 +21,6 @@
     max-width:980px;
     margin:0 auto;
     padding:12px 10px 120px;
-  }
-
-  .page-head{
-    margin-bottom:12px;
-  }
-  .page-title{
-    margin:0;
-    font-size:20px;
-    font-weight:800;
-    color:#eef2ff;
-    letter-spacing:.02em;
-  }
-  .page-note{
-    margin-top:4px;
-    font-size:12px;
-    color:#94a3b8;
-    line-height:1.6;
   }
 
   .subnav{
@@ -64,6 +47,9 @@
     background:rgba(99,102,241,.18);
     border-color:rgba(99,102,241,.45);
     color:#eef2ff;
+  }
+  .subnav-item.disabled{
+    opacity:.55;
   }
 
   .tab-block{
@@ -133,6 +119,111 @@
   .category-panel{display:none}
   .category-panel.active{display:block}
 
+  .brief-card{
+    margin-bottom:12px;
+    border:1px solid rgba(16,185,129,.22);
+    border-radius:18px;
+    background:
+      linear-gradient(135deg, rgba(16,185,129,.10), rgba(59,130,246,.08)),
+      rgba(255,255,255,.03);
+    overflow:hidden;
+  }
+  .brief-head{
+    padding:14px 16px 12px;
+    border-bottom:1px solid rgba(255,255,255,.08);
+  }
+  .brief-k{
+    font-size:10px;
+    color:#94a3b8;
+    margin-bottom:6px;
+    letter-spacing:.04em;
+  }
+  .brief-title{
+    font-size:18px;
+    font-weight:900;
+    color:#eef2ff;
+    line-height:1.4;
+    letter-spacing:.01em;
+  }
+  .brief-summary{
+    margin-top:8px;
+    color:#dbe3f4;
+    font-size:13px;
+    line-height:1.8;
+  }
+  .brief-body{
+    padding:12px 14px;
+  }
+  .brief-grid{
+    display:grid;
+    grid-template-columns:1.2fr .8fr;
+    gap:10px;
+  }
+  .brief-box{
+    padding:11px 12px;
+    border-radius:14px;
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.08);
+  }
+  .brief-box-title{
+    font-size:12px;
+    font-weight:800;
+    color:#eef2ff;
+    margin-bottom:8px;
+  }
+  .brief-list{
+    display:grid;
+    gap:8px;
+  }
+  .brief-line{
+    color:#cbd5e1;
+    font-size:12px;
+    line-height:1.7;
+  }
+
+  .priority-list{
+    display:grid;
+    gap:8px;
+  }
+  .priority-item{
+    padding:9px 10px;
+    border-radius:12px;
+    background:rgba(255,255,255,.045);
+    border:1px solid rgba(255,255,255,.08);
+  }
+  .priority-top{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    margin-bottom:3px;
+  }
+  .priority-name{
+    font-size:13px;
+    font-weight:800;
+    color:#eef2ff;
+    line-height:1.3;
+  }
+  .priority-badge{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:22px;
+    padding:0 8px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.06);
+    color:#dbeafe;
+    font-size:10px;
+    font-weight:800;
+    white-space:nowrap;
+  }
+  .priority-line{
+    font-size:12px;
+    color:#cbd5e1;
+    line-height:1.6;
+  }
+
   .hero-grid{
     display:grid;
     grid-template-columns:repeat(4,minmax(0,1fr));
@@ -195,7 +286,7 @@
 
   .suggestion-item{
     padding:12px;
-    border-radius:14px;
+    border-radius:16px;
     background:rgba(255,255,255,.04);
     border:1px solid rgba(255,255,255,.08);
   }
@@ -212,14 +303,14 @@
     flex:1 1 auto;
   }
   .item-title{
-    font-size:15px;
-    font-weight:800;
+    font-size:16px;
+    font-weight:900;
     color:#eef2ff;
-    line-height:1.25;
+    line-height:1.35;
     word-break:break-word;
   }
   .item-sub{
-    margin-top:3px;
+    margin-top:5px;
     font-size:12px;
     color:#93c5fd;
     font-weight:700;
@@ -250,7 +341,7 @@
     border-color:rgba(16,185,129,.30);
     color:#bbf7d0;
   }
-  .badge.score{
+  .badge.urgency{
     background:rgba(59,130,246,.12);
     border-color:rgba(59,130,246,.30);
     color:#dbeafe;
@@ -282,20 +373,51 @@
     white-space:nowrap;
   }
 
-  .reason-box{
+  .comment-box{
+    padding:10px 12px;
+    border-radius:13px;
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.08);
+    color:#dbe3f4;
+    font-size:13px;
+    line-height:1.8;
+  }
+  .comment-box.main{
     margin-bottom:8px;
+    background:rgba(16,185,129,.07);
+    border-color:rgba(16,185,129,.16);
+    color:#ecfeff;
+  }
+
+  .mini-grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px;
+    margin-bottom:8px;
+  }
+  .mini-box{
     padding:9px 10px;
     border-radius:12px;
     background:rgba(255,255,255,.035);
     border:1px dashed rgba(255,255,255,.10);
-    color:#cbd5e1;
+    min-width:0;
+  }
+  .mini-k{
+    font-size:10px;
+    color:#94a3b8;
+    margin-bottom:4px;
+    line-height:1.2;
+  }
+  .mini-v{
     font-size:12px;
-    line-height:1.6;
+    color:#cbd5e1;
+    line-height:1.7;
+    word-break:break-word;
   }
 
   .metric-grid{
     display:grid;
-    grid-template-columns:repeat(2,minmax(0,1fr));
+    grid-template-columns:repeat(3,minmax(0,1fr));
     gap:8px;
   }
   .metric{
@@ -367,7 +489,16 @@
     .ai-page{
       padding:12px 8px 120px;
     }
+    .brief-grid{
+      grid-template-columns:1fr;
+    }
     .hero-grid{
+      grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+    .mini-grid{
+      grid-template-columns:1fr;
+    }
+    .metric-grid{
       grid-template-columns:repeat(2,minmax(0,1fr));
     }
     .action-row{
@@ -385,10 +516,14 @@
   data-initial-scope="{{ active_scope }}"
   data-initial-category="{{ active_category }}"
 >
- 
+
   <div class="subnav">
     {% for item in subnav_items %}
-      <a href="{{ item.url }}" class="subnav-item {% if item.is_active %}active{% endif %}">{{ item.label }}</a>
+      {% if item.url %}
+        <a href="{{ item.url }}" class="subnav-item {% if item.is_active %}active{% endif %}">{{ item.label }}</a>
+      {% else %}
+        <span class="subnav-item {% if item.is_active %}active{% else %}disabled{% endif %}">{{ item.label }}</span>
+      {% endif %}
     {% endfor %}
   </div>
 
@@ -452,483 +587,141 @@
       data-broker="{{ combo.broker_key }}"
       data-scope="{{ combo.scope_key }}"
       data-count-overall="{{ combo.counts.overall }}"
-      data-count-take_profit="{{ combo.counts.take_profit }}"
-      data-count-stop_alert="{{ combo.counts.stop_alert }}"
+      data-count-take-profit="{{ combo.counts.take_profit }}"
+      data-count-stop-alert="{{ combo.counts.stop_alert }}"
       data-count-continue="{{ combo.counts.continue }}"
-      data-count-margin_to_spot="{{ combo.counts.margin_to_spot }}"
+      data-count-margin-to-spot="{{ combo.counts.margin_to_spot }}"
       data-count-nisa="{{ combo.counts.nisa }}"
       data-count-cautious="{{ combo.counts.cautious }}"
     >
       {% if combo.count == 0 %}
         <div class="empty-box">この条件の保有はまだありません。</div>
       {% else %}
+
+        <div class="brief-card">
+          <div class="brief-head">
+            <div class="brief-k">AI総括</div>
+            <div class="brief-title">{{ combo.brief.headline }}</div>
+            <div class="brief-summary">{{ combo.brief.summary }}</div>
+          </div>
+          <div class="brief-body">
+            <div class="brief-grid">
+              <div class="brief-box">
+                <div class="brief-box-title">今日の見どころ</div>
+                <div class="brief-list">
+                  {% for line in combo.brief.focus_points %}
+                    <div class="brief-line">{{ line }}</div>
+                  {% endfor %}
+                </div>
+              </div>
+              <div class="brief-box">
+                <div class="brief-box-title">まず見る3銘柄</div>
+                <div class="priority-list">
+                  {% for p in combo.brief.top_actions %}
+                    <div class="priority-item">
+                      <div class="priority-top">
+                        <div class="priority-name">{{ p.name }} ({{ p.ticker }})</div>
+                        <div class="priority-badge">{{ p.action_label }} / {{ p.urgency_label }}</div>
+                      </div>
+                      <div class="priority-line">{{ p.line }}</div>
+                    </div>
+                  {% empty %}
+                    <div class="brief-line">今は強く押し出したい候補はまだありません。</div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="hero-grid">
           <div class="hero main">
             <div class="hero-k">対象件数</div>
             <div class="hero-v">{{ combo.count }}件</div>
           </div>
           <div class="hero">
-            <div class="hero-k">利確候補</div>
+            <div class="hero-k">今すぐ触りたい</div>
+            <div class="hero-v">{{ combo.brief.now_count }}件</div>
+          </div>
+          <div class="hero">
+            <div class="hero-k">利益整理</div>
             <div class="hero-v">{{ combo.counts.take_profit }}件</div>
           </div>
           <div class="hero">
-            <div class="hero-k">損切り警戒</div>
-            <div class="hero-v">{{ combo.counts.stop_alert }}件</div>
-          </div>
-          <div class="hero">
-            <div class="hero-k">現引候補</div>
-            <div class="hero-v">{{ combo.counts.margin_to_spot }}件</div>
+            <div class="hero-k">置き場所見直し</div>
+            <div class="hero-v">{{ combo.brief.relocate_count }}件</div>
           </div>
         </div>
 
-        <div class="category-panel {% if active_category == 'overall' %}active{% endif %}" data-category-panel="overall">
-          <div class="panel-card">
-            <div class="card-head">
-              <div class="card-title">総合</div>
-              <div class="card-note">複数の提案条件が重なったものを優先順で出しています。</div>
-            </div>
-            <div class="card-body">
-              {% if combo.groups.overall %}
-                <div class="suggestion-list">
-                  {% for item in combo.groups.overall %}
-                    <div class="suggestion-item">
-                      <div class="item-top">
-                        <div class="item-title-wrap">
-                          <div class="item-title">{{ item.name }}</div>
-                          <div class="item-sub">{{ item.ticker }}</div>
-                        </div>
-                        <div class="item-badges">
-                          {% for badge in item.badges %}
-                            <div class="badge {{ badge.kind }}">{{ badge.label }}</div>
-                          {% endfor %}
-                        </div>
-                      </div>
-
-                      <div class="chip-row">
-                        <span class="chip">{{ item.broker }}</span>
-                        <span class="chip">{{ item.account }}</span>
-                        <span class="chip">{{ item.qty|intcomma }}株</span>
-                      </div>
-
-                      <div class="reason-box">{{ item.reason_text }}</div>
-
-                      <div class="metric-grid">
-                        <div class="metric">
-                          <div class="metric-k">評価額</div>
-                          <div class="metric-v">¥{{ item.valuation|floatformat:0|intcomma }}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">含み損益</div>
-                          <div class="metric-v {% if item.pnl < 0 %}neg{% else %}pos{% endif %}">¥{{ item.pnl|floatformat:0|intcomma }}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">損益率</div>
-                          <div class="metric-v {% if item.pnl_pct is not None and item.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
-                            {% if item.pnl_pct is not None %}{{ item.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
+        {% for panel in combo.category_panels %}
+          <div class="category-panel {% if panel.key == active_category %}active{% endif %}" data-category-panel="{{ panel.key }}">
+            <div class="panel-card">
+              <div class="card-head">
+                <div class="card-title">{{ panel.label }}</div>
+                <div class="card-note">{{ panel.note }}</div>
+              </div>
+              <div class="card-body">
+                {% if panel.items %}
+                  <div class="suggestion-list">
+                    {% for item in panel.items %}
+                      <div class="suggestion-item">
+                        <div class="item-top">
+                          <div class="item-title-wrap">
+                            <div class="item-title">{{ item.ai_title }}</div>
+                            <div class="item-sub">{{ item.name }} ({{ item.ticker }})</div>
+                          </div>
+                          <div class="item-badges">
+                            {% for badge in item.badges %}
+                              <div class="badge {{ badge.kind }}">{{ badge.label }}</div>
+                            {% endfor %}
                           </div>
                         </div>
-                        <div class="metric">
-                          <div class="metric-k">年間配当</div>
-                          <div class="metric-v">¥{{ item.annual_div|floatformat:0|intcomma }}</div>
-                        </div>
-                      </div>
 
-                      <div class="action-row">
-                        <a href="{% url 'holding_edit' item.holding_id %}" class="action-btn">編集</a>
-                        <a href="{% url 'holding_close_sheet' item.holding_id %}" class="action-btn primary">手仕舞い</a>
-                        {% if item.can_margin_to_spot %}
-                          <a href="{% url 'holding_margin_to_spot_sheet' item.holding_id %}" class="action-btn warn">現引</a>
-                        {% endif %}
-                      </div>
-                    </div>
-                  {% endfor %}
-                </div>
-              {% else %}
-                <div class="empty-box">総合提案はまだありません。</div>
-              {% endif %}
-            </div>
-          </div>
-        </div>
+                        <div class="chip-row">
+                          <span class="chip">{{ item.broker }}</span>
+                          <span class="chip">{{ item.account }}</span>
+                          <span class="chip">{{ item.qty|intcomma }}株</span>
+                        </div>
 
-        <div class="category-panel" data-category-panel="take_profit">
-          <div class="panel-card">
-            <div class="card-head">
-              <div class="card-title">利確</div>
-              <div class="card-note">利益が出ていて、日数や構成比も踏まえて利確候補を並べています。</div>
-            </div>
-            <div class="card-body">
-              {% if combo.groups.take_profit %}
-                <div class="suggestion-list">
-                  {% for item in combo.groups.take_profit %}
-                    <div class="suggestion-item">
-                      <div class="item-top">
-                        <div class="item-title-wrap">
-                          <div class="item-title">{{ item.name }}</div>
-                          <div class="item-sub">{{ item.ticker }}</div>
-                        </div>
-                        <div class="item-badges">
-                          {% for badge in item.badges %}
-                            <div class="badge {{ badge.kind }}">{{ badge.label }}</div>
-                          {% endfor %}
-                        </div>
-                      </div>
-                      <div class="chip-row">
-                        <span class="chip">{{ item.broker }}</span>
-                        <span class="chip">{{ item.account }}</span>
-                        <span class="chip">{{ item.qty|intcomma }}株</span>
-                      </div>
-                      <div class="reason-box">{{ item.reason_text }}</div>
-                      <div class="metric-grid">
-                        <div class="metric">
-                          <div class="metric-k">含み損益</div>
-                          <div class="metric-v pos">¥{{ item.pnl|floatformat:0|intcomma }}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">損益率</div>
-                          <div class="metric-v pos">{% if item.pnl_pct is not None %}{{ item.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">評価額</div>
-                          <div class="metric-v">¥{{ item.valuation|floatformat:0|intcomma }}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">保有日数</div>
-                          <div class="metric-v">{% if item.days is not None %}{{ item.days }}日{% else %}—{% endif %}</div>
-                        </div>
-                      </div>
-                      <div class="action-row">
-                        <a href="{% url 'holding_close_sheet' item.holding_id %}" class="action-btn primary">手仕舞い</a>
-                        <a href="{% url 'holding_edit' item.holding_id %}" class="action-btn">編集</a>
-                        {% if item.can_margin_to_spot %}
-                          <a href="{% url 'holding_margin_to_spot_sheet' item.holding_id %}" class="action-btn warn">現引</a>
-                        {% endif %}
-                      </div>
-                    </div>
-                  {% endfor %}
-                </div>
-              {% else %}
-                <div class="empty-box">この条件では利確候補はありません。</div>
-              {% endif %}
-            </div>
-          </div>
-        </div>
+                        <div class="comment-box main">{{ item.ai_comment }}</div>
 
-        <div class="category-panel" data-category-panel="stop_alert">
-          <div class="panel-card">
-            <div class="card-head">
-              <div class="card-title">損切り警戒</div>
-              <div class="card-note">含み損・信用・長期化の要素が重いものを優先しています。</div>
-            </div>
-            <div class="card-body">
-              {% if combo.groups.stop_alert %}
-                <div class="suggestion-list">
-                  {% for item in combo.groups.stop_alert %}
-                    <div class="suggestion-item">
-                      <div class="item-top">
-                        <div class="item-title-wrap">
-                          <div class="item-title">{{ item.name }}</div>
-                          <div class="item-sub">{{ item.ticker }}</div>
-                        </div>
-                        <div class="item-badges">
-                          {% for badge in item.badges %}
-                            <div class="badge {{ badge.kind }}">{{ badge.label }}</div>
-                          {% endfor %}
-                        </div>
-                      </div>
-                      <div class="chip-row">
-                        <span class="chip">{{ item.broker }}</span>
-                        <span class="chip">{{ item.account }}</span>
-                        <span class="chip">{{ item.qty|intcomma }}株</span>
-                      </div>
-                      <div class="reason-box">{{ item.reason_text }}</div>
-                      <div class="metric-grid">
-                        <div class="metric">
-                          <div class="metric-k">含み損益</div>
-                          <div class="metric-v neg">¥{{ item.pnl|floatformat:0|intcomma }}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">損益率</div>
-                          <div class="metric-v neg">{% if item.pnl_pct is not None %}{{ item.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">評価額</div>
-                          <div class="metric-v">¥{{ item.valuation|floatformat:0|intcomma }}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">保有日数</div>
-                          <div class="metric-v">{% if item.days is not None %}{{ item.days }}日{% else %}—{% endif %}</div>
-                        </div>
-                      </div>
-                      <div class="action-row">
-                        <a href="{% url 'holding_close_sheet' item.holding_id %}" class="action-btn primary">手仕舞い</a>
-                        <a href="{% url 'holding_edit' item.holding_id %}" class="action-btn">編集</a>
-                        {% if item.can_margin_to_spot %}
-                          <a href="{% url 'holding_margin_to_spot_sheet' item.holding_id %}" class="action-btn warn">現引</a>
-                        {% endif %}
-                      </div>
-                    </div>
-                  {% endfor %}
-                </div>
-              {% else %}
-                <div class="empty-box">この条件では損切り警戒候補はありません。</div>
-              {% endif %}
-            </div>
-          </div>
-        </div>
-
-        <div class="category-panel" data-category-panel="continue">
-          <div class="panel-card">
-            <div class="card-head">
-              <div class="card-title">継続</div>
-              <div class="card-note">大きく崩れておらず、継続監視しやすい候補です。</div>
-            </div>
-            <div class="card-body">
-              {% if combo.groups.continue %}
-                <div class="suggestion-list">
-                  {% for item in combo.groups.continue %}
-                    <div class="suggestion-item">
-                      <div class="item-top">
-                        <div class="item-title-wrap">
-                          <div class="item-title">{{ item.name }}</div>
-                          <div class="item-sub">{{ item.ticker }}</div>
-                        </div>
-                        <div class="item-badges">
-                          {% for badge in item.badges %}
-                            <div class="badge {{ badge.kind }}">{{ badge.label }}</div>
-                          {% endfor %}
-                        </div>
-                      </div>
-                      <div class="chip-row">
-                        <span class="chip">{{ item.broker }}</span>
-                        <span class="chip">{{ item.account }}</span>
-                        <span class="chip">{{ item.qty|intcomma }}株</span>
-                      </div>
-                      <div class="reason-box">{{ item.reason_text }}</div>
-                      <div class="metric-grid">
-                        <div class="metric">
-                          <div class="metric-k">含み損益</div>
-                          <div class="metric-v {% if item.pnl < 0 %}neg{% else %}pos{% endif %}">¥{{ item.pnl|floatformat:0|intcomma }}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">損益率</div>
-                          <div class="metric-v {% if item.pnl_pct is not None and item.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
-                            {% if item.pnl_pct is not None %}{{ item.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
+                        <div class="mini-grid">
+                          <div class="mini-box">
+                            <div class="mini-k">AIが今見てるところ</div>
+                            <div class="mini-v">{{ item.ai_trigger }}</div>
+                          </div>
+                          <div class="mini-box">
+                            <div class="mini-k">ただし</div>
+                            <div class="mini-v">{{ item.ai_counter }}</div>
                           </div>
                         </div>
-                        <div class="metric">
-                          <div class="metric-k">年間配当</div>
-                          <div class="metric-v">¥{{ item.annual_div|floatformat:0|intcomma }}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">保有日数</div>
-                          <div class="metric-v">{% if item.days is not None %}{{ item.days }}日{% else %}—{% endif %}</div>
-                        </div>
-                      </div>
-                      <div class="action-row">
-                        <a href="{% url 'holding_edit' item.holding_id %}" class="action-btn">編集</a>
-                        <a href="{% url 'holding_close_sheet' item.holding_id %}" class="action-btn primary">手仕舞い</a>
-                        {% if item.can_margin_to_spot %}
-                          <a href="{% url 'holding_margin_to_spot_sheet' item.holding_id %}" class="action-btn warn">現引</a>
-                        {% endif %}
-                      </div>
-                    </div>
-                  {% endfor %}
-                </div>
-              {% else %}
-                <div class="empty-box">この条件では継続候補はありません。</div>
-              {% endif %}
-            </div>
-          </div>
-        </div>
 
-        <div class="category-panel" data-category-panel="margin_to_spot">
-          <div class="panel-card">
-            <div class="card-head">
-              <div class="card-title">現引</div>
-              <div class="card-note">信用買い建玉の中から、現引候補を出しています。</div>
-            </div>
-            <div class="card-body">
-              {% if combo.groups.margin_to_spot %}
-                <div class="suggestion-list">
-                  {% for item in combo.groups.margin_to_spot %}
-                    <div class="suggestion-item">
-                      <div class="item-top">
-                        <div class="item-title-wrap">
-                          <div class="item-title">{{ item.name }}</div>
-                          <div class="item-sub">{{ item.ticker }}</div>
-                        </div>
-                        <div class="item-badges">
-                          {% for badge in item.badges %}
-                            <div class="badge {{ badge.kind }}">{{ badge.label }}</div>
+                        <div class="metric-grid">
+                          {% for metric in item.metric_rows %}
+                            <div class="metric">
+                              <div class="metric-k">{{ metric.label }}</div>
+                              <div class="metric-v {{ metric.class }}">{{ metric.value }}</div>
+                            </div>
                           {% endfor %}
                         </div>
-                      </div>
-                      <div class="chip-row">
-                        <span class="chip">{{ item.broker }}</span>
-                        <span class="chip">{{ item.account }}</span>
-                        <span class="chip">{{ item.qty|intcomma }}株</span>
-                      </div>
-                      <div class="reason-box">{{ item.reason_text }}</div>
-                      <div class="metric-grid">
-                        <div class="metric">
-                          <div class="metric-k">保有日数</div>
-                          <div class="metric-v">{% if item.days is not None %}{{ item.days }}日{% else %}—{% endif %}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">含み損益</div>
-                          <div class="metric-v {% if item.pnl < 0 %}neg{% else %}pos{% endif %}">¥{{ item.pnl|floatformat:0|intcomma }}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">評価額</div>
-                          <div class="metric-v">¥{{ item.valuation|floatformat:0|intcomma }}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">年間配当</div>
-                          <div class="metric-v">¥{{ item.annual_div|floatformat:0|intcomma }}</div>
-                        </div>
-                      </div>
-                      <div class="action-row">
-                        <a href="{% url 'holding_margin_to_spot_sheet' item.holding_id %}" class="action-btn warn">現引</a>
-                        <a href="{% url 'holding_edit' item.holding_id %}" class="action-btn">編集</a>
-                        <a href="{% url 'holding_close_sheet' item.holding_id %}" class="action-btn primary">手仕舞い</a>
-                      </div>
-                    </div>
-                  {% endfor %}
-                </div>
-              {% else %}
-                <div class="empty-box">この条件では現引候補はありません。</div>
-              {% endif %}
-            </div>
-          </div>
-        </div>
 
-        <div class="category-panel" data-category-panel="nisa">
-          <div class="panel-card">
-            <div class="card-head">
-              <div class="card-title">NISA</div>
-              <div class="card-note">特定口座の中から、NISA側を検討しやすい候補です。</div>
-            </div>
-            <div class="card-body">
-              {% if combo.groups.nisa %}
-                <div class="suggestion-list">
-                  {% for item in combo.groups.nisa %}
-                    <div class="suggestion-item">
-                      <div class="item-top">
-                        <div class="item-title-wrap">
-                          <div class="item-title">{{ item.name }}</div>
-                          <div class="item-sub">{{ item.ticker }}</div>
-                        </div>
-                        <div class="item-badges">
-                          {% for badge in item.badges %}
-                            <div class="badge {{ badge.kind }}">{{ badge.label }}</div>
-                          {% endfor %}
+                        <div class="action-row">
+                          <a href="{% url 'holding_edit' item.holding_id %}" class="action-btn">編集</a>
+                          <a href="{% url 'holding_close_sheet' item.holding_id %}" class="action-btn primary">手仕舞い</a>
+                          {% if item.can_margin_to_spot %}
+                            <a href="{% url 'holding_margin_to_spot_sheet' item.holding_id %}" class="action-btn warn">現引</a>
+                          {% endif %}
                         </div>
                       </div>
-                      <div class="chip-row">
-                        <span class="chip">{{ item.broker }}</span>
-                        <span class="chip">{{ item.account }}</span>
-                        <span class="chip">{{ item.qty|intcomma }}株</span>
-                      </div>
-                      <div class="reason-box">{{ item.reason_text }}</div>
-                      <div class="metric-grid">
-                        <div class="metric">
-                          <div class="metric-k">年間配当</div>
-                          <div class="metric-v">¥{{ item.annual_div|floatformat:0|intcomma }}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">取得利回り</div>
-                          <div class="metric-v">{% if item.yield_cost is not None %}{{ item.yield_cost|floatformat:2 }}%{% else %}—{% endif %}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">評価額</div>
-                          <div class="metric-v">¥{{ item.valuation|floatformat:0|intcomma }}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">保有日数</div>
-                          <div class="metric-v">{% if item.days is not None %}{{ item.days }}日{% else %}—{% endif %}</div>
-                        </div>
-                      </div>
-                      <div class="action-row">
-                        <a href="{% url 'holding_edit' item.holding_id %}" class="action-btn">編集</a>
-                        <a href="{% url 'holding_close_sheet' item.holding_id %}" class="action-btn primary">手仕舞い</a>
-                        {% if item.can_margin_to_spot %}
-                          <a href="{% url 'holding_margin_to_spot_sheet' item.holding_id %}" class="action-btn warn">現引</a>
-                        {% endif %}
-                      </div>
-                    </div>
-                  {% endfor %}
-                </div>
-              {% else %}
-                <div class="empty-box">この条件ではNISA候補はありません。</div>
-              {% endif %}
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <div class="empty-box">この条件では候補はまだありません。</div>
+                {% endif %}
+              </div>
             </div>
           </div>
-        </div>
-
-        <div class="category-panel" data-category-panel="cautious">
-          <div class="panel-card">
-            <div class="card-head">
-              <div class="card-title">慎重</div>
-              <div class="card-note">集中・信用・長期化が重なりやすいものを慎重枠に出しています。</div>
-            </div>
-            <div class="card-body">
-              {% if combo.groups.cautious %}
-                <div class="suggestion-list">
-                  {% for item in combo.groups.cautious %}
-                    <div class="suggestion-item">
-                      <div class="item-top">
-                        <div class="item-title-wrap">
-                          <div class="item-title">{{ item.name }}</div>
-                          <div class="item-sub">{{ item.ticker }}</div>
-                        </div>
-                        <div class="item-badges">
-                          {% for badge in item.badges %}
-                            <div class="badge {{ badge.kind }}">{{ badge.label }}</div>
-                          {% endfor %}
-                        </div>
-                      </div>
-                      <div class="chip-row">
-                        <span class="chip">{{ item.broker }}</span>
-                        <span class="chip">{{ item.account }}</span>
-                        <span class="chip">{{ item.qty|intcomma }}株</span>
-                      </div>
-                      <div class="reason-box">{{ item.reason_text }}</div>
-                      <div class="metric-grid">
-                        <div class="metric">
-                          <div class="metric-k">構成比</div>
-                          <div class="metric-v">{% if item.ratio is not None %}{{ item.ratio|floatformat:1 }}%{% else %}—{% endif %}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">保有日数</div>
-                          <div class="metric-v">{% if item.days is not None %}{{ item.days }}日{% else %}—{% endif %}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">含み損益</div>
-                          <div class="metric-v {% if item.pnl < 0 %}neg{% else %}pos{% endif %}">¥{{ item.pnl|floatformat:0|intcomma }}</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-k">損益率</div>
-                          <div class="metric-v {% if item.pnl_pct is not None and item.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
-                            {% if item.pnl_pct is not None %}{{ item.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
-                          </div>
-                        </div>
-                      </div>
-                      <div class="action-row">
-                        <a href="{% url 'holding_edit' item.holding_id %}" class="action-btn">編集</a>
-                        <a href="{% url 'holding_close_sheet' item.holding_id %}" class="action-btn primary">手仕舞い</a>
-                        {% if item.can_margin_to_spot %}
-                          <a href="{% url 'holding_margin_to_spot_sheet' item.holding_id %}" class="action-btn warn">現引</a>
-                        {% endif %}
-                      </div>
-                    </div>
-                  {% endfor %}
-                </div>
-              {% else %}
-                <div class="empty-box">この条件では慎重候補はありません。</div>
-              {% endif %}
-            </div>
-          </div>
-        </div>
+        {% endfor %}
 
       {% endif %}
     </section>
