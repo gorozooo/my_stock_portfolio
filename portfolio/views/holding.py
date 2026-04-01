@@ -18,14 +18,12 @@ import time
 import yfinance as yf
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.core.paginator import Paginator
-from django.db import models
 from django.http import JsonResponse
 from django.shortcuts import render
 
-from ..models import Holding
 from ..services import trend as svc_trend
-from ..services.holdings import valuation_service as val
+from ..services.holdings import list_service as list_svc
+
 
 SECTOR_CACHE_TTL = 30 * 60
 _SECTOR_CACHE: Dict[str, Tuple[float, str]] = {}
@@ -116,139 +114,11 @@ def api_ticker_name(request):
     return JsonResponse({"code": code, "name": name, "sector": sector or ""})
 
 
-def _apply_filters(qs, request):
-    def _normalize_choice(field_name: str, raw: str) -> Optional[str]:
-        if raw is None:
-            return None
-        s = str(raw).strip()
-        if s == "" or s.upper() == "ALL" or s == "すべて":
-            return None
-
-        import unicodedata as _ud
-        key = _ud.normalize("NFKC", s).strip()
-
-        field = Holding._meta.get_field(field_name)
-        for value, label in (field.choices or []):
-            v = str(value)
-            l = _ud.normalize("NFKC", str(label)).strip()
-            if key == v or key == l:
-                return value
-        return s
-
-    broker = _normalize_choice("broker", request.GET.get("broker"))
-    account = _normalize_choice("account", request.GET.get("account"))
-    side = _normalize_choice("side", request.GET.get("side"))
-
-    if broker:
-        qs = qs.filter(broker=broker)
-    if account:
-        qs = qs.filter(account=account)
-    if side:
-        qs = qs.filter(side=side)
-
-    q = (request.GET.get("q") or request.GET.get("ticker") or "").strip()
-    if q:
-        qs = qs.filter(models.Q(ticker__icontains=q) | models.Q(name__icontains=q))
-
-    return qs
-
-
-def _sort_qs(qs, request):
-    sort = request.GET.get("sort") or "updated"
-    order = request.GET.get("order") or "desc"
-    if sort in ("updated", "created", "opened"):
-        field = {"updated": "updated_at", "created": "created_at", "opened": "opened_at"}[sort]
-        if order == "asc":
-            qs = qs.order_by(field, "-id")
-        else:
-            qs = qs.order_by(f"-{field}", "-id")
-    else:
-        qs = qs.order_by("-updated_at", "-id")
-    return qs
-
-
-def _page(request, qs, per_page: int = 10):
-    p = int(request.GET.get("page") or 1)
-    paginator = Paginator(qs, per_page)
-    return paginator.get_page(p)
-
-
-class _PageWrap:
-    def __init__(self, src, objs):
-        self.number = src.number
-        self.paginator = src.paginator
-        self.has_previous = src.has_previous
-        self.has_next = src.has_next
-        self.previous_page_number = src.previous_page_number
-        self.next_page_number = src.next_page_number
-        self.object_list = objs
-
-
 @login_required
 def holding_list(request):
-    qs = Holding.objects.filter(user=request.user).prefetch_related("dividends")
-    qs = _apply_filters(qs, request)
-    qs = _sort_qs(qs, request)
-
-    page = _page(request, qs)
-    rows_page = val.build_rows_for_page(page)
-    rows_page = val.apply_post_filters(rows_page, request)
-    rows_page = val.sort_rows(rows_page, request)
-
-    rows_all = val.build_rows_for_queryset(qs)
-    rows_all = val.apply_post_filters(rows_all, request)
-    summary = val.aggregate_rows(rows_all)
-    summary["count"] = qs.count()
-    summary["page_count"] = len(rows_page)
-
-    page_wrap = _PageWrap(page, rows_page)
-
-    ctx = {
-        "page": page_wrap,
-        "sort": request.GET.get("sort") or "updated",
-        "order": request.GET.get("order") or "desc",
-        "filters": {
-            "broker": request.GET.get("broker") or "",
-            "account": request.GET.get("account") or "",
-            "ticker": request.GET.get("ticker") or "",
-            "side": request.GET.get("side") or "",
-            "pnl": request.GET.get("pnl") or "",
-        },
-        "summary": summary,
-    }
+    ctx = list_svc.build_holdings_list_context(
+        user=request.user,
+        broker=request.GET.get("broker"),
+        bucket=request.GET.get("bucket"),
+    )
     return render(request, "holdings/list.html", ctx)
-
-
-@login_required
-def holding_list_partial(request):
-    qs = Holding.objects.filter(user=request.user).prefetch_related("dividends")
-    qs = _apply_filters(qs, request)
-    qs = _sort_qs(qs, request)
-
-    page = _page(request, qs)
-    rows_page = val.build_rows_for_page(page)
-    rows_page = val.apply_post_filters(rows_page, request)
-    rows_page = val.sort_rows(rows_page, request)
-
-    rows_all = val.build_rows_for_queryset(qs)
-    rows_all = val.apply_post_filters(rows_all, request)
-    summary = val.aggregate_rows(rows_all)
-    summary["count"] = qs.count()
-    summary["page_count"] = len(rows_page)
-
-    page_wrap = _PageWrap(page, rows_page)
-
-    ctx = {
-        "page": page_wrap,
-        "sort": request.GET.get("sort") or "updated",
-        "order": request.GET.get("order") or "desc",
-        "filters": {
-            "broker": request.GET.get("broker") or "",
-            "account": request.GET.get("account") or "",
-            "ticker": request.GET.get("ticker") or "",
-            "side": request.GET.get("side") or "",
-            "pnl": request.GET.get("pnl") or "",
-        },
-        "summary": summary,
-    }
-    return render(request, "holdings/_list.html", ctx)
