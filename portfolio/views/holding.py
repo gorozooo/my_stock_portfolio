@@ -4,14 +4,9 @@
 # このファイルは何？
 # - Holding 一覧表示と銘柄APIだけを担当する view
 #
-# 今回の目的
-# - 保有ページのサブナビから summary に遷移できるようにする
-# - 保有ページ自体は「操作専用」を維持する
-#
-# 今回の方針
-# - /holdings/ は 1ページ完結
-# - holding_list_partial は互換のため残す
-# - 評価・損益などの計算は valuation_service を使う
+# 今回の修正
+# - 保有ページのサブナビから「要注意」へ遷移できるようにする
+# - 保有ページ自体は引き続き「操作専用」を維持する
 
 # -*- coding: utf-8 -*-
 from __future__ import annotations
@@ -166,7 +161,7 @@ def _build_subnav(active_key: str = "holdings"):
     items = [
         {"key": "holdings", "label": "保有", "url": reverse("holding_list")},
         {"key": "summary", "label": "サマリー", "url": reverse("holding_summary")},
-        {"key": "attention", "label": "要注意", "url": None},
+        {"key": "attention", "label": "要注意", "url": reverse("holding_attention")},
         {"key": "ai", "label": "AI提案", "url": None},
     ]
     for item in items:
