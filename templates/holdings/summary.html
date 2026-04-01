@@ -331,10 +331,6 @@
   data-initial-scope="{{ active_scope }}"
   data-initial-block="{{ active_block }}"
 >
-  <div class="page-head">
-    <h1 class="page-title">保有サマリー</h1>
-    <div class="page-note">ここは分析専用です。証券会社別・現物/信用別に、保有の全体状態を横断して見ます。</div>
-  </div>
 
   <div class="subnav">
     {% for item in subnav_items %}
@@ -395,8 +391,6 @@
       {% endfor %}
     </div>
   </div>
-
-  <div class="swipe-note">左右スワイプでも分析ブロックを切り替えられます。</div>
 
   {% for combo in combo_panels %}
     <section
