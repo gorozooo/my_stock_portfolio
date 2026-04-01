@@ -5,10 +5,8 @@
 # - Holding 一覧表示と銘柄APIだけを担当する view
 #
 # 今回の目的
-# - 保有ページの証券会社タブ / 口座区分タブを
-#   「再読み込みなし」で切り替えられるようにする
-# - 初回表示時に必要なデータをまとめて描画し、
-#   タブ押下時はJSで表示切替だけ行う
+# - 保有ページのサブナビから summary に遷移できるようにする
+# - 保有ページ自体は「操作専用」を維持する
 #
 # 今回の方針
 # - /holdings/ は 1ページ完結
@@ -26,6 +24,7 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import render
+from django.urls import reverse
 
 from ..models import Holding
 from ..services import trend as svc_trend
@@ -163,13 +162,16 @@ def _normalize_bucket(raw: Optional[str]) -> str:
     return "all"
 
 
-def _build_subnav():
-    return [
-        {"key": "holdings", "label": "保有", "url": None, "is_active": True},
-        {"key": "summary", "label": "サマリー", "url": None, "is_active": False},
-        {"key": "attention", "label": "要注意", "url": None, "is_active": False},
-        {"key": "ai", "label": "AI提案", "url": None, "is_active": False},
+def _build_subnav(active_key: str = "holdings"):
+    items = [
+        {"key": "holdings", "label": "保有", "url": reverse("holding_list")},
+        {"key": "summary", "label": "サマリー", "url": reverse("holding_summary")},
+        {"key": "attention", "label": "要注意", "url": None},
+        {"key": "ai", "label": "AI提案", "url": None},
     ]
+    for item in items:
+        item["is_active"] = item["key"] == active_key
+    return items
 
 
 def _attach_row_flags(rows):
@@ -303,7 +305,7 @@ def holding_list(request):
         )
 
     ctx = {
-        "subnav_items": _build_subnav(),
+        "subnav_items": _build_subnav("holdings"),
         "broker_tabs": broker_tabs,
         "bucket_tabs": bucket_tabs,
         "broker_panels": broker_panels,
