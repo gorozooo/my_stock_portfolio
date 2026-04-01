@@ -491,15 +491,7 @@
 {% block content %}
 <div class="holdings-page" id="holdingsPage" data-initial-broker="{{ active_broker }}" data-initial-bucket="{{ active_bucket }}">
 
-  <div class="page-head">
-    <div>
-      <h1 class="page-title">保有一覧</h1>
-      <div class="page-note">保有ページは「見る・触る」専用です。評価額と損益は円換算で表示します。</div>
-    </div>
-    <div class="head-actions">
-      <a href="{% url 'holding_create' %}" class="head-btn">＋ 新規登録</a>
-    </div>
-  </div>
+  
 
   <div class="subnav">
     {% for item in subnav_items %}
