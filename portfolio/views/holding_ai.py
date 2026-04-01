@@ -9,6 +9,7 @@
 # - フィルターなし
 # - 証券会社タブ / 対象タブ / 提案カテゴリタブをJSで再読込なし切替
 # - 集計自体は ai_suggestion_service に寄せる
+# - サブナビは4ページ共通で、常に相互遷移できるようにする
 
 # -*- coding: utf-8 -*-
 from __future__ import annotations
@@ -22,13 +23,16 @@ from ..services.holdings import valuation_service as val
 from ..services.holdings import ai_suggestion_service as ai_svc
 
 
-def _build_subnav():
-    return [
-        {"key": "holdings", "label": "保有", "url": reverse("holding_list"), "is_active": False},
-        {"key": "summary", "label": "サマリー", "url": reverse("holding_summary"), "is_active": False},
-        {"key": "attention", "label": "要注意", "url": reverse("holding_attention"), "is_active": False},
-        {"key": "ai", "label": "AI提案", "url": reverse("holding_ai"), "is_active": True},
+def _build_subnav(active_key: str = "ai"):
+    items = [
+        {"key": "holdings", "label": "保有", "url": reverse("holding_list")},
+        {"key": "summary", "label": "サマリー", "url": reverse("holding_summary")},
+        {"key": "attention", "label": "要注意", "url": reverse("holding_attention")},
+        {"key": "ai", "label": "AI提案", "url": reverse("holding_ai")},
     ]
+    for item in items:
+        item["is_active"] = item["key"] == active_key
+    return items
 
 
 @login_required
@@ -51,6 +55,6 @@ def holding_ai(request):
         active_scope=active_scope,
         active_category=active_category,
     )
-    ctx["subnav_items"] = _build_subnav()
+    ctx["subnav_items"] = _build_subnav("ai")
 
     return render(request, "holdings/ai.html", ctx)
