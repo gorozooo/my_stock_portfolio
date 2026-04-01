@@ -4,7 +4,7 @@
 このファイルは何？
 - /holdings/summary/ の分析専用ページ
 - 証券会社タブ / 対象タブ / 分析ブロックを切り替えて保有全体を分析する
-- 今回はブロックごとに横スワイプでも切り替えられる
+- 今回はタブ見切れ対策として、アクティブタブの自動スクロールを追加
 -->
 
 {% extends "base.html" %}
@@ -72,15 +72,26 @@
   .tab-block{
     margin-bottom:12px;
   }
+
   .tab-scroll{
     display:flex;
     gap:8px;
     overflow-x:auto;
-    padding-bottom:2px;
+    overflow-y:hidden;
+    padding:0 16px 2px 0;
     -webkit-overflow-scrolling:touch;
     scrollbar-width:none;
+    scroll-behavior:smooth;
+    scroll-padding-left:12px;
+    scroll-padding-right:28px;
   }
   .tab-scroll::-webkit-scrollbar{display:none}
+
+  .tab-scroll::after{
+    content:"";
+    flex:0 0 18px;
+    height:1px;
+  }
 
   .tab{
     flex:0 0 auto;
@@ -336,7 +347,7 @@
   </div>
 
   <div class="tab-block">
-    <div class="tab-scroll">
+    <div class="tab-scroll" id="brokerTabScroll">
       {% for tab in broker_tabs %}
         <button
           type="button"
@@ -355,7 +366,7 @@
   </div>
 
   <div class="tab-block">
-    <div class="tab-scroll">
+    <div class="tab-scroll" id="scopeTabScroll">
       {% for tab in scope_tabs %}
         <button
           type="button"
@@ -371,7 +382,7 @@
   </div>
 
   <div class="tab-block">
-    <div class="tab-scroll">
+    <div class="tab-scroll" id="blockTabScroll">
       {% for tab in block_tabs %}
         <button
           type="button"
@@ -400,7 +411,6 @@
         </div>
       {% else %}
 
-        <!-- 全体状態 -->
         <div class="block-panel {% if active_block == 'state' %}active{% endif %}" data-block-panel="state">
           <div class="hero-grid">
             <div class="hero kpi-main">
@@ -476,7 +486,6 @@
           </div>
         </div>
 
-        <!-- 配分 -->
         <div class="block-panel" data-block-panel="allocation">
           <div class="grid-2">
             <div class="panel-card">
@@ -521,7 +530,6 @@
           </div>
         </div>
 
-        <!-- 損益 -->
         <div class="block-panel" data-block-panel="profit">
           <div class="grid-2">
             <div class="panel-card">
@@ -610,7 +618,6 @@
           </div>
         </div>
 
-        <!-- 時間 -->
         <div class="block-panel" data-block-panel="time">
           <div class="hero-grid">
             <div class="hero">
@@ -702,7 +709,6 @@
           </div>
         </div>
 
-        <!-- 配当 -->
         <div class="block-panel" data-block-panel="dividend">
           <div class="hero-grid">
             <div class="hero kpi-main">
@@ -783,7 +789,6 @@
           </div>
         </div>
 
-        <!-- リスク -->
         <div class="block-panel" data-block-panel="risk">
           <div class="hero-grid">
             <div class="hero kpi-main">
@@ -824,7 +829,6 @@
           </div>
         </div>
 
-        <!-- コメント -->
         <div class="block-panel" data-block-panel="comment">
           <div class="panel-card">
             <div class="card-head"><div class="card-title">総合コメント</div></div>
@@ -853,6 +857,26 @@
   let activeBlock  = root.dataset.initialBlock || "state";
 
   const blockOrder = ["state", "allocation", "profit", "time", "dividend", "risk", "comment"];
+
+  function scrollTabIntoView(container, activeBtn){
+    if (!container || !activeBtn) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const btnRect = activeBtn.getBoundingClientRect();
+
+    const current = container.scrollLeft;
+    const btnLeft = btnRect.left - containerRect.left + current;
+    const btnCenter = btnLeft + (btnRect.width / 2);
+    const target = btnCenter - (container.clientWidth / 2);
+
+    const maxScroll = Math.max(0, container.scrollWidth - container.clientWidth);
+    const next = Math.max(0, Math.min(target, maxScroll));
+
+    container.scrollTo({
+      left: next,
+      behavior: "smooth"
+    });
+  }
 
   function updateScopeCounts(){
     const activeBrokerBtn = document.querySelector('[data-broker-tab].active');
@@ -901,11 +925,30 @@
     window.history.replaceState({}, "", url.toString());
   }
 
+  function syncTabScrolls(){
+    scrollTabIntoView(
+      document.getElementById("brokerTabScroll"),
+      document.querySelector("[data-broker-tab].active")
+    );
+    scrollTabIntoView(
+      document.getElementById("scopeTabScroll"),
+      document.querySelector("[data-scope-tab].active")
+    );
+    scrollTabIntoView(
+      document.getElementById("blockTabScroll"),
+      document.querySelector("[data-block-tab].active")
+    );
+  }
+
   function renderAll(){
     syncButtons();
     updateScopeCounts();
     showActiveCombo();
     updateUrl();
+
+    requestAnimationFrame(() => {
+      syncTabScrolls();
+    });
   }
 
   document.querySelectorAll("[data-broker-tab]").forEach((btn) => {
@@ -958,7 +1001,17 @@
     }
   }, { passive: true });
 
+  window.addEventListener("resize", () => {
+    requestAnimationFrame(() => {
+      syncTabScrolls();
+    });
+  });
+
   renderAll();
+
+  setTimeout(() => {
+    syncTabScrolls();
+  }, 80);
 })();
 </script>
 {% endblock %}
