@@ -357,12 +357,6 @@
   data-initial-scope="{{ active_scope }}"
   data-initial-category="{{ active_category }}"
 >
-  <div class="page-head">
-    <h1 class="page-title">要注意</h1>
-    <div class="page-note">
-      含み損・信用長期化・集中・放置・配当非効率をまとめて確認します。
-    </div>
-  </div>
 
   <div class="subnav">
     <a href="{% url 'holding_list' %}" class="subnav-item">保有</a>
@@ -421,8 +415,6 @@
       {% endfor %}
     </div>
   </div>
-
-  <div class="swipe-note">左右スワイプでも注意カテゴリを切り替えられます。</div>
 
   {% for combo in combo_panels %}
     <section
