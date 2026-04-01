@@ -1,297 +1,673 @@
+<!-- [FILE] list.html -->
+<!-- [PATH] templates/holdings/list.html -->
+<!--
+このファイルは何？
+- /holdings/ の本体テンプレート
+- 保有ページを「見る・触る」専用に絞った1ページ構成
+- KPI / フィルター / ソート / スパーク / partial include は廃止
+-->
+
 {% extends "base.html" %}
-{% load static humanize num %}
+{% load static humanize %}
 
 {% block title %}保有一覧{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/holdings.css' %}?v=10">
 <style>
-  :root{ --topbarH:48px; }
+  *{box-sizing:border-box}
+  html,body{max-width:100%;overflow-x:hidden}
 
-  /* ===== 固定ヘッダー（フィルター＋KPI） ===== */
-  #topSticky{
-    position: sticky;
-    top: env(safe-area-inset-top, 0px);
-    z-index: 12;
-    border:1px solid rgba(255,255,255,.12);
+  .holdings-page{
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 12px 10px 120px;
+  }
+
+  .page-head{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:12px;
+    margin-bottom:12px;
+  }
+  .page-title{
+    margin:0;
+    font-size:20px;
+    font-weight:800;
+    color:#eef2ff;
+    letter-spacing:.02em;
+  }
+  .page-note{
+    margin-top:4px;
+    font-size:12px;
+    color:#94a3b8;
+    line-height:1.5;
+  }
+
+  .head-actions{
+    display:flex;
+    gap:8px;
+    flex-shrink:0;
+  }
+  .head-btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+    min-height:40px;
+    padding:0 14px;
     border-radius:12px;
-    background:rgba(15,20,30,.96);
-    backdrop-filter: blur(8px);
-    padding:8px;
-    margin:0 0 8px;
-    max-height:33vh;
-    overflow:auto;
-    box-shadow:0 2px 0 rgba(255,255,255,.06) inset;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.05);
+    color:#e5e7eb;
+    font-size:13px;
+    font-weight:700;
+    text-decoration:none;
   }
-  #holdingsBody{ position:relative; z-index:1; }
 
-  /* ===== フィルター（極小） ===== */
-  .quickbar{ display:grid; gap:6px; grid-template-columns:repeat(4,minmax(0,1fr)); align-items:center; margin:0 0 6px; }
-  @media (max-width:420px){ .quickbar{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
-  .quickbar .fld{ display:contents; }
-  .quickbar label{ display:none; }
-  .quickbar select,.quickbar input[type="text"],.quickbar .btn{
-    height:28px;padding:0 8px;font-size:12px;background:rgba(255,255,255,.05);
-    border:1px solid rgba(255,255,255,.14);color:#dbe3f4;border-radius:8px;
+  .subnav{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-bottom:12px;
   }
-  #qb-q{ grid-column:1 / -2; }
-  #qb-apply{ grid-column:-2 / -1; }
-
-  /* KPI（固定ヘッダー内へ） */
-  #kpiMount .kpi-grid{ display:grid; gap:6px; grid-template-columns:repeat(auto-fit,minmax(95px,1fr)); }
-  #kpiMount .kpi{ min-width:90px;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:6px;background:rgba(255,255,255,.04) }
-  #kpiMount .kpi-k{ font-size:10px;color:#9fb0c8 }
-  #kpiMount .kpi-v{ font-size:13px;font-weight:700 }
-  #kpiMount .kpi-v.pos{ color:#22c55e } #kpiMount .kpi-v.neg{ color:#ef4444 }
-
-  /* ===== スワイプUI（固定できるよう調整） ===== */
-  .row{ position:relative; }
-  .actions{
-    position:absolute; inset:0 0 0 auto; width:max(56vw,220px);
-    transform:translateX(100%); transition:transform .18s ease;
-    pointer-events:none; /* 閉じてる間は押せない */
+  .subnav-item{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:34px;
+    padding:0 12px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.10);
+    background:rgba(255,255,255,.04);
+    color:#cbd5e1;
+    font-size:12px;
+    font-weight:700;
+    text-decoration:none;
   }
-  .row.is-open .actions{ transform:translateX(0); pointer-events:auto; }
-  .action-panel{ height:100%; display:flex; gap:8px; align-items:center; justify-content:flex-end;
-                 padding:0 10px; background:linear-gradient(90deg,rgba(13,17,23,0),rgba(13,17,23,.92)); }
-  .action-panel .item{ touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
+  .subnav-item.active{
+    background:rgba(99,102,241,.18);
+    border-color:rgba(99,102,241,.45);
+    color:#eef2ff;
+  }
+  .subnav-item.disabled{
+    opacity:.55;
+  }
 
-  /* 行本体はそのまま。必要なら左にスライドさせる場合は下を有効化
-     .row.is-open .track{ transform:translateX(-12px); } */
-  .track{ padding:4px 8px; transition:transform .18s ease; }
+  .tab-block{
+    margin-bottom:12px;
+  }
+  .tab-scroll{
+    display:flex;
+    gap:8px;
+    overflow-x:auto;
+    padding-bottom:2px;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-width:none;
+  }
+  .tab-scroll::-webkit-scrollbar{display:none}
 
-  /* ===== Spark モーダル ===== */
-  .spark-modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.5); z-index:1000; }
-  .spark-modal.is-open{ display:flex; }
-  .spark-dlg{ width:min(92vw,520px); background:rgba(18,24,33,.98); border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:12px; }
-  .spark-dlg h3{ margin:0 0 8px }
-  .spark-ctrl{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px }
-  .spark-ctrl .btn{ padding:6px 10px; border:1px solid rgba(255,255,255,.14); border-radius:10px; font-size:12px; background:rgba(255,255,255,.05); color:#dbe3f4 }
-  .spark-ctrl .btn.is-on{ outline:2px solid rgba(110,168,255,.55) }
-  .spark-canvas{ width:100%; height:140px }
+  .tab{
+    flex:0 0 auto;
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    min-height:38px;
+    padding:0 12px;
+    border-radius:12px;
+    text-decoration:none;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.04);
+    color:#dbe3f4;
+    font-size:12px;
+    font-weight:700;
+    white-space:nowrap;
+  }
+  .tab.active{
+    background:rgba(59,130,246,.18);
+    border-color:rgba(59,130,246,.45);
+    color:#eff6ff;
+  }
+  .tab-count{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-width:18px;
+    height:18px;
+    padding:0 6px;
+    border-radius:999px;
+    background:rgba(255,255,255,.10);
+    font-size:11px;
+  }
+
+  .account-section{
+    margin-bottom:14px;
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:16px;
+    background:rgba(255,255,255,.03);
+    overflow:hidden;
+  }
+  .account-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    padding:12px 14px;
+    border-bottom:1px solid rgba(255,255,255,.08);
+    background:rgba(255,255,255,.04);
+  }
+  .account-title{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    min-width:0;
+  }
+  .account-name{
+    font-size:15px;
+    font-weight:800;
+    color:#eef2ff;
+  }
+  .account-count{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-width:24px;
+    height:22px;
+    padding:0 8px;
+    border-radius:999px;
+    background:rgba(255,255,255,.08);
+    color:#cbd5e1;
+    font-size:11px;
+    font-weight:700;
+  }
+
+  .section-body{
+    padding:10px;
+  }
+
+  .holding-row{
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:14px;
+    background:rgba(255,255,255,.03);
+    overflow:hidden;
+  }
+  .holding-row + .holding-row{
+    margin-top:10px;
+  }
+  .holding-row summary{
+    list-style:none;
+    cursor:pointer;
+    padding:12px;
+  }
+  .holding-row summary::-webkit-details-marker{display:none}
+  .holding-row[open]{
+    border-color:rgba(99,102,241,.22);
+    background:rgba(255,255,255,.045);
+  }
+
+  .row-top{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:10px;
+    margin-bottom:8px;
+  }
+  .row-title-wrap{
+    min-width:0;
+    flex:1 1 auto;
+  }
+  .row-name{
+    font-size:16px;
+    font-weight:800;
+    color:#eef2ff;
+    line-height:1.2;
+    letter-spacing:.01em;
+    word-break:break-word;
+  }
+  .row-code{
+    margin-top:4px;
+    font-size:12px;
+    color:#93c5fd;
+    font-weight:700;
+  }
+
+  .side-badge{
+    flex:0 0 auto;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-width:56px;
+    height:28px;
+    padding:0 10px;
+    border-radius:999px;
+    font-size:12px;
+    font-weight:800;
+    border:1px solid rgba(255,255,255,.14);
+  }
+  .side-badge.buy{
+    background:rgba(16,185,129,.12);
+    border-color:rgba(16,185,129,.35);
+    color:#bbf7d0;
+  }
+  .side-badge.sell{
+    background:rgba(244,63,94,.12);
+    border-color:rgba(244,63,94,.35);
+    color:#fecdd3;
+  }
+
+  .chip-row{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    margin-bottom:10px;
+  }
+  .chip{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:24px;
+    padding:0 9px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.05);
+    color:#dbe3f4;
+    font-size:11px;
+    font-weight:700;
+    white-space:nowrap;
+  }
+  .chip.currency{
+    background:rgba(56,189,248,.10);
+    border-color:rgba(56,189,248,.35);
+    color:#e0f2fe;
+  }
+
+  .metric-grid{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:8px;
+  }
+  .metric{
+    min-width:0;
+    padding:9px 10px;
+    border-radius:12px;
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.08);
+  }
+  .metric-k{
+    font-size:10px;
+    color:#94a3b8;
+    margin-bottom:4px;
+    letter-spacing:.02em;
+    line-height:1.2;
+  }
+  .metric-v{
+    font-size:13px;
+    font-weight:800;
+    color:#eef2ff;
+    line-height:1.25;
+    word-break:break-word;
+  }
+  .metric-v.pos{color:#22c55e}
+  .metric-v.neg{color:#ef4444}
+
+  .detail-panel{
+    padding:0 12px 12px;
+    border-top:1px dashed rgba(255,255,255,.10);
+  }
+  .detail-grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px;
+    padding-top:10px;
+  }
+  .detail-item{
+    padding:9px 10px;
+    border-radius:12px;
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.08);
+    min-width:0;
+  }
+  .detail-item.full{
+    grid-column:1 / -1;
+  }
+  .detail-k{
+    font-size:10px;
+    color:#94a3b8;
+    margin-bottom:4px;
+    line-height:1.2;
+  }
+  .detail-v{
+    font-size:13px;
+    font-weight:700;
+    color:#e5e7eb;
+    line-height:1.45;
+    word-break:break-word;
+  }
+
+  .action-row{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-top:10px;
+  }
+  .action-btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+    min-height:38px;
+    padding:0 12px;
+    border-radius:12px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.05);
+    color:#e5e7eb;
+    font-size:12px;
+    font-weight:700;
+    text-decoration:none;
+  }
+  .action-btn.warn{
+    background:rgba(168,85,247,.10);
+    border-color:rgba(168,85,247,.35);
+    color:#f3e8ff;
+  }
+  .action-btn.danger{
+    background:rgba(239,68,68,.10);
+    border-color:rgba(239,68,68,.35);
+    color:#fee2e2;
+  }
+
+  .empty-box{
+    padding:20px 16px;
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:16px;
+    background:rgba(255,255,255,.03);
+    color:#94a3b8;
+    text-align:center;
+    line-height:1.7;
+  }
+
+  @media (max-width: 640px){
+    .holdings-page{
+      padding:12px 8px 120px;
+    }
+
+    .page-head{
+      flex-direction:column;
+      align-items:stretch;
+    }
+
+    .head-actions{
+      width:100%;
+    }
+
+    .head-btn{
+      flex:1 1 auto;
+    }
+
+    .metric-grid{
+      grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+
+    .detail-grid{
+      grid-template-columns:1fr;
+    }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
+<div class="holdings-page">
 
-<div id="topSticky">
-  <div class="quickbar" id="qb">
-    <div class="fld">
-      <select id="qb-broker"><option value="">ALL</option><option>松井証券</option><option>楽天証券</option><option>SBI</option></select>
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">保有一覧</h1>
+      <div class="page-note">保有ページは「見る・触る」専用です。評価額と損益は円換算で表示します。</div>
     </div>
-    <div class="fld">
-      <select id="qb-account"><option value="">ALL</option><option>特定</option><option>信用</option><option>NISA</option></select>
+    <div class="head-actions">
+      <a href="{% url 'holding_create' %}" class="head-btn">＋ 新規登録</a>
     </div>
-    <div class="fld">
-      <select id="qb-side"><option value="">ALL</option><option value="BUY">BUY</option><option value="SELL">SELL</option></select>
-    </div>
-    <div class="fld">
-      <select id="qb-pnl"><option value="">ALL</option><option value="POS">＋</option><option value="NEG">−</option></select>
-    </div>
-    <div class="fld">
-      <select id="qb-sort">
-        <option value="updated">更新日</option><option value="created">作成日</option>
-        <option value="opened">保有開始</option><option value="pnl">含み損益</option><option value="days">保有日数</option>
-      </select>
-      <select id="qb-order"><option value="desc">↓</option><option value="asc">↑</option></select>
-    </div>
-    <div class="fld"><input id="qb-q" type="text" placeholder="コード/名称 検索"></div>
-    <button class="btn" id="qb-apply">適用</button>
   </div>
-  <div id="kpiMount"><!-- KPI をここに挿入 --></div>
-</div>
 
-<div id="holdingsBody">
-  {% include "holdings/_list.html" %}
-</div>
-
-<!-- Spark モーダル -->
-<div class="spark-modal" id="sparkModal" aria-hidden="true">
-  <div class="spark-dlg">
-    <h3 id="sparkTitle">Spark</h3>
-    <div class="spark-ctrl">
-      <button class="btn is-on" data-span="7">7日</button>
-      <button class="btn" data-span="30">30日</button>
-      <button class="btn" data-span="90">90日</button>
-      <button class="btn is-on" data-mode="idx">指数</button>
-      <button class="btn" data-mode="raw">実値</button>
-      <button class="btn" id="sparkClose" style="margin-left:auto">閉じる</button>
-    </div>
-    <canvas class="spark-canvas" id="sparkCanvas"></canvas>
+  <div class="subnav">
+    {% for item in subnav_items %}
+      {% if item.url %}
+        <a href="{{ item.url }}" class="subnav-item {% if item.is_active %}active{% endif %}">{{ item.label }}</a>
+      {% else %}
+        <span class="subnav-item disabled">{{ item.label }}</span>
+      {% endif %}
+    {% endfor %}
   </div>
+
+  <div class="tab-block">
+    <div class="tab-scroll">
+      {% for tab in broker_tabs %}
+        <a href="{{ tab.url }}" class="tab {% if tab.is_active %}active{% endif %}">
+          <span>{{ tab.label }}</span>
+          <span class="tab-count">{{ tab.count }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="tab-block">
+    <div class="tab-scroll">
+      {% for tab in bucket_tabs %}
+        <a href="{{ tab.url }}" class="tab {% if tab.is_active %}active{% endif %}">
+          <span>{{ tab.label }}</span>
+          <span class="tab-count">{{ tab.count }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if has_rows %}
+    {% for section in sections %}
+      <section class="account-section">
+        <div class="account-head">
+          <div class="account-title">
+            <div class="account-name">{{ section.label }}</div>
+            <div class="account-count">{{ section.count }}</div>
+          </div>
+        </div>
+
+        <div class="section-body">
+          {% for r in section.rows %}
+            {% with h=r.obj %}
+            <details class="holding-row">
+              <summary>
+                <div class="row-top">
+                  <div class="row-title-wrap">
+                    <div class="row-name">{{ h.name|default:"-" }}</div>
+                    <div class="row-code">{{ h.ticker }}</div>
+                  </div>
+                  <div class="side-badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">
+                    {{ h.side }}
+                  </div>
+                </div>
+
+                <div class="chip-row">
+                  <span class="chip">{{ h.get_broker_display }}</span>
+                  <span class="chip">{{ h.get_account_display }}</span>
+                  {% if h.currency == "USD" %}
+                    <span class="chip currency">USD</span>
+                  {% else %}
+                    <span class="chip currency">JPY</span>
+                  {% endif %}
+                </div>
+
+                <div class="metric-grid">
+                  <div class="metric">
+                    <div class="metric-k">現在値</div>
+                    <div class="metric-v">
+                      {% if r.price_now is not None %}
+                        {% if h.currency == "USD" %}
+                          ${{ r.price_now|floatformat:2|intcomma }}
+                        {% else %}
+                          ¥{{ r.price_now|floatformat:1|intcomma }}
+                        {% endif %}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="metric">
+                    <div class="metric-k">取得単価</div>
+                    <div class="metric-v">
+                      {% if h.currency == "USD" %}
+                        ${{ h.avg_cost|floatformat:4|intcomma }}
+                      {% else %}
+                        ¥{{ h.avg_cost|floatformat:2|intcomma }}
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="metric">
+                    <div class="metric-k">保有数</div>
+                    <div class="metric-v">{{ h.quantity|intcomma }} 株</div>
+                  </div>
+
+                  <div class="metric">
+                    <div class="metric-k">評価額</div>
+                    <div class="metric-v">
+                      {% if r.valuation is not None %}
+                        ¥{{ r.valuation|floatformat:0|intcomma }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="metric">
+                    <div class="metric-k">含み損益</div>
+                    <div class="metric-v {% if r.pnl is not None %}{% if r.pnl < 0 %}neg{% else %}pos{% endif %}{% endif %}">
+                      {% if r.pnl is not None %}
+                        ¥{{ r.pnl|floatformat:0|intcomma }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="metric">
+                    <div class="metric-k">損益率</div>
+                    <div class="metric-v {% if r.pnl_pct is not None %}{% if r.pnl_pct < 0 %}neg{% else %}pos{% endif %}{% endif %}">
+                      {% if r.pnl_pct is not None %}
+                        {{ r.pnl_pct|floatformat:2 }}%
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+              </summary>
+
+              <div class="detail-panel">
+                <div class="detail-grid">
+                  <div class="detail-item">
+                    <div class="detail-k">年間配当</div>
+                    <div class="detail-v">
+                      {% if r.div_annual is not None %}
+                        {% if h.currency == "USD" %}
+                          ${{ r.div_annual|floatformat:0|intcomma }}
+                        {% else %}
+                          ¥{{ r.div_annual|floatformat:0|intcomma }}
+                        {% endif %}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="detail-item">
+                    <div class="detail-k">累計配当</div>
+                    <div class="detail-v">
+                      {% if r.div_received is not None %}
+                        {% if h.currency == "USD" %}
+                          ${{ r.div_received|floatformat:0|intcomma }}
+                        {% else %}
+                          ¥{{ r.div_received|floatformat:0|intcomma }}
+                        {% endif %}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="detail-item">
+                    <div class="detail-k">保有開始</div>
+                    <div class="detail-v">
+                      {% if h.opened_at %}
+                        {{ h.opened_at|date:"Y-m-d" }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="detail-item">
+                    <div class="detail-k">保有日数</div>
+                    <div class="detail-v">
+                      {% if r.days is not None %}
+                        {{ r.days }} 日
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="detail-item">
+                    <div class="detail-k">更新日</div>
+                    <div class="detail-v">
+                      {% if h.updated_at %}
+                        {{ h.updated_at|date:"Y-m-d" }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="detail-item">
+                    <div class="detail-k">売買方向</div>
+                    <div class="detail-v">{{ h.side }}</div>
+                  </div>
+
+                  {% if h.memo %}
+                    <div class="detail-item full">
+                      <div class="detail-k">メモ</div>
+                      <div class="detail-v">{{ h.memo }}</div>
+                    </div>
+                  {% endif %}
+                </div>
+
+                <div class="action-row">
+                  <a href="{% url 'holding_edit' h.id %}" class="action-btn">✏️ 編集</a>
+                  <a href="{% url 'holding_close_sheet' h.id %}" class="action-btn">💱 手仕舞い</a>
+
+                  {% if r.can_margin_to_spot %}
+                    <a href="{% url 'holding_margin_to_spot_sheet' h.id %}" class="action-btn warn">🔁 現引</a>
+                  {% endif %}
+
+                  <form method="post" action="{% url 'holding_delete' h.id %}" onsubmit="return confirm('削除しますか？');" style="display:inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="action-btn danger">🗑️ 削除</button>
+                  </form>
+                </div>
+              </div>
+            </details>
+            {% endwith %}
+          {% endfor %}
+        </div>
+      </section>
+    {% endfor %}
+  {% else %}
+    <div class="empty-box">
+      {{ empty_message }}<br>
+      必要なら右上の「新規登録」から追加してください。
+    </div>
+  {% endif %}
+
 </div>
 
-<script src="{% static 'js/holdings.js' %}?v=130"></script>
-<script>
-(function(){
-  const LSKEY='holdings.qb.v1';
-  const $ = (id)=>document.getElementById(id);
-
-  /* ====== フィルター ====== */
-  const BROKER={toLabel:c=>({MATSUI:'松井証券',RAKUTEN:'楽天証券',SBI:'SBI'})[c]||c||'',
-                toCode:l=>({'松井証券':'MATSUI','楽天証券':'RAKUTEN','SBI':'SBI'}[l]||l||'')};
-  const ACCOUNT={toLabel:c=>({SPEC:'特定',MARGIN:'信用',NISA:'NISA'})[c]||c||'',
-                 toCode:l=>({'特定':'SPEC','信用':'MARGIN','NISA':'NISA'}[l]||l||'')};
-  const readLS=()=>{try{return JSON.parse(localStorage.getItem(LSKEY)||'{}')}catch(_){return{}}}
-  const saveLS=v=>localStorage.setItem(LSKEY, JSON.stringify(v||{}))
-  function readURL(){ const p=new URL(location.href).searchParams;
-    return {broker:p.get('broker')||'',account:p.get('account')||'',side:p.get('side')||'',
-            pnl:p.get('pnl')||'',sort:p.get('sort')||'',order:p.get('order')||'',
-            ticker:p.get('ticker')||p.get('q')||''}; }
-  function applyState(st){
-    $('qb-broker').value=st.broker?BROKER.toLabel(st.broker):''; $('qb-account').value=st.account?ACCOUNT.toLabel(st.account):'';
-    $('qb-side').value=st.side||''; $('qb-pnl').value=st.pnl||''; $('qb-sort').value=st.sort||'updated'; $('qb-order').value=st.order||'desc';
-    $('qb-q').value=st.ticker||'';
-  }
-  function gather(){
-    const b=$('qb-broker').value||'', a=$('qb-account').value||'';
-    return {broker:BROKER.toCode(b),account:ACCOUNT.toCode(a),side:$('qb-side').value||'',
-            pnl:$('qb-pnl').value||'',sort:$('qb-sort').value||'updated',order:$('qb-order').value||'desc',
-            ticker:$('qb-q').value||''}
-  }
-  function buildQuery(st){
-    const p=new URLSearchParams();
-    if(st.broker)p.set('broker',st.broker); if(st.account)p.set('account',st.account);
-    if(st.side)p.set('side',st.side); if(st.pnl)p.set('pnl',st.pnl);
-    if(st.sort)p.set('sort',st.sort); if(st.order)p.set('order',st.order);
-    if(st.ticker)p.set('ticker',st.ticker); return p.toString();
-  }
-
-  function mountKPI(root){
-    const inner=(root||document).querySelector('#kpiStickyInner');
-    const mount=$('kpiMount');
-    if(inner && mount){ mount.innerHTML=inner.innerHTML; }
-  }
-
-  function fetchList(st){
-    const qs=buildQuery(st);
-    const url="{% url 'holding_list_partial' %}"+(qs?("?"+qs):"");
-    fetch(url,{headers:{'HX-Request':'true'}}).then(r=>r.text()).then(html=>{
-      const target=$('holdingsBody'); target.innerHTML=html;
-      if(window.htmx) htmx.process(target);
-      document.body.dispatchEvent(new CustomEvent('htmx:load',{detail:{target}}));
-      mountKPI(target);
-      initSwipeRows(target);   // ★ 再描画後に必ずバインド
-      initSparkFallback();     // Spark 保険
-    });
-  }
-
-  function applyAndRender(st,push=true){
-    applyState(st);
-    const qs=buildQuery(st);
-    const newURL=location.pathname+(qs?("?"+qs):"");
-    if(push) history.pushState(st,'',newURL); else history.replaceState(st,'',newURL);
-    saveLS(st); fetchList(st);
-  }
-
-  // 初回
-  (function init(){
-    const urlSt=readURL();
-    const hasURL=Object.values(urlSt).some(v=>!!v);
-    const base=hasURL ? urlSt : Object.assign({broker:'',account:'',side:'',pnl:'',sort:'updated',order:'desc',ticker:''}, readLS());
-    applyAndRender(base,false);
-  })();
-
-  $('qb-apply').addEventListener('click', ()=>applyAndRender(gather(),true));
-  $('qb-q').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); $('qb-apply').click(); }});
-  window.addEventListener('popstate', e=>{ const st=e.state||readURL(); applyState(st||{}); fetchList(st||{}); });
-
-  /* ====== 左スワイプ：固定開閉ロジック ====== */
-  function initSwipeRows(scope){
-    const rows=(scope||document).querySelectorAll('[data-swipe]');
-    let opened=null;
-    rows.forEach(row=>{
-      // クリックでもトグル可能（保険）
-      row.addEventListener('click', e=>{
-        // アクション面のクリックは無視
-        if(e.target.closest('.actions')) return;
-        // アイコンクリック等で暴発させない
-        if(e.target.closest('a,button,[role="button"],input,select,textarea')) return;
-        toggleRow(row);
-      });
-
-      let sx=0, sy=0, dx=0, dy=0, moved=false;
-      row.addEventListener('touchstart', (ev)=>{
-        const t=ev.touches[0]; sx=t.clientX; sy=t.clientY; dx=dy=0; moved=false;
-      }, {passive:true});
-      row.addEventListener('touchmove', (ev)=>{
-        const t=ev.touches[0]; dx=t.clientX-sx; dy=t.clientY-sy;
-        if(Math.abs(dy)>30) return; // 縦スクロール優先
-        // 途中で横移動が大きい時に既に開いていれば追従（視覚的）
-        moved=true;
-      }, {passive:true});
-      row.addEventListener('touchend', ()=>{
-        if(!moved) return;
-        if(Math.abs(dy)>30) return;
-        if(dx<-40){ openRow(row); }        // 左スワイプで開く
-        else if(dx>40){ closeRow(row); }   // 右で閉じる
-      });
-      // アクション面の操作で閉じないように
-      const panel=row.querySelector('.actions');
-      if(panel){
-        panel.addEventListener('click', e=>e.stopPropagation());
-        panel.addEventListener('touchstart', e=>e.stopPropagation(), {passive:true});
-      }
-    });
-
-    function openRow(r){
-      if(opened && opened!==r) opened.classList.remove('is-open');
-      r.classList.add('is-open'); opened=r;
-    }
-    function closeRow(r){
-      r.classList.remove('is-open');
-      if(opened===r) opened=null;
-    }
-    function toggleRow(r){ r.classList.contains('is-open') ? closeRow(r) : openRow(r); }
-  }
-
-  // SSR直後用
-  initSwipeRows(document);
-
-  /* ====== Spark フォールバック（既存あれば使わない） ====== */
-  function initSparkFallback(){
-    if(window.initSparkModal) { window.initSparkModal(); return; }
-    const modal=$('sparkModal'), canvas=$('sparkCanvas'), title=$('sparkTitle');
-    const ctx=canvas.getContext('2d');
-
-    function draw(arr){
-      const W=canvas.width=canvas.clientWidth, H=canvas.height=canvas.clientHeight;
-      ctx.clearRect(0,0,W,H);
-      if(!arr || arr.length<2) return;
-      const min=Math.min(...arr), max=Math.max(...arr), pad=8, rng=(max-min)||1;
-      ctx.beginPath();
-      arr.forEach((v,i)=>{
-        const x=pad + (W-2*pad)*i/(arr.length-1);
-        const y=H-pad - (H-2*pad)*(v-min)/rng;
-        i?ctx.lineTo(x,y):ctx.moveTo(x,y);
-      });
-      ctx.strokeStyle='rgba(180,200,255,.95)'; ctx.lineWidth=2; ctx.stroke();
-    }
-    function openFromSVG(svg){
-      try{
-        const name=svg.closest('.head')?.querySelector('.name')?.textContent?.trim()||'Spark';
-        title.textContent=name;
-        const s7i=JSON.parse(svg.dataset.s7i||'[]');
-        const s30i=JSON.parse(svg.dataset.s30i||'[]');
-        const s90i=JSON.parse(svg.dataset.s90i||'[]');
-        modal.classList.add('is-open'); modal.setAttribute('aria-hidden','false');
-        draw(s7i.length?s7i:(s30i.length?s30i:s90i));
-        modal.querySelectorAll('.spark-ctrl .btn[data-span]').forEach(btn=>{
-          btn.onclick=()=>{
-            modal.querySelectorAll('.spark-ctrl .btn[data-span]').forEach(b=>b.classList.toggle('is-on',b===btn));
-            const span=btn.dataset.span; draw(span==='7'?s7i:(span==='30'?s30i:s90i));
-          };
-        });
-      }catch(_){}
-    }
-    document.addEventListener('click', (e)=>{
-      const svg=e.target.closest?.('svg.spark');
-      if(svg){ openFromSVG(svg); }
-    });
-    $('sparkClose').onclick=()=>{ modal.classList.remove('is-open'); modal.setAttribute('aria-hidden','true'); };
-    modal.addEventListener('click', (e)=>{ if(e.target===modal) $('sparkClose').click(); });
-  }
-  initSparkFallback();
-})();
-</script>
+<script src="{% static 'js/holdings.js' %}?v=200"></script>
 {% endblock %}
