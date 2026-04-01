@@ -3,62 +3,38 @@
 
    このファイルは何？
    - /holdings/ 専用の軽量JS
-   - 詳細ボタンでボトムシートを開く
-   - 一覧内で縦に展開させず、補足情報だけを下から表示する
+   - KPI / フィルター / スパーク / partial 差し替えを廃止したため、
+     役割は「details の開閉補助」だけに絞る
+
+   今回の方針
+   - 一度に1行だけ開く
+   - 外側をタップしたら開いている行を閉じる
 */
 
 (() => {
-  function initHoldingDetailSheet() {
-    const sheet = document.getElementById("holdingDetailSheet");
-    const body = document.getElementById("detailSheetBody");
-    const nameEl = document.getElementById("detailSheetName");
-    const codeEl = document.getElementById("detailSheetCode");
+  function bindHoldingRows() {
+    const rows = Array.from(document.querySelectorAll(".holding-row"));
+    if (!rows.length) return;
 
-    if (!sheet || !body || !nameEl || !codeEl) return;
+    rows.forEach((row) => {
+      if (row.dataset.bound === "1") return;
+      row.dataset.bound = "1";
 
-    const closeSheet = () => {
-      sheet.classList.remove("is-open");
-      sheet.setAttribute("aria-hidden", "true");
-      body.innerHTML = "";
-      codeEl.textContent = "";
-      document.body.style.overflow = "";
-    };
-
-    const openSheet = (btn) => {
-      const targetId = btn.dataset.detailTarget || "";
-      const target = document.getElementById(targetId);
-      if (!target) return;
-
-      nameEl.textContent = btn.dataset.name || "詳細";
-      codeEl.textContent = btn.dataset.code || "";
-      body.innerHTML = target.innerHTML;
-
-      sheet.classList.add("is-open");
-      sheet.setAttribute("aria-hidden", "false");
-      document.body.style.overflow = "hidden";
-    };
-
-    document.querySelectorAll("[data-open-detail]").forEach((btn) => {
-      if (btn.dataset.bound === "1") return;
-      btn.dataset.bound = "1";
-
-      btn.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        openSheet(btn);
+      row.addEventListener("toggle", () => {
+        if (!row.open) return;
+        rows.forEach((other) => {
+          if (other !== row) other.open = false;
+        });
       });
     });
 
-    sheet.querySelectorAll("[data-close-detail]").forEach((el) => {
-      el.addEventListener("click", closeSheet);
-    });
-
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && sheet.classList.contains("is-open")) {
-        closeSheet();
-      }
+    document.addEventListener("click", (e) => {
+      if (e.target.closest(".holding-row")) return;
+      rows.forEach((row) => {
+        row.open = false;
+      });
     });
   }
 
-  document.addEventListener("DOMContentLoaded", initHoldingDetailSheet);
+  document.addEventListener("DOMContentLoaded", bindHoldingRows);
 })();
