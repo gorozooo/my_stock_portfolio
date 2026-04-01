@@ -4,7 +4,7 @@
 このファイルは何？
 - /holdings/ の本体テンプレート
 - 保有ページを「見る・触る」専用に絞った1ページ構成
-- KPI / フィルター / ソート / スパーク / partial include は廃止
+- 今回は、詳細2列表示 + 左スワイプアクション復活版
 -->
 
 {% extends "base.html" %}
@@ -185,14 +185,99 @@
     padding:10px;
   }
 
+  /* ===== 左スワイプ ===== */
+  .holding-row-shell{
+    --action-w: 232px;
+    position:relative;
+    overflow:hidden;
+    border-radius:14px;
+  }
+  .holding-row-shell + .holding-row-shell{
+    margin-top:10px;
+  }
+
+  .row-actions{
+    position:absolute;
+    top:0;
+    right:0;
+    bottom:0;
+    width:var(--action-w);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:10px;
+    background:linear-gradient(90deg, rgba(15,23,42,0) 0%, rgba(15,23,42,.92) 18%, rgba(15,23,42,.98) 100%);
+    transform:translateX(100%);
+    transition:transform .18s ease;
+    z-index:2;
+    pointer-events:none;
+  }
+  .holding-row-shell.is-open .row-actions{
+    transform:translateX(0);
+    pointer-events:auto;
+  }
+
+  .action-grid{
+    width:100%;
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0,1fr));
+    gap:8px;
+  }
+  .swipe-action{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:42px;
+    padding:0 10px;
+    border-radius:12px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.06);
+    color:#e5e7eb;
+    font-size:12px;
+    font-weight:800;
+    text-decoration:none;
+    text-align:center;
+    white-space:nowrap;
+  }
+  .swipe-action.warn{
+    background:rgba(168,85,247,.12);
+    border-color:rgba(168,85,247,.35);
+    color:#f3e8ff;
+  }
+  .swipe-action.danger{
+    background:rgba(239,68,68,.12);
+    border-color:rgba(239,68,68,.35);
+    color:#fee2e2;
+  }
+  .swipe-action button{
+    all:unset;
+    width:100%;
+    height:100%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    font-size:12px;
+    font-weight:800;
+    color:inherit;
+    text-align:center;
+  }
+
+  .holding-track{
+    position:relative;
+    z-index:1;
+    transition:transform .18s ease;
+  }
+
   .holding-row{
     border:1px solid rgba(255,255,255,.08);
     border-radius:14px;
     background:rgba(255,255,255,.03);
     overflow:hidden;
   }
-  .holding-row + .holding-row{
-    margin-top:10px;
+  .holding-row[open]{
+    border-color:rgba(99,102,241,.22);
+    background:rgba(255,255,255,.045);
   }
   .holding-row summary{
     list-style:none;
@@ -200,10 +285,6 @@
     padding:12px;
   }
   .holding-row summary::-webkit-details-marker{display:none}
-  .holding-row[open]{
-    border-color:rgba(99,102,241,.22);
-    background:rgba(255,255,255,.045);
-  }
 
   .row-top{
     display:flex;
@@ -344,38 +425,6 @@
     word-break:break-word;
   }
 
-  .action-row{
-    display:flex;
-    gap:8px;
-    flex-wrap:wrap;
-    margin-top:10px;
-  }
-  .action-btn{
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    gap:6px;
-    min-height:38px;
-    padding:0 12px;
-    border-radius:12px;
-    border:1px solid rgba(255,255,255,.12);
-    background:rgba(255,255,255,.05);
-    color:#e5e7eb;
-    font-size:12px;
-    font-weight:700;
-    text-decoration:none;
-  }
-  .action-btn.warn{
-    background:rgba(168,85,247,.10);
-    border-color:rgba(168,85,247,.35);
-    color:#f3e8ff;
-  }
-  .action-btn.danger{
-    background:rgba(239,68,68,.10);
-    border-color:rgba(239,68,68,.35);
-    color:#fee2e2;
-  }
-
   .empty-box{
     padding:20px 16px;
     border:1px solid rgba(255,255,255,.08);
@@ -408,8 +457,14 @@
       grid-template-columns:repeat(2,minmax(0,1fr));
     }
 
-    .detail-grid{
-      grid-template-columns:1fr;
+    .holding-row-shell{
+      --action-w: 216px;
+    }
+
+    .swipe-action{
+      min-height:40px;
+      font-size:11px;
+      padding:0 8px;
     }
   }
 </style>
@@ -473,188 +528,180 @@
         <div class="section-body">
           {% for r in section.rows %}
             {% with h=r.obj %}
-            <details class="holding-row">
-              <summary>
-                <div class="row-top">
-                  <div class="row-title-wrap">
-                    <div class="row-name">{{ h.name|default:"-" }}</div>
-                    <div class="row-code">{{ h.ticker }}</div>
-                  </div>
-                  <div class="side-badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">
-                    {{ h.side }}
-                  </div>
-                </div>
-
-                <div class="chip-row">
-                  <span class="chip">{{ h.get_broker_display }}</span>
-                  <span class="chip">{{ h.get_account_display }}</span>
-                  {% if h.currency == "USD" %}
-                    <span class="chip currency">USD</span>
-                  {% else %}
-                    <span class="chip currency">JPY</span>
-                  {% endif %}
-                </div>
-
-                <div class="metric-grid">
-                  <div class="metric">
-                    <div class="metric-k">現在値</div>
-                    <div class="metric-v">
-                      {% if r.price_now is not None %}
-                        {% if h.currency == "USD" %}
-                          ${{ r.price_now|floatformat:2|intcomma }}
-                        {% else %}
-                          ¥{{ r.price_now|floatformat:1|intcomma }}
-                        {% endif %}
-                      {% else %}
-                        —
-                      {% endif %}
-                    </div>
-                  </div>
-
-                  <div class="metric">
-                    <div class="metric-k">取得単価</div>
-                    <div class="metric-v">
-                      {% if h.currency == "USD" %}
-                        ${{ h.avg_cost|floatformat:4|intcomma }}
-                      {% else %}
-                        ¥{{ h.avg_cost|floatformat:2|intcomma }}
-                      {% endif %}
-                    </div>
-                  </div>
-
-                  <div class="metric">
-                    <div class="metric-k">保有数</div>
-                    <div class="metric-v">{{ h.quantity|intcomma }} 株</div>
-                  </div>
-
-                  <div class="metric">
-                    <div class="metric-k">評価額</div>
-                    <div class="metric-v">
-                      {% if r.valuation is not None %}
-                        ¥{{ r.valuation|floatformat:0|intcomma }}
-                      {% else %}
-                        —
-                      {% endif %}
-                    </div>
-                  </div>
-
-                  <div class="metric">
-                    <div class="metric-k">含み損益</div>
-                    <div class="metric-v {% if r.pnl is not None %}{% if r.pnl < 0 %}neg{% else %}pos{% endif %}{% endif %}">
-                      {% if r.pnl is not None %}
-                        ¥{{ r.pnl|floatformat:0|intcomma }}
-                      {% else %}
-                        —
-                      {% endif %}
-                    </div>
-                  </div>
-
-                  <div class="metric">
-                    <div class="metric-k">損益率</div>
-                    <div class="metric-v {% if r.pnl_pct is not None %}{% if r.pnl_pct < 0 %}neg{% else %}pos{% endif %}{% endif %}">
-                      {% if r.pnl_pct is not None %}
-                        {{ r.pnl_pct|floatformat:2 }}%
-                      {% else %}
-                        —
-                      {% endif %}
-                    </div>
-                  </div>
-                </div>
-              </summary>
-
-              <div class="detail-panel">
-                <div class="detail-grid">
-                  <div class="detail-item">
-                    <div class="detail-k">年間配当</div>
-                    <div class="detail-v">
-                      {% if r.div_annual is not None %}
-                        {% if h.currency == "USD" %}
-                          ${{ r.div_annual|floatformat:0|intcomma }}
-                        {% else %}
-                          ¥{{ r.div_annual|floatformat:0|intcomma }}
-                        {% endif %}
-                      {% else %}
-                        —
-                      {% endif %}
-                    </div>
-                  </div>
-
-                  <div class="detail-item">
-                    <div class="detail-k">累計配当</div>
-                    <div class="detail-v">
-                      {% if r.div_received is not None %}
-                        {% if h.currency == "USD" %}
-                          ${{ r.div_received|floatformat:0|intcomma }}
-                        {% else %}
-                          ¥{{ r.div_received|floatformat:0|intcomma }}
-                        {% endif %}
-                      {% else %}
-                        —
-                      {% endif %}
-                    </div>
-                  </div>
-
-                  <div class="detail-item">
-                    <div class="detail-k">保有開始</div>
-                    <div class="detail-v">
-                      {% if h.opened_at %}
-                        {{ h.opened_at|date:"Y-m-d" }}
-                      {% else %}
-                        —
-                      {% endif %}
-                    </div>
-                  </div>
-
-                  <div class="detail-item">
-                    <div class="detail-k">保有日数</div>
-                    <div class="detail-v">
-                      {% if r.days is not None %}
-                        {{ r.days }} 日
-                      {% else %}
-                        —
-                      {% endif %}
-                    </div>
-                  </div>
-
-                  <div class="detail-item">
-                    <div class="detail-k">更新日</div>
-                    <div class="detail-v">
-                      {% if h.updated_at %}
-                        {{ h.updated_at|date:"Y-m-d" }}
-                      {% else %}
-                        —
-                      {% endif %}
-                    </div>
-                  </div>
-
-                  <div class="detail-item">
-                    <div class="detail-k">売買方向</div>
-                    <div class="detail-v">{{ h.side }}</div>
-                  </div>
-
-                  {% if h.memo %}
-                    <div class="detail-item full">
-                      <div class="detail-k">メモ</div>
-                      <div class="detail-v">{{ h.memo }}</div>
-                    </div>
-                  {% endif %}
-                </div>
-
-                <div class="action-row">
-                  <a href="{% url 'holding_edit' h.id %}" class="action-btn">✏️ 編集</a>
-                  <a href="{% url 'holding_close_sheet' h.id %}" class="action-btn">💱 手仕舞い</a>
+            <div class="holding-row-shell" data-swipe>
+              <div class="row-actions">
+                <div class="action-grid">
+                  <a href="{% url 'holding_edit' h.id %}" class="swipe-action">✏️ 編集</a>
+                  <a href="{% url 'holding_close_sheet' h.id %}" class="swipe-action">💱 手仕舞い</a>
 
                   {% if r.can_margin_to_spot %}
-                    <a href="{% url 'holding_margin_to_spot_sheet' h.id %}" class="action-btn warn">🔁 現引</a>
+                    <a href="{% url 'holding_margin_to_spot_sheet' h.id %}" class="swipe-action warn">🔁 現引</a>
+                  {% else %}
+                    <span class="swipe-action" style="opacity:.35;">—</span>
                   {% endif %}
 
-                  <form method="post" action="{% url 'holding_delete' h.id %}" onsubmit="return confirm('削除しますか？');" style="display:inline;">
+                  <form method="post" action="{% url 'holding_delete' h.id %}" class="swipe-action danger" onsubmit="return confirm('削除しますか？');">
                     {% csrf_token %}
-                    <button type="submit" class="action-btn danger">🗑️ 削除</button>
+                    <button type="submit">🗑️ 削除</button>
                   </form>
                 </div>
               </div>
-            </details>
+
+              <div class="holding-track">
+                <details class="holding-row">
+                  <summary>
+                    <div class="row-top">
+                      <div class="row-title-wrap">
+                        <div class="row-name">{{ h.name|default:"-" }}</div>
+                        <div class="row-code">{{ h.ticker }}</div>
+                      </div>
+                      <div class="side-badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">
+                        {{ h.side }}
+                      </div>
+                    </div>
+
+                    <div class="chip-row">
+                      <span class="chip">{{ h.get_broker_display }}</span>
+                      <span class="chip">{{ h.get_account_display }}</span>
+                      {% if h.currency == "USD" %}
+                        <span class="chip currency">USD</span>
+                      {% else %}
+                        <span class="chip currency">JPY</span>
+                      {% endif %}
+                    </div>
+
+                    <div class="metric-grid">
+                      <div class="metric">
+                        <div class="metric-k">現在値</div>
+                        <div class="metric-v">
+                          {% if r.price_now is not None %}
+                            {% if h.currency == "USD" %}
+                              ${{ r.price_now|floatformat:2|intcomma }}
+                            {% else %}
+                              ¥{{ r.price_now|floatformat:1|intcomma }}
+                            {% endif %}
+                          {% else %}
+                            —
+                          {% endif %}
+                        </div>
+                      </div>
+
+                      <div class="metric">
+                        <div class="metric-k">取得単価</div>
+                        <div class="metric-v">
+                          {% if h.currency == "USD" %}
+                            ${{ h.avg_cost|floatformat:4|intcomma }}
+                          {% else %}
+                            ¥{{ h.avg_cost|floatformat:2|intcomma }}
+                          {% endif %}
+                        </div>
+                      </div>
+
+                      <div class="metric">
+                        <div class="metric-k">保有数</div>
+                        <div class="metric-v">{{ h.quantity|intcomma }} 株</div>
+                      </div>
+
+                      <div class="metric">
+                        <div class="metric-k">評価額</div>
+                        <div class="metric-v">
+                          {% if r.valuation is not None %}
+                            ¥{{ r.valuation|floatformat:0|intcomma }}
+                          {% else %}
+                            —
+                          {% endif %}
+                        </div>
+                      </div>
+
+                      <div class="metric">
+                        <div class="metric-k">含み損益</div>
+                        <div class="metric-v {% if r.pnl is not None %}{% if r.pnl < 0 %}neg{% else %}pos{% endif %}{% endif %}">
+                          {% if r.pnl is not None %}
+                            ¥{{ r.pnl|floatformat:0|intcomma }}
+                          {% else %}
+                            —
+                          {% endif %}
+                        </div>
+                      </div>
+
+                      <div class="metric">
+                        <div class="metric-k">損益率</div>
+                        <div class="metric-v {% if r.pnl_pct is not None %}{% if r.pnl_pct < 0 %}neg{% else %}pos{% endif %}{% endif %}">
+                          {% if r.pnl_pct is not None %}
+                            {{ r.pnl_pct|floatformat:2 }}%
+                          {% else %}
+                            —
+                          {% endif %}
+                        </div>
+                      </div>
+                    </div>
+                  </summary>
+
+                  <div class="detail-panel">
+                    <div class="detail-grid">
+                      <div class="detail-item">
+                        <div class="detail-k">年間配当</div>
+                        <div class="detail-v">
+                          {% if r.div_annual is not None %}
+                            {% if h.currency == "USD" %}
+                              ${{ r.div_annual|floatformat:0|intcomma }}
+                            {% else %}
+                              ¥{{ r.div_annual|floatformat:0|intcomma }}
+                            {% endif %}
+                          {% else %}
+                            —
+                          {% endif %}
+                        </div>
+                      </div>
+
+                      <div class="detail-item">
+                        <div class="detail-k">累計配当</div>
+                        <div class="detail-v">
+                          {% if r.div_received is not None %}
+                            {% if h.currency == "USD" %}
+                              ${{ r.div_received|floatformat:0|intcomma }}
+                            {% else %}
+                              ¥{{ r.div_received|floatformat:0|intcomma }}
+                            {% endif %}
+                          {% else %}
+                            —
+                          {% endif %}
+                        </div>
+                      </div>
+
+                      <div class="detail-item">
+                        <div class="detail-k">保有開始</div>
+                        <div class="detail-v">
+                          {% if h.opened_at %}
+                            {{ h.opened_at|date:"Y-m-d" }}
+                          {% else %}
+                            —
+                          {% endif %}
+                        </div>
+                      </div>
+
+                      <div class="detail-item">
+                        <div class="detail-k">保有日数</div>
+                        <div class="detail-v">
+                          {% if r.days is not None %}
+                            {{ r.days }} 日
+                          {% else %}
+                            —
+                          {% endif %}
+                        </div>
+                      </div>
+
+                      {% if h.memo %}
+                        <div class="detail-item full">
+                          <div class="detail-k">メモ</div>
+                          <div class="detail-v">{{ h.memo }}</div>
+                        </div>
+                      {% endif %}
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </div>
             {% endwith %}
           {% endfor %}
         </div>
@@ -669,5 +716,5 @@
 
 </div>
 
-<script src="{% static 'js/holdings.js' %}?v=200"></script>
+<script src="{% static 'js/holdings.js' %}?v=201"></script>
 {% endblock %}
