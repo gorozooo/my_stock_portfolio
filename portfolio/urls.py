@@ -1,12 +1,5 @@
 # [FILE] urls.py
 # [PATH] portfolio/urls.py
-#
-# このファイルは何？
-# - portfolio アプリ全体のURL定義
-#
-# 今回の修正ポイント
-# - 保有ページは partial 依存を外し、/holdings/ の1ページ構成へ寄せる
-# - holding_list_partial はURLから外す
 
 from django.http import HttpResponse
 from django.urls import path, include
@@ -22,6 +15,7 @@ from .views.realized import (
 )
 from .views import dev_tools as dev_views
 from .views import holding as hv
+from .views import holding_summary as hv_summary
 from .views import holding_actions as hv_actions
 from .views import realized_actions as realized_actions_views
 from .views import margin_to_spot as v_margin_to_spot
@@ -57,6 +51,7 @@ urlpatterns = [
 
     # 保有
     path("holdings/", hv.holding_list, name="holding_list"),
+    path("holdings/summary/", hv_summary.holding_summary, name="holding_summary"),
     path("holdings/<int:pk>/close", realized_views.close_sheet, name="holding_close_sheet"),
     path("holdings/<int:pk>/close/submit", realized_actions_views.close_submit, name="holding_close_submit"),
     path("holdings/<int:pk>/margin-to-spot/", v_margin_to_spot.margin_to_spot_sheet, name="holding_margin_to_spot_sheet"),
@@ -65,6 +60,7 @@ urlpatterns = [
     path("holdings/<int:pk>/edit/", hv_actions.holding_edit, name="holding_edit"),
     path("holdings/<int:pk>/delete/", hv_actions.holding_delete, name="holding_delete"),
     path("api/ticker-name", hv.api_ticker_name, name="api_ticker_name"),
+    path("holdings/partial/list", hv.holding_list_partial, name="holding_list_partial"),
 
     # 配当
     path("dividends/dashboard/", v_div.dashboard, name="dividend_dashboard"),
