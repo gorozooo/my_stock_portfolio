@@ -1,0 +1,1136 @@
+<!-- [FILE] ai.html -->
+<!-- [PATH] templates/holdings/ai.html -->
+<!--
+このファイルは何？
+- /holdings/ai/ の本体テンプレート
+- 証券会社タブ / 対象タブ / 提案カテゴリタブでAI提案候補を切り替える
+- 総合 / 利確 / 損切り警戒 / 継続 / 現引 / NISA / 慎重 を見られる
+-->
+
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}AI提案{% endblock %}
+
+{% block head %}
+<style>
+  *{box-sizing:border-box}
+  html,body{max-width:100%;overflow-x:hidden}
+
+  .ai-page{
+    max-width:980px;
+    margin:0 auto;
+    padding:12px 10px 120px;
+  }
+
+  .page-head{
+    margin-bottom:12px;
+  }
+  .page-title{
+    margin:0;
+    font-size:20px;
+    font-weight:800;
+    color:#eef2ff;
+    letter-spacing:.02em;
+  }
+  .page-note{
+    margin-top:4px;
+    font-size:12px;
+    color:#94a3b8;
+    line-height:1.6;
+  }
+
+  .subnav{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-bottom:12px;
+  }
+  .subnav-item{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:34px;
+    padding:0 12px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.10);
+    background:rgba(255,255,255,.04);
+    color:#cbd5e1;
+    font-size:12px;
+    font-weight:700;
+    text-decoration:none;
+  }
+  .subnav-item.active{
+    background:rgba(99,102,241,.18);
+    border-color:rgba(99,102,241,.45);
+    color:#eef2ff;
+  }
+
+  .tab-block{
+    margin-bottom:12px;
+  }
+  .tab-scroll{
+    display:flex;
+    gap:8px;
+    overflow-x:auto;
+    overflow-y:hidden;
+    padding:0 16px 2px 0;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-width:none;
+    scroll-behavior:smooth;
+  }
+  .tab-scroll::-webkit-scrollbar{display:none}
+  .tab-scroll::after{
+    content:"";
+    flex:0 0 18px;
+    height:1px;
+  }
+
+  .tab{
+    flex:0 0 auto;
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    min-height:38px;
+    padding:0 12px;
+    border-radius:12px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.04);
+    color:#dbe3f4;
+    font-size:12px;
+    font-weight:700;
+    white-space:nowrap;
+    cursor:pointer;
+    appearance:none;
+    -webkit-appearance:none;
+    outline:none;
+  }
+  .tab.active{
+    background:rgba(59,130,246,.18);
+    border-color:rgba(59,130,246,.45);
+    color:#eff6ff;
+  }
+  .tab-count{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-width:18px;
+    height:18px;
+    padding:0 6px;
+    border-radius:999px;
+    background:rgba(255,255,255,.10);
+    font-size:11px;
+  }
+
+  .swipe-note{
+    margin:-2px 0 10px;
+    font-size:11px;
+    color:#94a3b8;
+  }
+
+  .combo-panel{display:none}
+  .combo-panel.active{display:block}
+  .category-panel{display:none}
+  .category-panel.active{display:block}
+
+  .hero-grid{
+    display:grid;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:8px;
+    margin-bottom:12px;
+  }
+  .hero{
+    padding:11px 12px;
+    border-radius:14px;
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.08);
+  }
+  .hero.main{
+    background:linear-gradient(135deg, rgba(16,185,129,.14), rgba(15,23,42,.10));
+    border-color:rgba(16,185,129,.28);
+  }
+  .hero-k{
+    font-size:10px;
+    color:#94a3b8;
+    margin-bottom:5px;
+    letter-spacing:.02em;
+  }
+  .hero-v{
+    font-size:18px;
+    font-weight:800;
+    color:#eef2ff;
+    line-height:1.25;
+  }
+
+  .panel-card{
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:16px;
+    background:rgba(255,255,255,.03);
+    overflow:hidden;
+  }
+  .card-head{
+    padding:12px 14px;
+    border-bottom:1px solid rgba(255,255,255,.08);
+    background:rgba(255,255,255,.04);
+  }
+  .card-title{
+    font-size:14px;
+    font-weight:800;
+    color:#eef2ff;
+  }
+  .card-note{
+    margin-top:4px;
+    font-size:11px;
+    color:#94a3b8;
+    line-height:1.5;
+  }
+  .card-body{
+    padding:10px 12px;
+  }
+
+  .suggestion-list{
+    display:grid;
+    gap:10px;
+  }
+
+  .suggestion-item{
+    padding:12px;
+    border-radius:14px;
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.08);
+  }
+
+  .item-top{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:10px;
+    margin-bottom:8px;
+  }
+  .item-title-wrap{
+    min-width:0;
+    flex:1 1 auto;
+  }
+  .item-title{
+    font-size:15px;
+    font-weight:800;
+    color:#eef2ff;
+    line-height:1.25;
+    word-break:break-word;
+  }
+  .item-sub{
+    margin-top:3px;
+    font-size:12px;
+    color:#93c5fd;
+    font-weight:700;
+  }
+
+  .item-badges{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    justify-content:flex-end;
+  }
+  .badge{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:24px;
+    padding:0 9px;
+    border-radius:999px;
+    font-size:11px;
+    font-weight:800;
+    white-space:nowrap;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.05);
+    color:#dbe3f4;
+  }
+  .badge.suggestion{
+    background:rgba(16,185,129,.12);
+    border-color:rgba(16,185,129,.30);
+    color:#bbf7d0;
+  }
+  .badge.score{
+    background:rgba(59,130,246,.12);
+    border-color:rgba(59,130,246,.30);
+    color:#dbeafe;
+  }
+  .badge.ratio{
+    background:rgba(245,158,11,.12);
+    border-color:rgba(245,158,11,.30);
+    color:#fde68a;
+  }
+
+  .chip-row{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    margin-bottom:8px;
+  }
+  .chip{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:24px;
+    padding:0 9px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.05);
+    color:#dbe3f4;
+    font-size:11px;
+    font-weight:700;
+    white-space:nowrap;
+  }
+
+  .reason-box{
+    margin-bottom:8px;
+    padding:9px 10px;
+    border-radius:12px;
+    background:rgba(255,255,255,.035);
+    border:1px dashed rgba(255,255,255,.10);
+    color:#cbd5e1;
+    font-size:12px;
+    line-height:1.6;
+  }
+
+  .metric-grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px;
+  }
+  .metric{
+    padding:9px 10px;
+    border-radius:12px;
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.06);
+    min-width:0;
+  }
+  .metric-k{
+    font-size:10px;
+    color:#94a3b8;
+    margin-bottom:4px;
+    line-height:1.2;
+  }
+  .metric-v{
+    font-size:13px;
+    font-weight:800;
+    color:#eef2ff;
+    line-height:1.3;
+    word-break:break-word;
+  }
+  .metric-v.pos{color:#22c55e}
+  .metric-v.neg{color:#ef4444}
+
+  .action-row{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:8px;
+    margin-top:10px;
+  }
+  .action-btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:40px;
+    padding:0 10px;
+    border-radius:12px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.05);
+    color:#e5e7eb;
+    font-size:12px;
+    font-weight:800;
+    text-decoration:none;
+    text-align:center;
+  }
+  .action-btn.primary{
+    background:rgba(59,130,246,.12);
+    border-color:rgba(59,130,246,.30);
+    color:#dbeafe;
+  }
+  .action-btn.warn{
+    background:rgba(168,85,247,.12);
+    border-color:rgba(168,85,247,.30);
+    color:#f3e8ff;
+  }
+
+  .empty-box{
+    padding:20px 16px;
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:16px;
+    background:rgba(255,255,255,.03);
+    color:#94a3b8;
+    text-align:center;
+    line-height:1.8;
+  }
+
+  @media (max-width: 720px){
+    .ai-page{
+      padding:12px 8px 120px;
+    }
+    .hero-grid{
+      grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+    .action-row{
+      grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div
+  class="ai-page"
+  id="aiPage"
+  data-initial-broker="{{ active_broker }}"
+  data-initial-scope="{{ active_scope }}"
+  data-initial-category="{{ active_category }}"
+>
+  <div class="page-head">
+    <h1 class="page-title">AI提案</h1>
+    <div class="page-note">
+      いまの保有から、利確・見直し・継続・現引・NISA候補をルールベースで整理します。
+    </div>
+  </div>
+
+  <div class="subnav">
+    {% for item in subnav_items %}
+      <a href="{{ item.url }}" class="subnav-item {% if item.is_active %}active{% endif %}">{{ item.label }}</a>
+    {% endfor %}
+  </div>
+
+  <div class="tab-block">
+    <div class="tab-scroll" id="brokerTabScroll">
+      {% for tab in broker_tabs %}
+        <button
+          type="button"
+          class="tab {% if tab.is_active %}active{% endif %}"
+          data-broker-tab
+          data-broker="{{ tab.key }}"
+          data-count-all="{{ tab.counts.all }}"
+          data-count-spot="{{ tab.counts.spot }}"
+          data-count-margin="{{ tab.counts.margin }}"
+        >
+          <span>{{ tab.label }}</span>
+          <span class="tab-count">{{ tab.count }}</span>
+        </button>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="tab-block">
+    <div class="tab-scroll" id="scopeTabScroll">
+      {% for tab in scope_tabs %}
+        <button
+          type="button"
+          class="tab {% if tab.is_active %}active{% endif %}"
+          data-scope-tab
+          data-scope="{{ tab.key }}"
+        >
+          <span>{{ tab.label }}</span>
+          <span class="tab-count" data-scope-count="{{ tab.key }}">{{ tab.count }}</span>
+        </button>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="tab-block">
+    <div class="tab-scroll" id="categoryTabScroll">
+      {% for tab in category_tabs %}
+        <button
+          type="button"
+          class="tab {% if tab.is_active %}active{% endif %}"
+          data-category-tab
+          data-category="{{ tab.key }}"
+        >
+          <span>{{ tab.label }}</span>
+          <span class="tab-count" data-category-count="{{ tab.key }}">{{ tab.count }}</span>
+        </button>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="swipe-note">左右スワイプでも提案カテゴリを切り替えられます。</div>
+
+  {% for combo in combo_panels %}
+    <section
+      class="combo-panel {% if combo.broker_key == active_broker and combo.scope_key == active_scope %}active{% endif %}"
+      data-combo-panel
+      data-broker="{{ combo.broker_key }}"
+      data-scope="{{ combo.scope_key }}"
+      data-count-overall="{{ combo.counts.overall }}"
+      data-count-take_profit="{{ combo.counts.take_profit }}"
+      data-count-stop_alert="{{ combo.counts.stop_alert }}"
+      data-count-continue="{{ combo.counts.continue }}"
+      data-count-margin_to_spot="{{ combo.counts.margin_to_spot }}"
+      data-count-nisa="{{ combo.counts.nisa }}"
+      data-count-cautious="{{ combo.counts.cautious }}"
+    >
+      {% if combo.count == 0 %}
+        <div class="empty-box">この条件の保有はまだありません。</div>
+      {% else %}
+        <div class="hero-grid">
+          <div class="hero main">
+            <div class="hero-k">対象件数</div>
+            <div class="hero-v">{{ combo.count }}件</div>
+          </div>
+          <div class="hero">
+            <div class="hero-k">利確候補</div>
+            <div class="hero-v">{{ combo.counts.take_profit }}件</div>
+          </div>
+          <div class="hero">
+            <div class="hero-k">損切り警戒</div>
+            <div class="hero-v">{{ combo.counts.stop_alert }}件</div>
+          </div>
+          <div class="hero">
+            <div class="hero-k">現引候補</div>
+            <div class="hero-v">{{ combo.counts.margin_to_spot }}件</div>
+          </div>
+        </div>
+
+        {% for category_key, category_label in category_tabs|dictsort:"label" %}
+        {% endfor %}
+
+        <div class="category-panel {% if active_category == 'overall' %}active{% endif %}" data-category-panel="overall">
+          <div class="panel-card">
+            <div class="card-head">
+              <div class="card-title">総合</div>
+              <div class="card-note">複数の提案条件が重なったものを優先順で出しています。</div>
+            </div>
+            <div class="card-body">
+              {% if combo.groups.overall %}
+                <div class="suggestion-list">
+                  {% for item in combo.groups.overall %}
+                    <div class="suggestion-item">
+                      <div class="item-top">
+                        <div class="item-title-wrap">
+                          <div class="item-title">{{ item.name }}</div>
+                          <div class="item-sub">{{ item.ticker }}</div>
+                        </div>
+                        <div class="item-badges">
+                          {% for badge in item.badges %}
+                            <div class="badge {{ badge.kind }}">{{ badge.label }}</div>
+                          {% endfor %}
+                        </div>
+                      </div>
+
+                      <div class="chip-row">
+                        <span class="chip">{{ item.broker }}</span>
+                        <span class="chip">{{ item.account }}</span>
+                        <span class="chip">{{ item.qty|intcomma }}株</span>
+                      </div>
+
+                      <div class="reason-box">{{ item.reason_text }}</div>
+
+                      <div class="metric-grid">
+                        <div class="metric">
+                          <div class="metric-k">評価額</div>
+                          <div class="metric-v">¥{{ item.valuation|floatformat:0|intcomma }}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">含み損益</div>
+                          <div class="metric-v {% if item.pnl < 0 %}neg{% else %}pos{% endif %}">¥{{ item.pnl|floatformat:0|intcomma }}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">損益率</div>
+                          <div class="metric-v {% if item.pnl_pct is not None and item.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
+                            {% if item.pnl_pct is not None %}{{ item.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
+                          </div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">年間配当</div>
+                          <div class="metric-v">¥{{ item.annual_div|floatformat:0|intcomma }}</div>
+                        </div>
+                      </div>
+
+                      <div class="action-row">
+                        <a href="{% url 'holding_edit' item.holding_id %}" class="action-btn">編集</a>
+                        <a href="{% url 'holding_close_sheet' item.holding_id %}" class="action-btn primary">手仕舞い</a>
+                        {% if item.can_margin_to_spot %}
+                          <a href="{% url 'holding_margin_to_spot_sheet' item.holding_id %}" class="action-btn warn">現引</a>
+                        {% endif %}
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="empty-box">総合提案はまだありません。</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="category-panel" data-category-panel="take_profit">
+          <div class="panel-card">
+            <div class="card-head">
+              <div class="card-title">利確</div>
+              <div class="card-note">利益が出ていて、日数や構成比も踏まえて利確候補を並べています。</div>
+            </div>
+            <div class="card-body">
+              {% if combo.groups.take_profit %}
+                <div class="suggestion-list">
+                  {% for item in combo.groups.take_profit %}
+                    <div class="suggestion-item">
+                      <div class="item-top">
+                        <div class="item-title-wrap">
+                          <div class="item-title">{{ item.name }}</div>
+                          <div class="item-sub">{{ item.ticker }}</div>
+                        </div>
+                        <div class="item-badges">
+                          {% for badge in item.badges %}
+                            <div class="badge {{ badge.kind }}">{{ badge.label }}</div>
+                          {% endfor %}
+                        </div>
+                      </div>
+                      <div class="chip-row">
+                        <span class="chip">{{ item.broker }}</span>
+                        <span class="chip">{{ item.account }}</span>
+                        <span class="chip">{{ item.qty|intcomma }}株</span>
+                      </div>
+                      <div class="reason-box">{{ item.reason_text }}</div>
+                      <div class="metric-grid">
+                        <div class="metric">
+                          <div class="metric-k">含み損益</div>
+                          <div class="metric-v pos">¥{{ item.pnl|floatformat:0|intcomma }}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">損益率</div>
+                          <div class="metric-v pos">{% if item.pnl_pct is not None %}{{ item.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">評価額</div>
+                          <div class="metric-v">¥{{ item.valuation|floatformat:0|intcomma }}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">保有日数</div>
+                          <div class="metric-v">{% if item.days is not None %}{{ item.days }}日{% else %}—{% endif %}</div>
+                        </div>
+                      </div>
+                      <div class="action-row">
+                        <a href="{% url 'holding_close_sheet' item.holding_id %}" class="action-btn primary">手仕舞い</a>
+                        <a href="{% url 'holding_edit' item.holding_id %}" class="action-btn">編集</a>
+                        {% if item.can_margin_to_spot %}
+                          <a href="{% url 'holding_margin_to_spot_sheet' item.holding_id %}" class="action-btn warn">現引</a>
+                        {% endif %}
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="empty-box">この条件では利確候補はありません。</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="category-panel" data-category-panel="stop_alert">
+          <div class="panel-card">
+            <div class="card-head">
+              <div class="card-title">損切り警戒</div>
+              <div class="card-note">含み損・信用・長期化の要素が重いものを優先しています。</div>
+            </div>
+            <div class="card-body">
+              {% if combo.groups.stop_alert %}
+                <div class="suggestion-list">
+                  {% for item in combo.groups.stop_alert %}
+                    <div class="suggestion-item">
+                      <div class="item-top">
+                        <div class="item-title-wrap">
+                          <div class="item-title">{{ item.name }}</div>
+                          <div class="item-sub">{{ item.ticker }}</div>
+                        </div>
+                        <div class="item-badges">
+                          {% for badge in item.badges %}
+                            <div class="badge {{ badge.kind }}">{{ badge.label }}</div>
+                          {% endfor %}
+                        </div>
+                      </div>
+                      <div class="chip-row">
+                        <span class="chip">{{ item.broker }}</span>
+                        <span class="chip">{{ item.account }}</span>
+                        <span class="chip">{{ item.qty|intcomma }}株</span>
+                      </div>
+                      <div class="reason-box">{{ item.reason_text }}</div>
+                      <div class="metric-grid">
+                        <div class="metric">
+                          <div class="metric-k">含み損益</div>
+                          <div class="metric-v neg">¥{{ item.pnl|floatformat:0|intcomma }}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">損益率</div>
+                          <div class="metric-v neg">{% if item.pnl_pct is not None %}{{ item.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">評価額</div>
+                          <div class="metric-v">¥{{ item.valuation|floatformat:0|intcomma }}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">保有日数</div>
+                          <div class="metric-v">{% if item.days is not None %}{{ item.days }}日{% else %}—{% endif %}</div>
+                        </div>
+                      </div>
+                      <div class="action-row">
+                        <a href="{% url 'holding_close_sheet' item.holding_id %}" class="action-btn primary">手仕舞い</a>
+                        <a href="{% url 'holding_edit' item.holding_id %}" class="action-btn">編集</a>
+                        {% if item.can_margin_to_spot %}
+                          <a href="{% url 'holding_margin_to_spot_sheet' item.holding_id %}" class="action-btn warn">現引</a>
+                        {% endif %}
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="empty-box">この条件では損切り警戒候補はありません。</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="category-panel" data-category-panel="continue">
+          <div class="panel-card">
+            <div class="card-head">
+              <div class="card-title">継続</div>
+              <div class="card-note">大きく崩れておらず、継続監視しやすい候補です。</div>
+            </div>
+            <div class="card-body">
+              {% if combo.groups.continue %}
+                <div class="suggestion-list">
+                  {% for item in combo.groups.continue %}
+                    <div class="suggestion-item">
+                      <div class="item-top">
+                        <div class="item-title-wrap">
+                          <div class="item-title">{{ item.name }}</div>
+                          <div class="item-sub">{{ item.ticker }}</div>
+                        </div>
+                        <div class="item-badges">
+                          {% for badge in item.badges %}
+                            <div class="badge {{ badge.kind }}">{{ badge.label }}</div>
+                          {% endfor %}
+                        </div>
+                      </div>
+                      <div class="chip-row">
+                        <span class="chip">{{ item.broker }}</span>
+                        <span class="chip">{{ item.account }}</span>
+                        <span class="chip">{{ item.qty|intcomma }}株</span>
+                      </div>
+                      <div class="reason-box">{{ item.reason_text }}</div>
+                      <div class="metric-grid">
+                        <div class="metric">
+                          <div class="metric-k">含み損益</div>
+                          <div class="metric-v {% if item.pnl < 0 %}neg{% else %}pos{% endif %}">¥{{ item.pnl|floatformat:0|intcomma }}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">損益率</div>
+                          <div class="metric-v {% if item.pnl_pct is not None and item.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
+                            {% if item.pnl_pct is not None %}{{ item.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
+                          </div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">年間配当</div>
+                          <div class="metric-v">¥{{ item.annual_div|floatformat:0|intcomma }}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">保有日数</div>
+                          <div class="metric-v">{% if item.days is not None %}{{ item.days }}日{% else %}—{% endif %}</div>
+                        </div>
+                      </div>
+                      <div class="action-row">
+                        <a href="{% url 'holding_edit' item.holding_id %}" class="action-btn">編集</a>
+                        <a href="{% url 'holding_close_sheet' item.holding_id %}" class="action-btn primary">手仕舞い</a>
+                        {% if item.can_margin_to_spot %}
+                          <a href="{% url 'holding_margin_to_spot_sheet' item.holding_id %}" class="action-btn warn">現引</a>
+                        {% endif %}
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="empty-box">この条件では継続候補はありません。</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="category-panel" data-category-panel="margin_to_spot">
+          <div class="panel-card">
+            <div class="card-head">
+              <div class="card-title">現引</div>
+              <div class="card-note">信用買い建玉の中から、現引候補を出しています。</div>
+            </div>
+            <div class="card-body">
+              {% if combo.groups.margin_to_spot %}
+                <div class="suggestion-list">
+                  {% for item in combo.groups.margin_to_spot %}
+                    <div class="suggestion-item">
+                      <div class="item-top">
+                        <div class="item-title-wrap">
+                          <div class="item-title">{{ item.name }}</div>
+                          <div class="item-sub">{{ item.ticker }}</div>
+                        </div>
+                        <div class="item-badges">
+                          {% for badge in item.badges %}
+                            <div class="badge {{ badge.kind }}">{{ badge.label }}</div>
+                          {% endfor %}
+                        </div>
+                      </div>
+                      <div class="chip-row">
+                        <span class="chip">{{ item.broker }}</span>
+                        <span class="chip">{{ item.account }}</span>
+                        <span class="chip">{{ item.qty|intcomma }}株</span>
+                      </div>
+                      <div class="reason-box">{{ item.reason_text }}</div>
+                      <div class="metric-grid">
+                        <div class="metric">
+                          <div class="metric-k">保有日数</div>
+                          <div class="metric-v">{% if item.days is not None %}{{ item.days }}日{% else %}—{% endif %}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">含み損益</div>
+                          <div class="metric-v {% if item.pnl < 0 %}neg{% else %}pos{% endif %}">¥{{ item.pnl|floatformat:0|intcomma }}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">評価額</div>
+                          <div class="metric-v">¥{{ item.valuation|floatformat:0|intcomma }}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">年間配当</div>
+                          <div class="metric-v">¥{{ item.annual_div|floatformat:0|intcomma }}</div>
+                        </div>
+                      </div>
+                      <div class="action-row">
+                        <a href="{% url 'holding_margin_to_spot_sheet' item.holding_id %}" class="action-btn warn">現引</a>
+                        <a href="{% url 'holding_edit' item.holding_id %}" class="action-btn">編集</a>
+                        <a href="{% url 'holding_close_sheet' item.holding_id %}" class="action-btn primary">手仕舞い</a>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="empty-box">この条件では現引候補はありません。</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="category-panel" data-category-panel="nisa">
+          <div class="panel-card">
+            <div class="card-head">
+              <div class="card-title">NISA</div>
+              <div class="card-note">特定口座の中から、NISA側を検討しやすい候補です。</div>
+            </div>
+            <div class="card-body">
+              {% if combo.groups.nisa %}
+                <div class="suggestion-list">
+                  {% for item in combo.groups.nisa %}
+                    <div class="suggestion-item">
+                      <div class="item-top">
+                        <div class="item-title-wrap">
+                          <div class="item-title">{{ item.name }}</div>
+                          <div class="item-sub">{{ item.ticker }}</div>
+                        </div>
+                        <div class="item-badges">
+                          {% for badge in item.badges %}
+                            <div class="badge {{ badge.kind }}">{{ badge.label }}</div>
+                          {% endfor %}
+                        </div>
+                      </div>
+                      <div class="chip-row">
+                        <span class="chip">{{ item.broker }}</span>
+                        <span class="chip">{{ item.account }}</span>
+                        <span class="chip">{{ item.qty|intcomma }}株</span>
+                      </div>
+                      <div class="reason-box">{{ item.reason_text }}</div>
+                      <div class="metric-grid">
+                        <div class="metric">
+                          <div class="metric-k">年間配当</div>
+                          <div class="metric-v">¥{{ item.annual_div|floatformat:0|intcomma }}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">取得利回り</div>
+                          <div class="metric-v">{% if item.yield_cost is not None %}{{ item.yield_cost|floatformat:2 }}%{% else %}—{% endif %}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">評価額</div>
+                          <div class="metric-v">¥{{ item.valuation|floatformat:0|intcomma }}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">保有日数</div>
+                          <div class="metric-v">{% if item.days is not None %}{{ item.days }}日{% else %}—{% endif %}</div>
+                        </div>
+                      </div>
+                      <div class="action-row">
+                        <a href="{% url 'holding_edit' item.holding_id %}" class="action-btn">編集</a>
+                        <a href="{% url 'holding_close_sheet' item.holding_id %}" class="action-btn primary">手仕舞い</a>
+                        {% if item.can_margin_to_spot %}
+                          <a href="{% url 'holding_margin_to_spot_sheet' item.holding_id %}" class="action-btn warn">現引</a>
+                        {% endif %}
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="empty-box">この条件ではNISA候補はありません。</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="category-panel" data-category-panel="cautious">
+          <div class="panel-card">
+            <div class="card-head">
+              <div class="card-title">慎重</div>
+              <div class="card-note">集中・信用・長期化が重なりやすいものを慎重枠に出しています。</div>
+            </div>
+            <div class="card-body">
+              {% if combo.groups.cautious %}
+                <div class="suggestion-list">
+                  {% for item in combo.groups.cautious %}
+                    <div class="suggestion-item">
+                      <div class="item-top">
+                        <div class="item-title-wrap">
+                          <div class="item-title">{{ item.name }}</div>
+                          <div class="item-sub">{{ item.ticker }}</div>
+                        </div>
+                        <div class="item-badges">
+                          {% for badge in item.badges %}
+                            <div class="badge {{ badge.kind }}">{{ badge.label }}</div>
+                          {% endfor %}
+                        </div>
+                      </div>
+                      <div class="chip-row">
+                        <span class="chip">{{ item.broker }}</span>
+                        <span class="chip">{{ item.account }}</span>
+                        <span class="chip">{{ item.qty|intcomma }}株</span>
+                      </div>
+                      <div class="reason-box">{{ item.reason_text }}</div>
+                      <div class="metric-grid">
+                        <div class="metric">
+                          <div class="metric-k">構成比</div>
+                          <div class="metric-v">{% if item.ratio is not None %}{{ item.ratio|floatformat:1 }}%{% else %}—{% endif %}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">保有日数</div>
+                          <div class="metric-v">{% if item.days is not None %}{{ item.days }}日{% else %}—{% endif %}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">含み損益</div>
+                          <div class="metric-v {% if item.pnl < 0 %}neg{% else %}pos{% endif %}">¥{{ item.pnl|floatformat:0|intcomma }}</div>
+                        </div>
+                        <div class="metric">
+                          <div class="metric-k">損益率</div>
+                          <div class="metric-v {% if item.pnl_pct is not None and item.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
+                            {% if item.pnl_pct is not None %}{{ item.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
+                          </div>
+                        </div>
+                      </div>
+                      <div class="action-row">
+                        <a href="{% url 'holding_edit' item.holding_id %}" class="action-btn">編集</a>
+                        <a href="{% url 'holding_close_sheet' item.holding_id %}" class="action-btn primary">手仕舞い</a>
+                        {% if item.can_margin_to_spot %}
+                          <a href="{% url 'holding_margin_to_spot_sheet' item.holding_id %}" class="action-btn warn">現引</a>
+                        {% endif %}
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="empty-box">この条件では慎重候補はありません。</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+      {% endif %}
+    </section>
+  {% endfor %}
+</div>
+
+<script>
+(function(){
+  const root = document.getElementById("aiPage");
+  if (!root) return;
+
+  let activeBroker = root.dataset.initialBroker || "ALL";
+  let activeScope = root.dataset.initialScope || "all";
+  let activeCategory = root.dataset.initialCategory || "overall";
+
+  const categoryOrder = ["overall", "take_profit", "stop_alert", "continue", "margin_to_spot", "nisa", "cautious"];
+
+  function scrollTabIntoView(container, activeBtn){
+    if (!container || !activeBtn) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const btnRect = activeBtn.getBoundingClientRect();
+    const current = container.scrollLeft;
+    const btnLeft = btnRect.left - containerRect.left + current;
+    const btnCenter = btnLeft + (btnRect.width / 2);
+    const target = btnCenter - (container.clientWidth / 2);
+    const maxScroll = Math.max(0, container.scrollWidth - container.clientWidth);
+    const next = Math.max(0, Math.min(target, maxScroll));
+
+    container.scrollTo({ left: next, behavior: "smooth" });
+  }
+
+  function getActiveComboPanel(){
+    return document.querySelector(
+      '[data-combo-panel].active[data-broker="' + activeBroker + '"][data-scope="' + activeScope + '"]'
+    );
+  }
+
+  function updateScopeCounts(){
+    const activeBrokerBtn = document.querySelector('[data-broker-tab].active');
+    if (!activeBrokerBtn) return;
+
+    const counts = {
+      all: activeBrokerBtn.dataset.countAll || "0",
+      spot: activeBrokerBtn.dataset.countSpot || "0",
+      margin: activeBrokerBtn.dataset.countMargin || "0",
+    };
+
+    document.querySelectorAll("[data-scope-count]").forEach((el) => {
+      const key = el.dataset.scopeCount;
+      el.textContent = counts[key] || "0";
+    });
+  }
+
+  function updateCategoryCounts(){
+    const panel = getActiveComboPanel();
+    if (!panel) return;
+
+    const counts = {
+      overall: panel.dataset.countOverall || "0",
+      take_profit: panel.dataset.countTakeProfit || "0",
+      stop_alert: panel.dataset.countStopAlert || "0",
+      continue: panel.dataset.countContinue || "0",
+      margin_to_spot: panel.dataset.countMarginToSpot || "0",
+      nisa: panel.dataset.countNisa || "0",
+      cautious: panel.dataset.countCautious || "0",
+    };
+
+    document.querySelectorAll("[data-category-count]").forEach((el) => {
+      const key = el.dataset.categoryCount;
+      el.textContent = counts[key] || "0";
+    });
+  }
+
+  function syncButtons(){
+    document.querySelectorAll("[data-broker-tab]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.broker === activeBroker);
+    });
+    document.querySelectorAll("[data-scope-tab]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.scope === activeScope);
+    });
+    document.querySelectorAll("[data-category-tab]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.category === activeCategory);
+    });
+  }
+
+  function showPanels(){
+    document.querySelectorAll("[data-combo-panel]").forEach((panel) => {
+      const on = panel.dataset.broker === activeBroker && panel.dataset.scope === activeScope;
+      panel.classList.toggle("active", on);
+
+      panel.querySelectorAll("[data-category-panel]").forEach((catPanel) => {
+        catPanel.classList.toggle("active", on && catPanel.dataset.categoryPanel === activeCategory);
+      });
+    });
+  }
+
+  function updateUrl(){
+    const url = new URL(window.location.href);
+    url.searchParams.set("broker", activeBroker);
+    url.searchParams.set("scope", activeScope);
+    url.searchParams.set("category", activeCategory);
+    window.history.replaceState({}, "", url.toString());
+  }
+
+  function syncTabScrolls(){
+    scrollTabIntoView(
+      document.getElementById("brokerTabScroll"),
+      document.querySelector("[data-broker-tab].active")
+    );
+    scrollTabIntoView(
+      document.getElementById("scopeTabScroll"),
+      document.querySelector("[data-scope-tab].active")
+    );
+    scrollTabIntoView(
+      document.getElementById("categoryTabScroll"),
+      document.querySelector("[data-category-tab].active")
+    );
+  }
+
+  function renderAll(){
+    syncButtons();
+    updateScopeCounts();
+    showPanels();
+    updateCategoryCounts();
+    updateUrl();
+
+    requestAnimationFrame(() => {
+      syncTabScrolls();
+    });
+  }
+
+  document.querySelectorAll("[data-broker-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      activeBroker = btn.dataset.broker || "ALL";
+      renderAll();
+    });
+  });
+
+  document.querySelectorAll("[data-scope-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      activeScope = btn.dataset.scope || "all";
+      renderAll();
+    });
+  });
+
+  document.querySelectorAll("[data-category-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      activeCategory = btn.dataset.category || "overall";
+      renderAll();
+    });
+  });
+
+  let touchStartX = 0;
+  let touchStartY = 0;
+
+  root.addEventListener("touchstart", (e) => {
+    const t = e.touches[0];
+    touchStartX = t.clientX;
+    touchStartY = t.clientY;
+  }, { passive: true });
+
+  root.addEventListener("touchend", (e) => {
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchStartX;
+    const dy = t.clientY - touchStartY;
+
+    if (Math.abs(dx) < 50) return;
+    if (Math.abs(dx) <= Math.abs(dy)) return;
+
+    const idx = categoryOrder.indexOf(activeCategory);
+    if (idx < 0) return;
+
+    if (dx < 0 && idx < categoryOrder.length - 1) {
+      activeCategory = categoryOrder[idx + 1];
+      renderAll();
+    } else if (dx > 0 && idx > 0) {
+      activeCategory = categoryOrder[idx - 1];
+      renderAll();
+    }
+  }, { passive: true });
+
+  window.addEventListener("resize", () => {
+    requestAnimationFrame(() => {
+      syncTabScrolls();
+    });
+  });
+
+  renderAll();
+
+  setTimeout(() => {
+    syncTabScrolls();
+  }, 80);
+})();
+</script>
+{% endblock %}
