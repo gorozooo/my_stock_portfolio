@@ -1,0 +1,964 @@
+<!-- [FILE] summary.html -->
+<!-- [PATH] templates/holdings/summary.html -->
+<!--
+このファイルは何？
+- /holdings/summary/ の分析専用ページ
+- 証券会社タブ / 対象タブ / 分析ブロックを切り替えて保有全体を分析する
+- 今回はブロックごとに横スワイプでも切り替えられる
+-->
+
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}保有サマリー{% endblock %}
+
+{% block head %}
+<style>
+  *{box-sizing:border-box}
+  html,body{max-width:100%;overflow-x:hidden}
+
+  .summary-page{
+    max-width:980px;
+    margin:0 auto;
+    padding:12px 10px 120px;
+  }
+
+  .page-head{
+    margin-bottom:12px;
+  }
+  .page-title{
+    margin:0;
+    font-size:20px;
+    font-weight:800;
+    color:#eef2ff;
+    letter-spacing:.02em;
+  }
+  .page-note{
+    margin-top:4px;
+    font-size:12px;
+    color:#94a3b8;
+    line-height:1.6;
+  }
+
+  .subnav{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-bottom:12px;
+  }
+  .subnav-item{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:34px;
+    padding:0 12px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.10);
+    background:rgba(255,255,255,.04);
+    color:#cbd5e1;
+    font-size:12px;
+    font-weight:700;
+    text-decoration:none;
+  }
+  .subnav-item.active{
+    background:rgba(99,102,241,.18);
+    border-color:rgba(99,102,241,.45);
+    color:#eef2ff;
+  }
+  .subnav-item.disabled{
+    opacity:.55;
+  }
+
+  .tab-block{
+    margin-bottom:12px;
+  }
+  .tab-scroll{
+    display:flex;
+    gap:8px;
+    overflow-x:auto;
+    padding-bottom:2px;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-width:none;
+  }
+  .tab-scroll::-webkit-scrollbar{display:none}
+
+  .tab{
+    flex:0 0 auto;
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    min-height:38px;
+    padding:0 12px;
+    border-radius:12px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.04);
+    color:#dbe3f4;
+    font-size:12px;
+    font-weight:700;
+    white-space:nowrap;
+    cursor:pointer;
+    appearance:none;
+    -webkit-appearance:none;
+    outline:none;
+  }
+  .tab.active{
+    background:rgba(59,130,246,.18);
+    border-color:rgba(59,130,246,.45);
+    color:#eff6ff;
+  }
+  .tab-count{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-width:18px;
+    height:18px;
+    padding:0 6px;
+    border-radius:999px;
+    background:rgba(255,255,255,.10);
+    font-size:11px;
+  }
+
+  .combo-panel{
+    display:none;
+  }
+  .combo-panel.active{
+    display:block;
+  }
+
+  .block-panel{
+    display:none;
+  }
+  .block-panel.active{
+    display:block;
+  }
+
+  .swipe-note{
+    margin:-2px 0 10px;
+    font-size:11px;
+    color:#94a3b8;
+  }
+
+  .hero-grid{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:8px;
+    margin-bottom:12px;
+  }
+  .hero{
+    padding:12px;
+    border-radius:14px;
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.08);
+  }
+  .hero.kpi-main{
+    background:linear-gradient(135deg, rgba(59,130,246,.14), rgba(15,23,42,.12));
+    border-color:rgba(59,130,246,.28);
+  }
+  .hero-k{
+    font-size:10px;
+    color:#94a3b8;
+    margin-bottom:5px;
+    letter-spacing:.02em;
+  }
+  .hero-v{
+    font-size:18px;
+    font-weight:800;
+    color:#eef2ff;
+    line-height:1.25;
+  }
+  .hero-v.pos{color:#22c55e}
+  .hero-v.neg{color:#ef4444}
+
+  .grid-2{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:10px;
+    margin-bottom:10px;
+  }
+  .grid-3{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:10px;
+    margin-bottom:10px;
+  }
+
+  .panel-card{
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:16px;
+    background:rgba(255,255,255,.03);
+    overflow:hidden;
+  }
+  .panel-card + .panel-card{
+    margin-top:10px;
+  }
+  .card-head{
+    padding:12px 14px;
+    border-bottom:1px solid rgba(255,255,255,.08);
+    background:rgba(255,255,255,.04);
+  }
+  .card-title{
+    font-size:14px;
+    font-weight:800;
+    color:#eef2ff;
+  }
+  .card-body{
+    padding:10px 12px;
+  }
+
+  .kv-list{
+    display:grid;
+    gap:8px;
+  }
+  .kv-row{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:12px;
+    padding:9px 10px;
+    border-radius:12px;
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.06);
+  }
+  .kv-left{
+    min-width:0;
+    flex:1 1 auto;
+  }
+  .kv-label{
+    font-size:12px;
+    color:#e5e7eb;
+    font-weight:700;
+    line-height:1.35;
+    word-break:break-word;
+  }
+  .kv-meta{
+    margin-top:2px;
+    font-size:11px;
+    color:#94a3b8;
+    line-height:1.35;
+    word-break:break-word;
+  }
+  .kv-right{
+    flex:0 0 auto;
+    text-align:right;
+  }
+  .kv-value{
+    font-size:13px;
+    color:#eef2ff;
+    font-weight:800;
+    line-height:1.3;
+  }
+  .kv-value.pos{color:#22c55e}
+  .kv-value.neg{color:#ef4444}
+  .kv-sub{
+    margin-top:2px;
+    font-size:11px;
+    color:#94a3b8;
+    line-height:1.3;
+  }
+
+  .flag-list{
+    display:grid;
+    gap:8px;
+  }
+  .flag{
+    padding:10px 12px;
+    border-radius:12px;
+    background:rgba(245,158,11,.08);
+    border:1px solid rgba(245,158,11,.22);
+    color:#fde68a;
+    font-size:12px;
+    font-weight:700;
+    line-height:1.5;
+  }
+
+  .comment-list{
+    display:grid;
+    gap:8px;
+  }
+  .comment-item{
+    padding:10px 12px;
+    border-radius:12px;
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.06);
+    color:#e5e7eb;
+    font-size:13px;
+    line-height:1.7;
+  }
+
+  .empty-box{
+    padding:20px 16px;
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:16px;
+    background:rgba(255,255,255,.03);
+    color:#94a3b8;
+    text-align:center;
+    line-height:1.8;
+  }
+
+  @media (max-width: 720px){
+    .summary-page{
+      padding:12px 8px 120px;
+    }
+    .hero-grid{
+      grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+    .grid-2,.grid-3{
+      grid-template-columns:1fr;
+    }
+    .hero-v{
+      font-size:16px;
+    }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div
+  class="summary-page"
+  id="summaryPage"
+  data-initial-broker="{{ active_broker }}"
+  data-initial-scope="{{ active_scope }}"
+  data-initial-block="{{ active_block }}"
+>
+  <div class="page-head">
+    <h1 class="page-title">保有サマリー</h1>
+    <div class="page-note">ここは分析専用です。証券会社別・現物/信用別に、保有の全体状態を横断して見ます。</div>
+  </div>
+
+  <div class="subnav">
+    {% for item in subnav_items %}
+      {% if item.url %}
+        <a href="{{ item.url }}" class="subnav-item {% if item.is_active %}active{% endif %}">{{ item.label }}</a>
+      {% else %}
+        <span class="subnav-item {% if item.is_active %}active{% else %}disabled{% endif %}">{{ item.label }}</span>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  <div class="tab-block">
+    <div class="tab-scroll">
+      {% for tab in broker_tabs %}
+        <button
+          type="button"
+          class="tab {% if tab.is_active %}active{% endif %}"
+          data-broker-tab
+          data-broker="{{ tab.key }}"
+          data-count-all="{{ tab.counts.all }}"
+          data-count-spot="{{ tab.counts.spot }}"
+          data-count-margin="{{ tab.counts.margin }}"
+        >
+          <span>{{ tab.label }}</span>
+          <span class="tab-count">{{ tab.count }}</span>
+        </button>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="tab-block">
+    <div class="tab-scroll">
+      {% for tab in scope_tabs %}
+        <button
+          type="button"
+          class="tab {% if tab.is_active %}active{% endif %}"
+          data-scope-tab
+          data-scope="{{ tab.key }}"
+        >
+          <span>{{ tab.label }}</span>
+          <span class="tab-count" data-scope-count="{{ tab.key }}">{{ tab.count }}</span>
+        </button>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="tab-block">
+    <div class="tab-scroll">
+      {% for tab in block_tabs %}
+        <button
+          type="button"
+          class="tab {% if tab.is_active %}active{% endif %}"
+          data-block-tab
+          data-block="{{ tab.key }}"
+        >
+          <span>{{ tab.label }}</span>
+        </button>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="swipe-note">左右スワイプでも分析ブロックを切り替えられます。</div>
+
+  {% for combo in combo_panels %}
+    <section
+      class="combo-panel {% if combo.broker_key == active_broker and combo.scope_key == active_scope %}active{% endif %}"
+      data-combo-panel
+      data-broker="{{ combo.broker_key }}"
+      data-scope="{{ combo.scope_key }}"
+    >
+      {% if combo.count == 0 %}
+        <div class="empty-box">
+          この条件の保有はまだありません。
+        </div>
+      {% else %}
+
+        <!-- 全体状態 -->
+        <div class="block-panel {% if active_block == 'state' %}active{% endif %}" data-block-panel="state">
+          <div class="hero-grid">
+            <div class="hero kpi-main">
+              <div class="hero-k">総評価額</div>
+              <div class="hero-v">¥{{ combo.summary.total_val|floatformat:0|intcomma }}</div>
+            </div>
+            <div class="hero">
+              <div class="hero-k">総取得額</div>
+              <div class="hero-v">¥{{ combo.summary.total_acq|floatformat:0|intcomma }}</div>
+            </div>
+            <div class="hero">
+              <div class="hero-k">含み損益</div>
+              <div class="hero-v {% if combo.summary.total_pnl < 0 %}neg{% else %}pos{% endif %}">
+                ¥{{ combo.summary.total_pnl|floatformat:0|intcomma }}
+              </div>
+            </div>
+            <div class="hero">
+              <div class="hero-k">含み損益率</div>
+              <div class="hero-v {% if combo.summary.total_pnl_pct is not None and combo.summary.total_pnl_pct < 0 %}neg{% else %}pos{% endif %}">
+                {% if combo.summary.total_pnl_pct is not None %}{{ combo.summary.total_pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
+              </div>
+            </div>
+            <div class="hero">
+              <div class="hero-k">勝ち / 負け</div>
+              <div class="hero-v">{{ combo.summary.winners }} / {{ combo.summary.losers }}</div>
+            </div>
+            <div class="hero">
+              <div class="hero-k">年間配当見込み</div>
+              <div class="hero-v">¥{{ combo.summary.annual_div_total|floatformat:0|intcomma }}</div>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="panel-card">
+              <div class="card-head"><div class="card-title">証券会社別の状態</div></div>
+              <div class="card-body">
+                <div class="kv-list">
+                  {% for item in combo.summary.broker_mix %}
+                    <div class="kv-row">
+                      <div class="kv-left">
+                        <div class="kv-label">{{ item.label }}</div>
+                        <div class="kv-meta">{{ item.count }}件 / 構成比 {% if item.pct is not None %}{{ item.pct|floatformat:1 }}%{% else %}—{% endif %}</div>
+                      </div>
+                      <div class="kv-right">
+                        <div class="kv-value">¥{{ item.value|floatformat:0|intcomma }}</div>
+                        <div class="kv-sub {% if item.pnl < 0 %}neg{% endif %}">損益 ¥{{ item.pnl|floatformat:0|intcomma }}</div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+
+            <div class="panel-card">
+              <div class="card-head"><div class="card-title">口座区分別の状態</div></div>
+              <div class="card-body">
+                <div class="kv-list">
+                  {% for item in combo.summary.account_mix %}
+                    <div class="kv-row">
+                      <div class="kv-left">
+                        <div class="kv-label">{{ item.label }}</div>
+                        <div class="kv-meta">{{ item.count }}件 / 構成比 {% if item.pct is not None %}{{ item.pct|floatformat:1 }}%{% else %}—{% endif %}</div>
+                      </div>
+                      <div class="kv-right">
+                        <div class="kv-value">¥{{ item.value|floatformat:0|intcomma }}</div>
+                        <div class="kv-sub">損益 ¥{{ item.pnl|floatformat:0|intcomma }}</div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 配分 -->
+        <div class="block-panel" data-block-panel="allocation">
+          <div class="grid-2">
+            <div class="panel-card">
+              <div class="card-head"><div class="card-title">セクター配分</div></div>
+              <div class="card-body">
+                <div class="kv-list">
+                  {% for item in combo.summary.sector_mix %}
+                    <div class="kv-row">
+                      <div class="kv-left">
+                        <div class="kv-label">{{ item.label }}</div>
+                        <div class="kv-meta">{{ item.count }}件</div>
+                      </div>
+                      <div class="kv-right">
+                        <div class="kv-value">¥{{ item.value|floatformat:0|intcomma }}</div>
+                        <div class="kv-sub">{% if item.pct is not None %}{{ item.pct|floatformat:1 }}%{% else %}—{% endif %}</div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+
+            <div class="panel-card">
+              <div class="card-head"><div class="card-title">保有上位（評価額）</div></div>
+              <div class="card-body">
+                <div class="kv-list">
+                  {% for item in combo.summary.top_positions %}
+                    <div class="kv-row">
+                      <div class="kv-left">
+                        <div class="kv-label">{{ item.name }} ({{ item.ticker }})</div>
+                        <div class="kv-meta">{{ item.broker }} / {{ item.account }} / {{ item.qty|intcomma }}株</div>
+                      </div>
+                      <div class="kv-right">
+                        <div class="kv-value">¥{{ item.valuation|floatformat:0|intcomma }}</div>
+                        <div class="kv-sub {% if item.pnl < 0 %}neg{% endif %}">損益 ¥{{ item.pnl|floatformat:0|intcomma }}</div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 損益 -->
+        <div class="block-panel" data-block-panel="profit">
+          <div class="grid-2">
+            <div class="panel-card">
+              <div class="card-head"><div class="card-title">含み益 上位</div></div>
+              <div class="card-body">
+                <div class="kv-list">
+                  {% for item in combo.summary.top_gainers %}
+                    <div class="kv-row">
+                      <div class="kv-left">
+                        <div class="kv-label">{{ item.name }} ({{ item.ticker }})</div>
+                        <div class="kv-meta">{{ item.broker }} / {{ item.account }}</div>
+                      </div>
+                      <div class="kv-right">
+                        <div class="kv-value pos">¥{{ item.pnl|floatformat:0|intcomma }}</div>
+                        <div class="kv-sub">{% if item.pnl_pct is not None %}{{ item.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div>
+                      </div>
+                    </div>
+                  {% empty %}
+                    <div class="empty-box">含み益銘柄はまだありません。</div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+
+            <div class="panel-card">
+              <div class="card-head"><div class="card-title">含み損 上位</div></div>
+              <div class="card-body">
+                <div class="kv-list">
+                  {% for item in combo.summary.top_losers %}
+                    <div class="kv-row">
+                      <div class="kv-left">
+                        <div class="kv-label">{{ item.name }} ({{ item.ticker }})</div>
+                        <div class="kv-meta">{{ item.broker }} / {{ item.account }}</div>
+                      </div>
+                      <div class="kv-right">
+                        <div class="kv-value neg">¥{{ item.pnl|floatformat:0|intcomma }}</div>
+                        <div class="kv-sub">{% if item.pnl_pct is not None %}{{ item.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div>
+                      </div>
+                    </div>
+                  {% empty %}
+                    <div class="empty-box">含み損銘柄はまだありません。</div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="panel-card">
+              <div class="card-head"><div class="card-title">証券会社別 損益</div></div>
+              <div class="card-body">
+                <div class="kv-list">
+                  {% for item in combo.summary.broker_pnl %}
+                    <div class="kv-row">
+                      <div class="kv-left">
+                        <div class="kv-label">{{ item.label }}</div>
+                        <div class="kv-meta">{{ item.count }}件</div>
+                      </div>
+                      <div class="kv-right">
+                        <div class="kv-value {% if item.pnl < 0 %}neg{% else %}pos{% endif %}">¥{{ item.pnl|floatformat:0|intcomma }}</div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+
+            <div class="panel-card">
+              <div class="card-head"><div class="card-title">セクター別 損益</div></div>
+              <div class="card-body">
+                <div class="kv-list">
+                  {% for item in combo.summary.sector_pnl %}
+                    <div class="kv-row">
+                      <div class="kv-left">
+                        <div class="kv-label">{{ item.label }}</div>
+                        <div class="kv-meta">{{ item.count }}件</div>
+                      </div>
+                      <div class="kv-right">
+                        <div class="kv-value {% if item.pnl < 0 %}neg{% else %}pos{% endif %}">¥{{ item.pnl|floatformat:0|intcomma }}</div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 時間 -->
+        <div class="block-panel" data-block-panel="time">
+          <div class="hero-grid">
+            <div class="hero">
+              <div class="hero-k">平均保有日数</div>
+              <div class="hero-v">{% if combo.summary.avg_days is not None %}{{ combo.summary.avg_days|floatformat:0 }}日{% else %}—{% endif %}</div>
+            </div>
+            <div class="hero">
+              <div class="hero-k">中央値</div>
+              <div class="hero-v">{% if combo.summary.median_days is not None %}{{ combo.summary.median_days|floatformat:0 }}日{% else %}—{% endif %}</div>
+            </div>
+            <div class="hero">
+              <div class="hero-k">保有件数</div>
+              <div class="hero-v">{{ combo.summary.count }}件</div>
+            </div>
+          </div>
+
+          <div class="grid-3">
+            <div class="panel-card">
+              <div class="card-head"><div class="card-title">長期保有</div></div>
+              <div class="card-body">
+                <div class="kv-list">
+                  {% for item in combo.summary.long_holdings %}
+                    <div class="kv-row">
+                      <div class="kv-left">
+                        <div class="kv-label">{{ item.name }} ({{ item.ticker }})</div>
+                        <div class="kv-meta">{{ item.broker }} / {{ item.account }}</div>
+                      </div>
+                      <div class="kv-right">
+                        <div class="kv-value">{{ item.days }}日</div>
+                        <div class="kv-sub">損益 ¥{{ item.pnl|floatformat:0|intcomma }}</div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+
+            <div class="panel-card">
+              <div class="card-head"><div class="card-title">信用の長期化</div></div>
+              <div class="card-body">
+                <div class="kv-list">
+                  {% for item in combo.summary.margin_long_holdings %}
+                    <div class="kv-row">
+                      <div class="kv-left">
+                        <div class="kv-label">{{ item.name }} ({{ item.ticker }})</div>
+                        <div class="kv-meta">{{ item.broker }} / {{ item.account }}</div>
+                      </div>
+                      <div class="kv-right">
+                        <div class="kv-value">{{ item.days }}日</div>
+                        <div class="kv-sub">損益 ¥{{ item.pnl|floatformat:0|intcomma }}</div>
+                      </div>
+                    </div>
+                  {% empty %}
+                    <div class="empty-box">信用の長期化銘柄はありません。</div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+
+            <div class="panel-card">
+              <div class="card-head"><div class="card-title">含み損の長期化 / 短期の勝ち</div></div>
+              <div class="card-body">
+                <div class="kv-list">
+                  {% for item in combo.summary.stuck_holdings %}
+                    <div class="kv-row">
+                      <div class="kv-left">
+                        <div class="kv-label">長期含み損: {{ item.name }} ({{ item.ticker }})</div>
+                        <div class="kv-meta">{{ item.days }}日</div>
+                      </div>
+                      <div class="kv-right">
+                        <div class="kv-value neg">¥{{ item.pnl|floatformat:0|intcomma }}</div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                  {% for item in combo.summary.quick_winners %}
+                    <div class="kv-row">
+                      <div class="kv-left">
+                        <div class="kv-label">短期含み益: {{ item.name }} ({{ item.ticker }})</div>
+                        <div class="kv-meta">{{ item.days }}日</div>
+                      </div>
+                      <div class="kv-right">
+                        <div class="kv-value pos">¥{{ item.pnl|floatformat:0|intcomma }}</div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 配当 -->
+        <div class="block-panel" data-block-panel="dividend">
+          <div class="hero-grid">
+            <div class="hero kpi-main">
+              <div class="hero-k">年間配当見込み</div>
+              <div class="hero-v">¥{{ combo.summary.annual_div_total|floatformat:0|intcomma }}</div>
+            </div>
+            <div class="hero">
+              <div class="hero-k">累計配当</div>
+              <div class="hero-v">¥{{ combo.summary.received_div_total|floatformat:0|intcomma }}</div>
+            </div>
+            <div class="hero">
+              <div class="hero-k">NISA比率</div>
+              <div class="hero-v">{% if combo.summary.nisa_ratio is not None %}{{ combo.summary.nisa_ratio|floatformat:1 }}%{% else %}—{% endif %}</div>
+            </div>
+          </div>
+
+          <div class="grid-3">
+            <div class="panel-card">
+              <div class="card-head"><div class="card-title">証券会社別 年間配当</div></div>
+              <div class="card-body">
+                <div class="kv-list">
+                  {% for item in combo.summary.broker_dividend %}
+                    <div class="kv-row">
+                      <div class="kv-left">
+                        <div class="kv-label">{{ item.label }}</div>
+                        <div class="kv-meta">{{ item.count }}件</div>
+                      </div>
+                      <div class="kv-right">
+                        <div class="kv-value">¥{{ item.value|floatformat:0|intcomma }}</div>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+
+            <div class="panel-card">
+              <div class="card-head"><div class="card-title">年間配当 上位</div></div>
+              <div class="card-body">
+                <div class="kv-list">
+                  {% for item in combo.summary.dividend_rank %}
+                    <div class="kv-row">
+                      <div class="kv-left">
+                        <div class="kv-label">{{ item.name }} ({{ item.ticker }})</div>
+                        <div class="kv-meta">{{ item.broker }} / {{ item.account }}</div>
+                      </div>
+                      <div class="kv-right">
+                        <div class="kv-value">¥{{ item.annual_div|floatformat:0|intcomma }}</div>
+                      </div>
+                    </div>
+                  {% empty %}
+                    <div class="empty-box">配当データがまだありません。</div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+
+            <div class="panel-card">
+              <div class="card-head"><div class="card-title">取得利回り 上位</div></div>
+              <div class="card-body">
+                <div class="kv-list">
+                  {% for item in combo.summary.yield_rank %}
+                    <div class="kv-row">
+                      <div class="kv-left">
+                        <div class="kv-label">{{ item.name }} ({{ item.ticker }})</div>
+                        <div class="kv-meta">{{ item.broker }} / {{ item.account }}</div>
+                      </div>
+                      <div class="kv-right">
+                        <div class="kv-value">{% if item.yield_cost is not None %}{{ item.yield_cost|floatformat:2 }}%{% else %}—{% endif %}</div>
+                      </div>
+                    </div>
+                  {% empty %}
+                    <div class="empty-box">利回りデータがまだありません。</div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- リスク -->
+        <div class="block-panel" data-block-panel="risk">
+          <div class="hero-grid">
+            <div class="hero kpi-main">
+              <div class="hero-k">注意スコア</div>
+              <div class="hero-v">{{ combo.summary.risk_score }} / 100</div>
+            </div>
+            <div class="hero">
+              <div class="hero-k">信用比率</div>
+              <div class="hero-v">{% if combo.summary.margin_ratio is not None %}{{ combo.summary.margin_ratio|floatformat:1 }}%{% else %}—{% endif %}</div>
+            </div>
+            <div class="hero">
+              <div class="hero-k">1銘柄集中</div>
+              <div class="hero-v">{% if combo.summary.top_position_ratio is not None %}{{ combo.summary.top_position_ratio|floatformat:1 }}%{% else %}—{% endif %}</div>
+            </div>
+            <div class="hero">
+              <div class="hero-k">上位5銘柄比率</div>
+              <div class="hero-v">{% if combo.summary.top5_ratio is not None %}{{ combo.summary.top5_ratio|floatformat:1 }}%{% else %}—{% endif %}</div>
+            </div>
+            <div class="hero">
+              <div class="hero-k">含み損件数</div>
+              <div class="hero-v">{{ combo.summary.losers }}件</div>
+            </div>
+            <div class="hero">
+              <div class="hero-k">NISA比率</div>
+              <div class="hero-v">{% if combo.summary.nisa_ratio is not None %}{{ combo.summary.nisa_ratio|floatformat:1 }}%{% else %}—{% endif %}</div>
+            </div>
+          </div>
+
+          <div class="panel-card">
+            <div class="card-head"><div class="card-title">注意ポイント</div></div>
+            <div class="card-body">
+              <div class="flag-list">
+                {% for line in combo.summary.risk_flags %}
+                  <div class="flag">{{ line }}</div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- コメント -->
+        <div class="block-panel" data-block-panel="comment">
+          <div class="panel-card">
+            <div class="card-head"><div class="card-title">総合コメント</div></div>
+            <div class="card-body">
+              <div class="comment-list">
+                {% for line in combo.summary.comment_lines %}
+                  <div class="comment-item">{{ line }}</div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
+
+      {% endif %}
+    </section>
+  {% endfor %}
+</div>
+
+<script>
+(function(){
+  const root = document.getElementById("summaryPage");
+  if (!root) return;
+
+  let activeBroker = root.dataset.initialBroker || "ALL";
+  let activeScope  = root.dataset.initialScope || "all";
+  let activeBlock  = root.dataset.initialBlock || "state";
+
+  const blockOrder = ["state", "allocation", "profit", "time", "dividend", "risk", "comment"];
+
+  function updateScopeCounts(){
+    const activeBrokerBtn = document.querySelector('[data-broker-tab].active');
+    if (!activeBrokerBtn) return;
+
+    const counts = {
+      all: activeBrokerBtn.dataset.countAll || "0",
+      spot: activeBrokerBtn.dataset.countSpot || "0",
+      margin: activeBrokerBtn.dataset.countMargin || "0",
+    };
+
+    document.querySelectorAll("[data-scope-count]").forEach((el) => {
+      const scope = el.dataset.scopeCount;
+      el.textContent = counts[scope] || "0";
+    });
+  }
+
+  function showActiveCombo(){
+    document.querySelectorAll("[data-combo-panel]").forEach((panel) => {
+      const on = panel.dataset.broker === activeBroker && panel.dataset.scope === activeScope;
+      panel.classList.toggle("active", on);
+
+      panel.querySelectorAll("[data-block-panel]").forEach((block) => {
+        block.classList.toggle("active", on && block.dataset.blockPanel === activeBlock);
+      });
+    });
+  }
+
+  function syncButtons(){
+    document.querySelectorAll("[data-broker-tab]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.broker === activeBroker);
+    });
+    document.querySelectorAll("[data-scope-tab]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.scope === activeScope);
+    });
+    document.querySelectorAll("[data-block-tab]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.block === activeBlock);
+    });
+  }
+
+  function updateUrl(){
+    const url = new URL(window.location.href);
+    url.searchParams.set("broker", activeBroker);
+    url.searchParams.set("scope", activeScope);
+    url.searchParams.set("block", activeBlock);
+    window.history.replaceState({}, "", url.toString());
+  }
+
+  function renderAll(){
+    syncButtons();
+    updateScopeCounts();
+    showActiveCombo();
+    updateUrl();
+  }
+
+  document.querySelectorAll("[data-broker-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      activeBroker = btn.dataset.broker || "ALL";
+      renderAll();
+    });
+  });
+
+  document.querySelectorAll("[data-scope-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      activeScope = btn.dataset.scope || "all";
+      renderAll();
+    });
+  });
+
+  document.querySelectorAll("[data-block-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      activeBlock = btn.dataset.block || "state";
+      renderAll();
+    });
+  });
+
+  let touchStartX = 0;
+  let touchStartY = 0;
+
+  root.addEventListener("touchstart", (e) => {
+    const t = e.touches[0];
+    touchStartX = t.clientX;
+    touchStartY = t.clientY;
+  }, { passive: true });
+
+  root.addEventListener("touchend", (e) => {
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchStartX;
+    const dy = t.clientY - touchStartY;
+
+    if (Math.abs(dx) < 50) return;
+    if (Math.abs(dx) <= Math.abs(dy)) return;
+
+    const idx = blockOrder.indexOf(activeBlock);
+    if (idx < 0) return;
+
+    if (dx < 0 && idx < blockOrder.length - 1) {
+      activeBlock = blockOrder[idx + 1];
+      renderAll();
+    } else if (dx > 0 && idx > 0) {
+      activeBlock = blockOrder[idx - 1];
+      renderAll();
+    }
+  }, { passive: true });
+
+  renderAll();
+})();
+</script>
+{% endblock %}
