@@ -385,13 +385,7 @@
   data-initial-scope="{{ active_scope }}"
   data-initial-category="{{ active_category }}"
 >
-  <div class="page-head">
-    <h1 class="page-title">AI提案</h1>
-    <div class="page-note">
-      いまの保有から、利確・見直し・継続・現引・NISA候補をルールベースで整理します。
-    </div>
-  </div>
-
+ 
   <div class="subnav">
     {% for item in subnav_items %}
       <a href="{{ item.url }}" class="subnav-item {% if item.is_active %}active{% endif %}">{{ item.label }}</a>
