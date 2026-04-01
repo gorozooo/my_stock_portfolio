@@ -5,6 +5,7 @@
 - /holdings/attention/ の本体テンプレート
 - 証券会社タブ / 対象タブ / 注意カテゴリタブで、要注意銘柄を切り替える
 - 1回の表示で、含み損 / 信用長期化 / 集中 / 放置 / 配当非効率 / 総合 を見られる
+- 今回はサブナビを共通化し、AI提案へも遷移できるように修正
 -->
 
 {% extends "base.html" %}
@@ -359,10 +360,13 @@
 >
 
   <div class="subnav">
-    <a href="{% url 'holding_list' %}" class="subnav-item">保有</a>
-    <a href="{% url 'holding_summary' %}" class="subnav-item">サマリー</a>
-    <span class="subnav-item active">要注意</span>
-    <span class="subnav-item disabled">AI提案</span>
+    {% for item in subnav_items %}
+      {% if item.url %}
+        <a href="{{ item.url }}" class="subnav-item {% if item.is_active %}active{% endif %}">{{ item.label }}</a>
+      {% else %}
+        <span class="subnav-item {% if item.is_active %}active{% else %}disabled{% endif %}">{{ item.label }}</span>
+      {% endif %}
+    {% endfor %}
   </div>
 
   <div class="tab-block">
