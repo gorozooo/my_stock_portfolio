@@ -3,8 +3,8 @@
 <!--
 このファイルは何？
 - /holdings/ の本体テンプレート
-- 保有ページを「一覧主役」の行レイアウトで表示する
-- 操作ボタンは常時表示、詳細は補足だけを展開する
+- 保有ページを「行リスト型」で表示する
+- 詳細は一覧内で縦展開せず、下から出るボトムシートで表示する
 -->
 
 {% extends "base.html" %}
@@ -152,7 +152,7 @@
     align-items:center;
     justify-content:space-between;
     gap:10px;
-    padding:12px 14px;
+    padding:10px 14px;
     border-bottom:1px solid rgba(255,255,255,.08);
     background:rgba(255,255,255,.04);
   }
@@ -182,37 +182,49 @@
   }
 
   .section-body{
-    padding:8px 10px 10px;
+    padding:0 10px;
   }
 
   .holding-row{
+    padding:12px 0;
     border-bottom:1px solid rgba(255,255,255,.08);
-    padding:12px 4px;
   }
   .holding-row:last-child{
     border-bottom:none;
-    padding-bottom:4px;
   }
 
-  .row-top{
+  .row-main{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:10px;
+    align-items:start;
+  }
+
+  .row-left{
+    min-width:0;
+  }
+
+  .row-title-line{
     display:flex;
     align-items:flex-start;
+    gap:8px;
     justify-content:space-between;
-    gap:10px;
   }
-  .row-title-wrap{
+
+  .row-name-wrap{
     min-width:0;
     flex:1 1 auto;
   }
+
   .row-name{
-    font-size:17px;
+    font-size:16px;
     font-weight:800;
     color:#eef2ff;
     line-height:1.2;
     word-break:break-word;
   }
   .row-code{
-    margin-top:4px;
+    margin-top:3px;
     font-size:12px;
     color:#93c5fd;
     font-weight:700;
@@ -224,13 +236,14 @@
     display:inline-flex;
     align-items:center;
     justify-content:center;
-    min-width:58px;
+    min-width:56px;
     height:28px;
     padding:0 10px;
     border-radius:999px;
     font-size:12px;
     font-weight:800;
     border:1px solid rgba(255,255,255,.14);
+    margin-left:8px;
   }
   .side-badge.buy{
     background:rgba(16,185,129,.12);
@@ -253,8 +266,8 @@
     display:inline-flex;
     align-items:center;
     justify-content:center;
-    min-height:24px;
-    padding:0 9px;
+    min-height:22px;
+    padding:0 8px;
     border-radius:999px;
     border:1px solid rgba(255,255,255,.12);
     background:rgba(255,255,255,.05);
@@ -269,17 +282,21 @@
     color:#e0f2fe;
   }
 
-  .action-row{
+  .row-actions{
     display:flex;
     flex-wrap:wrap;
     gap:6px;
-    margin-top:10px;
+    justify-content:flex-end;
+    align-items:flex-start;
+    min-width:150px;
   }
+
   .action-btn{
     display:inline-flex;
     align-items:center;
     justify-content:center;
-    min-height:32px;
+    gap:4px;
+    min-height:30px;
     padding:0 10px;
     border-radius:999px;
     border:1px solid rgba(255,255,255,.12);
@@ -288,10 +305,10 @@
     font-size:11px;
     font-weight:800;
     text-decoration:none;
-    line-height:1;
     white-space:nowrap;
+    line-height:1;
   }
-  .action-btn.subtle{
+  .action-btn.detail{
     background:rgba(255,255,255,.04);
     color:#cbd5e1;
   }
@@ -306,19 +323,16 @@
     color:#fee2e2;
   }
 
-  .metric-lines{
+  .metrics{
     margin-top:10px;
-    border-top:1px dashed rgba(255,255,255,.08);
     padding-top:10px;
+    border-top:1px dashed rgba(255,255,255,.08);
     display:grid;
-    gap:8px;
+    grid-template-columns:repeat(4, minmax(0,1fr));
+    gap:8px 10px;
   }
-  .metric-line{
-    display:grid;
-    grid-template-columns:repeat(3, minmax(0, 1fr));
-    gap:10px;
-  }
-  .metric-item{
+
+  .metric{
     min-width:0;
   }
   .metric-k{
@@ -338,28 +352,102 @@
   .metric-v.pos{color:#22c55e}
   .metric-v.neg{color:#ef4444}
 
-  .detail-wrap{
-    display:none;
-    margin-top:10px;
-    padding-top:10px;
-    border-top:1px dashed rgba(255,255,255,.08);
+  .empty-box{
+    margin-top:12px;
+    padding:20px 16px;
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:16px;
+    background:rgba(255,255,255,.03);
+    color:#94a3b8;
+    text-align:center;
+    line-height:1.7;
   }
-  .holding-row.is-open .detail-wrap{
+
+  .holding-detail-template{
+    display:none;
+  }
+
+  .detail-sheet{
+    position:fixed;
+    inset:0;
+    z-index:10050;
+    display:none;
+  }
+  .detail-sheet.is-open{
     display:block;
   }
-  .detail-grid{
+  .detail-sheet-backdrop{
+    position:absolute;
+    inset:0;
+    background:rgba(0,0,0,.56);
+  }
+  .detail-sheet-panel{
+    position:absolute;
+    left:0;
+    right:0;
+    bottom:0;
+    max-height:78vh;
+    overflow:auto;
+    border-radius:18px 18px 0 0;
+    background:rgba(11,16,28,.98);
+    border-top:1px solid rgba(255,255,255,.10);
+    box-shadow:0 -10px 30px rgba(0,0,0,.35);
+    padding:14px 14px calc(22px + env(safe-area-inset-bottom));
+  }
+  .detail-sheet-handle{
+    width:52px;
+    height:5px;
+    border-radius:999px;
+    background:rgba(255,255,255,.18);
+    margin:0 auto 12px;
+  }
+  .detail-sheet-head{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:10px;
+    margin-bottom:12px;
+  }
+  .detail-sheet-title{
+    min-width:0;
+  }
+  .detail-sheet-name{
+    font-size:18px;
+    font-weight:800;
+    color:#eef2ff;
+    line-height:1.25;
+    word-break:break-word;
+  }
+  .detail-sheet-code{
+    margin-top:4px;
+    font-size:12px;
+    color:#93c5fd;
+    font-weight:700;
+  }
+  .detail-sheet-close{
+    flex:0 0 auto;
+    min-height:34px;
+    padding:0 12px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.05);
+    color:#e5e7eb;
+    font-size:12px;
+    font-weight:800;
+  }
+  .detail-sheet-grid{
     display:grid;
-    grid-template-columns:repeat(2, minmax(0,1fr));
+    grid-template-columns:repeat(2,minmax(0,1fr));
     gap:8px;
   }
-  .detail-item{
+  .detail-box{
     min-width:0;
     padding:10px;
     border-radius:12px;
     background:rgba(255,255,255,.04);
     border:1px solid rgba(255,255,255,.08);
   }
-  .detail-item.full{
+  .detail-box.full{
     grid-column:1 / -1;
   }
   .detail-k{
@@ -376,18 +464,7 @@
     word-break:break-word;
   }
 
-  .empty-box{
-    margin-top:12px;
-    padding:20px 16px;
-    border:1px solid rgba(255,255,255,.08);
-    border-radius:16px;
-    background:rgba(255,255,255,.03);
-    color:#94a3b8;
-    text-align:center;
-    line-height:1.7;
-  }
-
-  @media (max-width: 640px){
+  @media (max-width: 760px){
     .holdings-page{
       padding:12px 8px 120px;
     }
@@ -405,11 +482,21 @@
       width:100%;
     }
 
-    .metric-line{
-      grid-template-columns:repeat(2, minmax(0, 1fr));
+    .row-main{
+      grid-template-columns:1fr;
     }
 
-    .detail-grid{
+    .row-actions{
+      justify-content:flex-start;
+      min-width:0;
+      margin-top:8px;
+    }
+
+    .metrics{
+      grid-template-columns:repeat(2, minmax(0,1fr));
+    }
+
+    .detail-sheet-grid{
       grid-template-columns:1fr;
     }
   }
@@ -474,126 +561,182 @@
         <div class="section-body">
           {% for r in section.rows %}
             {% with h=r.obj %}
-            <article class="holding-row" data-holding-row>
-              <div class="row-top">
-                <div class="row-title-wrap">
-                  <div class="row-name">{{ h.name|default:"-" }}</div>
-                  <div class="row-code">{{ h.ticker }}</div>
-                </div>
-                <div class="side-badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">
-                  {{ h.side }}
-                </div>
-              </div>
-
-              <div class="chip-row">
-                <span class="chip">{{ h.get_broker_display }}</span>
-                <span class="chip">{{ h.get_account_display }}</span>
-                <span class="chip currency">{% if h.currency == "USD" %}USD{% else %}JPY{% endif %}</span>
-              </div>
-
-              <div class="action-row">
-                <button type="button" class="action-btn subtle" data-detail-toggle>詳細</button>
-                <a href="{% url 'holding_edit' h.id %}" class="action-btn">編集</a>
-                <a href="{% url 'holding_close_sheet' h.id %}" class="action-btn">手仕舞い</a>
-
-                {% if r.can_margin_to_spot %}
-                  <a href="{% url 'holding_margin_to_spot_sheet' h.id %}" class="action-btn warn">現引</a>
-                {% endif %}
-
-                <form method="post" action="{% url 'holding_delete' h.id %}" onsubmit="return confirm('削除しますか？');" style="display:inline;">
-                  {% csrf_token %}
-                  <button type="submit" class="action-btn danger">削除</button>
-                </form>
-              </div>
-
-              <div class="metric-lines">
-                <div class="metric-line">
-                  <div class="metric-item">
-                    <div class="metric-k">現在値</div>
-                    <div class="metric-v">
-                      {% if r.price_now is not None %}
-                        {% if h.currency == "USD" %}
-                          ${{ r.price_now|floatformat:2|intcomma }}
-                        {% else %}
-                          ¥{{ r.price_now|floatformat:1|intcomma }}
-                        {% endif %}
-                      {% else %}
-                        —
-                      {% endif %}
+            <article class="holding-row">
+              <div class="row-main">
+                <div class="row-left">
+                  <div class="row-title-line">
+                    <div class="row-name-wrap">
+                      <div class="row-name">{{ h.name|default:"-" }}</div>
+                      <div class="row-code">{{ h.ticker }}</div>
+                    </div>
+                    <div class="side-badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">
+                      {{ h.side }}
                     </div>
                   </div>
 
-                  <div class="metric-item">
-                    <div class="metric-k">取得単価</div>
-                    <div class="metric-v">
+                  <div class="chip-row">
+                    <span class="chip">{{ h.get_broker_display }}</span>
+                    <span class="chip">{{ h.get_account_display }}</span>
+                    <span class="chip currency">{% if h.currency == "USD" %}USD{% else %}JPY{% endif %}</span>
+                  </div>
+                </div>
+
+                <div class="row-actions">
+                  <button
+                    type="button"
+                    class="action-btn detail"
+                    data-open-detail
+                    data-name="{{ h.name|default:'-' }}"
+                    data-code="{{ h.ticker }}"
+                    data-detail-target="detail-{{ h.id }}"
+                  >
+                    詳細
+                  </button>
+
+                  <a href="{% url 'holding_edit' h.id %}" class="action-btn">編集</a>
+                  <a href="{% url 'holding_close_sheet' h.id %}" class="action-btn">手仕舞い</a>
+
+                  {% if r.can_margin_to_spot %}
+                    <a href="{% url 'holding_margin_to_spot_sheet' h.id %}" class="action-btn warn">現引</a>
+                  {% endif %}
+
+                  <form method="post" action="{% url 'holding_delete' h.id %}" onsubmit="return confirm('削除しますか？');" style="display:inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="action-btn danger">削除</button>
+                  </form>
+                </div>
+              </div>
+
+              <div class="metrics">
+                <div class="metric">
+                  <div class="metric-k">現在値</div>
+                  <div class="metric-v">
+                    {% if r.price_now is not None %}
                       {% if h.currency == "USD" %}
-                        ${{ h.avg_cost|floatformat:4|intcomma }}
+                        ${{ r.price_now|floatformat:2|intcomma }}
                       {% else %}
-                        ¥{{ h.avg_cost|floatformat:2|intcomma }}
+                        ¥{{ r.price_now|floatformat:1|intcomma }}
                       {% endif %}
-                    </div>
-                  </div>
-
-                  <div class="metric-item">
-                    <div class="metric-k">保有数</div>
-                    <div class="metric-v">{{ h.quantity|intcomma }} 株</div>
+                    {% else %}
+                      —
+                    {% endif %}
                   </div>
                 </div>
 
-                <div class="metric-line">
-                  <div class="metric-item">
-                    <div class="metric-k">評価額</div>
-                    <div class="metric-v">
-                      {% if r.valuation is not None %}
-                        ¥{{ r.valuation|floatformat:0|intcomma }}
-                      {% else %}
-                        —
-                      {% endif %}
-                    </div>
-                  </div>
-
-                  <div class="metric-item">
-                    <div class="metric-k">含み損益</div>
-                    <div class="metric-v {% if r.pnl is not None %}{% if r.pnl < 0 %}neg{% else %}pos{% endif %}{% endif %}">
-                      {% if r.pnl is not None %}
-                        ¥{{ r.pnl|floatformat:0|intcomma }}
-                      {% else %}
-                        —
-                      {% endif %}
-                    </div>
-                  </div>
-
-                  <div class="metric-item">
-                    <div class="metric-k">損益率</div>
-                    <div class="metric-v {% if r.pnl_pct is not None %}{% if r.pnl_pct < 0 %}neg{% else %}pos{% endif %}{% endif %}">
-                      {% if r.pnl_pct is not None %}
-                        {{ r.pnl_pct|floatformat:2 }}%
-                      {% else %}
-                        —
-                      {% endif %}
-                    </div>
+                <div class="metric">
+                  <div class="metric-k">評価額</div>
+                  <div class="metric-v">
+                    {% if r.valuation is not None %}
+                      ¥{{ r.valuation|floatformat:0|intcomma }}
+                    {% else %}
+                      —
+                    {% endif %}
                   </div>
                 </div>
 
-                <div class="metric-line">
-                  <div class="metric-item">
-                    <div class="metric-k">年間配当</div>
-                    <div class="metric-v">
-                      {% if r.div_annual is not None %}
-                        {% if h.currency == "USD" %}
-                          ${{ r.div_annual|floatformat:0|intcomma }}
-                        {% else %}
-                          ¥{{ r.div_annual|floatformat:0|intcomma }}
-                        {% endif %}
+                <div class="metric">
+                  <div class="metric-k">含み損益</div>
+                  <div class="metric-v {% if r.pnl is not None %}{% if r.pnl < 0 %}neg{% else %}pos{% endif %}{% endif %}">
+                    {% if r.pnl is not None %}
+                      ¥{{ r.pnl|floatformat:0|intcomma }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </div>
+                </div>
+
+                <div class="metric">
+                  <div class="metric-k">損益率</div>
+                  <div class="metric-v {% if r.pnl_pct is not None %}{% if r.pnl_pct < 0 %}neg{% else %}pos{% endif %}{% endif %}">
+                    {% if r.pnl_pct is not None %}
+                      {{ r.pnl_pct|floatformat:2 }}%
+                    {% else %}
+                      —
+                    {% endif %}
+                  </div>
+                </div>
+
+                <div class="metric">
+                  <div class="metric-k">取得単価</div>
+                  <div class="metric-v">
+                    {% if h.currency == "USD" %}
+                      ${{ h.avg_cost|floatformat:4|intcomma }}
+                    {% else %}
+                      ¥{{ h.avg_cost|floatformat:2|intcomma }}
+                    {% endif %}
+                  </div>
+                </div>
+
+                <div class="metric">
+                  <div class="metric-k">保有数</div>
+                  <div class="metric-v">{{ h.quantity|intcomma }} 株</div>
+                </div>
+
+                <div class="metric">
+                  <div class="metric-k">年間配当</div>
+                  <div class="metric-v">
+                    {% if r.div_annual is not None %}
+                      {% if h.currency == "USD" %}
+                        ${{ r.div_annual|floatformat:0|intcomma }}
+                      {% else %}
+                        ¥{{ r.div_annual|floatformat:0|intcomma }}
+                      {% endif %}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </div>
+                </div>
+
+                <div class="metric">
+                  <div class="metric-k">保有日数</div>
+                  <div class="metric-v">
+                    {% if r.days is not None %}
+                      {{ r.days }} 日
+                    {% else %}
+                      —
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+
+              <div id="detail-{{ h.id }}" class="holding-detail-template">
+                <div class="detail-sheet-grid">
+                  <div class="detail-box">
+                    <div class="detail-k">保有開始</div>
+                    <div class="detail-v">
+                      {% if h.opened_at %}
+                        {{ h.opened_at|date:"Y-m-d" }}
                       {% else %}
                         —
                       {% endif %}
                     </div>
                   </div>
 
-                  <div class="metric-item">
-                    <div class="metric-k">累計配当</div>
-                    <div class="metric-v">
+                  <div class="detail-box">
+                    <div class="detail-k">現在利回り</div>
+                    <div class="detail-v">
+                      {% if r.yield_now is not None %}
+                        {{ r.yield_now|floatformat:2 }}%
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="detail-box">
+                    <div class="detail-k">取得利回り</div>
+                    <div class="detail-v">
+                      {% if r.yield_cost is not None %}
+                        {{ r.yield_cost|floatformat:2 }}%
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="detail-box">
+                    <div class="detail-k">累計配当</div>
+                    <div class="detail-v">
                       {% if r.div_received is not None %}
                         {% if h.currency == "USD" %}
                           ${{ r.div_received|floatformat:0|intcomma }}
@@ -606,61 +749,8 @@
                     </div>
                   </div>
 
-                  <div class="metric-item">
-                    <div class="metric-k">保有日数</div>
-                    <div class="metric-v">
-                      {% if r.days is not None %}
-                        {{ r.days }} 日
-                      {% else %}
-                        —
-                      {% endif %}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="detail-wrap" data-detail-panel>
-                <div class="detail-grid">
-                  <div class="detail-item">
-                    <div class="detail-k">保有開始</div>
-                    <div class="detail-v">
-                      {% if h.opened_at %}
-                        {{ h.opened_at|date:"Y-m-d" }}
-                      {% else %}
-                        —
-                      {% endif %}
-                    </div>
-                  </div>
-
-                  <div class="detail-item">
-                    <div class="detail-k">現在利回り</div>
-                    <div class="detail-v">
-                      {% if r.yield_now is not None %}
-                        {{ r.yield_now|floatformat:2 }}%
-                      {% else %}
-                        —
-                      {% endif %}
-                    </div>
-                  </div>
-
-                  <div class="detail-item">
-                    <div class="detail-k">取得利回り</div>
-                    <div class="detail-v">
-                      {% if r.yield_cost is not None %}
-                        {{ r.yield_cost|floatformat:2 }}%
-                      {% else %}
-                        —
-                      {% endif %}
-                    </div>
-                  </div>
-
-                  <div class="detail-item">
-                    <div class="detail-k">通貨</div>
-                    <div class="detail-v">{{ h.currency|default:"—" }}</div>
-                  </div>
-
                   {% if h.memo %}
-                    <div class="detail-item full">
+                    <div class="detail-box full">
                       <div class="detail-k">メモ</div>
                       <div class="detail-v">{{ h.memo }}</div>
                     </div>
@@ -679,8 +769,24 @@
       必要なら右上の「新規登録」から追加してください。
     </div>
   {% endif %}
-
 </div>
 
-<script src="{% static 'js/holdings.js' %}?v=210"></script>
+<div class="detail-sheet" id="holdingDetailSheet" aria-hidden="true">
+  <div class="detail-sheet-backdrop" data-close-detail></div>
+  <div class="detail-sheet-panel">
+    <div class="detail-sheet-handle"></div>
+
+    <div class="detail-sheet-head">
+      <div class="detail-sheet-title">
+        <div class="detail-sheet-name" id="detailSheetName">詳細</div>
+        <div class="detail-sheet-code" id="detailSheetCode"></div>
+      </div>
+      <button type="button" class="detail-sheet-close" data-close-detail>閉じる</button>
+    </div>
+
+    <div id="detailSheetBody"></div>
+  </div>
+</div>
+
+<script src="{% static 'js/holdings.js' %}?v=220"></script>
 {% endblock %}
