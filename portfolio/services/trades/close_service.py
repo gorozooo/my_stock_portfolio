@@ -9,16 +9,16 @@
 # - CashLedger 反映
 #
 # 今回の修正ポイント
-# - 「実損入力を主役にして手数料を逆算する」元の仕様へ戻す
-# - fee を 0 に丸める処理を廃止
-# - 勝手に売却単価ベースの見え方へ寄らないように戻す
+# - 「実損入力を主役にして手数料を逆算する」仕様に戻す
+# - ただし、実損が未入力のときは逆算しない
+# - 未入力時は fee=0 として通常登録できるようにする
+# - 負の fee を保存しようとして登録不能になる不具合を防ぐ
 
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Optional
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -65,6 +65,7 @@ def close_holding(
     price,
     tax_in,
     pnl_input,
+    pnl_input_given: bool,
     broker: str,
     account: str,
     memo: str,
@@ -97,16 +98,20 @@ def close_holding(
         raise ValidationError("保有の平均取得単価が不正です。")
 
     # =========================================================
-    # 元の仕様に戻す
-    # - 実損入力（pnl_input）を主役にする
-    # - そこから fee を逆算する
-    # - 負値でも勝手に 0 に丸めない
-    #   （丸めると、入力した実損より price/basis 側が優先された見え方になるため）
+    # 元の使い方に戻す
+    # - 実損入力あり: その値を主役にして fee を逆算
+    # - 実損入力なし: fee は 0 として通常登録
     # =========================================================
-    if holding_side == "BUY" and side_in == "SELL":
-        fee = ((price - basis) * Decimal(qty_in)) - pnl_input - tax_in
+    if pnl_input_given:
+        if holding_side == "BUY" and side_in == "SELL":
+            fee = ((price - basis) * Decimal(qty_in)) - pnl_input - tax_in
+        else:
+            fee = ((basis - price) * Decimal(qty_in)) - pnl_input - tax_in
+
+        if fee < 0:
+            raise ValidationError("実損入力が価格条件と合いません。実損・単価・税金を確認してください。")
     else:
-        fee = ((basis - price) * Decimal(qty_in)) - pnl_input - tax_in
+        fee = Decimal("0")
 
     opened_date = holding.opened_at
     days_held = None
@@ -152,7 +157,7 @@ def close_holding(
             if side_in == "SELL"
             else TradeEvent.EventType.SPOT_BUY
         )
-        cash_amount_jpy = None  # save() で再計算
+        cash_amount_jpy = None
 
     ev = TradeEvent.objects.create(
         user=holding.user,
