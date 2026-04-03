@@ -3,24 +3,27 @@
 #
 # このファイルは何？
 # - 現金ダッシュボード / 現金履歴の表示ビュー
-# - 今回は「手動台帳の削除」と「システム行の元データ誘導」を追加
+# - 今回は「手動台帳の削除」と「手仕舞い取消」を追加
 #
 # 今回の修正ポイント
 # - 手動で追加した CashLedger 行だけ削除できるようにする
-# - 自動生成の行は直接削除させず、元データ側へ誘導する
-# - 現引は専用の取消アクションへ誘導する
+# - 現物売 / 信用返済 の台帳行から「手仕舞い取消」できるようにする
+# - 元データへ飛ばす誘導は使わない
+# - templates/cash/history.html の params.urlencode に対応する
 
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
 from calendar import monthrange
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Tuple
 from urllib.parse import urlencode
 import re
 
 from django.contrib import messages
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Q, Sum, QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render, get_object_or_404
@@ -31,6 +34,7 @@ from ..models import Dividend, RealizedTrade, Holding, TradeEvent
 from ..models_cash import BrokerAccount, CashLedger, MarginState
 from ..services import cash_service as svc
 from ..services import cash_updater as up
+from ..services.cash.ledger_service import delete_trade_event_ledgers
 
 
 def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
@@ -122,6 +126,261 @@ def _is_manual_ledger(entry: CashLedger) -> bool:
     st = (getattr(entry, "source_type", None) or "").strip().upper()
     sid = getattr(entry, "source_id", None)
     return st == "" and not sid
+
+
+def _source_is_dividend(v) -> bool:
+    return str(v or "").upper() in {"DIV", "DIVIDEND"}
+
+
+def _source_is_realized(v) -> bool:
+    return str(v or "").upper() in {"REAL", "REALIZED", "RT"}
+
+
+def _source_is_trade(v) -> bool:
+    return str(v or "").upper() in {"TRD", "TRADE", "TRADE_EVENT"}
+
+
+def _source_is_holding(v, memo: str | None) -> bool:
+    key = (memo or "").strip()
+    s = str(v or "").upper()
+    return s in {"HOLD", "HOLDING", "HLD"} or key.startswith("保有") or key.startswith("現物")
+
+
+def _safe_str(val) -> str:
+    return (val or "").strip()
+
+
+def _extract_ticker_from_text(text: str) -> str | None:
+    if not text:
+        return None
+    m = re.search(r"([0-9A-Za-z]{3,})", text)
+    return m.group(1) if m else None
+
+
+def _trade_badge_class(t: TradeEvent) -> str:
+    return {
+        TradeEvent.EventType.SPOT_BUY: "chip chip-blue",
+        TradeEvent.EventType.SPOT_SELL: "chip chip-amber",
+        TradeEvent.EventType.MARGIN_OPEN: "chip chip-rose",
+        TradeEvent.EventType.MARGIN_CLOSE: "chip chip-cyan",
+        TradeEvent.EventType.MARGIN_TO_SPOT: "chip chip-fuchsia",
+    }.get(t.event_type, "chip chip-slate")
+
+
+def _trade_kind_label(t: TradeEvent) -> str:
+    return {
+        TradeEvent.EventType.SPOT_BUY: "現物買",
+        TradeEvent.EventType.SPOT_SELL: "現物売",
+        TradeEvent.EventType.MARGIN_OPEN: "信用新規",
+        TradeEvent.EventType.MARGIN_CLOSE: "信用返済",
+        TradeEvent.EventType.MARGIN_TO_SPOT: "現引",
+    }.get(t.event_type, "売買")
+
+
+def _trade_detail_lines(t: TradeEvent) -> list[str]:
+    lines: list[str] = []
+
+    if t.event_type == TradeEvent.EventType.MARGIN_TO_SPOT:
+        account_txt = "信用 → 現物"
+    else:
+        account_txt = _account_label(t.account)
+    lines.append(f"口座区分: {account_txt}")
+
+    cash_jpy = int(t.cash_amount_jpy or 0)
+    if t.event_type in (TradeEvent.EventType.SPOT_BUY, TradeEvent.EventType.SPOT_SELL):
+        lines.append(f"受渡額: {_format_yen(cash_jpy, signed=True)}")
+    elif t.event_type == TradeEvent.EventType.MARGIN_CLOSE:
+        lines.append(f"損益反映額: {_format_yen(cash_jpy, signed=True)}")
+    elif t.event_type == TradeEvent.EventType.MARGIN_TO_SPOT:
+        lines.append(f"現引額: {_format_yen(cash_jpy, signed=True)}")
+    elif t.event_type == TradeEvent.EventType.MARGIN_OPEN:
+        lines.append("損益反映額: —")
+
+    if t.event_type in (TradeEvent.EventType.SPOT_SELL, TradeEvent.EventType.MARGIN_CLOSE):
+        try:
+            if t.realized_trade_id and t.realized_trade is not None:
+                pnl_jpy = int(round(float(t.realized_trade.pnl_jpy or 0)))
+            else:
+                pnl_jpy = int(round(float(t.realized_pnl_jpy() or 0)))
+            lines.append(f"実現損益: {_format_yen(pnl_jpy, signed=True)}")
+        except Exception:
+            lines.append("実現損益: —")
+    else:
+        lines.append("実現損益: —")
+
+    return lines
+
+
+def _to_dec(v, default: str = "0") -> Decimal:
+    try:
+        if v in (None, ""):
+            return Decimal(default)
+        return Decimal(str(v))
+    except Exception:
+        return Decimal(default)
+
+
+def _restore_side_from_event(event: TradeEvent) -> str:
+    side = (event.side or "").upper()
+    return "BUY" if side == "SELL" else "SELL"
+
+
+def _delete_realized_trade_ledgers(realized_trade_id: int) -> None:
+    CashLedger.objects.filter(
+        source_id=realized_trade_id,
+        source_type__in=["REAL", "REALIZED", "RT"],
+    ).delete()
+
+
+def _restore_holding_from_close_event(event: TradeEvent) -> Holding:
+    restore_side = _restore_side_from_event(event)
+    qty_add = int(event.qty or 0)
+    if qty_add <= 0:
+        raise ValueError("取消対象の数量が不正です。")
+
+    basis = _to_dec(event.basis or event.price)
+    if basis <= 0:
+        raise ValueError("取消対象の取得単価が不正です。")
+
+    market = (event.country or "JP").upper()
+    currency = (event.currency or "JPY").upper()
+
+    existing = (
+        Holding.objects.filter(
+            user=event.user,
+            broker=event.broker,
+            account=event.account,
+            ticker=event.ticker,
+            market=market,
+            currency=currency,
+            side=restore_side,
+        )
+        .order_by("opened_at", "id")
+        .first()
+    )
+
+    fx_new = _to_dec(event.open_fx_rate or event.fx_rate or event.close_fx_rate or "0")
+
+    if existing:
+        q_old = int(existing.quantity or 0)
+        q_total = q_old + qty_add
+
+        p_old = _to_dec(existing.avg_cost or "0")
+        total_cost_ccy = (p_old * q_old) + (basis * qty_add)
+        if q_total > 0 and total_cost_ccy > 0:
+            existing.avg_cost = total_cost_ccy / Decimal(q_total)
+
+        if currency != "JPY":
+            fx_old = _to_dec(existing.fx_rate or "0")
+            if fx_old > 0 and fx_new > 0 and total_cost_ccy > 0:
+                total_cost_jpy = (p_old * fx_old * q_old) + (basis * fx_new * qty_add)
+                existing.fx_rate = total_cost_jpy / total_cost_ccy
+            elif fx_old <= 0 and fx_new > 0:
+                existing.fx_rate = fx_new
+        else:
+            existing.fx_rate = None
+
+        existing.quantity = q_total
+
+        if event.opened_at and existing.opened_at:
+            existing.opened_at = min(existing.opened_at, event.opened_at)
+        else:
+            existing.opened_at = existing.opened_at or event.opened_at or event.trade_at
+
+        existing.name = existing.name or event.name or ""
+        existing.sector = getattr(existing, "sector", "") or event.sector33_name or ""
+        existing.save()
+        return existing
+
+    return Holding.objects.create(
+        user=event.user,
+        broker=event.broker,
+        account=event.account,
+        side=restore_side,
+        ticker=event.ticker,
+        name=event.name or "",
+        sector=event.sector33_name or "",
+        quantity=qty_add,
+        avg_cost=basis,
+        market=market,
+        currency=currency,
+        fx_rate=(fx_new if currency != "JPY" and fx_new > 0 else None),
+        opened_at=event.opened_at or event.trade_at,
+        memo="手仕舞い取消で復元",
+    )
+
+
+def _resolve_close_event_from_ledger(entry: CashLedger) -> TradeEvent | None:
+    st = (getattr(entry, "source_type", None) or "").strip().upper()
+    sid = getattr(entry, "source_id", None)
+
+    try:
+        sid_int = int(sid) if sid is not None else None
+    except Exception:
+        sid_int = None
+
+    if sid_int is None:
+        return None
+
+    if _source_is_trade(st):
+        event = (
+            TradeEvent.objects.select_related("realized_trade")
+            .filter(pk=sid_int)
+            .first()
+        )
+        if event and event.event_type in (
+            TradeEvent.EventType.SPOT_SELL,
+            TradeEvent.EventType.MARGIN_CLOSE,
+        ):
+            return event
+        return None
+
+    if _source_is_realized(st):
+        realized = RealizedTrade.objects.filter(pk=sid_int).first()
+        if not realized:
+            return None
+
+        event = (
+            TradeEvent.objects.select_related("realized_trade")
+            .filter(
+                realized_trade=realized,
+                event_type__in=[
+                    TradeEvent.EventType.SPOT_SELL,
+                    TradeEvent.EventType.MARGIN_CLOSE,
+                ],
+            )
+            .order_by("-id")
+            .first()
+        )
+        return event
+
+    return None
+
+
+@transaction.atomic
+def _cancel_close_from_ledger(entry: CashLedger) -> Holding:
+    event = _resolve_close_event_from_ledger(entry)
+    if event is None:
+        raise ValueError("対応する手仕舞いイベントが見つかりません。")
+
+    if event.event_type not in (
+        TradeEvent.EventType.SPOT_SELL,
+        TradeEvent.EventType.MARGIN_CLOSE,
+    ):
+        raise ValueError("この行は手仕舞い取消に対応していません。")
+
+    restored_holding = _restore_holding_from_close_event(event)
+
+    realized = event.realized_trade
+
+    delete_trade_event_ledgers(event.id)
+    event.delete()
+
+    if realized is not None:
+        _delete_realized_trade_ledgers(realized.id)
+        realized.delete()
+
+    return restored_holding
 
 
 @require_http_methods(["GET", "POST"])
@@ -343,162 +602,18 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
     return qs, summary
 
 
-def _source_is_dividend(v) -> bool:
-    return str(v or "").upper() in {"DIV", "DIVIDEND"}
-
-
-def _source_is_realized(v) -> bool:
-    return str(v or "").upper() in {"REAL", "REALIZED"}
-
-
-def _source_is_trade(v) -> bool:
-    return str(v or "").upper() in {"TRD", "TRADE", "TRADE_EVENT"}
-
-
-def _source_is_holding(v, memo: str | None) -> bool:
-    key = (memo or "").strip()
-    s = str(v or "").upper()
-    return s in {"HOLD", "HOLDING", "HLD"} or key.startswith("保有") or key.startswith("現物")
-
-
-def _safe_str(val) -> str:
-    return (val or "").strip()
-
-
-def _extract_ticker_from_text(text: str) -> str | None:
-    if not text:
-        return None
-    m = re.search(r"([0-9A-Za-z]{3,})", text)
-    return m.group(1) if m else None
-
-
-def _trade_badge_class(t: TradeEvent) -> str:
-    return {
-        TradeEvent.EventType.SPOT_BUY: "chip chip-blue",
-        TradeEvent.EventType.SPOT_SELL: "chip chip-amber",
-        TradeEvent.EventType.MARGIN_OPEN: "chip chip-rose",
-        TradeEvent.EventType.MARGIN_CLOSE: "chip chip-cyan",
-        TradeEvent.EventType.MARGIN_TO_SPOT: "chip chip-fuchsia",
-    }.get(t.event_type, "chip chip-slate")
-
-
-def _trade_kind_label(t: TradeEvent) -> str:
-    return {
-        TradeEvent.EventType.SPOT_BUY: "現物買",
-        TradeEvent.EventType.SPOT_SELL: "現物売",
-        TradeEvent.EventType.MARGIN_OPEN: "信用新規",
-        TradeEvent.EventType.MARGIN_CLOSE: "信用返済",
-        TradeEvent.EventType.MARGIN_TO_SPOT: "現引",
-    }.get(t.event_type, "売買")
-
-
-def _trade_detail_lines(t: TradeEvent) -> list[str]:
-    lines: list[str] = []
-
-    if t.event_type == TradeEvent.EventType.MARGIN_TO_SPOT:
-        account_txt = "信用 → 現物"
-    else:
-        account_txt = _account_label(t.account)
-    lines.append(f"口座区分: {account_txt}")
-
-    cash_jpy = int(t.cash_amount_jpy or 0)
-    if t.event_type in (TradeEvent.EventType.SPOT_BUY, TradeEvent.EventType.SPOT_SELL):
-        lines.append(f"受渡額: {_format_yen(cash_jpy, signed=True)}")
-    elif t.event_type == TradeEvent.EventType.MARGIN_CLOSE:
-        lines.append(f"損益反映額: {_format_yen(cash_jpy, signed=True)}")
-    elif t.event_type == TradeEvent.EventType.MARGIN_TO_SPOT:
-        lines.append(f"現引額: {_format_yen(cash_jpy, signed=True)}")
-    elif t.event_type == TradeEvent.EventType.MARGIN_OPEN:
-        lines.append("損益反映額: —")
-
-    if t.event_type in (TradeEvent.EventType.SPOT_SELL, TradeEvent.EventType.MARGIN_CLOSE):
-        try:
-            if t.realized_trade_id and t.realized_trade is not None:
-                pnl_jpy = int(round(float(t.realized_trade.pnl_jpy or 0)))
-            else:
-                pnl_jpy = int(round(float(t.realized_pnl_jpy() or 0)))
-            lines.append(f"実現損益: {_format_yen(pnl_jpy, signed=True)}")
-        except Exception:
-            lines.append("実現損益: —")
-    else:
-        lines.append("実現損益: —")
-
-    return lines
-
-
-def _build_source_action(row, trade_map):
-    st = getattr(row, "source_type", None)
-    sid = getattr(row, "source_id", None)
-    memo = getattr(row, "memo", "") or ""
-
-    try:
-        sid_int = int(sid) if sid is not None else None
-    except Exception:
-        sid_int = None
-
-    if sid_int is None:
-        return None
-
-    if _source_is_dividend(st):
-        return {
-            "label": "配当を開く",
-            "url": reverse("dividend_edit", args=[sid_int]),
-            "method": "get",
-        }
-
-    if _source_is_realized(st):
-        return {
-            "label": "実現損益へ",
-            "url": reverse("realized_list"),
-            "method": "get",
-        }
-
-    if _source_is_trade(st):
-        t = trade_map.get(sid_int)
-        if not t:
-            return None
-
-        if t.event_type == TradeEvent.EventType.MARGIN_TO_SPOT:
-            return {
-                "label": "現引取消",
-                "url": reverse("holding_margin_to_spot_cancel", args=[sid_int]),
-                "method": "post",
-                "confirm": "この現引を取り消しますか？",
-            }
-
-        if t.event_type in (TradeEvent.EventType.SPOT_SELL, TradeEvent.EventType.MARGIN_CLOSE):
-            return {
-                "label": "実現損益へ",
-                "url": reverse("realized_list"),
-                "method": "get",
-            }
-
-        return {
-            "label": "保有へ",
-            "url": reverse("holding_list"),
-            "method": "get",
-        }
-
-    if _source_is_holding(st, memo):
-        return {
-            "label": "保有へ",
-            "url": reverse("holding_list"),
-            "method": "get",
-        }
-
-    return None
-
-
 def _attach_source_labels(page):
     items = list(page.object_list or [])
     if not items:
         return
 
     div_ids, real_ids, hold_ids, trade_ids = set(), set(), set(), set()
+
     for r in items:
         st = getattr(r, "source_type", None)
         sid = getattr(r, "source_id", None)
         mm = getattr(r, "memo", "") or ""
+
         try:
             sid_int = int(sid) if sid is not None else None
         except Exception:
@@ -508,7 +623,8 @@ def _attach_source_labels(page):
         r.kind_class = _kind_class(getattr(r, "kind", ""))
         r.can_delete = _is_manual_ledger(r)
         r.delete_url = reverse("cash_entry_delete", args=[r.id]) if r.can_delete else None
-        r.source_action = None
+        r.can_cancel_close = False
+        r.cancel_close_url = None
         r.src_badge = None
 
         if sid_int is None:
@@ -561,8 +677,6 @@ def _attach_source_labels(page):
         except Exception:
             sid_int = None
 
-        r.source_action = _build_source_action(r, trade_map)
-
         if sid_int is not None and _source_is_dividend(st):
             if sid_int in div_map:
                 d = div_map[sid_int]
@@ -574,6 +688,7 @@ def _attach_source_labels(page):
             else:
                 label = f"DIV:{sid_int}"
                 detail_lines = []
+
             r.src_badge = {
                 "kind": "配当",
                 "class": "chip chip-violet",
@@ -589,6 +704,13 @@ def _attach_source_labels(page):
                 kind = _trade_kind_label(t)
                 css = _trade_badge_class(t)
                 detail_lines = _trade_detail_lines(t)
+
+                if t.event_type in (
+                    TradeEvent.EventType.SPOT_SELL,
+                    TradeEvent.EventType.MARGIN_CLOSE,
+                ):
+                    r.can_cancel_close = True
+                    r.cancel_close_url = reverse("cash_trade_cancel", args=[r.id])
             else:
                 label = f"TRD:{sid_int}"
                 kind = "売買"
@@ -611,9 +733,26 @@ def _attach_source_labels(page):
                     f"口座区分: {_account_label(x.account)}",
                     f"実現損益: {_format_yen(x.pnl_jpy, signed=True)}",
                 ]
+
+                close_ev = (
+                    TradeEvent.objects.select_related("realized_trade")
+                    .filter(
+                        realized_trade=x,
+                        event_type__in=[
+                            TradeEvent.EventType.SPOT_SELL,
+                            TradeEvent.EventType.MARGIN_CLOSE,
+                        ],
+                    )
+                    .order_by("-id")
+                    .first()
+                )
+                if close_ev is not None:
+                    r.can_cancel_close = True
+                    r.cancel_close_url = reverse("cash_trade_cancel", args=[r.id])
             else:
                 label = f"REAL:{sid_int}"
                 detail_lines = []
+
             r.src_badge = {
                 "kind": "実損",
                 "class": "chip chip-emerald",
@@ -646,14 +785,10 @@ def _attach_source_labels(page):
     page.object_list = items
 
 
-def _clean_params_for_pager(request: HttpRequest) -> dict:
-    params = {}
-    for k, v in request.GET.items():
-        if k == "page":
-            continue
-        if v is None or v == "":
-            continue
-        params[k] = v
+def _clean_params_for_pager(request: HttpRequest):
+    params = request.GET.copy()
+    if "page" in params:
+        params.pop("page")
     return params
 
 
@@ -663,12 +798,29 @@ def cash_entry_delete(request: HttpRequest, pk: int) -> HttpResponse:
     next_url = (request.POST.get("next") or request.META.get("HTTP_REFERER") or reverse("cash_history")).strip()
 
     if not _is_manual_ledger(entry):
-        messages.error(request, "自動作成の履歴は現金台帳から直接削除できません。元データ側から修正してください。")
+        messages.error(request, "自動作成の履歴は現金台帳から直接削除できません。")
         return redirect(next_url)
 
     memo = entry.memo or _kind_label(entry.kind)
     entry.delete()
     messages.success(request, f"現金履歴を削除しました：{memo}")
+    return redirect(next_url)
+
+
+@require_http_methods(["POST"])
+def cash_trade_cancel(request: HttpRequest, pk: int) -> HttpResponse:
+    entry = get_object_or_404(CashLedger.objects.select_related("account"), pk=pk)
+    next_url = (request.POST.get("next") or request.META.get("HTTP_REFERER") or reverse("cash_history")).strip()
+
+    try:
+        restored = _cancel_close_from_ledger(entry)
+        messages.success(
+            request,
+            f"手仕舞いを取り消しました：{restored.ticker} / {_account_label(restored.account)} / {int(restored.quantity or 0):,}株"
+        )
+    except Exception as e:
+        messages.error(request, f"手仕舞い取消に失敗しました：{e}")
+
     return redirect(next_url)
 
 
