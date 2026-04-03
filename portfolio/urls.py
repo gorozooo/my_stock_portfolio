@@ -7,6 +7,7 @@
 # 今回の修正
 # - /holdings/ai/ を追加
 # - AI提案ページの view をルーティングする
+# - 現金履歴から「手仕舞い取消」を呼べるURLを追加
 
 from django.http import HttpResponse
 from django.urls import path, include
@@ -88,7 +89,7 @@ urlpatterns = [
     path("dividends/calendar/", v_div.dividends_calendar, name="dividend_calendar"),
     path("dividends/calendar.json", v_div.dividends_calendar_json, name="dividend_calendar_json"),
     path("dividends/forecast/", v_div.dividends_forecast, name="dividend_forecast"),
-    path("dividends/forecast.json", v_div.dividends_forecast_json, name="dividends_forecast_json"),
+    path("dividends/forecast.json", v_div.dividends_forecast_json, name="dividend_forecast_json"),
 
     # 実現損益
     path("realized/", realized_views.list_page, name="realized_list"),
@@ -124,7 +125,8 @@ urlpatterns = [
     path("cash/", v_cash.cash_dashboard, name="cash_dashboard"),
     path("cash/history/", v_cash.cash_history, name="cash_history"),
     path("cash/history/<int:pk>/delete/", v_cash.cash_entry_delete, name="cash_entry_delete"),
-    
+    path("cash/history/<int:pk>/cancel-close/", v_cash.cash_trade_cancel, name="cash_trade_cancel"),
+
     # AIアドバイザー API
     path("api/advisor/latest/", v_advisor.latest_session_items, name="advisor-latest"),
     path("api/advisor/toggle/<int:item_id>/", v_advisor.toggle_taken, name="advisor-toggle"),
