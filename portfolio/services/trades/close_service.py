@@ -9,10 +9,9 @@
 # - CashLedger 反映
 #
 # 今回の修正ポイント
-# - fee を逆算せず、入力値をそのまま採用する
-# - Spot は受渡額フルを現金へ反映
-# - Margin は損益だけを現金へ反映
-# - 米国株でも fee / tax / fx を素直に扱えるようにする
+# - 「実損入力を主役にして手数料を逆算する」元の仕様へ戻す
+# - fee を 0 に丸める処理を廃止
+# - 勝手に売却単価ベースの見え方へ寄らないように戻す
 
 # -*- coding: utf-8 -*-
 from __future__ import annotations
@@ -64,7 +63,6 @@ def close_holding(
     side_in: str,
     qty_in: int,
     price,
-    fee_in,
     tax_in,
     pnl_input,
     broker: str,
@@ -92,21 +90,23 @@ def close_holding(
 
     basis = _holding_basis(holding)
     price = _to_dec(price)
-    fee = _to_dec(fee_in)
     tax_in = _to_dec(tax_in)
     pnl_input = _to_dec(pnl_input)
-
-    if price <= 0:
-        raise ValidationError("価格が不正です。")
 
     if basis <= 0:
         raise ValidationError("保有の平均取得単価が不正です。")
 
-    if fee < 0:
-        raise ValidationError("手数料は0以上で入力してください。")
-
-    if tax_in < 0:
-        raise ValidationError("税金は0以上で入力してください。")
+    # =========================================================
+    # 元の仕様に戻す
+    # - 実損入力（pnl_input）を主役にする
+    # - そこから fee を逆算する
+    # - 負値でも勝手に 0 に丸めない
+    #   （丸めると、入力した実損より price/basis 側が優先された見え方になるため）
+    # =========================================================
+    if holding_side == "BUY" and side_in == "SELL":
+        fee = ((price - basis) * Decimal(qty_in)) - pnl_input - tax_in
+    else:
+        fee = ((basis - price) * Decimal(qty_in)) - pnl_input - tax_in
 
     opened_date = holding.opened_at
     days_held = None
@@ -152,7 +152,7 @@ def close_holding(
             if side_in == "SELL"
             else TradeEvent.EventType.SPOT_BUY
         )
-        cash_amount_jpy = None  # save() 側の計算に任せる
+        cash_amount_jpy = None  # save() で再計算
 
     ev = TradeEvent.objects.create(
         user=holding.user,
@@ -194,4 +194,8 @@ def close_holding(
         holding.delete()
         holding_deleted = True
 
-    return CloseResult(realized_trade=rt, trade_event=ev, holding_deleted=holding_deleted)
+    return CloseResult(
+        realized_trade=rt,
+        trade_event=ev,
+        holding_deleted=holding_deleted,
+    )
