@@ -41,6 +41,7 @@ from portfolio.views.line import line_webhook
 from portfolio.views import positions as positions_views
 from portfolio.api import positions as api_positions
 from portfolio.views import autopilot as autopilot_views
+from .views import margin_to_spot_cancel as v_margin_to_spot_cancel
 
 urlpatterns = [
     path("", home.home, name="home"),
@@ -72,6 +73,7 @@ urlpatterns = [
     path("holdings/<int:pk>/delete/", hv_actions.holding_delete, name="holding_delete"),
     path("api/ticker-name", hv.api_ticker_name, name="api_ticker_name"),
     path("holdings/partial/list", hv.holding_list_partial, name="holding_list_partial"),
+    path("holdings/margin-to-spot/cancel/<int:event_id>/", v_margin_to_spot_cancel.cancel_margin_to_spot_view, name="holding_margin_to_spot_cancel"),
 
     # 配当
     path("dividends/dashboard/", v_div.dashboard, name="dividend_dashboard"),
@@ -121,7 +123,8 @@ urlpatterns = [
     # 現金
     path("cash/", v_cash.cash_dashboard, name="cash_dashboard"),
     path("cash/history/", v_cash.cash_history, name="cash_history"),
-
+    path("cash/history/<int:pk>/delete/", v_cash.cash_entry_delete, name="cash_entry_delete"),
+    
     # AIアドバイザー API
     path("api/advisor/latest/", v_advisor.latest_session_items, name="advisor-latest"),
     path("api/advisor/toggle/<int:item_id>/", v_advisor.toggle_taken, name="advisor-toggle"),
