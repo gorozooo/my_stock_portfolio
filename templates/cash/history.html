@@ -1,191 +1,421 @@
+<!-- [FILE] history.html -->
+<!-- [PATH] templates/cash/history.html -->
 <!--
-[FILE] history.html #}
-[PATH] templates/cash/history.html 
-  このファイルは何？
-  - 現金台帳の一覧画面テンプレートです。
-  - フィルタ、集計、履歴カード表示を担当します。
-
-  今回の修正ポイント
-  - 配当を紫に戻す
-  - 現物買 / 現物売 / 信用新規 / 信用返済 / 現引 を全部別色にする
-  - TradeEvent / Dividend / RealizedTrade の detail_lines をカードに表示する
+このファイルは何？
+- /cash/history/ の本体テンプレート
+- 手動台帳はここから削除できる
+- 自動生成の台帳は、元データ側へ飛べるようにする
 -->
 
 {% extends "base.html" %}
 {% load humanize %}
-{% block title %}現金台帳{% endblock %}
+
+{% block title %}現金履歴{% endblock %}
 
 {% block head %}
 <style>
-  #topSticky{
-    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 12;
-    border:1px solid rgba(255,255,255,.12); border-radius:12px;
-    background:rgba(15,20,30,.96); backdrop-filter: blur(8px);
-    padding:8px; margin:0 0 8px; box-shadow:0 2px 0 rgba(255,255,255,.06) inset;
+  *{box-sizing:border-box}
+  html,body{max-width:100%;overflow-x:hidden}
+
+  .cash-history-page{
+    max-width:980px;
+    margin:0 auto;
+    padding:12px 10px 120px;
   }
 
-  .quickbar{display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:6px; align-items:center;}
-  .qb-ctl,.qb-btn{height:30px; padding:0 8px; font-size:12px; color:#dbe3f4;
-                  background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.14);
-                  border-radius:8px; min-width:0;}
-  input[type="date"].qb-ctl{ color-scheme: dark; }
-  .qb-btn{ background:rgba(255,255,255,.06); }
-  #qb-broker{grid-column:1/2;} #qb-kind{grid-column:2/3;} #qb-q{grid-column:3/5;}
-  #qb-start{grid-column:1/3;}  #qb-end{grid-column:3/5;}
-  .btn-row{grid-column:1/-1; display:flex; justify-content:center; gap:8px; margin-top:6px;}
-  .sum-wrap{display:grid; gap:6px; grid-template-columns:repeat(2,1fr); margin-top:6px}
-  .pill{border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.05);
-        border-radius:8px; padding:6px 8px; text-align:center; font-size:12px; color:#cbd5e1}
-  .sum-total{grid-column:1/-1; background:rgba(255,255,255,.07); font-weight:600}
+  .page-head{ margin-bottom:12px; }
+  .page-title{
+    margin:0;
+    font-size:20px;
+    font-weight:800;
+    color:#eef2ff;
+    letter-spacing:.02em;
+  }
+  .page-note{
+    margin-top:4px;
+    font-size:12px;
+    color:#94a3b8;
+    line-height:1.6;
+  }
 
-  .card{
+  .filter-card,
+  .summary-card,
+  .entry-card{
     border:1px solid rgba(255,255,255,.08);
-    background:rgba(255,255,255,.04);
-    border-radius:14px;
-    padding:10px 12px;
-    margin-bottom:10px;
-    display:flex;
-    flex-direction:column;
-    gap:4px;
+    border-radius:16px;
+    background:rgba(255,255,255,.03);
   }
 
-  .chip{
-    display:inline-flex; align-items:center; gap:.4em; padding:.25rem .5rem;
-    border-radius:9999px; border:1px solid; font-size:11px; line-height:1;
-    white-space:nowrap; margin-bottom:2px;
+  .filter-card{
+    padding:12px;
+    margin-bottom:12px;
   }
 
-  /* ソース付き */
-  .chip-violet{border-color:rgba(139,92,246,.45); color:#ddd6fe; background:rgba(139,92,246,.12)}   /* 配当 */
-  .chip-emerald{border-color:rgba(16,185,129,.40); color:#bbf7d0; background:rgba(16,185,129,.10)} /* 実損 */
-  .chip-amber{border-color:rgba(245,158,11,.42); color:#fde68a; background:rgba(245,158,11,.11)}   /* 現物売 */
-  .chip-blue{border-color:rgba(59,130,246,.40); color:#bfdbfe; background:rgba(59,130,246,.10)}    /* 現物買 */
-  .chip-cyan{border-color:rgba(34,211,238,.42); color:#a5f3fc; background:rgba(34,211,238,.12)}    /* 信用返済 */
-  .chip-fuchsia{border-color:rgba(217,70,239,.42); color:#f5d0fe; background:rgba(217,70,239,.12)} /* 現引 */
-  .chip-rose{border-color:rgba(244,63,94,.42); color:#fecdd3; background:rgba(244,63,94,.12)}      /* 信用新規 */
-  .chip-slate{border-color:rgba(148,163,184,.35); color:#e2e8f0; background:rgba(148,163,184,.10)} /* 保有/その他 */
-
-  .meta{font-size:11px; color:#94a3b8}
-  .detail-lines{
-    margin-top:2px;
-    display:flex;
-    flex-direction:column;
-    gap:2px;
+  .filter-grid{
+    display:grid;
+    grid-template-columns:repeat(5,minmax(0,1fr));
+    gap:8px;
   }
-  .detail-line{
+
+  .field{ display:flex; flex-direction:column; gap:4px; }
+  .field-label{
     font-size:11px;
+    color:#94a3b8;
+    line-height:1.2;
+  }
+  .in{
+    width:100%;
+    min-height:40px;
+    border-radius:12px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.05);
+    color:#eef2ff;
+    padding:0 12px;
+    font-size:13px;
+    outline:none;
+  }
+
+  .filter-actions{
+    display:flex;
+    gap:8px;
+    margin-top:10px;
+  }
+  .btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:40px;
+    padding:0 14px;
+    border-radius:12px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.05);
+    color:#e5e7eb;
+    text-decoration:none;
+    font-size:13px;
+    font-weight:800;
+    cursor:pointer;
+  }
+  .btn.primary{
+    background:rgba(59,130,246,.16);
+    border-color:rgba(59,130,246,.35);
+    color:#eff6ff;
+  }
+  .btn.danger{
+    background:rgba(239,68,68,.12);
+    border-color:rgba(239,68,68,.30);
+    color:#fee2e2;
+  }
+  .btn.warn{
+    background:rgba(168,85,247,.12);
+    border-color:rgba(168,85,247,.30);
+    color:#f3e8ff;
+  }
+
+  .summary-grid{
+    display:grid;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:8px;
+    margin-bottom:12px;
+  }
+  .summary-card{
+    padding:12px;
+  }
+  .summary-k{
+    font-size:11px;
+    color:#94a3b8;
+    margin-bottom:4px;
+  }
+  .summary-v{
+    font-size:18px;
+    font-weight:800;
+    color:#eef2ff;
+    line-height:1.25;
+  }
+  .summary-v.pos{ color:#22c55e; }
+  .summary-v.neg{ color:#ef4444; }
+
+  .entry-list{
+    display:grid;
+    gap:10px;
+  }
+  .entry-card{
+    padding:12px;
+  }
+
+  .entry-top{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:12px;
+    margin-bottom:8px;
+  }
+  .entry-left{ min-width:0; flex:1 1 auto; }
+  .entry-title{
+    font-size:15px;
+    font-weight:800;
+    color:#eef2ff;
+    line-height:1.35;
+    word-break:break-word;
+  }
+  .entry-sub{
+    margin-top:4px;
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+  }
+  .chip{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:24px;
+    padding:0 9px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.05);
+    color:#dbe3f4;
+    font-size:11px;
+    font-weight:700;
+    white-space:nowrap;
+  }
+  .chip.pos{
+    background:rgba(16,185,129,.12);
+    border-color:rgba(16,185,129,.30);
+    color:#bbf7d0;
+  }
+  .chip.neg{
+    background:rgba(239,68,68,.12);
+    border-color:rgba(239,68,68,.30);
+    color:#fecdd3;
+  }
+  .chip.neutral{
+    background:rgba(148,163,184,.12);
+    border-color:rgba(148,163,184,.24);
     color:#cbd5e1;
-    line-height:1.4;
+  }
+
+  .amount-wrap{
+    flex:0 0 auto;
+    text-align:right;
   }
   .amount{
-    text-align:right; font-size:20px; font-weight:800; color:#e6ebff; letter-spacing:0.02em;
+    font-size:18px;
+    font-weight:900;
+    line-height:1.2;
+    color:#eef2ff;
   }
-  .memo{margin-top:2px; font-size:11px; color:#cbd5e1; word-break:break-word}
+  .amount.pos{ color:#22c55e; }
+  .amount.neg{ color:#ef4444; }
+  .amount-sub{
+    margin-top:4px;
+    font-size:11px;
+    color:#94a3b8;
+  }
+
+  .detail-box{
+    padding:10px 12px;
+    border-radius:12px;
+    background:rgba(255,255,255,.035);
+    border:1px dashed rgba(255,255,255,.10);
+    margin-bottom:8px;
+  }
+  .detail-line{
+    font-size:12px;
+    color:#cbd5e1;
+    line-height:1.6;
+  }
+
+  .action-row{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+  .action-row form{ margin:0; }
+
+  .empty-box{
+    padding:24px 16px;
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:16px;
+    background:rgba(255,255,255,.03);
+    color:#94a3b8;
+    text-align:center;
+    line-height:1.8;
+  }
+
+  .pager{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    margin-top:14px;
+  }
+
+  @media (max-width: 720px){
+    .cash-history-page{ padding:12px 8px 120px; }
+    .filter-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .summary-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .entry-top{ flex-direction:column; }
+    .amount-wrap{ text-align:left; }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<h1 class="text-base font-semibold mb-2">💵 現金台帳</h1>
+<div class="cash-history-page">
 
-<div id="topSticky">
-  <form method="get" class="quickbar">
-    <select id="qb-broker" name="broker" class="qb-ctl">
-      {% with b=params.broker|default:"ALL" %}
-        <option value="ALL"  {% if b == "ALL" %}selected{% endif %}>証券会社: すべて</option>
-        <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天証券</option>
-        <option value="松井" {% if b == "松井" %}selected{% endif %}>松井証券</option>
-        <option value="SBI"  {% if b == "SBI" %}selected{% endif %}>SBI証券</option>
-      {% endwith %}
-    </select>
+  <div class="page-head">
+    <h1 class="page-title">現金履歴</h1>
+    <div class="page-note">
+      手動で入れた履歴だけここから削除できます。<br>
+      自動生成の履歴は元データ側から直してください。
+    </div>
+  </div>
 
-    <select id="qb-kind" name="kind" class="qb-ctl">
-      {% with k=params.kind|default:"ALL" %}
-        <option value="ALL"      {% if k == "ALL" %}selected{% endif %}>種別: すべて</option>
-        <option value="DEPOSIT"  {% if k == "DEPOSIT" %}selected{% endif %}>入金</option>
-        <option value="WITHDRAW" {% if k == "WITHDRAW" %}selected{% endif %}>出金</option>
-        <option value="XFER"     {% if k == "XFER" %}selected{% endif %}>振替</option>
-        <option value="SYSTEM"   {% if k == "SYSTEM" %}selected{% endif %}>システム</option>
-      {% endwith %}
-    </select>
+  <form method="get" class="filter-card">
+    <div class="filter-grid">
+      <label class="field">
+        <span class="field-label">証券会社</span>
+        <select name="broker" class="in">
+          <option value="ALL" {% if filters.broker == "ALL" %}selected{% endif %}>すべて</option>
+          <option value="楽天" {% if filters.broker == "楽天" %}selected{% endif %}>楽天</option>
+          <option value="松井" {% if filters.broker == "松井" %}selected{% endif %}>松井</option>
+          <option value="SBI" {% if filters.broker == "SBI" %}selected{% endif %}>SBI</option>
+        </select>
+      </label>
 
-    <input id="qb-q" type="text" name="q" value="{{ params.q|default_if_none:'' }}"
-           placeholder="例: 配当 / 実現益 / REAL:21 など" class="qb-ctl">
+      <label class="field">
+        <span class="field-label">種類</span>
+        <select name="kind" class="in">
+          <option value="ALL" {% if filters.kind == "ALL" %}selected{% endif %}>すべて</option>
+          <option value="DEPOSIT" {% if filters.kind == "DEPOSIT" %}selected{% endif %}>入金</option>
+          <option value="WITHDRAW" {% if filters.kind == "WITHDRAW" %}selected{% endif %}>出金</option>
+          <option value="XFER" {% if filters.kind == "XFER" %}selected{% endif %}>振替</option>
+          <option value="SYSTEM" {% if filters.kind == "SYSTEM" %}selected{% endif %}>自動生成</option>
+        </select>
+      </label>
 
-    <input id="qb-start" type="date" name="start" value="{{ params.start|default_if_none:'' }}" class="qb-ctl">
-    <input id="qb-end" type="date" name="end" value="{{ params.end|default_if_none:'' }}" class="qb-ctl">
+      <label class="field">
+        <span class="field-label">開始日</span>
+        <input type="date" name="start" value="{{ filters.start }}" class="in">
+      </label>
 
-    <div class="btn-row">
-      <button class="qb-btn" type="submit">適用</button>
-      <button class="qb-btn" type="button" onclick="location.href='{% url 'cash_history' %}'">クリア</button>
+      <label class="field">
+        <span class="field-label">終了日</span>
+        <input type="date" name="end" value="{{ filters.end }}" class="in">
+      </label>
+
+      <label class="field">
+        <span class="field-label">検索</span>
+        <input type="text" name="q" value="{{ filters.q }}" class="in" placeholder="メモで検索">
+      </label>
+    </div>
+
+    <div class="filter-actions">
+      <button type="submit" class="btn primary">絞り込む</button>
+      <a href="{% url 'cash_history' %}" class="btn">リセット</a>
     </div>
   </form>
 
-  {% if summary %}
-    <div class="sum-wrap">
-      <div class="pill sum-total">💰 合計 {{ summary.total|intcomma }} 円</div>
-      <div class="pill">入金 {{ summary.deposit|intcomma }} 円</div>
-      <div class="pill">出金 {{ summary.withdraw|intcomma }} 円</div>
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="summary-k">差引</div>
+      <div class="summary-v {% if summary.total < 0 %}neg{% elif summary.total > 0 %}pos{% endif %}">
+        ¥{{ summary.total|intcomma }}
+      </div>
     </div>
-  {% endif %}
-</div>
+    <div class="summary-card">
+      <div class="summary-k">入金</div>
+      <div class="summary-v pos">¥{{ summary.deposit|intcomma }}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-k">出金</div>
+      <div class="summary-v neg">¥{{ summary.withdraw|intcomma }}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-k">振替</div>
+      <div class="summary-v">IN ¥{{ summary.xfer_in|intcomma }} / OUT ¥{{ summary.xfer_out|intcomma }}</div>
+    </div>
+  </div>
 
-{% for r in page.object_list %}
-  <div class="card" data-ledger-id="{{ r.id }}">
+  {% if page.object_list %}
+    <div class="entry-list">
+      {% for entry in page.object_list %}
+        <article class="entry-card">
+          <div class="entry-top">
+            <div class="entry-left">
+              <div class="entry-title">{{ entry.memo|default:"（メモなし）" }}</div>
+              <div class="entry-sub">
+                <span class="chip {{ entry.kind_class }}">{{ entry.kind_label }}</span>
+                <span class="chip neutral">{{ entry.at|date:"Y-m-d" }}</span>
+                {% if entry.account %}
+                  <span class="chip neutral">{{ entry.account.broker }} / {{ entry.account.account_type }}</span>
+                {% endif %}
+                {% if entry.src_badge %}
+                  <span class="chip neutral">{{ entry.src_badge.kind }}</span>
+                  <span class="chip neutral">{{ entry.src_badge.label }}</span>
+                {% endif %}
+              </div>
+            </div>
 
-    {% if r.src_badge %}
-      <span class="{{ r.src_badge.class|default:'chip chip-slate' }}">
-        【{{ r.src_badge.kind|default:"履歴" }}】 {{ r.src_badge.label|default:"—" }}
-      </span>
-    {% else %}
-      {% with memo_txt=r.memo|default_if_none:"" %}
-        {% if r.kind == r.Kind.DEPOSIT %}
-          <span class="chip chip-blue">【入金】 {{ memo_txt|default:"手入力" }}</span>
-        {% elif r.kind == r.Kind.WITHDRAW %}
-          <span class="chip chip-rose">【出金】 {{ memo_txt|default:"手入力" }}</span>
-        {% elif r.kind == r.Kind.XFER_IN %}
-          <span class="chip chip-cyan">【振替(入)】 {{ memo_txt|default:"手入力" }}</span>
-        {% elif r.kind == r.Kind.XFER_OUT %}
-          <span class="chip chip-fuchsia">【振替(出)】 {{ memo_txt|default:"手入力" }}</span>
-        {% else %}
-          <span class="chip chip-slate">【その他】 {{ memo_txt|default:"手入力" }}</span>
+            <div class="amount-wrap">
+              <div class="amount {% if entry.amount > 0 %}pos{% elif entry.amount < 0 %}neg{% endif %}">
+                ¥{{ entry.amount|intcomma }}
+              </div>
+              <div class="amount-sub">ID {{ entry.id }}</div>
+            </div>
+          </div>
+
+          {% if entry.src_badge and entry.src_badge.detail_lines %}
+            <div class="detail-box">
+              {% for line in entry.src_badge.detail_lines %}
+                <div class="detail-line">{{ line }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          <div class="action-row">
+            {% if entry.can_delete %}
+              <form method="post" action="{{ entry.delete_url }}">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ current_path }}">
+                <button type="submit" class="btn danger" onclick="return confirm('この現金履歴を削除しますか？');">削除</button>
+              </form>
+            {% elif entry.source_action %}
+              {% if entry.source_action.method == "post" %}
+                <form method="post" action="{{ entry.source_action.url }}">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ current_path }}">
+                  <button
+                    type="submit"
+                    class="btn warn"
+                    {% if entry.source_action.confirm %}onclick="return confirm('{{ entry.source_action.confirm }}');"{% endif %}
+                  >
+                    {{ entry.source_action.label }}
+                  </button>
+                </form>
+              {% else %}
+                <a href="{{ entry.source_action.url }}" class="btn">{{ entry.source_action.label }}</a>
+              {% endif %}
+            {% else %}
+              <span class="btn" style="opacity:.55;">元データ側で修正</span>
+            {% endif %}
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+
+    {% if page.paginator.num_pages > 1 %}
+      <div class="pager">
+        {% if page.has_previous %}
+          <a href="?page={{ page.previous_page_number }}{% if querystring %}&{{ querystring }}{% endif %}" class="btn">前へ</a>
         {% endif %}
-      {% endwith %}
-    {% endif %}
-
-    <div class="meta">
-      {{ r.at|default:"" }} ｜ {{ r.account.broker|default:"" }} ｜ 種別：
-      {% if r.kind == r.Kind.DEPOSIT %}入金{% elif r.kind == r.Kind.WITHDRAW %}出金
-      {% elif r.kind == r.Kind.XFER_IN %}振替(入){% elif r.kind == r.Kind.XFER_OUT %}振替(出)
-      {% else %}その他{% endif %}
-    </div>
-
-    {% if r.src_badge and r.src_badge.detail_lines %}
-      <div class="detail-lines">
-        {% for line in r.src_badge.detail_lines %}
-          <div class="detail-line">{{ line }}</div>
-        {% endfor %}
+        <div class="btn" style="opacity:.8; cursor:default;">{{ page.number }} / {{ page.paginator.num_pages }}</div>
+        {% if page.has_next %}
+          <a href="?page={{ page.next_page_number }}{% if querystring %}&{{ querystring }}{% endif %}" class="btn">次へ</a>
+        {% endif %}
       </div>
     {% endif %}
-
-    <div class="amount">{{ r.amount|intcomma }} 円</div>
-
-    {% if not r.src_badge and r.memo %}
-      <div class="memo">{{ r.memo }}</div>
-    {% endif %}
-  </div>
-{% empty %}
-  <div class="text-slate-400">該当データがありません。</div>
-{% endfor %}
-
-{% if page.paginator.num_pages > 1 %}
-  <div class="flex items-center justify-center gap-8 my-3 text-[12px]">
-    {% if page.has_previous %}
-      <a class="qb-btn" href="?{{ params.urlencode }}&page={{ page.previous_page_number }}">← 前へ</a>
-    {% endif %}
-    <span>ページ {{ page.number }} / {{ page.paginator.num_pages }}</span>
-    {% if page.has_next %}
-      <a class="qb-btn" href="?{{ params.urlencode }}&page={{ page.next_page_number }}">次へ →</a>
-    {% endif %}
-  </div>
-{% endif %}
+  {% else %}
+    <div class="empty-box">この条件の現金履歴はありません。</div>
+  {% endif %}
+</div>
 {% endblock %}
