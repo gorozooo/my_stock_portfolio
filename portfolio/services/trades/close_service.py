@@ -8,10 +8,11 @@
 # - RealizedTrade 作成
 # - CashLedger 反映
 #
-# 今回の方針
+# 今回の修正ポイント
+# - fee を逆算せず、入力値をそのまま採用する
 # - Spot は受渡額フルを現金へ反映
 # - Margin は損益だけを現金へ反映
-# - 現引は別イベントで扱う前提（今回の service には未接続）
+# - 米国株でも fee / tax / fx を素直に扱えるようにする
 
 # -*- coding: utf-8 -*-
 from __future__ import annotations
@@ -23,7 +24,6 @@ from typing import Optional
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import F
-from django.utils import timezone
 
 from ...models import Holding, RealizedTrade, TradeEvent
 from ..cash.ledger_service import upsert_trade_event_ledger
@@ -64,6 +64,7 @@ def close_holding(
     side_in: str,
     qty_in: int,
     price,
+    fee_in,
     tax_in,
     pnl_input,
     broker: str,
@@ -91,19 +92,21 @@ def close_holding(
 
     basis = _holding_basis(holding)
     price = _to_dec(price)
+    fee = _to_dec(fee_in)
     tax_in = _to_dec(tax_in)
     pnl_input = _to_dec(pnl_input)
+
+    if price <= 0:
+        raise ValidationError("価格が不正です。")
 
     if basis <= 0:
         raise ValidationError("保有の平均取得単価が不正です。")
 
-    if holding_side == "BUY" and side_in == "SELL":
-        fee = ((price - basis) * Decimal(qty_in)) - pnl_input - tax_in
-    else:
-        fee = ((basis - price) * Decimal(qty_in)) - pnl_input - tax_in
-
     if fee < 0:
-        fee = Decimal("0")
+        raise ValidationError("手数料は0以上で入力してください。")
+
+    if tax_in < 0:
+        raise ValidationError("税金は0以上で入力してください。")
 
     opened_date = holding.opened_at
     days_held = None
@@ -149,7 +152,7 @@ def close_holding(
             if side_in == "SELL"
             else TradeEvent.EventType.SPOT_BUY
         )
-        cash_amount_jpy = None  # save() で再計算
+        cash_amount_jpy = None  # save() 側の計算に任せる
 
     ev = TradeEvent.objects.create(
         user=holding.user,
