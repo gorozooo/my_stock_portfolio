@@ -6,9 +6,9 @@
 # - 一覧/分析系は旧 realized.py に残す
 #
 # 今回の修正ポイント
-# - close_submit で cashflow の「空欄」と「0入力」を区別する
-# - 実損を入力したときだけ、その値を主役にして close_service 側で手数料逆算する
-# - 実損未入力のときは通常保存へ流す
+# - 米国株クローズ時、Holding.fx_rate が Decimal でも落ちないように修正
+# - 実損入力あり/なしの仕様はそのまま維持
+# - close_submit の FX パースを安全化
 
 from __future__ import annotations
 
@@ -256,14 +256,20 @@ def close_submit(request, pk: int):
         currency = (request.POST.get("currency") or h.currency or "JPY").strip().upper()
 
         def _parse_fx(raw):
-            raw = (raw or "").strip()
-            if not raw:
+            if raw in (None, ""):
                 return None
-            val = _to_dec(raw)
+            s = str(raw).replace(",", "").strip()
+            if not s:
+                return None
+            val = _to_dec(s)
             return val if val > 0 else None
 
         open_fx_rate = _parse_fx(getattr(h, "fx_rate", None))
-        close_fx_rate = _parse_fx(request.POST.get("close_fx_rate")) or _parse_fx(request.POST.get("fx_rate")) or open_fx_rate
+        close_fx_rate = (
+            _parse_fx(request.POST.get("close_fx_rate"))
+            or _parse_fx(request.POST.get("fx_rate"))
+            or open_fx_rate
+        )
 
         strategy_label = (request.POST.get("strategy_label") or "").strip()
         policy_key = (request.POST.get("policy_key") or "").strip()
