@@ -6,9 +6,9 @@
 # - 一覧/分析系は旧 realized.py に残し、更新処理だけ薄く分離する
 #
 # 今回の修正ポイント
-# - close_submit で fee を正しく受け取る
-# - そのまま close_service へ渡す
-# - 米国株の手仕舞いでも fee / fx_rate / tax を自然に扱えるようにする
+# - 米国株の close_submit で holding.fx_rate(Decimal) を安全に処理する
+# - _parse_fx が str / Decimal / None のどれでも落ちないようにする
+# - fee も受け取って close_service へ渡す
 
 from __future__ import annotations
 
@@ -254,14 +254,25 @@ def close_submit(request, pk: int):
         currency = (request.POST.get("currency") or h.currency or "JPY").strip().upper()
 
         def _parse_fx(raw):
-            raw = (raw or "").strip()
-            if not raw:
+            if raw in (None, ""):
                 return None
-            val = _to_dec(raw)
-            return val if val > 0 else None
+
+            try:
+                if isinstance(raw, str):
+                    raw = raw.strip()
+                    if raw == "":
+                        return None
+                val = _to_dec(raw)
+                return val if val > 0 else None
+            except Exception:
+                return None
 
         open_fx_rate = _parse_fx(getattr(h, "fx_rate", None))
-        close_fx_rate = _parse_fx(request.POST.get("close_fx_rate")) or _parse_fx(request.POST.get("fx_rate")) or open_fx_rate
+        close_fx_rate = (
+            _parse_fx(request.POST.get("close_fx_rate"))
+            or _parse_fx(request.POST.get("fx_rate"))
+            or open_fx_rate
+        )
 
         strategy_label = (request.POST.get("strategy_label") or "").strip()
         policy_key = (request.POST.get("policy_key") or "").strip()
