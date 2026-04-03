@@ -3,12 +3,12 @@
 #
 # このファイルは何？
 # - 現金ダッシュボード / 現金履歴の表示ビュー
+# - 今回は「手動台帳の削除」と「システム行の元データ誘導」を追加
 #
 # 今回の修正ポイント
-# - 配当の色を紫に戻す
-# - 現物買 / 現物売 / 信用新規 / 信用返済 / 現引 を全部別色にする
-# - 現金履歴カードに、受渡額 / 実現損益 / 口座区分 を表示できるようにする
-# - 現金ダッシュボードは「今すぐ使える資金 / 現金余りメーター / 今月の入出金」に整理
+# - 手動で追加した CashLedger 行だけ削除できるようにする
+# - 自動生成の行は直接削除させず、元データ側へ誘導する
+# - 現引は専用の取消アクションへ誘導する
 
 # -*- coding: utf-8 -*-
 from __future__ import annotations
@@ -16,13 +16,15 @@ from __future__ import annotations
 from calendar import monthrange
 from datetime import date, datetime
 from typing import Tuple
+from urllib.parse import urlencode
 import re
 
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db.models import Q, Sum, QuerySet
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect, render, get_object_or_404
+from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 
 from ..models import Dividend, RealizedTrade, Holding, TradeEvent
@@ -92,6 +94,34 @@ def _month_end_from_str(ym: str) -> date:
     y, mo = int(m.group(1)), int(m.group(2))
     last = monthrange(y, mo)[1]
     return date(y, mo, last)
+
+
+def _kind_label(kind: str) -> str:
+    if kind == CashLedger.Kind.DEPOSIT:
+        return "入金"
+    if kind == CashLedger.Kind.WITHDRAW:
+        return "出金"
+    if kind == CashLedger.Kind.XFER_IN:
+        return "振替入"
+    if kind == CashLedger.Kind.XFER_OUT:
+        return "振替出"
+    if kind == CashLedger.Kind.SYSTEM:
+        return "システム"
+    return kind or "—"
+
+
+def _kind_class(kind: str) -> str:
+    if kind in (CashLedger.Kind.DEPOSIT, CashLedger.Kind.XFER_IN):
+        return "pos"
+    if kind in (CashLedger.Kind.WITHDRAW, CashLedger.Kind.XFER_OUT):
+        return "neg"
+    return "neutral"
+
+
+def _is_manual_ledger(entry: CashLedger) -> bool:
+    st = (getattr(entry, "source_type", None) or "").strip().upper()
+    sid = getattr(entry, "source_id", None)
+    return st == "" and not sid
 
 
 @require_http_methods(["GET", "POST"])
@@ -218,12 +248,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         avail = int(row.get("available", 0))
         restr = int(row.get("restricted", 0))
         month_net = int(row.get("month_net", 0))
-        month_deposit = int(row.get("month_deposit", 0))
-        month_withdraw = int(row.get("month_withdraw", 0))
-        invested_cost = int(row.get("invested_cost", 0))
-        spot_market_value = int(row.get("spot_market_value", 0))
-        spot_total_asset = int(row.get("spot_total_asset", 0))
-        cash_ratio_pct = row.get("cash_ratio_pct", None)
 
         pct = (avail / cash * 100.0) if cash > 0 else None
         severity = _severity_for(row, LOW_RATIO)
@@ -240,12 +264,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 "available": avail,
                 "restricted": restr,
                 "month_net": month_net,
-                "month_deposit": month_deposit,
-                "month_withdraw": month_withdraw,
-                "invested_cost": invested_cost,
-                "spot_market_value": spot_market_value,
-                "spot_total_asset": spot_total_asset,
-                "cash_ratio_pct": cash_ratio_pct,
                 "pct_available": pct,
                 "severity": severity,
             }
@@ -408,6 +426,69 @@ def _trade_detail_lines(t: TradeEvent) -> list[str]:
     return lines
 
 
+def _build_source_action(row, trade_map):
+    st = getattr(row, "source_type", None)
+    sid = getattr(row, "source_id", None)
+    memo = getattr(row, "memo", "") or ""
+
+    try:
+        sid_int = int(sid) if sid is not None else None
+    except Exception:
+        sid_int = None
+
+    if sid_int is None:
+        return None
+
+    if _source_is_dividend(st):
+        return {
+            "label": "配当を開く",
+            "url": reverse("dividend_edit", args=[sid_int]),
+            "method": "get",
+        }
+
+    if _source_is_realized(st):
+        return {
+            "label": "実現損益へ",
+            "url": reverse("realized_list"),
+            "method": "get",
+        }
+
+    if _source_is_trade(st):
+        t = trade_map.get(sid_int)
+        if not t:
+            return None
+
+        if t.event_type == TradeEvent.EventType.MARGIN_TO_SPOT:
+            return {
+                "label": "現引取消",
+                "url": reverse("holding_margin_to_spot_cancel", args=[sid_int]),
+                "method": "post",
+                "confirm": "この現引を取り消しますか？",
+            }
+
+        if t.event_type in (TradeEvent.EventType.SPOT_SELL, TradeEvent.EventType.MARGIN_CLOSE):
+            return {
+                "label": "実現損益へ",
+                "url": reverse("realized_list"),
+                "method": "get",
+            }
+
+        return {
+            "label": "保有へ",
+            "url": reverse("holding_list"),
+            "method": "get",
+        }
+
+    if _source_is_holding(st, memo):
+        return {
+            "label": "保有へ",
+            "url": reverse("holding_list"),
+            "method": "get",
+        }
+
+    return None
+
+
 def _attach_source_labels(page):
     items = list(page.object_list or [])
     if not items:
@@ -422,6 +503,13 @@ def _attach_source_labels(page):
             sid_int = int(sid) if sid is not None else None
         except Exception:
             sid_int = None
+
+        r.kind_label = _kind_label(getattr(r, "kind", ""))
+        r.kind_class = _kind_class(getattr(r, "kind", ""))
+        r.can_delete = _is_manual_ledger(r)
+        r.delete_url = reverse("cash_entry_delete", args=[r.id]) if r.can_delete else None
+        r.source_action = None
+        r.src_badge = None
 
         if sid_int is None:
             continue
@@ -464,7 +552,6 @@ def _attach_source_labels(page):
         return (f"{tkr} {name}".strip() or "—")
 
     for r in items:
-        r.src_badge = None
         st = getattr(r, "source_type", None)
         sid = getattr(r, "source_id", None)
         mm = getattr(r, "memo", "") or ""
@@ -473,6 +560,8 @@ def _attach_source_labels(page):
             sid_int = int(sid) if sid is not None else None
         except Exception:
             sid_int = None
+
+        r.source_action = _build_source_action(r, trade_map)
 
         if sid_int is not None and _source_is_dividend(st):
             if sid_int in div_map:
@@ -568,6 +657,21 @@ def _clean_params_for_pager(request: HttpRequest) -> dict:
     return params
 
 
+@require_http_methods(["POST"])
+def cash_entry_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    entry = get_object_or_404(CashLedger.objects.select_related("account"), pk=pk)
+    next_url = (request.POST.get("next") or request.META.get("HTTP_REFERER") or reverse("cash_history")).strip()
+
+    if not _is_manual_ledger(entry):
+        messages.error(request, "自動作成の履歴は現金台帳から直接削除できません。元データ側から修正してください。")
+        return redirect(next_url)
+
+    memo = entry.memo or _kind_label(entry.kind)
+    entry.delete()
+    messages.success(request, f"現金履歴を削除しました：{memo}")
+    return redirect(next_url)
+
+
 @require_http_methods(["GET"])
 def cash_history(request: HttpRequest) -> HttpResponse:
     try:
@@ -596,8 +700,25 @@ def cash_history(request: HttpRequest) -> HttpResponse:
     p = Paginator(qs, PAGE_SIZE).get_page(page_no)
     _attach_source_labels(p)
 
+    filters = {
+        "broker": (request.GET.get("broker") or "ALL").strip(),
+        "kind": (request.GET.get("kind") or "ALL").strip().upper(),
+        "start": (request.GET.get("start") or "").strip(),
+        "end": (request.GET.get("end") or "").strip(),
+        "q": (request.GET.get("q") or "").strip(),
+    }
+
+    params = _clean_params_for_pager(request)
+
     return render(
         request,
         "cash/history.html",
-        {"page": p, "summary": summary, "params": _clean_params_for_pager(request)},
+        {
+            "page": p,
+            "summary": summary,
+            "params": params,
+            "querystring": urlencode(params),
+            "filters": filters,
+            "current_path": request.get_full_path(),
+        },
     )
