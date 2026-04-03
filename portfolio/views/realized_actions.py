@@ -3,7 +3,12 @@
 #
 # このファイルは何？
 # - 実現損益の作成/削除/クローズ送信だけを切り出したアクション系ビュー
-# - 一覧/分析系は旧 realized.py に残す
+# - 一覧/分析系は旧 realized.py に残し、更新処理だけ薄く分離する
+#
+# 今回の修正ポイント
+# - close_submit で fee を正しく受け取る
+# - そのまま close_service へ渡す
+# - 米国株の手仕舞いでも fee / fx_rate / tax を自然に扱えるようにする
 
 from __future__ import annotations
 
@@ -234,6 +239,7 @@ def close_submit(request, pk: int):
         side_in = (request.POST.get("side") or "").upper()
         qty_in = int(request.POST.get("qty") or 0)
         price = _to_dec(request.POST.get("price"))
+        fee_in = _to_dec(request.POST.get("fee"))
         tax_in = _to_dec(request.POST.get("tax"))
         pnl_input = _to_dec(request.POST.get("cashflow"))
 
@@ -268,6 +274,7 @@ def close_submit(request, pk: int):
             side_in=side_in,
             qty_in=qty_in,
             price=price,
+            fee_in=fee_in,
             tax_in=tax_in,
             pnl_input=pnl_input,
             broker=broker,
