@@ -89,7 +89,7 @@ class Holding(models.Model):
         ("RAKUTEN", "楽天証券"),
         ("SBI", "SBI証券"),
         ("MATSUI", "松井証券"),
-        ("OTHER", "その他"),
+       
     )
     SIDE_CHOICES = (("BUY", "BUY"), ("SELL", "SELL"))
     ACCOUNT_CHOICES = (
