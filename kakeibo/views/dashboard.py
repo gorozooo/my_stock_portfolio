@@ -4,7 +4,7 @@
 #
 # このファイルは何？
 # 家計簿トップ画面（/kakeibo/）のビュー。
-# - KPI：総資産 / 楽天銀行(B)の実残高 / 投資（評価額＋現金余力）
+# - KPI：総資産 / 楽天銀行残高 / 投資（評価額＋現金余力）
 # - 年度（選択可）の収支
 # - 月（選択可）の収入・支出・差額＋固定/変動内訳 + 先月比
 # - ✅ 銀行残高：登録済み口座を全部（HOUSE / B / G）で表示
@@ -30,7 +30,11 @@
 # ★修正（バグ修正：今回）
 # - HOUSEのカード請求のキーワード集計で、memo/categoryでは拾えず card フィールド側に入っているため0になる問題を修正。
 #   → memo / category.name / card(文字 or FK) のどれでも拾う。
-# 今回の追加：
+#
+# ★今回の変更
+# - 「楽天銀行残高」という表示名はそのままに、中身は “正式な家計差額” を表示する
+# - 正式な家計差額の固定起点は 2025-12 終了時点で -623,573 円
+# - 2026-01 以降は、各月の month_diff を累積して正式値を作る
 # - 月ごとの自由メモ（MonthlyDashboardMemo）を保存/表示
 # - 選択中の month に対応するメモを読み込み
 # - POST action=save_dashboard_memo でその月のメモを保存
@@ -55,6 +59,15 @@ from ..models import (
     MonthlySnapshot,
     MonthlyDashboardMemo,
 )
+
+# =========================================
+# 正式な家計差額の固定起点
+# - 2025-12 終了時点で -623,573 円を固定
+# - 2026-01 以降は月差額を累積
+# =========================================
+OFFICIAL_HOUSE_DIFF_BASE_MONTH = date(2025, 12, 1)
+OFFICIAL_HOUSE_DIFF_BASE_VALUE = -623_573
+OFFICIAL_HOUSE_DIFF_FIRST_ACCUM_MONTH = date(2026, 1, 1)
 
 
 def month_first(d):
@@ -535,22 +548,30 @@ def _house_card_bill_sum_by_keyword(month: date, keyword: str) -> int:
     """
     何をする？
     - HOUSE のカード請求（var_type=CARD）から、keyword（例：エポス）に一致する分を合計
-    - memo か category.name のどちらかに入っていれば拾う
+    - memo / category.name / card(文字 or FK) のどれでも拾う
     """
     kw = (keyword or "").strip()
     if not kw:
         return 0
 
-    qs = MonthlyVariableExpense.objects.filter(month=month, owner="HOUSE", var_type="CARD")
+    base_qs = MonthlyVariableExpense.objects.filter(month=month, owner="HOUSE", var_type="CARD")
 
     try:
-        qs = qs.filter(memo__icontains=kw) | MonthlyVariableExpense.objects.filter(
-            month=month, owner="HOUSE", var_type="CARD", category__name__icontains=kw
+        q = (
+            Q(memo__icontains=kw) |
+            Q(category__name__icontains=kw) |
+            Q(card__name__icontains=kw)
         )
-        return _sum_qs(qs, "amount")
+        return _sum_qs(base_qs.filter(q).distinct(), "amount")
     except Exception:
-        qs = MonthlyVariableExpense.objects.filter(month=month, owner="HOUSE", var_type="CARD", memo__icontains=kw)
-        return _sum_qs(qs, "amount")
+        try:
+            q = Q(memo__icontains=kw) | Q(category__name__icontains=kw)
+            return _sum_qs(base_qs.filter(q).distinct(), "amount")
+        except Exception:
+            try:
+                return _sum_qs(base_qs.filter(memo__icontains=kw), "amount")
+            except Exception:
+                return 0
 
 
 def _house_pension_insurance_fixed_sum() -> int:
@@ -568,22 +589,81 @@ def _house_pension_insurance_fixed_sum() -> int:
     return _sum_qs(qs, "amount")
 
 
+def _build_month_rollup_values(month: date) -> dict:
+    """
+    何をする？
+    - 家計差額の計算に必要な月次収支だけを軽量に作る
+    - 投資余力や銀行残高は含めない
+    """
+    total_income = _sum_qs(MonthlyIncome.objects.filter(month=month), "amount")
+    fixed_sum = _sum_qs(
+        FixedExpenseTemplate.objects.filter(is_active=True),
+        "amount"
+    )
+    var_sum = _var_sum_for_expense(month)
+    total_expense = _int(fixed_sum + var_sum)
+    month_diff = _int(total_income - total_expense)
+
+    return {
+        "total_income": total_income,
+        "fixed_sum": fixed_sum,
+        "var_sum": var_sum,
+        "total_expense": total_expense,
+        "month_diff": month_diff,
+    }
+
+
+def _month_diff_from_snapshot_or_dynamic(month: date) -> int:
+    """
+    何をする？
+    - その月の差額を返す
+    - snapshot があれば snapshot.diff を優先
+    - 無ければ動的計算
+    """
+    month = month_first(month)
+
+    snap = MonthlySnapshot.objects.filter(month=month).first()
+    if snap:
+        return _int(snap.diff)
+
+    rollup = _build_month_rollup_values(month)
+    return _int(rollup["month_diff"])
+
+
+def _official_house_diff(month: date) -> int:
+    """
+    何をする？
+    - 正式な家計差額を返す
+    - 2025-12 終了時点の固定起点：-623,573
+    - 2026-01 以降の month_diff を累積
+    """
+    month = month_first(month)
+
+    if month <= OFFICIAL_HOUSE_DIFF_BASE_MONTH:
+        return _int(OFFICIAL_HOUSE_DIFF_BASE_VALUE)
+
+    total = _int(OFFICIAL_HOUSE_DIFF_BASE_VALUE)
+    cur = OFFICIAL_HOUSE_DIFF_FIRST_ACCUM_MONTH
+
+    while cur <= month:
+        total += _month_diff_from_snapshot_or_dynamic(cur)
+        cur = add_month(cur, 1)
+
+    return _int(total)
+
+
 def _build_dynamic_month_values(request, today: date, m: date) -> dict:
     """
     何をする？
     - snapshot が無いときに使う「動的計算」一式をまとめて作る
     """
-    total_income = _sum_qs(MonthlyIncome.objects.filter(month=m), "amount")
+    rollup = _build_month_rollup_values(m)
 
-    fixed_sum = _sum_qs(
-        FixedExpenseTemplate.objects.filter(is_active=True),
-        "amount"
-    )
-
-    var_sum = _var_sum_for_expense(m)
-
-    total_expense = _int(fixed_sum + var_sum)
-    month_diff = _int(total_income - total_expense)
+    total_income = _int(rollup["total_income"])
+    fixed_sum = _int(rollup["fixed_sum"])
+    var_sum = _int(rollup["var_sum"])
+    total_expense = _int(rollup["total_expense"])
+    month_diff = _int(rollup["month_diff"])
 
     rakuten_bank = _bank_balance_fallback(m, owner="B", name_contains="楽天銀行")
     aeon_bank = _bank_balance_fallback(m, owner="HOUSE", name_contains="イオン銀行")
@@ -597,7 +677,8 @@ def _build_dynamic_month_values(request, today: date, m: date) -> dict:
 
     total_assets = _int(rakuten_bank_b + aeon_bank_house + invest_total)
 
-    rakuten_bank_actual = _int(4_136_736 - rakuten_cash_free - rakuten_bank_b)
+    # ✅ 表示名は「楽天銀行残高」のまま、中身は正式な家計差額
+    rakuten_bank_actual = _official_house_diff(m)
 
     okodukai_b = _calc_okodukai(m, "B")
     okodukai_g = _calc_okodukai(m, "G")
@@ -716,7 +797,8 @@ def dashboard(request):
         month_diff = _int(snap.diff)
 
         total_assets = _int(snap.kpi_total_assets)
-        rakuten_bank_actual = _int(snap.kpi_rakuten_bank_actual)
+        # ✅ snapshot保存値ではなく、正式な家計差額をその場で再計算
+        rakuten_bank_actual = _official_house_diff(m)
         invest_total = _int(snap.kpi_invest_total)
 
         rakuten_eval = _int(snap.rakuten_eval)
@@ -901,13 +983,14 @@ def dashboard(request):
     prev_snap = MonthlySnapshot.objects.filter(month=prev_m).first()
     if prev_snap:
         prev_total_assets = _int(prev_snap.kpi_total_assets)
-        prev_rakuten_bank_actual = _int(prev_snap.kpi_rakuten_bank_actual)
         prev_invest_total = _int(prev_snap.kpi_invest_total)
     else:
         prev_dyn = _build_dynamic_month_values(request, today=today, m=prev_m)
         prev_total_assets = _int(prev_dyn["kpi_total_assets"])
-        prev_rakuten_bank_actual = _int(prev_dyn["kpi_rakuten_bank_actual"])
         prev_invest_total = _int(prev_dyn["kpi_invest_total"])
+
+    # ✅ 「楽天銀行残高」カードの中身は正式な家計差額なので、先月も正式計算で比較
+    prev_rakuten_bank_actual = _official_house_diff(prev_m)
 
     d_total_assets = _delta(total_assets, prev_total_assets)
     d_rakuten_bank_actual = _delta(rakuten_bank_actual, prev_rakuten_bank_actual)
