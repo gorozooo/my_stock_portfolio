@@ -7,8 +7,9 @@
 #   管理画面から見やすく・編集しやすくするための定義です。
 #
 # 今回の修正ポイント
-# - TradeEvent を Django 管理画面に登録
 # - TradeEvent を管理画面から編集 / 削除できるようにする
+# - TradeEvent を削除した時、対応する CashLedger も同時に削除する
+# - source_type の表記ゆれがあっても孤立 CashLedger を残しにくくする
 # - CashLedger の Source リンクから TradeEvent にも飛べるようにする
 
 from __future__ import annotations
@@ -21,6 +22,46 @@ from django.utils.safestring import mark_safe
 from .models import Holding, UserSetting, RealizedTrade, Dividend, TradeEvent
 from .models_cash import BrokerAccount, CashLedger, MarginState
 from .models_advisor import AdviceSession, AdviceItem, AdvicePolicy, AdvisorMetrics
+
+
+def _tradeevent_source_types() -> list[str]:
+    """
+    CashLedger.source_type の過去データや表記ゆれも吸収するための候補一覧。
+    """
+    values = {
+        "TradeEvent",
+        "TRADEEVENT",
+        "TRADE_EVENT",
+        "TRADE",
+        "TRD",
+    }
+
+    try:
+        source_enum = getattr(CashLedger, "SourceType", None)
+        if source_enum is not None:
+            for attr in ("TRADE_EVENT", "TRADE", "TRD"):
+                if hasattr(source_enum, attr):
+                    raw = getattr(source_enum, attr)
+                    if raw:
+                        values.add(str(raw))
+    except Exception:
+        pass
+
+    return list(values)
+
+
+def _delete_cashledgers_for_tradeevent_ids(event_ids: list[int]) -> None:
+    """
+    TradeEvent に紐づく CashLedger を source_type/source_id ベースで削除する。
+    """
+    ids = [int(x) for x in event_ids if x is not None]
+    if not ids:
+        return
+
+    CashLedger.objects.filter(
+        source_id__in=ids,
+        source_type__in=_tradeevent_source_types(),
+    ).delete()
 
 
 # --------- Holding ---------
@@ -141,7 +182,7 @@ class RealizedTradeAdmin(admin.ModelAdmin):
 class TradeEventAdmin(admin.ModelAdmin):
     """
     TradeEvent を管理画面から直接編集 / 削除できるようにする。
-    紐付け確認しやすいように Holding / RealizedTrade へのリンクも表示。
+    削除時は対応する CashLedger も同時に掃除する。
     """
 
     list_select_related = ("holding", "realized_trade", "user")
@@ -215,6 +256,15 @@ class TradeEventAdmin(admin.ModelAdmin):
         ordering.append("-id")
         return tuple(ordering)
 
+    def delete_model(self, request, obj):
+        _delete_cashledgers_for_tradeevent_ids([obj.id])
+        super().delete_model(request, obj)
+
+    def delete_queryset(self, request, queryset):
+        ids = list(queryset.values_list("id", flat=True))
+        _delete_cashledgers_for_tradeevent_ids(ids)
+        super().delete_queryset(request, queryset)
+
 
 # --------- Dividend ---------
 @admin.register(Dividend)
@@ -252,6 +302,7 @@ class CashLedgerAdmin(admin.ModelAdmin):
     旧 link_model/link_id は削除済み。
     """
     list_display = (
+        "id",
         "at",
         "account",
         "kind",
@@ -274,10 +325,6 @@ class CashLedgerAdmin(admin.ModelAdmin):
 
     @admin.display(description="Source")
     def source_link(self, obj: CashLedger):
-        """
-        Dividend / RealizedTrade / TradeEvent の変更ページへリンク。
-        該当しなければ文字列を返す。
-        """
         if not obj.source_type or not obj.source_id:
             return "—"
 
