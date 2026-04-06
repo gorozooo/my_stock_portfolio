@@ -1,14 +1,27 @@
-# portfolio/admin.py
+# [FILE] admin.py
+# [PATH] portfolio/admin.py
+#
+# このファイルは何？
+# - portfolio アプリの Django 管理画面設定です。
+# - Holding / RealizedTrade / Dividend / CashLedger / TradeEvent などを
+#   管理画面から見やすく・編集しやすくするための定義です。
+#
+# 今回の修正ポイント
+# - TradeEvent を Django 管理画面に登録
+# - TradeEvent を管理画面から編集 / 削除できるようにする
+# - CashLedger の Source リンクから TradeEvent にも飛べるようにする
+
 from __future__ import annotations
+
 from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
-from .models import Holding, UserSetting, RealizedTrade, Dividend
+from .models import Holding, UserSetting, RealizedTrade, Dividend, TradeEvent
 from .models_cash import BrokerAccount, CashLedger, MarginState
-from .models_advisor import AdviceSession, AdviceItem
 from .models_advisor import AdviceSession, AdviceItem, AdvicePolicy, AdvisorMetrics
+
 
 # --------- Holding ---------
 @admin.register(Holding)
@@ -23,7 +36,7 @@ class HoldingAdmin(admin.ModelAdmin):
             *(["user"] if hasattr(Holding, "user") else []),
             "ticker",
             *(["name"] if hasattr(Holding, "name") else []),
-            *(["sector"] if hasattr(Holding, "sector") else []),   # ← 追加
+            *(["sector"] if hasattr(Holding, "sector") else []),
             *(["quantity"] if hasattr(Holding, "quantity") else []),
             *(["avg_cost"] if hasattr(Holding, "avg_cost") else []),
             *(["broker"] if hasattr(Holding, "broker") else []),
@@ -38,7 +51,7 @@ class HoldingAdmin(admin.ModelAdmin):
         fields = ["ticker"]
         if hasattr(Holding, "name"):
             fields.append("name")
-        if hasattr(Holding, "sector"):                       # ← 追加
+        if hasattr(Holding, "sector"):
             fields.append("sector")
         if hasattr(Holding, "user"):
             fields.append("user__username")
@@ -52,7 +65,7 @@ class HoldingAdmin(admin.ModelAdmin):
             flt.append("side")
         if hasattr(Holding, "account"):
             flt.append("account")
-        if hasattr(Holding, "sector"):                       # ← 追加
+        if hasattr(Holding, "sector"):
             flt.append("sector")
         if hasattr(Holding, "updated_at"):
             flt.append("updated_at")
@@ -105,7 +118,7 @@ class RealizedTradeAdmin(admin.ModelAdmin):
             cols.append("tax")
         if hasattr(RealizedTrade, "cashflow"):
             cols.append("cashflow")
-        cols.append("pnl")  # property
+        cols.append("pnl")
         if hasattr(RealizedTrade, "hold_days"):
             cols.append("hold_days")
         return tuple(cols)
@@ -123,14 +136,94 @@ class RealizedTradeAdmin(admin.ModelAdmin):
         return tuple([f for f in fields if hasattr(RealizedTrade, f.split("__")[0])])
 
 
+# --------- TradeEvent ---------
+@admin.register(TradeEvent)
+class TradeEventAdmin(admin.ModelAdmin):
+    """
+    TradeEvent を管理画面から直接編集 / 削除できるようにする。
+    紐付け確認しやすいように Holding / RealizedTrade へのリンクも表示。
+    """
+
+    list_select_related = ("holding", "realized_trade", "user")
+
+    @admin.display(description="Holding")
+    def holding_link(self, obj):
+        if not getattr(obj, "holding_id", None):
+            return "—"
+        try:
+            url = reverse("admin:portfolio_holding_change", args=[obj.holding_id])
+            return format_html('<a href="{}">Holding #{}</a>', url, obj.holding_id)
+        except Exception:
+            return f"Holding #{obj.holding_id}"
+
+    @admin.display(description="Realized")
+    def realized_trade_link(self, obj):
+        if not getattr(obj, "realized_trade_id", None):
+            return "—"
+        try:
+            url = reverse("admin:portfolio_realizedtrade_change", args=[obj.realized_trade_id])
+            return format_html('<a href="{}">RealizedTrade #{}</a>', url, obj.realized_trade_id)
+        except Exception:
+            return f"RealizedTrade #{obj.realized_trade_id}"
+
+    def get_list_display(self, request):
+        cols = [
+            "id",
+            *(["user"] if hasattr(TradeEvent, "user") else []),
+            *(["trade_at"] if hasattr(TradeEvent, "trade_at") else []),
+            *(["event_type"] if hasattr(TradeEvent, "event_type") else []),
+            *(["ticker"] if hasattr(TradeEvent, "ticker") else []),
+            *(["name"] if hasattr(TradeEvent, "name") else []),
+            *(["broker"] if hasattr(TradeEvent, "broker") else []),
+            *(["account"] if hasattr(TradeEvent, "account") else []),
+            *(["side"] if hasattr(TradeEvent, "side") else []),
+            *(["qty"] if hasattr(TradeEvent, "qty") else []),
+            *(["price"] if hasattr(TradeEvent, "price") else []),
+            *(["cash_amount_jpy"] if hasattr(TradeEvent, "cash_amount_jpy") else []),
+            "holding_link",
+            "realized_trade_link",
+        ]
+        return tuple(cols)
+
+    def get_search_fields(self, request):
+        fields = []
+        for f in ("ticker", "name", "memo", "position_key"):
+            if hasattr(TradeEvent, f):
+                fields.append(f)
+        if hasattr(TradeEvent, "user"):
+            fields.append("user__username")
+        return tuple(fields)
+
+    def get_list_filter(self, request):
+        flt = []
+        for f in ("event_type", "broker", "account", "side", "trade_at"):
+            if hasattr(TradeEvent, f):
+                flt.append(f)
+        return tuple(flt)
+
+    def get_readonly_fields(self, request, obj=None):
+        ro = []
+        for f in ("created_at", "updated_at"):
+            if hasattr(TradeEvent, f):
+                ro.append(f)
+        return tuple(ro)
+
+    def get_ordering(self, request):
+        ordering = []
+        if hasattr(TradeEvent, "trade_at"):
+            ordering.append("-trade_at")
+        ordering.append("-id")
+        return tuple(ordering)
+
+
 # --------- Dividend ---------
 @admin.register(Dividend)
 class DividendAdmin(admin.ModelAdmin):
     list_display = (
         "id", "date", "ticker", "name",
-        "amount",        # 受取額（税引後）
-        "tax",           # 税額
-        "gross_display", # 税引前の概算（表示用）
+        "amount",
+        "tax",
+        "gross_display",
         "holding",
     )
     list_filter = ("date", "is_net")
@@ -138,7 +231,6 @@ class DividendAdmin(admin.ModelAdmin):
     ordering = ("-date", "-id")
 
     def gross_display(self, obj):
-        """税引前（概算）表示用。is_net=True を前提に amount + tax を返す。"""
         amt = float(obj.amount or 0)
         tax = float(obj.tax or 0)
         return amt + tax if obj.is_net else amt
@@ -167,7 +259,7 @@ class CashLedgerAdmin(admin.ModelAdmin):
         "memo",
         "source_type",
         "source_id",
-        "source_link",  # 関連元（Dividend/RealizedTrade）へのリンク
+        "source_link",
     )
     list_filter = (
         "kind",
@@ -183,31 +275,50 @@ class CashLedgerAdmin(admin.ModelAdmin):
     @admin.display(description="Source")
     def source_link(self, obj: CashLedger):
         """
-        Dividend / RealizedTrade の変更ページへリンク。
+        Dividend / RealizedTrade / TradeEvent の変更ページへリンク。
         該当しなければ文字列を返す。
         """
         if not obj.source_type or not obj.source_id:
             return "—"
 
+        source_type = str(obj.source_type or "").strip()
+        source_type_upper = source_type.upper()
+
         try:
             if obj.source_type == CashLedger.SourceType.DIVIDEND:
                 url = reverse("admin:portfolio_dividend_change", args=[obj.source_id])
                 label = f"Dividend #{obj.source_id}"
-            elif obj.source_type == CashLedger.SourceType.REALIZED:
+                return format_html('<a href="{}">{}</a>', url, mark_safe(label))
+
+            if obj.source_type == CashLedger.SourceType.REALIZED:
                 url = reverse("admin:portfolio_realizedtrade_change", args=[obj.source_id])
                 label = f"RealizedTrade #{obj.source_id}"
-            else:
-                return f"{obj.source_type} #{obj.source_id}"
-            return format_html('<a href="{}">{}</a>', url, mark_safe(label))
+                return format_html('<a href="{}">{}</a>', url, mark_safe(label))
+
+            if source_type_upper in {"TRADEEVENT", "TRADE_EVENT", "TRADE", "TRD"}:
+                url = reverse("admin:portfolio_tradeevent_change", args=[obj.source_id])
+                label = f"TradeEvent #{obj.source_id}"
+                return format_html('<a href="{}">{}</a>', url, mark_safe(label))
+
+            return f"{obj.source_type} #{obj.source_id}"
         except Exception:
             return f"{obj.source_type} #{obj.source_id}"
 
 
 @admin.register(MarginState)
 class MarginStateAdmin(admin.ModelAdmin):
-    list_display = ("as_of", "account", "cash_free", "stock_collateral_value", "haircut_pct", "required_margin", "restricted_amount")
+    list_display = (
+        "as_of",
+        "account",
+        "cash_free",
+        "stock_collateral_value",
+        "haircut_pct",
+        "required_margin",
+        "restricted_amount",
+    )
     list_filter = ("account__broker", "account__account_type")
-    
+
+
 # --------- AI ---------
 @admin.register(AdviceSession)
 class AdviceSessionAdmin(admin.ModelAdmin):
