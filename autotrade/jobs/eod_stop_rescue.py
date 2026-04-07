@@ -29,6 +29,6 @@ def run():
     return auto_promote_if_ready(
         target_date=today,
         phase="EOD",
-        run_tune=True,     # 引け後は候補も再チューニング
-        stop_only=False,   # STOP日限定ではなく毎日見る
+        run_tune=True,      # 引け後は候補も再チューニング
+        stop_only=False,    # STOP日限定ではなく毎日見る
     )
