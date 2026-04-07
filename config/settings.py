@@ -5,10 +5,12 @@
 # このファイルは何？
 # - Django全体の設定ファイルです（DB/アプリ/cron/各種定数など）。
 #
-# 今回の修正（database is locked 対策の決定版）：
-# 1) autotrade だけ別SQLite（autotrade.sqlite3）へ分離してロック競合を根絶
-# 2) SQLite を WAL + busy_timeout に（同時アクセス耐性アップ）
-# 3) router（DATABASE_ROUTERS）で autotrade のDBを自動的に切り替える
+# 今回の修正：
+# 1) autotrade だけ別SQLite（autotrade.sqlite3）へ分離
+# 2) SQLite を WAL + busy_timeout に
+# 3) router（DATABASE_ROUTERS）で autotrade のDBを自動切替
+# 4) 引け後STOP救済ジョブ（eod_stop_rescue）を cron に追加
+# 5) 全ノブ試行チューニング用の探索範囲を settings に明示
 # =========================================================
 
 """
@@ -70,13 +72,13 @@ INSTALLED_APPS = [
     "portfolio",
     "aiapp.apps.AiappConfig",
 
-    # ★ 自動売買（新規）
+    # 自動売買
     "autotrade.apps.AutotradeConfig",
 
-    # ★ 家計簿（新規）
+    # 家計簿
     "kakeibo.apps.KakeiboConfig",
-    
-    # ★ 指標（新規）
+
+    # 指標
     "shihyo.apps.ShihyoConfig",
 ]
 
@@ -89,10 +91,10 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 
-    # ★ 追加: request.htmx など
+    # request.htmx
     "django_htmx.middleware.HtmxMiddleware",
-    
-    # ★ 追加：あなた専用エリア制御（aiapp/autotrade/portfolio/admin をブロック）
+
+    # あなた専用エリア制御
     "config.middleware.owner_only.OwnerOnlyMiddleware",
 ]
 
@@ -120,7 +122,7 @@ WSGI_APPLICATION = "config.wsgi.application"
 # =========================================================
 # DB（SQLite）
 # - default: 既存（web/他cronが使うメインDB）
-# - autotrade: autotrade専用DB（ロック競合を避ける）
+# - autotrade: autotrade専用DB
 # =========================================================
 DATABASES = {
     "default": {
@@ -139,15 +141,13 @@ DATABASES = {
     },
 }
 
-# ★ autotradeアプリだけ autotrade DB を使う（自動ルーティング）
+# autotradeアプリだけ autotrade DB を使う
 DATABASE_ROUTERS = [
     "config.db_router.AutotradeRouter",
 ]
 
-# ★ SQLite を WAL + busy_timeout に（接続確立時にPRAGMAを打つ）
-#   ※このimportでsignal登録される
+# SQLite を WAL + busy_timeout に
 import config.sqlite_setup  # noqa: F401
-
 
 # === パスワードバリデータ ===
 AUTH_PASSWORD_VALIDATORS = [
@@ -179,7 +179,7 @@ LOGOUT_REDIRECT_URL = "/"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
-# ★ 銘柄名の上書き（yfinanceが英名になるケースの対策）
+# 銘柄名の上書き
 TSE_NAME_OVERRIDES = {
     "167A": "リョーサン菱洋ホールディングス",
     "285A": "キオクシアホールディングス",
@@ -203,7 +203,7 @@ EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", EMAIL_HOST_USER)
 
-# セクター指標（既存）
+# セクター指標
 ADVISOR_SECTOR_SYMBOLS = {
     "情報・通信": "1306.T",
     "電気機器": "6981.T",
@@ -221,20 +221,20 @@ else:
     SESSION_COOKIE_SECURE = True
     SECURE_SSL_REDIRECT = True
 
-# === AIAPP 既存 ===
+# === AIAPP ===
 AIAPP_UNIVERSE_LIMIT = 200
 AIAPP_EQUITY = 3_000_000.0
 AIAPP_LOT = 100
 AIAPP_PRO_EQUITY_YEN = 5_000_000
 
 # ==========================
-# ★ ACCESS CONTROL（追加）
+# ACCESS CONTROL
 # ==========================
 STOCKS_OWNER_USERNAME = os.getenv("STOCKS_OWNER_USERNAME", "gorozooo")
 KAKEIBO_GROUP_NAME = os.getenv("KAKEIBO_GROUP_NAME", "kakeibo_users")
 
 # ==========================
-# ★ AUTOTRADE（確定仕様）
+# AUTOTRADE（確定仕様）
 # ==========================
 AUTOTRADE_BASE_EQUITY_YEN = 1_000_000
 
@@ -277,22 +277,55 @@ AUTOTRADE_DEFAULT_CANDIDATES = [
 
 AUTOTRADE_MORNING_AGG = "wmean"
 
-# ★ cron排他ロック置き場（既存のまま）
-#AUTOTRADE_CRON_LOCK_DIR = str(BASE_DIR / "media" / "logs")
-
 # ==========================
-# ★ AUTOTRADE CRON Safety
+# AUTOTRADE CRON Safety
 # ==========================
 AUTOTRADE_CRON_LOCK_DIR = "/tmp"
 AUTOTRADE_CRON_MAX_RUNTIME_SEC = 50
 
 # ==========================
-# ★ django-crontab（ジョブ）
+# AUTOTRADE AUTO-TUNE（全ノブ試行の探索範囲）
+# ==========================
+# RR
+AUTOTRADE_TUNE_RR_MIN = 1.0
+AUTOTRADE_TUNE_RR_MAX = 3.5
+AUTOTRADE_TUNE_RR_STEP_STOP = 0.20
+AUTOTRADE_TUNE_RR_STEP_LIGHT = 0.15
+AUTOTRADE_TUNE_RR_STEP_FULL = 0.10
+
+# 損切り幅（0.0025 = 0.25%）
+AUTOTRADE_TUNE_STOP_PCT_MIN = 0.0025
+AUTOTRADE_TUNE_STOP_PCT_MAX = 0.0120
+
+# ブレイク判定本数
+AUTOTRADE_TUNE_LOOKBACK_MIN = 6
+AUTOTRADE_TUNE_LOOKBACK_MAX = 30
+
+# 最大保有（5分足の本数）
+AUTOTRADE_TUNE_MAX_HOLD_BARS_MIN = 3
+AUTOTRADE_TUNE_MAX_HOLD_BARS_MAX = 18
+
+# SMA日数
+AUTOTRADE_TUNE_SMA_MIN = 10
+AUTOTRADE_TUNE_SMA_MAX = 75
+
+# ==========================
+# django-crontab（ジョブ）
 # ==========================
 CRONJOBS = [
+    # 朝準備（ACTIVE判定 + 毎朝チューニング候補作成）
     ("30 6 * * 1-5", "autotrade.jobs.morning_prepare.run", ">> /tmp/autotrade_morning.log 2>&1"),
+
+    # 場前の戦略確定
     ("55 8 * * 1-5", "autotrade.jobs.decide_strategy.run", ">> /tmp/autotrade_decide.log 2>&1"),
+
+    # 場中デモ/本番準備
     ("*/1 9-15 * * 1-5", "autotrade.jobs.intraday_trade.run", ">> /tmp/autotrade_intraday_trade.log 2>&1"),
     ("*/1 9-15 * * 1-5", "autotrade.jobs.intraday_guard.run", ">> /tmp/autotrade_intraday_guard.log 2>&1"),
+
+    # 引け処理
     ("30 15 * * 1-5", "autotrade.jobs.end_of_day.run", ">> /tmp/autotrade_eod.log 2>&1"),
+
+    # 引け後STOP救済（STOP日のみ、旧ACTIVEより良い候補があれば昇格）
+    ("35 15 * * 1-5", "autotrade.jobs.eod_stop_rescue.run", ">> /tmp/autotrade_eod_stop_rescue.log 2>&1"),
 ]
