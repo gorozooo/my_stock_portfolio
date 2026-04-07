@@ -12,6 +12,8 @@
 - 朝チューニング直後の CANDIDATE 群から best_candidate を選べるようにする
 - 既存候補の snapshot.tune_eval / tune_selected / improved_vs_active を見て昇格判定する
 - 朝は「直前に作った候補を使うだけ」、引け後は必要なら再チューニングあり
+- stop_only 引数を追加し、旧呼び出しとの互換も壊さない
+- JSONField の DB フィルタ依存を弱めるため、候補抽出は Python 側で保守的に行う
 """
 
 from __future__ import annotations
@@ -57,16 +59,22 @@ def _normalize_phase(phase: Optional[str]) -> str:
     return "EOD"
 
 
-def _candidate_queryset(*, target_date: dt_date, phase: str):
-    return (
-        AutoTradeSettingSnapshot.objects
-        .filter(
-            status="CANDIDATE",
-            snapshot__tune__target_date=str(target_date),
-            snapshot__tune__phase=str(phase),
-        )
-        .order_by("-created_at", "-id")
-    )
+def _iter_phase_candidates(*, target_date: dt_date, phase: str) -> List[AutoTradeSettingSnapshot]:
+    phase = _normalize_phase(phase)
+    out: List[AutoTradeSettingSnapshot] = []
+
+    for x in AutoTradeSettingSnapshot.objects.filter(status="CANDIDATE").order_by("-created_at", "-id"):
+        snap = x.snapshot if isinstance(x.snapshot, dict) else {}
+        tune = snap.get("tune") if isinstance(snap.get("tune"), dict) else {}
+
+        if str(tune.get("target_date") or "") != str(target_date):
+            continue
+        if _normalize_phase(tune.get("phase")) != phase:
+            continue
+
+        out.append(x)
+
+    return out
 
 
 def _extract_tune_eval(cand: AutoTradeSettingSnapshot) -> Dict[str, Any]:
@@ -168,7 +176,7 @@ def _pick_best_existing_candidate(
     target_date: dt_date,
     phase: str,
 ) -> Tuple[Optional[AutoTradeSettingSnapshot], List[int]]:
-    candidates = list(_candidate_queryset(target_date=target_date, phase=phase))
+    candidates = list(_iter_phase_candidates(target_date=target_date, phase=phase))
     retained_ids = [int(x.id) for x in candidates]
 
     if not candidates:
@@ -198,6 +206,7 @@ def auto_promote_if_ready(
     windows: Optional[List[int]] = None,
     phase: str = "EOD",
     run_tune: bool = True,
+    stop_only: bool = False,
 ) -> Dict[str, Any]:
     if target_date is None:
         target_date = timezone.localdate()
@@ -212,6 +221,15 @@ def auto_promote_if_ready(
             "skipped": True,
             "reason": "emergency_stop",
             "phase": phase,
+        }
+
+    if bool(stop_only) and str(state.gate_level or "STOP").upper().strip() != "STOP":
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": "state_not_stop",
+            "phase": phase,
+            "gate_level": str(state.gate_level or ""),
         }
 
     active = (
