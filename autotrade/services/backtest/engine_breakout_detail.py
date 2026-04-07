@@ -6,10 +6,11 @@
 # - 戦略①（レンジブレイク）の「詳細バックテスト」エンジンです。
 # - 1トレード=1件の辞書ログとして返します（DB保存は runner 側の役割）。
 #
-# 今回の変更（ハイブリッドA：実験室をダッシュボード寄りに統一）：
+# 今回の変更（ハイブリッドA + timeout安全装置）：
 # - 日足SMAフィルタ（TREND_ONLY）で「SMAが出てない日は見送り」をやめる
 #   -> 本番(dashboard/engine_breakout.py) と同じ挙動に統一
 #   -> SMA不足日は “制限なし（許可）” 扱いにする
+# - 価格取得失敗時は例外で止めず、warnings付きの空結果で返す
 # =========================================================
 
 from __future__ import annotations
@@ -28,6 +29,17 @@ def _ensure_aware(dt):
     if timezone.is_aware(dt):
         return dt
     return timezone.make_aware(dt, timezone.get_current_timezone())
+
+
+def _empty_result(*, base_equity_yen: int, reason: str) -> Dict[str, Any]:
+    return {
+        "trades": [],
+        "pnls": [],
+        "equity_curve": [float(base_equity_yen)],
+        "start_at": None,
+        "end_at": None,
+        "warnings": [str(reason)],
+    }
 
 
 def _build_daily_trend_map(*, ticker: str, sma_days: int) -> Dict[str, str]:
@@ -94,8 +106,11 @@ def run_breakout_detail(
         "equity_curve": [float, ...],
         "start_at": datetime,
         "end_at": datetime,
+        "warnings": [str, ...],
       }
     """
+
+    warnings: List[str] = []
 
     # 主要パラメータ
     stop_pct = float(snapshot_dict.get("breakout_stop_pct") or 0.003)  # 0.3%
@@ -133,14 +148,27 @@ def run_breakout_detail(
         trend_map = _build_daily_trend_map(ticker=ticker, sma_days=sma_days)
 
     prefer_period = "60d" if window_days > 20 else "20d"
-    df = fetch_5m(ticker, prefer_period=prefer_period)
+    try:
+        df = fetch_5m(ticker, prefer_period=prefer_period)
+    except Exception as e:
+        return _empty_result(
+            base_equity_yen=base_equity_yen,
+            reason=f"{ticker}: 5分足取得失敗 ({e.__class__.__name__})",
+        )
+
     if df is None or getattr(df, "empty", True):
-        return {"trades": [], "pnls": [], "equity_curve": [float(base_equity_yen)], "start_at": None, "end_at": None}
+        return _empty_result(
+            base_equity_yen=base_equity_yen,
+            reason=f"{ticker}: 5分足データなし",
+        )
 
     bars_per_day = 70
     df = df.iloc[-window_days * bars_per_day :].copy()
     if len(df) < 200:
-        return {"trades": [], "pnls": [], "equity_curve": [float(base_equity_yen)], "start_at": None, "end_at": None}
+        return _empty_result(
+            base_equity_yen=base_equity_yen,
+            reason=f"{ticker}: 利用可能バー不足",
+        )
 
     idx = df.index
     start_at = _ensure_aware(idx[0].to_pydatetime() if hasattr(idx[0], "to_pydatetime") else idx[0])
@@ -189,8 +217,8 @@ def run_breakout_detail(
     start_i = max(lookback_bars + 1, 10)
 
     for i in range(start_i, len(df) - 2):
-        hh = float(max(highs[i - lookback_bars : i]))
-        ll = float(min(lows[i - lookback_bars : i]))
+        hh = float(max(highs[i - lookback_bars: i]))
+        ll = float(min(lows[i - lookback_bars: i]))
 
         price = float(closes[i])
         nxt_open = float(opens[i + 1])
@@ -201,7 +229,9 @@ def run_breakout_detail(
         if shares < 100:
             continue
 
-        entry_at = _ensure_aware(idx[i + 1].to_pydatetime() if hasattr(idx[i + 1], "to_pydatetime") else idx[i + 1])
+        entry_at = _ensure_aware(
+            idx[i + 1].to_pydatetime() if hasattr(idx[i + 1], "to_pydatetime") else idx[i + 1]
+        )
 
         # ロング
         if price > hh:
@@ -230,7 +260,9 @@ def run_breakout_detail(
                 else:
                     continue
 
-                exit_at = _ensure_aware(idx[j].to_pydatetime() if hasattr(idx[j], "to_pydatetime") else idx[j])
+                exit_at = _ensure_aware(
+                    idx[j].to_pydatetime() if hasattr(idx[j], "to_pydatetime") else idx[j]
+                )
                 pnl = int(round((exitp - entry) * shares))
                 equity += float(pnl)
                 equity_curve.append(equity)
@@ -255,7 +287,9 @@ def run_breakout_detail(
                 break
 
             if not exited:
-                exit_at = _ensure_aware(idx[j_end].to_pydatetime() if hasattr(idx[j_end], "to_pydatetime") else idx[j_end])
+                exit_at = _ensure_aware(
+                    idx[j_end].to_pydatetime() if hasattr(idx[j_end], "to_pydatetime") else idx[j_end]
+                )
                 exitp = float(closes[j_end]) * (1.0 - slip)
                 pnl = int(round((exitp - entry) * shares))
                 equity += float(pnl)
@@ -306,7 +340,9 @@ def run_breakout_detail(
                 else:
                     continue
 
-                exit_at = _ensure_aware(idx[j].to_pydatetime() if hasattr(idx[j], "to_pydatetime") else idx[j])
+                exit_at = _ensure_aware(
+                    idx[j].to_pydatetime() if hasattr(idx[j], "to_pydatetime") else idx[j]
+                )
                 pnl = int(round((entry - exitp) * shares))
                 equity += float(pnl)
                 equity_curve.append(equity)
@@ -331,7 +367,9 @@ def run_breakout_detail(
                 break
 
             if not exited:
-                exit_at = _ensure_aware(idx[j_end].to_pydatetime() if hasattr(idx[j_end], "to_pydatetime") else idx[j_end])
+                exit_at = _ensure_aware(
+                    idx[j_end].to_pydatetime() if hasattr(idx[j_end], "to_pydatetime") else idx[j_end]
+                )
                 exitp = float(closes[j_end]) * (1.0 + slip)
                 pnl = int(round((entry - exitp) * shares))
                 equity += float(pnl)
@@ -361,4 +399,5 @@ def run_breakout_detail(
         "equity_curve": equity_curve,
         "start_at": start_at,
         "end_at": end_at,
+        "warnings": warnings,
     }
