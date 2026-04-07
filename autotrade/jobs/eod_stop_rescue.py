@@ -3,8 +3,13 @@
 [PATH] <project_root>/autotrade/jobs/eod_stop_rescue.py
 
 このファイルは何？
-- 引け後に走る「STOP救済ジョブ」です。
-- その日の gate が STOP の時だけ、自動チューニング→最良候補のACTIVE昇格を行います。
+- 引け後に走る「EOD 自動見直しジョブ」です。
+- 旧ファイル名は stop_rescue ですが、今は STOP 日限定ではなく毎日動かします。
+
+今回の変更：
+- 毎日、朝に残した CANDIDATE も含めて再チューニングする
+- その日の ACTIVE より良い候補が見つかれば引け後に昇格する
+- STOP の日は探索幅を強めて救済寄りに探す
 """
 
 from datetime import date
@@ -21,12 +26,9 @@ def run():
     if is_emergency_stopped(state):
         return {"ok": True, "skipped": True, "reason": "emergency_stop"}
 
-    if str(state.gate_level or "STOP").upper().strip() != "STOP":
-        return {
-            "ok": True,
-            "skipped": True,
-            "reason": "state_not_stop",
-            "gate_level": str(state.gate_level or ""),
-        }
-
-    return auto_promote_if_ready(target_date=today)
+    return auto_promote_if_ready(
+        target_date=today,
+        phase="EOD",
+        run_tune=True,     # 引け後は候補も再チューニング
+        stop_only=False,   # STOP日限定ではなく毎日見る
+    )
