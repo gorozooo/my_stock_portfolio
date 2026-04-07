@@ -5,9 +5,11 @@
 # このファイルは何？
 # - 詳細バックテストの司令塔（Execution基準）。
 #
-# 今回の変更（windows 20/40/60へ統一）：
+# 今回の変更（windows 20/40/60へ統一 + timeout安全装置）：
 # - DEFAULT_BACKTEST_WINDOWS を (20,40,60) に変更
 # - settings.AUTOTRADE_BT_WINDOWS があればそれを優先（既存ロジックは維持）
+# - 1銘柄timeoutでも全体失敗にしない
+# - 失敗銘柄を記録し、失敗が多すぎるwindowは比較対象から除外する
 # =========================================================
 
 from __future__ import annotations
@@ -43,6 +45,21 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
         return float(x)
     except Exception:
         return float(default)
+
+
+def _safe_int(x: Any, default: int = 0) -> int:
+    try:
+        return int(x)
+    except Exception:
+        return int(default)
+
+
+def _short_exc(e: Exception, max_len: int = 180) -> str:
+    s = f"{e.__class__.__name__}: {e}"
+    s = s.replace("\n", " ").strip()
+    if len(s) > max_len:
+        s = s[:max_len] + "…"
+    return s
 
 
 def _get_rr_breakout_from_snapshot(snapshot: AutoTradeSettingSnapshot) -> Optional[float]:
@@ -116,6 +133,112 @@ def _build_final_gate(
     }
 
 
+def _build_window_fetch_quality(
+    *,
+    total_picks: int,
+    success_tickers: List[str],
+    failed_rows: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    取得品質を評価する。
+    - 1銘柄落ちても即NGにはしない
+    - 失敗比率が高すぎるwindowだけ比較対象から外す
+    """
+    success_unique = list(dict.fromkeys([str(x) for x in (success_tickers or []) if str(x).strip()]))
+    failed_rows = [x for x in (failed_rows or []) if isinstance(x, dict)]
+
+    success_count = len(success_unique)
+    failed_count = len(failed_rows)
+
+    total = int(total_picks or 0)
+    success_ratio = (success_count / total) if total > 0 else 0.0
+    failed_ratio = (failed_count / total) if total > 0 else 0.0
+
+    min_success_ratio = float(getattr(settings, "AUTOTRADE_FETCH_MIN_SUCCESS_RATIO", 0.60))
+    max_failed_ratio = float(getattr(settings, "AUTOTRADE_FETCH_MAX_FAILED_RATIO", 0.40))
+
+    invalid = False
+    reason = "ok"
+
+    if total <= 0:
+        invalid = True
+        reason = "no_picks"
+    elif success_count <= 0:
+        invalid = True
+        reason = "all_failed"
+    elif success_ratio < min_success_ratio:
+        invalid = True
+        reason = f"success_ratio_too_low({success_ratio:.2f}<{min_success_ratio:.2f})"
+    elif failed_ratio > max_failed_ratio:
+        invalid = True
+        reason = f"failed_ratio_too_high({failed_ratio:.2f}>{max_failed_ratio:.2f})"
+
+    return {
+        "total_picks": total,
+        "success_count": int(success_count),
+        "failed_count": int(failed_count),
+        "success_ratio": float(round(success_ratio, 4)),
+        "failed_ratio": float(round(failed_ratio, 4)),
+        "success_tickers": success_unique[:50],
+        "failed_rows": failed_rows[:50],
+        "invalid_for_comparison": bool(invalid),
+        "reason": str(reason),
+    }
+
+
+def _build_invalid_metrics_for_fetch(
+    *,
+    base_equity: int,
+    quality: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    取得失敗が多すぎる window は、昇格比較や gate 判定で不利になるよう
+    明示的に STOP 相当のメトリクスに落とす。
+    """
+    return {
+        "trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "sum_win_yen": 0,
+        "sum_loss_yen": 0,
+        "profit_factor": 0.0,
+        "max_drawdown_yen": -int(base_equity),
+        "max_drawdown_pct": 1.0,
+        "total_pnl": 0,
+        "data_fetch_invalid": True,
+        "data_fetch_reason": str(quality.get("reason") or ""),
+        "data_fetch": quality,
+    }
+
+
+def _build_fetch_warning_lines(fetch_meta_by_window: Dict[str, Dict[str, Any]]) -> List[str]:
+    lines: List[str] = []
+
+    for w_key in sorted(fetch_meta_by_window.keys(), key=lambda x: int(x)):
+        q = fetch_meta_by_window.get(w_key) or {}
+        failed_rows = q.get("failed_rows") or []
+        if not failed_rows:
+            continue
+
+        head = (
+            f"【取得警告 {w_key}日】"
+            f"成功 {q.get('success_count', 0)}/{q.get('total_picks', 0)} "
+            f"/ 失敗 {q.get('failed_count', 0)}"
+        )
+        lines.append(head)
+
+        for row in failed_rows[:5]:
+            ticker = str(row.get("ticker") or "-")
+            err = str(row.get("error") or "-")
+            lines.append(f" - {ticker}: {err}")
+
+        if len(failed_rows) > 5:
+            lines.append(f" - ... 他 {len(failed_rows) - 5} 件")
+
+    return lines
+
+
 # =========================================================
 # 詳細バックテスト（Execution基準）
 # =========================================================
@@ -159,7 +282,11 @@ def run_detailed_backtests_for_universe(
     # 入力の正規化
     # -----------------------------------------------------
     picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
-    bt_windows = tuple(int(x) for x in (windows or tuple(getattr(settings, "AUTOTRADE_BT_WINDOWS", DEFAULT_BACKTEST_WINDOWS))))
+    bt_windows = tuple(
+        int(x) for x in (
+            windows or tuple(getattr(settings, "AUTOTRADE_BT_WINDOWS", DEFAULT_BACKTEST_WINDOWS))
+        )
+    )
 
     # ★ RR(BREAKOUT) は snapshot 内を最優先（唯一の真実）
     rr_from_snap = _get_rr_breakout_from_snapshot(snapshot)
@@ -175,7 +302,9 @@ def run_detailed_backtests_for_universe(
     if base_equity_yen is not None:
         base_equity = int(base_equity_yen)
     else:
-        base_equity = int(snap_dict.get("base_equity_yen", getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)))
+        base_equity = int(
+            snap_dict.get("base_equity_yen", getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000))
+        )
 
     user = snapshot.user
 
@@ -212,9 +341,14 @@ def run_detailed_backtests_for_universe(
         return {"ok": False, "reason": "no_picks"}
 
     metrics_by_window_strategy: Dict[int, Dict[str, Dict[str, Any]]] = {}
+    fetch_meta_by_window: Dict[str, Dict[str, Any]] = {}
+    all_fetch_errors: List[Dict[str, Any]] = []
 
     for window in bt_windows:
         metrics_by_window_strategy[int(window)] = {}
+
+        window_failed_rows: List[Dict[str, Any]] = []
+        window_success_tickers: List[str] = []
 
         # -------------------------------------------------
         # 既存 run_detail を再利用（同日再実行で暴増殖を防ぐ）
@@ -246,21 +380,55 @@ def run_detailed_backtests_for_universe(
                 AutoTradeExecution.objects.filter(run_detail=run_detail).delete()
 
             for ticker in picks:
-                run_breakout(
-                    ticker=ticker,
-                    window_days=int(window),
-                    rr=rr_b,
-                    snapshot=snapshot,
-                    mode="BACKTEST",
-                    run_meta=run_detail,
-                    target_date=target_date,
-                )
+                try:
+                    # 銘柄ごとにsavepointを切る
+                    with transaction.atomic():
+                        run_breakout(
+                            ticker=ticker,
+                            window_days=int(window),
+                            rr=rr_b,
+                            snapshot=snapshot,
+                            mode="BACKTEST",
+                            run_meta=run_detail,
+                            target_date=target_date,
+                        )
+                    window_success_tickers.append(str(ticker))
+                except Exception as e:
+                    row = {
+                        "ticker": str(ticker),
+                        "window": int(window),
+                        "error": _short_exc(e),
+                    }
+                    window_failed_rows.append(row)
+                    all_fetch_errors.append(row)
+        else:
+            # 再利用時は「既存結果を使った」扱い
+            window_success_tickers = list(picks)
+
+        quality = _build_window_fetch_quality(
+            total_picks=len(picks),
+            success_tickers=window_success_tickers,
+            failed_rows=window_failed_rows,
+        )
+        fetch_meta_by_window[str(int(window))] = quality
 
         qs = AutoTradeExecution.objects.filter(run_detail=run_detail).order_by("exit_at")
         metrics = summarize_executions(qs=qs, base_equity=base_equity)
+
+        if quality.get("invalid_for_comparison"):
+            metrics = _build_invalid_metrics_for_fetch(
+                base_equity=base_equity,
+                quality=quality,
+            )
+        else:
+            metrics["data_fetch"] = quality
+
         metrics_by_window_strategy[int(window)]["BREAKOUT"] = metrics
 
-    metrics_breakout: Dict[int, Dict[str, Any]] = {int(w): (metrics_by_window_strategy.get(int(w)) or {}).get("BREAKOUT") or {} for w in bt_windows}
+    metrics_breakout: Dict[int, Dict[str, Any]] = {
+        int(w): (metrics_by_window_strategy.get(int(w)) or {}).get("BREAKOUT") or {}
+        for w in bt_windows
+    }
     gate_breakout = judge_multi_window(metrics_breakout)
 
     merged = _build_final_gate(
@@ -268,6 +436,13 @@ def run_detailed_backtests_for_universe(
         rr_breakout=rr_b,
         windows=bt_windows,
     )
+
+    fetch_warning_lines = _build_fetch_warning_lines(fetch_meta_by_window)
+    if fetch_warning_lines:
+        reasons = list(merged.get("reasons") or [])
+        reasons.append("【データ取得メモ】")
+        reasons.extend(fetch_warning_lines)
+        merged["reasons"] = reasons
 
     final_level = str(merged.get("gate_level") or "STOP")
     active = list(merged.get("active_strategies") or [])
@@ -288,6 +463,10 @@ def run_detailed_backtests_for_universe(
         "disabled": disabled,
         "rr": {"BREAKOUT": rr_b},
         "windows": list(bt_windows),
+        "data_fetch_invalid_windows": [
+            int(w) for w, q in fetch_meta_by_window.items()
+            if bool((q or {}).get("invalid_for_comparison"))
+        ],
     }
 
     state.backtest = {
@@ -296,6 +475,11 @@ def run_detailed_backtests_for_universe(
             "base_equity_yen": int(base_equity),
             "rr_breakout": float(rr_b),
             "windows": list(bt_windows),
+            "data_fetch": {
+                "windows": fetch_meta_by_window,
+                "error_count": len(all_fetch_errors),
+                "errors": all_fetch_errors[:100],
+            },
         },
         "by_window": metrics_by_window_strategy,
         "gate": {
@@ -316,4 +500,9 @@ def run_detailed_backtests_for_universe(
             "disabled": disabled,
         },
         "metrics": metrics_by_window_strategy,
+        "data_fetch": {
+            "windows": fetch_meta_by_window,
+            "error_count": len(all_fetch_errors),
+            "errors": all_fetch_errors[:100],
+        },
     }
