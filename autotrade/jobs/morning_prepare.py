@@ -10,6 +10,7 @@
 - 朝は必ずチューニングする
 - その直後、MORNINGで作ったCANDIDATE群を使って朝昇格判定する
 - 朝昇格判定では再チューニングしない（直前に作った候補をそのまま使う）
+- 朝にACTIVEが昇格したら、新ACTIVEで DailyState.backtest を再固定する
 """
 
 from datetime import date
@@ -100,6 +101,7 @@ def run():
         windows=list(getattr(settings, "AUTOTRADE_BT_WINDOWS", [20, 40, 60])),
         phase="MORNING",
         run_tune=False,
+        stop_only=False,
     )
 
     active_after = (
@@ -108,6 +110,26 @@ def run():
         .order_by("-created_at")
         .first()
     )
+
+    # =========================================================
+    # 6) 朝昇格があった場合は、新ACTIVEで backtest を再固定
+    #    これをやらないと DailyState.backtest が旧ACTIVEのまま残る
+    # =========================================================
+    if (
+        bool(promote_res.get("promoted"))
+        and active_after is not None
+        and active_after.id != active_before_id
+        and picks
+    ):
+        run_detailed_backtests_for_universe(
+            snapshot=active_after,
+            picks=picks,
+            target_date=today,
+            windows=tuple(getattr(settings, "AUTOTRADE_BT_WINDOWS", [20, 40, 60])),
+            rr_breakout=None,
+            base_equity_yen=int(getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)),
+            force=True,
+        )
 
     return {
         "ok": True,
