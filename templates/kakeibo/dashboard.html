@@ -9,12 +9,12 @@
 - 年度/年月の選択（GET）で集計を切り替える。
 - 月次Snapshotは「確定」ボタンで作成/上書きし、確定があればそれを正として表示。
 - ★追加：
-  - 我が家の総資産 / 楽天銀行残高 / 投資 に「先月比（% + 金額）」を表示
+  - 我が家の総資産 / 家の貯蓄 / 投資 に「先月比（% + 金額）」を表示
   - 表示は「% と 金額だけ」／ +なら緑、-なら赤
   - 月の収支の一番最後に「お小遣い（自動計算）」を表示（ぼーや / ごろ）
   - ✅ 月の可視化（バー）は削除
   - ✅ 代わりに「銀行残高（登録済み口座を全部）」を追加（HOUSE / B / G）
-    ※Bの楽天銀行はトップで見えてるので、このセクションでは除外する想定
+  - ✅ 家の銀行残高欄には「楽天銀行（B）」も表示する
   - ✅ 追加：資金移動（HOUSE / B / G で大枠を分け、各グループ内は横並び）
     - HOUSE：イオン銀行（必要最低残高＝カード＋年金・保険）との差分（不足/余剰）
     - B：千葉銀行（引出し上限はマイナス表示）＋ 三井住友銀行（必要額＝お小遣い＋立替）
@@ -60,7 +60,8 @@
         楽天銀行(B)：¥{{ rakuten_bank_b|intcomma }}（{{ rakuten_bank_account_name_used }} / {{ rakuten_bank_month_used }}）<br>
         イオン銀行(家)：¥{{ aeon_bank_house|intcomma }}（{{ aeon_bank_account_name_used }} / {{ aeon_bank_month_used }}）<br>
         楽天評価額：¥{{ rakuten_eval|intcomma }}<br>
-        楽天余力（白丸）：¥{{ rakuten_cash_free|intcomma }}
+        楽天余力（白丸）：¥{{ rakuten_cash_free|intcomma }}<br>
+        総資産 = 楽天銀行(B) ¥{{ rakuten_bank_b|intcomma }} + イオン銀行(家) ¥{{ aeon_bank_house|intcomma }} + 楽天評価額 ¥{{ rakuten_eval|intcomma }}
       </div>
     </div>
     {% endif %}
@@ -74,11 +75,11 @@
   <section class="kb-section">
     <div class="kb-two">
 
-      <!-- ---- 楽天銀行残高 ---- -->
+      <!-- ---- 家の貯蓄 ---- -->
       <div class="kb-metric">
         <div class="kb-metric-head">
           <span class="kb-dot kb-dot-bank"></span>
-          <span class="kb-metric-label">楽天銀行残高</span>
+          <span class="kb-metric-label">家の貯蓄</span>
         </div>
 
         <div class="kb-metric-value {% if kpi_rakuten_bank_actual >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
@@ -97,7 +98,10 @@
 
         {% if debug %}
         <div class="kb-muted">
-          4,136,736 − 余力 ¥{{ rakuten_cash_free|intcomma }} − 楽天銀行(B) ¥{{ rakuten_bank_b|intcomma }}
+          正式家計差額<br>
+          基準：2025-12 = -623,573<br>
+          表示月：{{ selected_month }}<br>
+          計算：2025-12基準 + 2026-01以降の月差額累積
         </div>
         {% endif %}
       </div>
@@ -340,7 +344,7 @@
 
   <!-- =========================
        ✅ 銀行残高（登録済み口座を全部 / HOUSE・B・G）
-       ※ Bの楽天銀行はトップで見えてるのでここでは除外する想定
+       HOUSEには楽天銀行(B)も表示する
   ========================== -->
   <section class="kb-section" id="banks">
     <div class="kb-section-head">
@@ -359,6 +363,16 @@
     </div>
 
     <div class="kb-list">
+      <div class="kb-row">
+        <div class="kb-row-left">
+          <span class="kb-dot kb-dot-bank"></span>
+          <span class="kb-row-label">楽天銀行</span>
+        </div>
+        <div class="kb-row-val {% if rakuten_bank_b >= 0 %}kb-val-pos{% else %}kb-val-neg{% endif %}">
+          ¥{{ rakuten_bank_b|intcomma }}
+        </div>
+      </div>
+
       {% for row in bank_groups.HOUSE %}
         <div class="kb-row">
           <div class="kb-row-left">
