@@ -20,7 +20,7 @@
     - B：千葉銀行（引出し上限はマイナス表示）＋ 三井住友銀行（必要額＝お小遣い＋立替）
     - G：楽天銀行（必要額＝お小遣い＋立替−楽天カード確定請求）
   - ✅ 追加：月TODO
-    - 画面一番下に、その月専用のTODOを追加
+    - 画面一番下に、その月専用のチェックリストTODOを追加
     - 選択中の年月に対応
 =========================================
 -->
@@ -530,7 +530,7 @@
     </div>
 
     <div class="kb-muted">
-      この月専用のTODOです。やること・進行中・完了をここで管理できます。
+      この月専用のチェックリストです。左のレ点で、やった / まだ を切り替えます。
     </div>
 
     <!-- 追加フォーム -->
@@ -545,7 +545,7 @@
         <input
           type="text"
           name="todo_title"
-          placeholder="TODOタイトルを入力"
+          placeholder="やることを入力"
           maxlength="200"
           required
         >
@@ -557,115 +557,62 @@
           style="width:100%; box-sizing:border-box; padding:12px; border-radius:12px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.92); resize:vertical; font:inherit;"
         ></textarea>
 
-        <select name="todo_status">
-          <option value="{{ todo_status_todo }}">未着手で追加</option>
-          <option value="{{ todo_status_doing }}">進行中で追加</option>
-          <option value="{{ todo_status_done }}">完了で追加</option>
-        </select>
-
         <div>
-          <button type="submit" class="kb-btn kb-btn-primary">TODOを追加</button>
+          <button type="submit" class="kb-btn kb-btn-primary">追加</button>
         </div>
       </div>
     </form>
 
     <div class="kb-divider kb-divider-thin"></div>
 
-    <!-- 未着手 -->
     <div class="kb-section-head">
-      <div class="kb-section-title" style="font-size:16px;">未着手</div>
-      <div class="kb-section-side">{{ monthly_todo_count_todo }}</div>
+      <div class="kb-section-title" style="font-size:16px;">チェックリスト</div>
+      <div class="kb-section-side">未完了 {{ monthly_todo_count_open }} / 完了 {{ monthly_todo_count_done }}</div>
     </div>
 
     <div class="kb-list">
-      {% for todo in monthly_todos_todo %}
+      {% for todo in monthly_todos %}
         <div style="padding:12px 0; border-bottom:1px solid rgba(255,255,255,0.08);">
-          <div style="font-weight:900; margin-bottom:6px;">{{ todo.title }}</div>
-
-          {% if todo.note %}
-            <div class="kb-muted" style="margin-bottom:10px;">{{ todo.note|linebreaksbr }}</div>
-          {% endif %}
-
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <form method="post" style="margin:0;">
+          <div style="display:flex; align-items:flex-start; gap:10px;">
+            <form method="post" style="margin:0; flex:0 0 auto;">
               {% csrf_token %}
-              <input type="hidden" name="action" value="update_monthly_todo_status">
-              <input type="hidden" name="todo_id" value="{{ todo.id }}">
-              <input type="hidden" name="todo_status" value="{{ todo_status_doing }}">
-              <input type="hidden" name="year" value="{{ selected_year }}">
-              <input type="hidden" name="month" value="{{ selected_month }}">
-              {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
-              <button type="submit" class="kb-btn kb-btn-primary">進行中へ</button>
-            </form>
-
-            <form method="post" style="margin:0;">
-              {% csrf_token %}
-              <input type="hidden" name="action" value="update_monthly_todo_status">
-              <input type="hidden" name="todo_id" value="{{ todo.id }}">
-              <input type="hidden" name="todo_status" value="{{ todo_status_done }}">
-              <input type="hidden" name="year" value="{{ selected_year }}">
-              <input type="hidden" name="month" value="{{ selected_month }}">
-              {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
-              <button type="submit" class="kb-btn">完了へ</button>
-            </form>
-
-            <form method="post" style="margin:0;">
-              {% csrf_token %}
-              <input type="hidden" name="action" value="delete_monthly_todo">
+              <input type="hidden" name="action" value="toggle_monthly_todo_done">
               <input type="hidden" name="todo_id" value="{{ todo.id }}">
               <input type="hidden" name="year" value="{{ selected_year }}">
               <input type="hidden" name="month" value="{{ selected_month }}">
               {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
-              <button type="submit" class="kb-btn">削除</button>
-            </form>
-          </div>
-        </div>
-      {% empty %}
-        <div class="kb-muted kb-mt-10">未着手のTODOはありません。</div>
-      {% endfor %}
-    </div>
-
-    <div class="kb-divider kb-divider-thin"></div>
-
-    <!-- 進行中 -->
-    <div class="kb-section-head">
-      <div class="kb-section-title" style="font-size:16px;">進行中</div>
-      <div class="kb-section-side">{{ monthly_todo_count_doing }}</div>
-    </div>
-
-    <div class="kb-list">
-      {% for todo in monthly_todos_doing %}
-        <div style="padding:12px 0; border-bottom:1px solid rgba(255,255,255,0.08);">
-          <div style="font-weight:900; margin-bottom:6px;">{{ todo.title }}</div>
-
-          {% if todo.note %}
-            <div class="kb-muted" style="margin-bottom:10px;">{{ todo.note|linebreaksbr }}</div>
-          {% endif %}
-
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <form method="post" style="margin:0;">
-              {% csrf_token %}
-              <input type="hidden" name="action" value="update_monthly_todo_status">
-              <input type="hidden" name="todo_id" value="{{ todo.id }}">
-              <input type="hidden" name="todo_status" value="{{ todo_status_todo }}">
-              <input type="hidden" name="year" value="{{ selected_year }}">
-              <input type="hidden" name="month" value="{{ selected_month }}">
-              {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
-              <button type="submit" class="kb-btn">未着手へ</button>
+              <button
+                type="submit"
+                class="kb-btn"
+                aria-label="完了切り替え"
+                style="width:48px; min-width:48px; padding:10px 0; text-align:center; font-size:20px; line-height:1;"
+              >{% if todo.status == todo_status_done %}☑{% else %}☐{% endif %}</button>
             </form>
 
-            <form method="post" style="margin:0;">
-              {% csrf_token %}
-              <input type="hidden" name="action" value="update_monthly_todo_status">
-              <input type="hidden" name="todo_id" value="{{ todo.id }}">
-              <input type="hidden" name="todo_status" value="{{ todo_status_done }}">
-              <input type="hidden" name="year" value="{{ selected_year }}">
-              <input type="hidden" name="month" value="{{ selected_month }}">
-              {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
-              <button type="submit" class="kb-btn kb-btn-primary">完了へ</button>
-            </form>
+            <div style="flex:1; min-width:0;">
+              <div style="
+                font-weight:900;
+                margin-bottom:6px;
+                word-break:break-word;
+                {% if todo.status == todo_status_done %}text-decoration:line-through; opacity:.55;{% endif %}
+              ">
+                {{ todo.title }}
+              </div>
 
-            <form method="post" style="margin:0;">
+              {% if todo.note %}
+                <div class="kb-muted" style="{% if todo.status == todo_status_done %}opacity:.45;{% endif %}">
+                  {{ todo.note|linebreaksbr }}
+                </div>
+              {% endif %}
+
+              {% if todo.status == todo_status_done and todo.completed_at %}
+                <div class="kb-muted" style="margin-top:8px; font-size:12px;">
+                  完了：{{ todo.completed_at|date:"Y-m-d H:i" }}
+                </div>
+              {% endif %}
+            </div>
+
+            <form method="post" style="margin:0; flex:0 0 auto;">
               {% csrf_token %}
               <input type="hidden" name="action" value="delete_monthly_todo">
               <input type="hidden" name="todo_id" value="{{ todo.id }}">
@@ -677,72 +624,7 @@
           </div>
         </div>
       {% empty %}
-        <div class="kb-muted kb-mt-10">進行中のTODOはありません。</div>
-      {% endfor %}
-    </div>
-
-    <div class="kb-divider kb-divider-thin"></div>
-
-    <!-- 完了 -->
-    <div class="kb-section-head">
-      <div class="kb-section-title" style="font-size:16px;">完了</div>
-      <div class="kb-section-side">{{ monthly_todo_count_done }}</div>
-    </div>
-
-    <div class="kb-list">
-      {% for todo in monthly_todos_done %}
-        <div style="padding:12px 0; border-bottom:1px solid rgba(255,255,255,0.08); opacity:.92;">
-          <div style="font-weight:900; margin-bottom:6px;">{{ todo.title }}</div>
-
-          {% if todo.note %}
-            <div class="kb-muted" style="margin-bottom:10px;">{{ todo.note|linebreaksbr }}</div>
-          {% endif %}
-
-          <div class="kb-muted" style="margin-bottom:10px;">
-            完了日時：
-            {% if todo.completed_at %}
-              {{ todo.completed_at|date:"Y-m-d H:i" }}
-            {% else %}
-              —
-            {% endif %}
-          </div>
-
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <form method="post" style="margin:0;">
-              {% csrf_token %}
-              <input type="hidden" name="action" value="update_monthly_todo_status">
-              <input type="hidden" name="todo_id" value="{{ todo.id }}">
-              <input type="hidden" name="todo_status" value="{{ todo_status_todo }}">
-              <input type="hidden" name="year" value="{{ selected_year }}">
-              <input type="hidden" name="month" value="{{ selected_month }}">
-              {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
-              <button type="submit" class="kb-btn">未着手へ戻す</button>
-            </form>
-
-            <form method="post" style="margin:0;">
-              {% csrf_token %}
-              <input type="hidden" name="action" value="update_monthly_todo_status">
-              <input type="hidden" name="todo_id" value="{{ todo.id }}">
-              <input type="hidden" name="todo_status" value="{{ todo_status_doing }}">
-              <input type="hidden" name="year" value="{{ selected_year }}">
-              <input type="hidden" name="month" value="{{ selected_month }}">
-              {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
-              <button type="submit" class="kb-btn">進行中へ戻す</button>
-            </form>
-
-            <form method="post" style="margin:0;">
-              {% csrf_token %}
-              <input type="hidden" name="action" value="delete_monthly_todo">
-              <input type="hidden" name="todo_id" value="{{ todo.id }}">
-              <input type="hidden" name="year" value="{{ selected_year }}">
-              <input type="hidden" name="month" value="{{ selected_month }}">
-              {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
-              <button type="submit" class="kb-btn">削除</button>
-            </form>
-          </div>
-        </div>
-      {% empty %}
-        <div class="kb-muted kb-mt-10">完了したTODOはありません。</div>
+        <div class="kb-muted kb-mt-10">TODOはまだありません。</div>
       {% endfor %}
     </div>
   </section>
