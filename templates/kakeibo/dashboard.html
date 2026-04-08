@@ -14,13 +14,13 @@
   - 月の収支の一番最後に「お小遣い（自動計算）」を表示（ぼーや / ごろ）
   - ✅ 月の可視化（バー）は削除
   - ✅ 代わりに「銀行残高（登録済み口座を全部）」を追加（HOUSE / B / G）
-  - ✅ 家の銀行残高欄には「楽天銀行（B）」も表示する
+    ※Bの楽天銀行はトップで見えてるので、このセクションでは除外する想定
   - ✅ 追加：資金移動（HOUSE / B / G で大枠を分け、各グループ内は横並び）
     - HOUSE：イオン銀行（必要最低残高＝カード＋年金・保険）との差分（不足/余剰）
     - B：千葉銀行（引出し上限はマイナス表示）＋ 三井住友銀行（必要額＝お小遣い＋立替）
     - G：楽天銀行（必要額＝お小遣い＋立替−楽天カード確定請求）
-  - ✅ 追加：月メモ
-    - 画面一番下に自由入力メモ欄を追加
+  - ✅ 追加：月TODO
+    - 画面一番下に、その月専用のTODOを追加
     - 選択中の年月に対応
 =========================================
 -->
@@ -43,7 +43,6 @@
     <div class="kb-hero-label">我が家の総資産</div>
     <div class="kb-hero-value">¥{{ kpi_total_assets|intcomma }}</div>
 
-    <!-- ✅ 先月比（% と 金額だけ / +緑 -赤） -->
     <div class="kb-hero-delta
       {% with s=d_total_assets|stringformat:'s' %}
         {% if s|slice:':1' == '-' %}kb-val-neg{% elif s != '' and s != '0' %}kb-val-pos{% endif %}
@@ -61,7 +60,7 @@
         イオン銀行(家)：¥{{ aeon_bank_house|intcomma }}（{{ aeon_bank_account_name_used }} / {{ aeon_bank_month_used }}）<br>
         楽天評価額：¥{{ rakuten_eval|intcomma }}<br>
         楽天余力（白丸）：¥{{ rakuten_cash_free|intcomma }}<br>
-        総資産 = 楽天銀行(B) ¥{{ rakuten_bank_b|intcomma }} + イオン銀行(家) ¥{{ aeon_bank_house|intcomma }} + 楽天評価額 ¥{{ rakuten_eval|intcomma }}
+        我が家の総資産 ＝ 楽天銀行(B) ¥{{ rakuten_bank_b|intcomma }} ＋ イオン銀行(家) ¥{{ aeon_bank_house|intcomma }} ＋ 楽天評価額 ¥{{ rakuten_eval|intcomma }}
       </div>
     </div>
     {% endif %}
@@ -86,7 +85,6 @@
           ¥{{ kpi_rakuten_bank_actual|intcomma }}
         </div>
 
-        <!-- ✅ 先月比（% と 金額だけ / +緑 -赤） -->
         <div class="kb-metric-delta
           {% with s=d_rakuten_bank_actual|stringformat:'s' %}
             {% if s|slice:':1' == '-' %}kb-val-neg{% elif s != '' and s != '0' %}kb-val-pos{% endif %}
@@ -98,10 +96,7 @@
 
         {% if debug %}
         <div class="kb-muted">
-          正式家計差額<br>
-          基準：2025-12 = -623,573<br>
-          表示月：{{ selected_month }}<br>
-          計算：2025-12基準 + 2026-01以降の月差額累積
+          2025-12終了時点の基準値（-623,573）から、選択月までの家計差額累計で算出
         </div>
         {% endif %}
       </div>
@@ -115,7 +110,6 @@
 
         <div class="kb-metric-value">¥{{ kpi_invest_total|intcomma }}</div>
 
-        <!-- ✅ 先月比（% と 金額だけ / +緑 -赤） -->
         <div class="kb-metric-delta
           {% with s=d_invest_total|stringformat:'s' %}
             {% if s|slice:':1' == '-' %}kb-val-neg{% elif s != '' and s != '0' %}kb-val-pos{% endif %}
@@ -215,7 +209,6 @@
           <div class="kb-section-title">月の収支</div>
         </div>
 
-        <!-- ✅ 年月セレクト直下：確定ボタン（左）＋ステータス（右） -->
         <div class="kb-confirm-under">
           <form method="post" class="kb-confirm-form">
             {% csrf_token %}
@@ -309,11 +302,6 @@
       </div>
     </div>
 
-    <!-- =========================
-         ✅ お小遣い（自動計算） ※月の収支の一番最後
-         - ぼーや / ごろ
-         - ±で色
-    ========================== -->
     <div class="kb-divider kb-divider-thin"></div>
 
     <div class="kb-list">
@@ -343,8 +331,7 @@
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       ✅ 銀行残高（登録済み口座を全部 / HOUSE・B・G）
-       HOUSEには楽天銀行(B)も表示する
+       銀行残高
   ========================== -->
   <section class="kb-section" id="banks">
     <div class="kb-section-head">
@@ -436,25 +423,23 @@
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-     資金移動（移動額だけ表示 / HOUSE・B・Gで銀行残高と同じ並び）
+     資金移動
   ========================== -->
   <section class="kb-section" id="funds">
     <div class="kb-section-head">
       <div class="kb-section-title">資金移動</div>
     </div>
-  
+
     <div class="kb-muted">
-      赤(−)の場合は引出し/緑(＋)の場合は振込み
+      赤(−)の場合は引出し / 緑(＋)の場合は振込み
     </div>
-  
-    <!-- =========================
-       家（HOUSE）
-    ========================== -->
+
+    <!-- HOUSE -->
     <div class="kb-divider kb-divider-thin"></div>
     <div class="kb-section-head">
       <div class="kb-section-title" style="font-size: 16px;">家</div>
     </div>
-  
+
     <div class="kb-list">
       <div class="kb-row">
         <div class="kb-row-left">
@@ -466,17 +451,14 @@
         </div>
       </div>
     </div>
-  
-    <!-- =========================
-         ぼーや（B）
-    ========================== -->
+
+    <!-- B -->
     <div class="kb-divider kb-divider-thin"></div>
     <div class="kb-section-head">
       <div class="kb-section-title" style="font-size: 16px;">ぼーや</div>
     </div>
-  
+
     <div class="kb-list">
-      <!-- 千葉銀行（B） -->
       {% for row in chiba_withdraw_rows %}
         {% if row.owner == "B" %}
         <div class="kb-row">
@@ -490,8 +472,7 @@
         </div>
         {% endif %}
       {% endfor %}
-  
-      <!-- 三井住友銀行（B） -->
+
       <div class="kb-row">
         <div class="kb-row-left">
           <span class="kb-dot kb-dot-bank"></span>
@@ -502,17 +483,14 @@
         </div>
       </div>
     </div>
-  
-    <!-- =========================
-         ごろ（G）
-    ========================== -->
+
+    <!-- G -->
     <div class="kb-divider kb-divider-thin"></div>
     <div class="kb-section-head">
       <div class="kb-section-title" style="font-size: 16px;">ごろ</div>
     </div>
-  
+
     <div class="kb-list">
-      <!-- 千葉銀行（G） -->
       {% for row in chiba_withdraw_rows %}
         {% if row.owner == "G" %}
         <div class="kb-row">
@@ -526,8 +504,7 @@
         </div>
         {% endif %}
       {% endfor %}
-  
-      <!-- 楽天銀行（G） -->
+
       <div class="kb-row">
         <div class="kb-row-left">
           <span class="kb-dot kb-dot-bank"></span>
@@ -538,42 +515,236 @@
         </div>
       </div>
     </div>
-  
+
   </section>
 
   <div class="kb-divider kb-divider-lg"></div>
 
   <!-- =========================
-       月メモ
+       月TODO
   ========================== -->
-  <section class="kb-section" id="month-memo">
+  <section class="kb-section" id="month-todo">
     <div class="kb-section-head">
-      <div class="kb-section-title">メモ</div>
+      <div class="kb-section-title">TODO</div>
       <div class="kb-section-side">{{ selected_month }}</div>
     </div>
 
     <div class="kb-muted">
-      この月専用の自由メモです。あとで見返したいことを残せます。
+      この月専用のTODOです。やること・進行中・完了をここで管理できます。
     </div>
 
+    <!-- 追加フォーム -->
     <form method="post" class="kb-form" style="margin-top:12px;">
       {% csrf_token %}
-      <input type="hidden" name="action" value="save_dashboard_memo">
+      <input type="hidden" name="action" value="add_monthly_todo">
       <input type="hidden" name="year" value="{{ selected_year }}">
       <input type="hidden" name="month" value="{{ selected_month }}">
       {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
 
-      <textarea
-        name="dashboard_memo"
-        rows="8"
-        placeholder="この月のメモを入力"
-        style="width:100%; box-sizing:border-box; padding:12px; border-radius:12px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.92); resize:vertical; font:inherit;"
-      >{{ dashboard_memo }}</textarea>
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <input
+          type="text"
+          name="todo_title"
+          placeholder="TODOタイトルを入力"
+          maxlength="200"
+          required
+        >
 
-      <div style="margin-top:12px;">
-        <button type="submit" class="kb-btn kb-btn-primary">メモを保存</button>
+        <textarea
+          name="todo_note"
+          rows="3"
+          placeholder="メモ（任意）"
+          style="width:100%; box-sizing:border-box; padding:12px; border-radius:12px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.92); resize:vertical; font:inherit;"
+        ></textarea>
+
+        <select name="todo_status">
+          <option value="{{ todo_status_todo }}">未着手で追加</option>
+          <option value="{{ todo_status_doing }}">進行中で追加</option>
+          <option value="{{ todo_status_done }}">完了で追加</option>
+        </select>
+
+        <div>
+          <button type="submit" class="kb-btn kb-btn-primary">TODOを追加</button>
+        </div>
       </div>
     </form>
+
+    <div class="kb-divider kb-divider-thin"></div>
+
+    <!-- 未着手 -->
+    <div class="kb-section-head">
+      <div class="kb-section-title" style="font-size:16px;">未着手</div>
+      <div class="kb-section-side">{{ monthly_todo_count_todo }}</div>
+    </div>
+
+    <div class="kb-list">
+      {% for todo in monthly_todos_todo %}
+        <div style="padding:12px 0; border-bottom:1px solid rgba(255,255,255,0.08);">
+          <div style="font-weight:900; margin-bottom:6px;">{{ todo.title }}</div>
+
+          {% if todo.note %}
+            <div class="kb-muted" style="margin-bottom:10px;">{{ todo.note|linebreaksbr }}</div>
+          {% endif %}
+
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <form method="post" style="margin:0;">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="update_monthly_todo_status">
+              <input type="hidden" name="todo_id" value="{{ todo.id }}">
+              <input type="hidden" name="todo_status" value="{{ todo_status_doing }}">
+              <input type="hidden" name="year" value="{{ selected_year }}">
+              <input type="hidden" name="month" value="{{ selected_month }}">
+              {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
+              <button type="submit" class="kb-btn kb-btn-primary">進行中へ</button>
+            </form>
+
+            <form method="post" style="margin:0;">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="update_monthly_todo_status">
+              <input type="hidden" name="todo_id" value="{{ todo.id }}">
+              <input type="hidden" name="todo_status" value="{{ todo_status_done }}">
+              <input type="hidden" name="year" value="{{ selected_year }}">
+              <input type="hidden" name="month" value="{{ selected_month }}">
+              {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
+              <button type="submit" class="kb-btn">完了へ</button>
+            </form>
+
+            <form method="post" style="margin:0;">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="delete_monthly_todo">
+              <input type="hidden" name="todo_id" value="{{ todo.id }}">
+              <input type="hidden" name="year" value="{{ selected_year }}">
+              <input type="hidden" name="month" value="{{ selected_month }}">
+              {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
+              <button type="submit" class="kb-btn">削除</button>
+            </form>
+          </div>
+        </div>
+      {% empty %}
+        <div class="kb-muted kb-mt-10">未着手のTODOはありません。</div>
+      {% endfor %}
+    </div>
+
+    <div class="kb-divider kb-divider-thin"></div>
+
+    <!-- 進行中 -->
+    <div class="kb-section-head">
+      <div class="kb-section-title" style="font-size:16px;">進行中</div>
+      <div class="kb-section-side">{{ monthly_todo_count_doing }}</div>
+    </div>
+
+    <div class="kb-list">
+      {% for todo in monthly_todos_doing %}
+        <div style="padding:12px 0; border-bottom:1px solid rgba(255,255,255,0.08);">
+          <div style="font-weight:900; margin-bottom:6px;">{{ todo.title }}</div>
+
+          {% if todo.note %}
+            <div class="kb-muted" style="margin-bottom:10px;">{{ todo.note|linebreaksbr }}</div>
+          {% endif %}
+
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <form method="post" style="margin:0;">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="update_monthly_todo_status">
+              <input type="hidden" name="todo_id" value="{{ todo.id }}">
+              <input type="hidden" name="todo_status" value="{{ todo_status_todo }}">
+              <input type="hidden" name="year" value="{{ selected_year }}">
+              <input type="hidden" name="month" value="{{ selected_month }}">
+              {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
+              <button type="submit" class="kb-btn">未着手へ</button>
+            </form>
+
+            <form method="post" style="margin:0;">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="update_monthly_todo_status">
+              <input type="hidden" name="todo_id" value="{{ todo.id }}">
+              <input type="hidden" name="todo_status" value="{{ todo_status_done }}">
+              <input type="hidden" name="year" value="{{ selected_year }}">
+              <input type="hidden" name="month" value="{{ selected_month }}">
+              {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
+              <button type="submit" class="kb-btn kb-btn-primary">完了へ</button>
+            </form>
+
+            <form method="post" style="margin:0;">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="delete_monthly_todo">
+              <input type="hidden" name="todo_id" value="{{ todo.id }}">
+              <input type="hidden" name="year" value="{{ selected_year }}">
+              <input type="hidden" name="month" value="{{ selected_month }}">
+              {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
+              <button type="submit" class="kb-btn">削除</button>
+            </form>
+          </div>
+        </div>
+      {% empty %}
+        <div class="kb-muted kb-mt-10">進行中のTODOはありません。</div>
+      {% endfor %}
+    </div>
+
+    <div class="kb-divider kb-divider-thin"></div>
+
+    <!-- 完了 -->
+    <div class="kb-section-head">
+      <div class="kb-section-title" style="font-size:16px;">完了</div>
+      <div class="kb-section-side">{{ monthly_todo_count_done }}</div>
+    </div>
+
+    <div class="kb-list">
+      {% for todo in monthly_todos_done %}
+        <div style="padding:12px 0; border-bottom:1px solid rgba(255,255,255,0.08); opacity:.92;">
+          <div style="font-weight:900; margin-bottom:6px;">{{ todo.title }}</div>
+
+          {% if todo.note %}
+            <div class="kb-muted" style="margin-bottom:10px;">{{ todo.note|linebreaksbr }}</div>
+          {% endif %}
+
+          <div class="kb-muted" style="margin-bottom:10px;">
+            完了日時：
+            {% if todo.completed_at %}
+              {{ todo.completed_at|date:"Y-m-d H:i" }}
+            {% else %}
+              —
+            {% endif %}
+          </div>
+
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <form method="post" style="margin:0;">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="update_monthly_todo_status">
+              <input type="hidden" name="todo_id" value="{{ todo.id }}">
+              <input type="hidden" name="todo_status" value="{{ todo_status_todo }}">
+              <input type="hidden" name="year" value="{{ selected_year }}">
+              <input type="hidden" name="month" value="{{ selected_month }}">
+              {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
+              <button type="submit" class="kb-btn">未着手へ戻す</button>
+            </form>
+
+            <form method="post" style="margin:0;">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="update_monthly_todo_status">
+              <input type="hidden" name="todo_id" value="{{ todo.id }}">
+              <input type="hidden" name="todo_status" value="{{ todo_status_doing }}">
+              <input type="hidden" name="year" value="{{ selected_year }}">
+              <input type="hidden" name="month" value="{{ selected_month }}">
+              {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
+              <button type="submit" class="kb-btn">進行中へ戻す</button>
+            </form>
+
+            <form method="post" style="margin:0;">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="delete_monthly_todo">
+              <input type="hidden" name="todo_id" value="{{ todo.id }}">
+              <input type="hidden" name="year" value="{{ selected_year }}">
+              <input type="hidden" name="month" value="{{ selected_month }}">
+              {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
+              <button type="submit" class="kb-btn">削除</button>
+            </form>
+          </div>
+        </div>
+      {% empty %}
+        <div class="kb-muted kb-mt-10">完了したTODOはありません。</div>
+      {% endfor %}
+    </div>
   </section>
 
 </div>
