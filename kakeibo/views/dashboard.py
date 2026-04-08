@@ -4,7 +4,7 @@
 #
 # このファイルは何？
 # 家計簿トップ画面（/kakeibo/）のビュー。
-# - KPI：総資産 / 楽天銀行残高 / 投資（評価額＋現金余力）
+# - KPI：総資産 / 楽天銀行(B)の実残高 / 投資（評価額＋現金余力）
 # - 年度（選択可）の収支
 # - 月（選択可）の収入・支出・差額＋固定/変動内訳 + 先月比
 # - ✅ 銀行残高：登録済み口座を全部（HOUSE / B / G）で表示
@@ -31,13 +31,15 @@
 # - HOUSEのカード請求のキーワード集計で、memo/categoryでは拾えず card フィールド側に入っているため0になる問題を修正。
 #   → memo / category.name / card(文字 or FK) のどれでも拾う。
 #
-# ★今回の変更
-# - 「楽天銀行残高」という表示名はそのままに、中身は “正式な家計差額” を表示する
-# - 正式な家計差額の固定起点は 2025-12 終了時点で -623,573 円
-# - 2026-01 以降は、各月の month_diff を累積して正式値を作る
+# 今回の追加：
 # - 月ごとの自由メモ（MonthlyDashboardMemo）を保存/表示
 # - 選択中の month に対応するメモを読み込み
 # - POST action=save_dashboard_memo でその月のメモを保存
+# - ✅ 月ごとのTODO（MonthlyTodo）を追加
+#   - POST action=add_monthly_todo で追加
+#   - POST action=update_monthly_todo_status で状態変更
+#   - POST action=delete_monthly_todo で削除
+#   - 選択中の month に対応する TODO 一覧を context に渡す
 # =========================================
 
 from decimal import Decimal
@@ -58,16 +60,8 @@ from ..models import (
     Account,
     MonthlySnapshot,
     MonthlyDashboardMemo,
+    MonthlyTodo,
 )
-
-# =========================================
-# 正式な家計差額の固定起点
-# - 2025-12 終了時点で -623,573 円を固定
-# - 2026-01 以降は月差額を累積
-# =========================================
-OFFICIAL_HOUSE_DIFF_BASE_MONTH = date(2025, 12, 1)
-OFFICIAL_HOUSE_DIFF_BASE_VALUE = -623_573
-OFFICIAL_HOUSE_DIFF_FIRST_ACCUM_MONTH = date(2026, 1, 1)
 
 
 def month_first(d):
@@ -439,6 +433,9 @@ def _year_options() -> list[int]:
     for y in MonthlyDashboardMemo.objects.values_list("month__year", flat=True).distinct():
         if y:
             ys.add(int(y))
+    for y in MonthlyTodo.objects.values_list("month__year", flat=True).distinct():
+        if y:
+            ys.add(int(y))
     if not ys:
         ys.add(timezone.localdate().year)
     return sorted(list(ys), reverse=True)
@@ -548,30 +545,22 @@ def _house_card_bill_sum_by_keyword(month: date, keyword: str) -> int:
     """
     何をする？
     - HOUSE のカード請求（var_type=CARD）から、keyword（例：エポス）に一致する分を合計
-    - memo / category.name / card(文字 or FK) のどれでも拾う
+    - memo か category.name のどちらかに入っていれば拾う
     """
     kw = (keyword or "").strip()
     if not kw:
         return 0
 
-    base_qs = MonthlyVariableExpense.objects.filter(month=month, owner="HOUSE", var_type="CARD")
+    qs = MonthlyVariableExpense.objects.filter(month=month, owner="HOUSE", var_type="CARD")
 
     try:
-        q = (
-            Q(memo__icontains=kw) |
-            Q(category__name__icontains=kw) |
-            Q(card__name__icontains=kw)
+        qs = qs.filter(memo__icontains=kw) | MonthlyVariableExpense.objects.filter(
+            month=month, owner="HOUSE", var_type="CARD", category__name__icontains=kw
         )
-        return _sum_qs(base_qs.filter(q).distinct(), "amount")
+        return _sum_qs(qs, "amount")
     except Exception:
-        try:
-            q = Q(memo__icontains=kw) | Q(category__name__icontains=kw)
-            return _sum_qs(base_qs.filter(q).distinct(), "amount")
-        except Exception:
-            try:
-                return _sum_qs(base_qs.filter(memo__icontains=kw), "amount")
-            except Exception:
-                return 0
+        qs = MonthlyVariableExpense.objects.filter(month=month, owner="HOUSE", var_type="CARD", memo__icontains=kw)
+        return _sum_qs(qs, "amount")
 
 
 def _house_pension_insurance_fixed_sum() -> int:
@@ -589,67 +578,15 @@ def _house_pension_insurance_fixed_sum() -> int:
     return _sum_qs(qs, "amount")
 
 
-def _build_month_rollup_values(month: date) -> dict:
+def _next_todo_sort_order(month: date) -> int:
     """
     何をする？
-    - 家計差額の計算に必要な月次収支だけを軽量に作る
-    - 投資余力や銀行残高は含めない
+    - 対象月の次の sort_order を返す
     """
-    total_income = _sum_qs(MonthlyIncome.objects.filter(month=month), "amount")
-    fixed_sum = _sum_qs(
-        FixedExpenseTemplate.objects.filter(is_active=True),
-        "amount"
-    )
-    var_sum = _var_sum_for_expense(month)
-    total_expense = _int(fixed_sum + var_sum)
-    month_diff = _int(total_income - total_expense)
-
-    return {
-        "total_income": total_income,
-        "fixed_sum": fixed_sum,
-        "var_sum": var_sum,
-        "total_expense": total_expense,
-        "month_diff": month_diff,
-    }
-
-
-def _month_diff_from_snapshot_or_dynamic(month: date) -> int:
-    """
-    何をする？
-    - その月の差額を返す
-    - snapshot があれば snapshot.diff を優先
-    - 無ければ動的計算
-    """
-    month = month_first(month)
-
-    snap = MonthlySnapshot.objects.filter(month=month).first()
-    if snap:
-        return _int(snap.diff)
-
-    rollup = _build_month_rollup_values(month)
-    return _int(rollup["month_diff"])
-
-
-def _official_house_diff(month: date) -> int:
-    """
-    何をする？
-    - 正式な家計差額を返す
-    - 2025-12 終了時点の固定起点：-623,573
-    - 2026-01 以降の month_diff を累積
-    """
-    month = month_first(month)
-
-    if month <= OFFICIAL_HOUSE_DIFF_BASE_MONTH:
-        return _int(OFFICIAL_HOUSE_DIFF_BASE_VALUE)
-
-    total = _int(OFFICIAL_HOUSE_DIFF_BASE_VALUE)
-    cur = OFFICIAL_HOUSE_DIFF_FIRST_ACCUM_MONTH
-
-    while cur <= month:
-        total += _month_diff_from_snapshot_or_dynamic(cur)
-        cur = add_month(cur, 1)
-
-    return _int(total)
+    last = MonthlyTodo.objects.filter(month=month).order_by("-sort_order", "-id").first()
+    if not last:
+        return 10
+    return _int(getattr(last, "sort_order", 0)) + 10
 
 
 def _build_dynamic_month_values(request, today: date, m: date) -> dict:
@@ -657,13 +594,17 @@ def _build_dynamic_month_values(request, today: date, m: date) -> dict:
     何をする？
     - snapshot が無いときに使う「動的計算」一式をまとめて作る
     """
-    rollup = _build_month_rollup_values(m)
+    total_income = _sum_qs(MonthlyIncome.objects.filter(month=m), "amount")
 
-    total_income = _int(rollup["total_income"])
-    fixed_sum = _int(rollup["fixed_sum"])
-    var_sum = _int(rollup["var_sum"])
-    total_expense = _int(rollup["total_expense"])
-    month_diff = _int(rollup["month_diff"])
+    fixed_sum = _sum_qs(
+        FixedExpenseTemplate.objects.filter(is_active=True),
+        "amount"
+    )
+
+    var_sum = _var_sum_for_expense(m)
+
+    total_expense = _int(fixed_sum + var_sum)
+    month_diff = _int(total_income - total_expense)
 
     rakuten_bank = _bank_balance_fallback(m, owner="B", name_contains="楽天銀行")
     aeon_bank = _bank_balance_fallback(m, owner="HOUSE", name_contains="イオン銀行")
@@ -677,8 +618,7 @@ def _build_dynamic_month_values(request, today: date, m: date) -> dict:
 
     total_assets = _int(rakuten_bank_b + aeon_bank_house + invest_total)
 
-    # ✅ 表示名は「楽天銀行残高」のまま、中身は正式な家計差額
-    rakuten_bank_actual = _official_house_diff(m)
+    rakuten_bank_actual = _int(4_136_736 - rakuten_cash_free - rakuten_bank_b)
 
     okodukai_b = _calc_okodukai(m, "B")
     okodukai_g = _calc_okodukai(m, "G")
@@ -785,6 +725,64 @@ def dashboard(request):
             q += "&debug=1"
         return redirect(request.path + q)
 
+    # POST：月TODO追加
+    if request.method == "POST" and (request.POST.get("action") or "").strip() == "add_monthly_todo":
+        title = (request.POST.get("todo_title") or "").strip()
+        note = (request.POST.get("todo_note") or "").strip()
+        status = (request.POST.get("todo_status") or MonthlyTodo.STATUS_TODO).strip()
+
+        if status not in [MonthlyTodo.STATUS_TODO, MonthlyTodo.STATUS_DOING, MonthlyTodo.STATUS_DONE]:
+            status = MonthlyTodo.STATUS_TODO
+
+        if title:
+            MonthlyTodo.objects.create(
+                month=m,
+                title=title,
+                note=note,
+                status=status,
+                sort_order=_next_todo_sort_order(m),
+                completed_at=timezone.now() if status == MonthlyTodo.STATUS_DONE else None,
+            )
+
+        q = f"?year={selected_year}&month={selected_month}"
+        if debug:
+            q += "&debug=1"
+        return redirect(request.path + q)
+
+    # POST：月TODO状態変更
+    if request.method == "POST" and (request.POST.get("action") or "").strip() == "update_monthly_todo_status":
+        todo_id = request.POST.get("todo_id")
+        new_status = (request.POST.get("todo_status") or "").strip()
+
+        if new_status not in [MonthlyTodo.STATUS_TODO, MonthlyTodo.STATUS_DOING, MonthlyTodo.STATUS_DONE]:
+            new_status = MonthlyTodo.STATUS_TODO
+
+        todo = MonthlyTodo.objects.filter(id=todo_id, month=m).first()
+        if todo:
+            todo.status = new_status
+            if new_status == MonthlyTodo.STATUS_DONE:
+                todo.completed_at = timezone.now()
+            else:
+                todo.completed_at = None
+            todo.save(update_fields=["status", "completed_at", "updated_at"])
+
+        q = f"?year={selected_year}&month={selected_month}"
+        if debug:
+            q += "&debug=1"
+        return redirect(request.path + q)
+
+    # POST：月TODO削除
+    if request.method == "POST" and (request.POST.get("action") or "").strip() == "delete_monthly_todo":
+        todo_id = request.POST.get("todo_id")
+        todo = MonthlyTodo.objects.filter(id=todo_id, month=m).first()
+        if todo:
+            todo.delete()
+
+        q = f"?year={selected_year}&month={selected_month}"
+        if debug:
+            q += "&debug=1"
+        return redirect(request.path + q)
+
     # 表示：snapshot優先
     snap = MonthlySnapshot.objects.filter(month=m).first()
     is_snapshot = bool(snap)
@@ -797,8 +795,7 @@ def dashboard(request):
         month_diff = _int(snap.diff)
 
         total_assets = _int(snap.kpi_total_assets)
-        # ✅ snapshot保存値ではなく、正式な家計差額をその場で再計算
-        rakuten_bank_actual = _official_house_diff(m)
+        rakuten_bank_actual = _int(snap.kpi_rakuten_bank_actual)
         invest_total = _int(snap.kpi_invest_total)
 
         rakuten_eval = _int(snap.rakuten_eval)
@@ -844,6 +841,16 @@ def dashboard(request):
     # 月メモ
     dashboard_memo_obj = MonthlyDashboardMemo.objects.filter(month=m).first()
     dashboard_memo = getattr(dashboard_memo_obj, "memo", "") or ""
+
+    # 月TODO
+    monthly_todos = list(
+        MonthlyTodo.objects
+        .filter(month=m)
+        .order_by("status", "sort_order", "id")
+    )
+    monthly_todos_todo = [x for x in monthly_todos if x.status == MonthlyTodo.STATUS_TODO]
+    monthly_todos_doing = [x for x in monthly_todos if x.status == MonthlyTodo.STATUS_DOING]
+    monthly_todos_done = [x for x in monthly_todos if x.status == MonthlyTodo.STATUS_DONE]
 
     # 銀行残高（全口座）
     bank_groups, bank_totals = _bank_groups_all_accounts(month=m)
@@ -983,14 +990,13 @@ def dashboard(request):
     prev_snap = MonthlySnapshot.objects.filter(month=prev_m).first()
     if prev_snap:
         prev_total_assets = _int(prev_snap.kpi_total_assets)
+        prev_rakuten_bank_actual = _int(prev_snap.kpi_rakuten_bank_actual)
         prev_invest_total = _int(prev_snap.kpi_invest_total)
     else:
         prev_dyn = _build_dynamic_month_values(request, today=today, m=prev_m)
         prev_total_assets = _int(prev_dyn["kpi_total_assets"])
+        prev_rakuten_bank_actual = _int(prev_dyn["kpi_rakuten_bank_actual"])
         prev_invest_total = _int(prev_dyn["kpi_invest_total"])
-
-    # ✅ 「楽天銀行残高」カードの中身は正式な家計差額なので、先月も正式計算で比較
-    prev_rakuten_bank_actual = _official_house_diff(prev_m)
 
     d_total_assets = _delta(total_assets, prev_total_assets)
     d_rakuten_bank_actual = _delta(rakuten_bank_actual, prev_rakuten_bank_actual)
@@ -1124,6 +1130,19 @@ def dashboard(request):
 
         # 月メモ
         "dashboard_memo": dashboard_memo,
+
+        # 月TODO
+        "monthly_todos": monthly_todos,
+        "monthly_todos_todo": monthly_todos_todo,
+        "monthly_todos_doing": monthly_todos_doing,
+        "monthly_todos_done": monthly_todos_done,
+        "monthly_todo_count_total": len(monthly_todos),
+        "monthly_todo_count_todo": len(monthly_todos_todo),
+        "monthly_todo_count_doing": len(monthly_todos_doing),
+        "monthly_todo_count_done": len(monthly_todos_done),
+        "todo_status_todo": MonthlyTodo.STATUS_TODO,
+        "todo_status_doing": MonthlyTodo.STATUS_DOING,
+        "todo_status_done": MonthlyTodo.STATUS_DONE,
     }
 
     return render(request, "kakeibo/dashboard.html", context)
