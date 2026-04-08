@@ -4,12 +4,12 @@
 #
 # このファイルは何？
 # 家計簿トップ画面（/kakeibo/）のビュー。
-# - KPI：総資産 / 楽天銀行(B)の実残高 / 投資（評価額＋現金余力）
+# - KPI：総資産 / 家の貯蓄 / 投資（評価額＋現金余力）
 # - 年度（選択可）の収支
 # - 月（選択可）の収入・支出・差額＋固定/変動内訳 + 先月比
 # - ✅ 銀行残高：登録済み口座を全部（HOUSE / B / G）で表示
 #   - 当月が無い口座は「最新月（選択月以前）」で表示
-#   - Bの楽天銀行はトップで見えてるので、銀行残高セクションから除外
+#   - Bの楽天銀行はトップで見えてるため、銀行残高セクションから除外
 #
 # ✅ 資金移動（表示用の計算）
 # ① 千葉銀行（給与口座）：ローン後残高から「ATMで引き落とせる千円単位の上限」まで引き出す
@@ -23,21 +23,13 @@
 #    - required_min = エポス(HOUSE) + イオンカード(HOUSE) + ヨドバシ(HOUSE) + 年金・保険
 #    - delta = required_min - balance  （+なら不足 / -なら余剰）
 #
-# ★修正（バグ修正）
-# - 「年金/保険」のような分類名が "年金" と "保険" の両方にヒットして二重計上される問題を修正。
-#   → OR条件で1回だけ集計する（Qでまとめて合算）。
-#
-# ★修正（バグ修正：今回）
-# - HOUSEのカード請求のキーワード集計で、memo/categoryでは拾えず card フィールド側に入っているため0になる問題を修正。
-#   → memo / category.name / card(文字 or FK) のどれでも拾う。
-#
 # 今回の追加：
 # - 月ごとの自由メモ（MonthlyDashboardMemo）を保存/表示
 # - 選択中の month に対応するメモを読み込み
 # - POST action=save_dashboard_memo でその月のメモを保存
 # - ✅ 月ごとのTODO（MonthlyTodo）を追加
 #   - POST action=add_monthly_todo で追加
-#   - POST action=update_monthly_todo_status で状態変更
+#   - POST action=toggle_monthly_todo_done で完了/未完了を切替
 #   - POST action=delete_monthly_todo で削除
 #   - 選択中の month に対応する TODO 一覧を context に渡す
 # =========================================
@@ -220,7 +212,6 @@ def _bank_groups_all_accounts(month: date) -> tuple[dict, dict]:
             owner = (acc.owner or "").strip()
             name = (acc.name or "").strip()
 
-            # Bの楽天銀行はトップで見えてるので除外
             if owner == "B" and "楽天銀行" in name:
                 continue
 
@@ -455,9 +446,6 @@ def _month_options(today: date, months_back: int = 24) -> list[dict]:
     return out
 
 
-# -----------------------
-# 個人カード除外ルールつき集計ヘルパ
-# -----------------------
 def _var_sum_for_expense(month: date) -> int:
     """
     何をする？
@@ -616,7 +604,7 @@ def _build_dynamic_month_values(request, today: date, m: date) -> dict:
     rakuten_eval = _portfolio_rakuten_eval_like_rakuten(request.user)
     invest_total = _int(rakuten_cash_free + rakuten_eval)
 
-    total_assets = _int(rakuten_bank_b + aeon_bank_house + invest_total)
+    total_assets = _int(rakuten_bank_b + aeon_bank_house + rakuten_eval)
 
     rakuten_bank_actual = _int(4_136_736 - rakuten_cash_free - rakuten_bank_b)
 
@@ -677,7 +665,6 @@ def dashboard(request):
 
     month_options = _month_options(today=today, months_back=24)
 
-    # POST：確定
     if request.method == "POST" and (request.POST.get("action") or "").strip() == "confirm_snapshot":
         dyn = _build_dynamic_month_values(request, today=today, m=m)
 
@@ -708,7 +695,6 @@ def dashboard(request):
             q += "&debug=1"
         return redirect(request.path + q)
 
-    # POST：月メモ保存
     if request.method == "POST" and (request.POST.get("action") or "").strip() == "save_dashboard_memo":
         memo_text = request.POST.get("dashboard_memo", "")
         memo_text = memo_text.replace("\r\n", "\n").replace("\r", "\n")
@@ -725,23 +711,18 @@ def dashboard(request):
             q += "&debug=1"
         return redirect(request.path + q)
 
-    # POST：月TODO追加
     if request.method == "POST" and (request.POST.get("action") or "").strip() == "add_monthly_todo":
         title = (request.POST.get("todo_title") or "").strip()
         note = (request.POST.get("todo_note") or "").strip()
-        status = (request.POST.get("todo_status") or MonthlyTodo.STATUS_TODO).strip()
-
-        if status not in [MonthlyTodo.STATUS_TODO, MonthlyTodo.STATUS_DOING, MonthlyTodo.STATUS_DONE]:
-            status = MonthlyTodo.STATUS_TODO
 
         if title:
             MonthlyTodo.objects.create(
                 month=m,
                 title=title,
                 note=note,
-                status=status,
+                status=MonthlyTodo.STATUS_TODO,
                 sort_order=_next_todo_sort_order(m),
-                completed_at=timezone.now() if status == MonthlyTodo.STATUS_DONE else None,
+                completed_at=None,
             )
 
         q = f"?year={selected_year}&month={selected_month}"
@@ -749,7 +730,23 @@ def dashboard(request):
             q += "&debug=1"
         return redirect(request.path + q)
 
-    # POST：月TODO状態変更
+    if request.method == "POST" and (request.POST.get("action") or "").strip() == "toggle_monthly_todo_done":
+        todo_id = request.POST.get("todo_id")
+        todo = MonthlyTodo.objects.filter(id=todo_id, month=m).first()
+        if todo:
+            if todo.status == MonthlyTodo.STATUS_DONE:
+                todo.status = MonthlyTodo.STATUS_TODO
+                todo.completed_at = None
+            else:
+                todo.status = MonthlyTodo.STATUS_DONE
+                todo.completed_at = timezone.now()
+            todo.save(update_fields=["status", "completed_at", "updated_at"])
+
+        q = f"?year={selected_year}&month={selected_month}"
+        if debug:
+            q += "&debug=1"
+        return redirect(request.path + q)
+
     if request.method == "POST" and (request.POST.get("action") or "").strip() == "update_monthly_todo_status":
         todo_id = request.POST.get("todo_id")
         new_status = (request.POST.get("todo_status") or "").strip()
@@ -771,7 +768,6 @@ def dashboard(request):
             q += "&debug=1"
         return redirect(request.path + q)
 
-    # POST：月TODO削除
     if request.method == "POST" and (request.POST.get("action") or "").strip() == "delete_monthly_todo":
         todo_id = request.POST.get("todo_id")
         todo = MonthlyTodo.objects.filter(id=todo_id, month=m).first()
@@ -783,7 +779,6 @@ def dashboard(request):
             q += "&debug=1"
         return redirect(request.path + q)
 
-    # 表示：snapshot優先
     snap = MonthlySnapshot.objects.filter(month=m).first()
     is_snapshot = bool(snap)
 
@@ -838,28 +833,29 @@ def dashboard(request):
         aeon_bank_month_used = dyn["aeon_bank_month_used"]
         aeon_bank_account_name_used = dyn["aeon_bank_account_name_used"]
 
-    # 月メモ
     dashboard_memo_obj = MonthlyDashboardMemo.objects.filter(month=m).first()
     dashboard_memo = getattr(dashboard_memo_obj, "memo", "") or ""
 
-    # 月TODO
     monthly_todos = list(
         MonthlyTodo.objects
         .filter(month=m)
-        .order_by("status", "sort_order", "id")
+        .order_by("sort_order", "id")
     )
-    monthly_todos_todo = [x for x in monthly_todos if x.status == MonthlyTodo.STATUS_TODO]
-    monthly_todos_doing = [x for x in monthly_todos if x.status == MonthlyTodo.STATUS_DOING]
-    monthly_todos_done = [x for x in monthly_todos if x.status == MonthlyTodo.STATUS_DONE]
+    monthly_todos = sorted(
+        monthly_todos,
+        key=lambda x: (
+            1 if x.status == MonthlyTodo.STATUS_DONE else 0,
+            _int(getattr(x, "sort_order", 0)),
+            _int(getattr(x, "id", 0)),
+        )
+    )
 
-    # 銀行残高（全口座）
+    monthly_todo_count_total = len(monthly_todos)
+    monthly_todo_count_done = len([x for x in monthly_todos if x.status == MonthlyTodo.STATUS_DONE])
+    monthly_todo_count_open = monthly_todo_count_total - monthly_todo_count_done
+
     bank_groups, bank_totals = _bank_groups_all_accounts(month=m)
 
-    # -----------------------
-    # 資金移動（Excel式）
-    # -----------------------
-
-    # ① 千葉銀行（給与口座）
     chiba_withdraw_rows: list[dict] = []
     try:
         chiba_accs = (
@@ -890,7 +886,6 @@ def dashboard(request):
     except Exception:
         chiba_withdraw_rows = []
 
-    # ② 三井住友銀行(B)
     smbc_b_balance = 0
     smbc_b_month = None
     try:
@@ -916,7 +911,6 @@ def dashboard(request):
     )
     smbc_b_delta = _int(smbc_b_need - smbc_b_balance)
 
-    # ③ 楽天銀行(G)
     rakuten_g_balance = 0
     rakuten_g_month = None
     try:
@@ -938,7 +932,6 @@ def dashboard(request):
     rakuten_g_need = _int(_calc_okodukai(m, "G"))
     rakuten_g_delta = _int(rakuten_g_need - rakuten_g_balance)
 
-    # ④ イオン銀行(HOUSE)
     aeon_house_balance = 0
     aeon_house_month = None
     aeon_house_account_name = None
@@ -966,9 +959,6 @@ def dashboard(request):
     )
     aeon_house_delta = _int(aeon_house_required_min - aeon_house_balance)
 
-    # -----------------------
-    # 先月比
-    # -----------------------
     prev_income = _sum_qs(MonthlyIncome.objects.filter(month=prev_m), "amount")
     prev_var = _var_sum_for_expense(prev_m)
 
@@ -986,7 +976,6 @@ def dashboard(request):
     dp_fixed = _delta_pct(fixed_sum, prev_fixed)
     dp_var = _delta_pct(var_sum, prev_var)
 
-    # KPI 先月比
     prev_snap = MonthlySnapshot.objects.filter(month=prev_m).first()
     if prev_snap:
         prev_total_assets = _int(prev_snap.kpi_total_assets)
@@ -1006,7 +995,6 @@ def dashboard(request):
     dp_rakuten_bank_actual = _delta_pct(rakuten_bank_actual, prev_rakuten_bank_actual)
     dp_invest_total = _delta_pct(invest_total, prev_invest_total)
 
-    # 年度
     snaps_year = list(MonthlySnapshot.objects.filter(month__year=selected_year))
     if snaps_year:
         year_income = _int(sum(_int(s.income) for s in snaps_year))
@@ -1046,12 +1034,10 @@ def dashboard(request):
         "month_label": f"{m.year}-{m.month:02d}",
         "prev_month_label": f"{prev_m.year}-{prev_m.month:02d}",
 
-        # KPI
         "kpi_total_assets": total_assets,
         "kpi_rakuten_bank_actual": rakuten_bank_actual,
         "kpi_invest_total": invest_total,
 
-        # KPI 先月比
         "d_total_assets": d_total_assets,
         "dp_total_assets": dp_total_assets,
         "d_rakuten_bank_actual": d_rakuten_bank_actual,
@@ -1059,7 +1045,6 @@ def dashboard(request):
         "d_invest_total": d_invest_total,
         "dp_invest_total": dp_invest_total,
 
-        # 内訳
         "rakuten_cash_free": rakuten_cash_free,
         "rakuten_eval": rakuten_eval,
         "rakuten_bank_b": rakuten_bank_b,
@@ -1070,21 +1055,18 @@ def dashboard(request):
         "aeon_bank_month_used": aeon_bank_month_used,
         "aeon_bank_account_name_used": aeon_bank_account_name_used,
 
-        # 年度
         "year_label": f"{selected_year}",
         "year_income": year_income,
         "year_expense": year_expense,
         "year_diff": year_diff,
         "year_is_snapshot": year_is_snapshot,
 
-        # 月
         "total_income": total_income,
         "total_expense": total_expense,
         "month_diff": month_diff,
         "fixed_sum": fixed_sum,
         "var_sum": var_sum,
 
-        # 先月比
         "d_income": d_income,
         "d_expense": d_expense,
         "d_fixed": d_fixed,
@@ -1094,16 +1076,13 @@ def dashboard(request):
         "dp_fixed": dp_fixed,
         "dp_var": dp_var,
 
-        # お小遣い
         "okodukai_b": okodukai_b,
         "okodukai_g": okodukai_g,
         "okodukai_total": okodukai_total,
 
-        # 銀行残高
         "bank_groups": bank_groups,
         "bank_totals": bank_totals,
 
-        # 資金移動
         "chiba_withdraw_rows": chiba_withdraw_rows,
 
         "smbc_b_balance": smbc_b_balance,
@@ -1128,20 +1107,12 @@ def dashboard(request):
         "aeon_house_required_min": aeon_house_required_min,
         "aeon_house_delta": aeon_house_delta,
 
-        # 月メモ
         "dashboard_memo": dashboard_memo,
 
-        # 月TODO
         "monthly_todos": monthly_todos,
-        "monthly_todos_todo": monthly_todos_todo,
-        "monthly_todos_doing": monthly_todos_doing,
-        "monthly_todos_done": monthly_todos_done,
-        "monthly_todo_count_total": len(monthly_todos),
-        "monthly_todo_count_todo": len(monthly_todos_todo),
-        "monthly_todo_count_doing": len(monthly_todos_doing),
-        "monthly_todo_count_done": len(monthly_todos_done),
-        "todo_status_todo": MonthlyTodo.STATUS_TODO,
-        "todo_status_doing": MonthlyTodo.STATUS_DOING,
+        "monthly_todo_count_total": monthly_todo_count_total,
+        "monthly_todo_count_open": monthly_todo_count_open,
+        "monthly_todo_count_done": monthly_todo_count_done,
         "todo_status_done": MonthlyTodo.STATUS_DONE,
     }
 
