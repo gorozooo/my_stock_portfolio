@@ -4,13 +4,14 @@
 
 このファイルは何？
 - 保有追加 / 保有編集画面専用のCSSです。
-- 今回はスマホでの入力しやすさを最優先にして、全面的に組み直した版です。
+- 今回は「上で入力・下で即確認」の固定ライブプレビュー型にした版です。
 
-今回の作り直しポイント
-- 1カラム中心で視線移動を減らす
-- チップ選択を大きくして押しやすくする
-- コード入力結果のプレビューを見やすくする
-- 下部固定アクションで保存しやすくする
+今回の修正ポイント
+- 下側にライブプレビューを固定
+- スクロール量を減らすため全体を圧縮
+- 銘柄名 / セクター手入力欄を削除した前提に調整
+- 証券会社は3択のみ
+- はみ出し防止を強めに入れる
 */
 
 * {
@@ -20,17 +21,17 @@
 .holding-form-page {
   max-width: 760px;
   margin: 0 auto;
-  padding: 14px 10px 140px;
+  padding: 12px 10px 150px;
   color: #e6ebff;
 }
 
 .holding-form-header {
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .holding-form-title {
   margin: 0;
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 800;
   line-height: 1.2;
   letter-spacing: 0.01em;
@@ -38,84 +39,88 @@
 }
 
 .holding-form-subtitle {
-  margin: 8px 0 0;
-  font-size: 13px;
-  line-height: 1.7;
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
   color: #94a3b8;
 }
 
 .holding-form-shell {
   display: grid;
-  gap: 14px;
+  gap: 10px;
+  min-width: 0;
 }
 
 .form-section-card {
-  padding: 14px;
-  border-radius: 20px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.03));
+  min-width: 0;
+  padding: 12px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.03));
   border: 1px solid rgba(255,255,255,0.08);
   box-shadow:
     0 1px 0 rgba(255,255,255,0.05) inset,
-    0 12px 32px rgba(0,0,0,0.16);
+    0 10px 28px rgba(0,0,0,0.14);
+}
+
+.form-section-tight {
+  padding: 11px;
 }
 
 .section-head {
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
-.section-kicker {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 0 9px;
-  border-radius: 999px;
-  border: 1px solid rgba(99,102,241,0.25);
-  background: rgba(99,102,241,0.12);
-  color: #c7d2fe;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+.section-head-tight {
+  margin-bottom: 8px;
 }
 
 .section-title {
-  margin-top: 8px;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 800;
   color: #f4f7ff;
   line-height: 1.25;
 }
 
 .section-note {
-  margin-top: 4px;
-  font-size: 12px;
+  margin-top: 2px;
+  font-size: 11px;
   color: #8fa0b7;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .field-block + .field-block {
-  margin-top: 12px;
+  margin-top: 10px;
+}
+
+.field-block-no-margin {
+  margin-top: 0 !important;
+}
+
+.field-block-gap-top {
+  margin-top: 10px;
 }
 
 .field-label {
   display: block;
-  margin-bottom: 7px;
-  font-size: 13px;
+  margin-bottom: 6px;
+  font-size: 12px;
   font-weight: 700;
   color: #cfd8ea;
 }
 
 .field-help {
-  margin-top: 6px;
-  font-size: 12px;
+  margin-top: 5px;
+  font-size: 11px;
   color: #8fa0b7;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .field-input,
 .field-textarea {
   width: 100%;
-  border-radius: 16px;
+  max-width: 100%;
+  min-width: 0;
+  border-radius: 15px;
   border: 1px solid rgba(255,255,255,0.14);
   background: rgba(255,255,255,0.06);
   color: #eef2ff;
@@ -128,17 +133,17 @@
 }
 
 .field-input {
-  min-height: 54px;
-  padding: 0 16px;
-  font-size: 18px;
+  min-height: 50px;
+  padding: 0 14px;
+  font-size: 17px;
   font-weight: 700;
-  line-height: 54px;
+  line-height: 50px;
 }
 
 .field-input-lg {
-  min-height: 62px;
-  font-size: 20px;
-  line-height: 62px;
+  min-height: 56px;
+  font-size: 19px;
+  line-height: 56px;
 }
 
 .field-input::placeholder,
@@ -155,25 +160,27 @@
 }
 
 .field-textarea {
-  min-height: 128px;
-  padding: 14px 16px;
+  min-height: 100px;
+  padding: 12px 14px;
   resize: vertical;
-  font-size: 16px;
-  line-height: 1.7;
+  font-size: 15px;
+  line-height: 1.6;
   font-weight: 600;
+}
+
+.field-textarea-compact {
+  min-height: 88px;
 }
 
 .code-input-wrap {
   position: relative;
+  min-width: 0;
 }
 
 .lookup-status {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  position: absolute;
-  right: 10px;
-  top: 10px;
   min-height: 28px;
   padding: 0 10px;
   border-radius: 999px;
@@ -183,7 +190,8 @@
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.02em;
-  pointer-events: none;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .lookup-status[data-mode="loading"] {
@@ -210,32 +218,43 @@
   color: #cbd5e1;
 }
 
-.auto-preview-card {
-  margin-top: 12px;
-  padding: 12px;
-  border-radius: 16px;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.035);
+.compact-auto-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+  min-width: 0;
 }
 
-.auto-preview-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
+.mini-info-box {
+  min-width: 0;
+  padding: 10px 11px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.045);
+  border: 1px solid rgba(255,255,255,0.06);
 }
 
-.auto-preview-title {
-  font-size: 13px;
+.mini-info-k {
+  font-size: 11px;
+  color: #8fa0b7;
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+
+.mini-info-v {
+  font-size: 14px;
   font-weight: 800;
-  color: #dbe5f3;
+  color: #eef2ff;
+  line-height: 1.45;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
-.auto-preview-badges {
+.compact-badge-row {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+  margin-top: 8px;
 }
 
 .mini-badge {
@@ -251,6 +270,7 @@
   font-size: 11px;
   font-weight: 800;
   white-space: nowrap;
+  max-width: 100%;
 }
 
 .mini-badge-accent {
@@ -277,37 +297,10 @@
   color: #d4dbe7;
 }
 
-.preview-grid {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: 1fr;
-}
-
-.preview-item {
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: rgba(255,255,255,0.045);
-  border: 1px solid rgba(255,255,255,0.06);
-}
-
-.preview-k {
-  font-size: 11px;
-  color: #8fa0b7;
-  margin-bottom: 4px;
-  font-weight: 700;
-}
-
-.preview-v {
-  font-size: 15px;
-  font-weight: 800;
-  color: #eef2ff;
-  line-height: 1.45;
-  word-break: break-word;
-}
-
 .choice-grid {
   display: grid;
-  gap: 10px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .choice-grid-2 {
@@ -318,23 +311,24 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.choice-grid-side {
-  margin-top: 2px;
-}
-
 .choice-chip {
   appearance: none;
   -webkit-appearance: none;
   width: 100%;
-  min-height: 50px;
-  padding: 0 12px;
-  border-radius: 16px;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  padding: 0 10px;
+  border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.14);
   background: rgba(255,255,255,0.05);
   color: #dbe3f4;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 800;
   text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transition:
     transform 0.08s ease,
     border-color 0.16s ease,
@@ -367,8 +361,19 @@
   box-shadow: 0 0 0 4px rgba(244,63,94,0.14);
 }
 
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.form-grid-gap-top {
+  margin-top: 10px;
+}
+
 .field-errors {
-  margin-top: 7px;
+  margin-top: 6px;
   display: grid;
   gap: 4px;
   font-size: 12px;
@@ -386,8 +391,181 @@
   line-height: 1.65;
 }
 
+.live-preview-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(68px + env(safe-area-inset-bottom, 0px) + 74px);
+  z-index: 24;
+  padding: 0 10px;
+  pointer-events: none;
+}
+
+.live-preview-card {
+  pointer-events: auto;
+  max-width: 760px;
+  max-height: min(34vh, 320px);
+  overflow: auto;
+  margin: 0 auto;
+  padding: 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(15,20,34,0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow:
+    0 10px 28px rgba(0,0,0,0.24),
+    0 1px 0 rgba(255,255,255,0.05) inset;
+}
+
+.live-preview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.live-preview-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: #f4f7ff;
+}
+
+.live-preview-note {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #8fa0b7;
+}
+
+.live-preview-side-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  min-width: 64px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(99,102,241,0.28);
+  background: rgba(99,102,241,0.14);
+  color: #eef2ff;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.live-preview-side-badge[data-side="BUY"] {
+  border-color: rgba(16,185,129,0.34);
+  background: rgba(16,185,129,0.15);
+  color: #d9ffec;
+}
+
+.live-preview-side-badge[data-side="SELL"] {
+  border-color: rgba(244,63,94,0.34);
+  background: rgba(244,63,94,0.16);
+  color: #ffe4eb;
+}
+
+.live-preview-main {
+  min-width: 0;
+  margin-bottom: 8px;
+}
+
+.live-preview-code {
+  font-size: 12px;
+  font-weight: 800;
+  color: #9fb6ff;
+  letter-spacing: 0.03em;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.live-preview-name {
+  margin-top: 3px;
+  font-size: 19px;
+  font-weight: 800;
+  color: #f8fbff;
+  line-height: 1.35;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.live-preview-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.preview-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.06);
+  color: #dbe4f4;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.live-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.live-preview-item {
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 13px;
+  background: rgba(255,255,255,0.045);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.live-preview-k {
+  font-size: 10px;
+  color: #90a2ba;
+  margin-bottom: 4px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.live-preview-v {
+  font-size: 14px;
+  font-weight: 800;
+  color: #eef2ff;
+  line-height: 1.45;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.live-preview-memo {
+  margin-top: 8px;
+  padding: 9px 10px;
+  border-radius: 13px;
+  background: rgba(255,255,255,0.045);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.live-preview-memo-v {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.55;
+  color: #e5edff;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
 .bottom-safe-space {
-  height: 96px;
+  height: min(44vh, 390px);
 }
 
 .bottom-action-bar {
@@ -395,9 +573,9 @@
   left: 0;
   right: 0;
   bottom: calc(68px + env(safe-area-inset-bottom, 0px));
-  z-index: 30;
+  z-index: 25;
   display: grid;
-  grid-template-columns: 1fr 1.2fr;
+  grid-template-columns: 1fr 1.15fr;
   gap: 10px;
   max-width: 760px;
   margin: 0 auto;
@@ -446,44 +624,34 @@
   display: none !important;
 }
 
-@media (min-width: 720px) {
-  .preview-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 560px) {
   .holding-form-page {
-    padding: 12px 8px 140px;
+    padding: 10px 8px 150px;
   }
 
   .holding-form-title {
     font-size: 24px;
   }
 
-  .form-section-card {
-    padding: 12px;
-    border-radius: 18px;
-  }
-
   .field-input {
-    min-height: 52px;
-    font-size: 17px;
-    line-height: 52px;
+    min-height: 48px;
+    font-size: 16px;
+    line-height: 48px;
   }
 
   .field-input-lg {
-    min-height: 58px;
-    font-size: 19px;
-    line-height: 58px;
+    min-height: 54px;
+    font-size: 18px;
+    line-height: 54px;
   }
 
-  .choice-grid-3 {
-    grid-template-columns: 1fr;
+  .choice-chip {
+    min-height: 44px;
+    font-size: 14px;
+    padding: 0 8px;
   }
 
   .bottom-action-bar {
-    grid-template-columns: 1fr 1fr;
     padding: 0 8px;
   }
 
@@ -491,5 +659,30 @@
     min-height: 54px;
     font-size: 16px;
     border-radius: 16px;
+  }
+
+  .live-preview-card {
+    padding: 11px;
+    border-radius: 16px;
+  }
+
+  .live-preview-name {
+    font-size: 17px;
+  }
+}
+
+@media (max-width: 420px) {
+  .compact-auto-row,
+  .form-grid-2,
+  .live-preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .choice-grid-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .bottom-safe-space {
+    height: min(52vh, 440px);
   }
 }
