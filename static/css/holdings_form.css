@@ -4,13 +4,11 @@
 
 このファイルは何？
 - 保有追加 / 保有編集画面専用のCSSです。
-- 今回は「上で入力・下で即確認」の固定ライブプレビュー型にした版です。
+- 上で入力して、下の固定プレビューで確認しながら保存するスマホ向け画面です。
 
 今回の修正ポイント
-- 保有開始日の入力枠はみ出し防止
-- ライブプレビュー上部の説明文を削除した構成に調整
-- セクター / 株数 / 平均取得単価 / 保有開始日 / 想定取得額 をピル表示に変更
-- ライブプレビュー内部スクロールを廃止
+- 上側の銘柄名 / セクター表示を整理した前提で余白を調整
+- プレビューの証券会社 / 区分を色分け
 */
 
 * {
@@ -72,6 +70,10 @@
 
 .section-head-tight {
   margin-bottom: 8px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .section-title {
@@ -229,38 +231,6 @@
   border-color: rgba(148,163,184,0.22);
   background: rgba(148,163,184,0.08);
   color: #cbd5e1;
-}
-
-.compact-auto-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 10px;
-  min-width: 0;
-}
-
-.mini-info-box {
-  min-width: 0;
-  padding: 10px 11px;
-  border-radius: 14px;
-  background: rgba(255,255,255,0.045);
-  border: 1px solid rgba(255,255,255,0.06);
-}
-
-.mini-info-k {
-  font-size: 11px;
-  color: #8fa0b7;
-  margin-bottom: 4px;
-  font-weight: 700;
-}
-
-.mini-info-v {
-  font-size: 14px;
-  font-weight: 800;
-  color: #eef2ff;
-  line-height: 1.45;
-  word-break: break-word;
-  overflow-wrap: anywhere;
 }
 
 .compact-badge-row {
@@ -518,6 +488,42 @@
   max-width: 100%;
 }
 
+.preview-chip[data-kind="broker-rakuten"] {
+  border-color: rgba(99,102,241,0.34);
+  background: rgba(99,102,241,0.18);
+  color: #dbe4ff;
+}
+
+.preview-chip[data-kind="broker-sbi"] {
+  border-color: rgba(14,165,233,0.34);
+  background: rgba(14,165,233,0.16);
+  color: #d8f3ff;
+}
+
+.preview-chip[data-kind="broker-matsui"] {
+  border-color: rgba(16,185,129,0.34);
+  background: rgba(16,185,129,0.16);
+  color: #d7ffea;
+}
+
+.preview-chip[data-kind="account-spec"] {
+  border-color: rgba(148,163,184,0.28);
+  background: rgba(148,163,184,0.12);
+  color: #e2e8f0;
+}
+
+.preview-chip[data-kind="account-nisa"] {
+  border-color: rgba(245,158,11,0.34);
+  background: rgba(245,158,11,0.16);
+  color: #fde68a;
+}
+
+.preview-chip[data-kind="account-margin"] {
+  border-color: rgba(244,63,94,0.34);
+  background: rgba(244,63,94,0.16);
+  color: #fecdd3;
+}
+
 .live-preview-pill-row {
   display: flex;
   flex-wrap: wrap;
@@ -691,7 +697,6 @@
 }
 
 @media (max-width: 420px) {
-  .compact-auto-row,
   .form-grid-2 {
     grid-template-columns: 1fr;
   }
