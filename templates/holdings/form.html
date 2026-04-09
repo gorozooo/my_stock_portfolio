@@ -4,14 +4,12 @@
 
 このファイルは何？
 - 保有の追加 / 編集画面です。
-- 今回はスマホでの入力量とスクロール量を減らし、
-  上側を入力、下側をライブプレビューに分けた版です。
+- 上で入力して、下の固定プレビューで確認しながら保存する画面です。
 
 今回の修正ポイント
-- 下側ライブプレビューの見出し文言を削除
-- セクター / 株数 / 平均取得単価 / 保有開始日 / 想定取得単価をピル表示化
-- ライブプレビュー内スクロールをやめて、全部見える方向へ調整
-- 保有開始日の入力枠がはみ出ないようにレイアウトを補強
+- 入力欄側の「銘柄名」「セクター」表示を削除
+- コード入力から hidden の name / sector だけ自動反映する構成に整理
+- 下側プレビューで証券会社 / 区分を色分け表示
 -->
 
 {% extends "base.html" %}
@@ -19,7 +17,7 @@
 {% block title %}{% if mode == "edit" %}保有を編集{% else %}保有を追加{% endif %}{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/holdings_form.css' %}?v=20260409d">
+<link rel="stylesheet" href="{% static 'css/holdings_form.css' %}?v=20260410a">
 {% endblock %}
 
 {% block content %}
@@ -95,17 +93,6 @@
             {% endfor %}
           </div>
         {% endif %}
-      </div>
-
-      <div class="compact-auto-row">
-        <div class="mini-info-box">
-          <div class="mini-info-k">銘柄名</div>
-          <div class="mini-info-v" id="namePreview">{{ form.name.value|default_if_none:"未取得" }}</div>
-        </div>
-        <div class="mini-info-box">
-          <div class="mini-info-k">セクター</div>
-          <div class="mini-info-v" id="sectorPreview">{{ form.sector.value|default_if_none:"未取得" }}</div>
-        </div>
       </div>
 
       <div class="compact-badge-row">
@@ -286,8 +273,8 @@
         </div>
 
         <div class="live-preview-chip-row">
-          <span class="preview-chip" id="brokerPreviewChip">楽天</span>
-          <span class="preview-chip" id="accountPreviewChip">特定</span>
+          <span class="preview-chip" id="brokerPreviewChip" data-kind="broker-rakuten">楽天</span>
+          <span class="preview-chip" id="accountPreviewChip" data-kind="account-spec">特定</span>
           <span class="preview-chip" id="marketPreviewChip">—</span>
           <span class="preview-chip" id="currencyPreviewChip">—</span>
         </div>
@@ -313,7 +300,7 @@
             <span class="preview-data-pill-v" id="openedPreview">—</span>
           </div>
 
-          <div class="preview-data-pill" id="fxPreviewWrap">
+          <div class="preview-data-pill is-hidden" id="fxPreviewWrap">
             <span class="preview-data-pill-k">為替レート</span>
             <span class="preview-data-pill-v" id="fxPreview">—</span>
           </div>
@@ -360,8 +347,6 @@
   const sideSelect = form.querySelector('select[name="side"]');
 
   const lookupStatus = document.getElementById("lookupStatus");
-  const namePreview = document.getElementById("namePreview");
-  const sectorPreview = document.getElementById("sectorPreview");
   const marketBadge = document.getElementById("marketBadge");
   const currencyBadge = document.getElementById("currencyBadge");
   const fxFieldWrap = document.getElementById("fxFieldWrap");
@@ -395,10 +380,22 @@
     MATSUI: "松井"
   };
 
+  const brokerKindMap = {
+    RAKUTEN: "broker-rakuten",
+    SBI: "broker-sbi",
+    MATSUI: "broker-matsui"
+  };
+
   const accountLabelMap = {
     SPEC: "特定",
     NISA: "NISA",
     MARGIN: "信用"
+  };
+
+  const accountKindMap = {
+    SPEC: "account-spec",
+    NISA: "account-nisa",
+    MARGIN: "account-margin"
   };
 
   function toHalfWidth(str){
@@ -496,9 +493,6 @@
     const currency = (currencyInput.value || "").trim() || "JPY";
 
     codePreview.textContent = code || "—";
-    namePreview.textContent = name || "未取得";
-    sectorPreview.textContent = sector || "未取得";
-
     namePreviewDock.textContent = name || "銘柄名を取得します";
     sectorPreviewDock.textContent = sector || "—";
 
@@ -553,11 +547,13 @@
     if (group === "broker" && brokerSelect) {
       brokerSelect.value = value;
       brokerPreviewChip.textContent = brokerLabelMap[value] || value || "—";
+      brokerPreviewChip.dataset.kind = brokerKindMap[value] || "";
     }
 
     if (group === "account" && accountSelect) {
       accountSelect.value = value;
       accountPreviewChip.textContent = accountLabelMap[value] || value || "—";
+      accountPreviewChip.dataset.kind = accountKindMap[value] || "";
     }
 
     if (group === "side" && sideSelect) {
