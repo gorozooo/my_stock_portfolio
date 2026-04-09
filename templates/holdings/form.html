@@ -4,14 +4,15 @@
 
 このファイルは何？
 - 保有の追加 / 編集画面です。
-- 今回はスマホで入力しやすいように、画面構成を全面的に作り直した版です。
+- 今回はスマホでの入力量とスクロール量を減らし、
+  上側を入力、下側をライブプレビューに分けた版です。
 
-今回の作り直しポイント
-- 1カラム中心で、入力の流れが上から順に分かる構成に変更
-- 証券会社 / 口座区分 / BUY/SELL をタップしやすいチップUIに変更
-- コード入力で、銘柄名 / セクター / 市場 / 通貨をその場で見える化
-- 米国株など JPY 以外の時だけ為替レート欄を表示
-- 下部固定アクションで「保存」「戻る」を押しやすくする
+今回の修正ポイント
+- 下 1/3 前後を固定ライブプレビューに変更
+- 銘柄名 / セクターはコードから自動反映のみ（手入力欄なし）
+- 証券会社は 楽天 / SBI / 松井 のみ
+- 保有開始日を入力側にしっかり残す
+- はみ出し防止を強めに調整
 -->
 
 {% extends "base.html" %}
@@ -19,7 +20,7 @@
 {% block title %}{% if mode == "edit" %}保有を編集{% else %}保有を追加{% endif %}{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/holdings_form.css' %}?v=20260409a">
+<link rel="stylesheet" href="{% static 'css/holdings_form.css' %}?v=20260409c">
 {% endblock %}
 
 {% block content %}
@@ -27,17 +28,28 @@
   <div class="holding-form-header">
     <h1 class="holding-form-title">{% if mode == "edit" %}保有を編集{% else %}保有を追加{% endif %}</h1>
     <p class="holding-form-subtitle">
-      コード入力 → 条件選択 → 数量入力、の順で入れればOKです。
-      日本株 / 米国株はコードから自動判定します。
+      上で入力、下で確認するだけです。コードから日本株 / 米国株を自動判定します。
     </p>
   </div>
 
   <form method="post" class="holding-form-shell" id="holdingForm" novalidate>
     {% csrf_token %}
 
-    {# Hidden fields（既存フォームと整合を取るため残す） #}
+    {# Hidden fields（既存 backend と整合） #}
     {{ form.market }}
     {{ form.currency }}
+
+    <input
+      type="hidden"
+      id="id_name"
+      name="name"
+      value="{{ form.name.value|default_if_none:'' }}">
+
+    <input
+      type="hidden"
+      id="id_sector"
+      name="sector"
+      value="{{ form.sector.value|default_if_none:'' }}">
 
     <div class="native-hidden">
       {{ form.broker }}
@@ -53,15 +65,16 @@
       </div>
     {% endif %}
 
-    <section class="form-section-card">
-      <div class="section-head">
-        <div class="section-kicker">STEP 1</div>
-        <div class="section-title">コードを入れる</div>
-        <div class="section-note">例: 7203 / AAPL</div>
+    <section class="form-section-card form-section-tight">
+      <div class="section-head section-head-tight">
+        <div>
+          <div class="section-title">コード</div>
+          <div class="section-note">7203 / AAPL</div>
+        </div>
+        <div class="lookup-status" id="lookupStatus" data-mode="idle">未判定</div>
       </div>
 
       <div class="field-block">
-        <label class="field-label" for="id_ticker">コード</label>
         <div class="code-input-wrap">
           <input
             id="id_ticker"
@@ -75,7 +88,6 @@
             class="field-input field-input-lg"
             placeholder="7203 / AAPL"
             value="{{ form.ticker.value|default_if_none:'' }}">
-          <div class="lookup-status" id="lookupStatus">未判定</div>
         </div>
         {% if form.ticker.errors %}
           <div class="field-errors">
@@ -86,80 +98,35 @@
         {% endif %}
       </div>
 
-      <div class="auto-preview-card">
-        <div class="auto-preview-top">
-          <div class="auto-preview-title">自動判定プレビュー</div>
-          <div class="auto-preview-badges">
-            <span class="mini-badge" id="marketBadge">—</span>
-            <span class="mini-badge mini-badge-accent" id="currencyBadge">—</span>
-          </div>
+      <div class="compact-auto-row">
+        <div class="mini-info-box">
+          <div class="mini-info-k">銘柄名</div>
+          <div class="mini-info-v" id="namePreview">{{ form.name.value|default_if_none:"未取得" }}</div>
         </div>
-
-        <div class="preview-grid">
-          <div class="preview-item">
-            <div class="preview-k">銘柄名</div>
-            <div class="preview-v" id="namePreview">{{ form.name.value|default_if_none:"未取得" }}</div>
-          </div>
-          <div class="preview-item">
-            <div class="preview-k">セクター</div>
-            <div class="preview-v" id="sectorPreview">{{ form.sector.value|default_if_none:"未取得" }}</div>
-          </div>
+        <div class="mini-info-box">
+          <div class="mini-info-k">セクター</div>
+          <div class="mini-info-v" id="sectorPreview">{{ form.sector.value|default_if_none:"未取得" }}</div>
         </div>
       </div>
 
-      <div class="field-block">
-        <label class="field-label" for="id_name">銘柄名</label>
-        <input
-          id="id_name"
-          type="text"
-          name="name"
-          autocomplete="off"
-          class="field-input"
-          placeholder="コード入力で自動反映（手修正OK）"
-          value="{{ form.name.value|default_if_none:'' }}">
-        {% if form.name.errors %}
-          <div class="field-errors">
-            {% for err in form.name.errors %}
-              <div>{{ err }}</div>
-            {% endfor %}
-          </div>
-        {% endif %}
-      </div>
-
-      <div class="field-block">
-        <label class="field-label" for="id_sector">セクター</label>
-        <input
-          id="id_sector"
-          type="text"
-          name="sector"
-          autocomplete="off"
-          class="field-input"
-          placeholder="コード入力で自動反映（33業種分類）"
-          value="{{ form.sector.value|default_if_none:'' }}">
-        {% if form.sector.errors %}
-          <div class="field-errors">
-            {% for err in form.sector.errors %}
-              <div>{{ err }}</div>
-            {% endfor %}
-          </div>
-        {% endif %}
+      <div class="compact-badge-row">
+        <span class="mini-badge" id="marketBadge" data-kind="idle">—</span>
+        <span class="mini-badge mini-badge-accent" id="currencyBadge" data-kind="idle">—</span>
       </div>
     </section>
 
-    <section class="form-section-card">
-      <div class="section-head">
-        <div class="section-kicker">STEP 2</div>
-        <div class="section-title">条件を選ぶ</div>
-        <div class="section-note">タップで選択できます</div>
+    <section class="form-section-card form-section-tight">
+      <div class="section-head section-head-tight">
+        <div class="section-title">条件</div>
+        <div class="section-note">タップで選択</div>
       </div>
 
       <div class="field-block">
         <div class="field-label">証券会社</div>
-        <div class="choice-grid choice-grid-2" data-choice-group="broker">
-          <button type="button" class="choice-chip" data-choice-btn data-choice-group="broker" data-choice-value="RAKUTEN">楽天証券</button>
-          <button type="button" class="choice-chip" data-choice-btn data-choice-group="broker" data-choice-value="SBI">SBI証券</button>
-          <button type="button" class="choice-chip" data-choice-btn data-choice-group="broker" data-choice-value="MATSUI">松井証券</button>
-          <button type="button" class="choice-chip" data-choice-btn data-choice-group="broker" data-choice-value="OTHER">その他</button>
+        <div class="choice-grid choice-grid-3" data-choice-group="broker">
+          <button type="button" class="choice-chip" data-choice-btn data-choice-group="broker" data-choice-value="RAKUTEN">楽天</button>
+          <button type="button" class="choice-chip" data-choice-btn data-choice-group="broker" data-choice-value="SBI">SBI</button>
+          <button type="button" class="choice-chip" data-choice-btn data-choice-group="broker" data-choice-value="MATSUI">松井</button>
         </div>
         {% if form.broker.errors %}
           <div class="field-errors">
@@ -188,7 +155,7 @@
 
       <div class="field-block">
         <div class="field-label">BUY / SELL</div>
-        <div class="choice-grid choice-grid-2 choice-grid-side" data-choice-group="side">
+        <div class="choice-grid choice-grid-2" data-choice-group="side">
           <button type="button" class="choice-chip choice-chip-buy" data-choice-btn data-choice-group="side" data-choice-value="BUY">BUY</button>
           <button type="button" class="choice-chip choice-chip-sell" data-choice-btn data-choice-group="side" data-choice-value="SELL">SELL</button>
         </div>
@@ -202,106 +169,101 @@
       </div>
     </section>
 
-    <section class="form-section-card">
-      <div class="section-head">
-        <div class="section-kicker">STEP 3</div>
-        <div class="section-title">数量と単価を入れる</div>
-        <div class="section-note">ここがメイン入力です</div>
+    <section class="form-section-card form-section-tight">
+      <div class="section-head section-head-tight">
+        <div class="section-title">入力</div>
+        <div class="section-note">数量 / 単価 / 開始日</div>
       </div>
 
-      <div class="field-block">
-        <label class="field-label" for="id_quantity">株数</label>
-        <input
-          id="id_quantity"
-          type="number"
-          step="0.01"
-          inputmode="decimal"
-          name="quantity"
-          class="field-input field-input-lg"
-          placeholder="例: 100"
-          value="{% if form.quantity.value and form.quantity.value != '0' %}{{ form.quantity.value }}{% endif %}">
-        {% if form.quantity.errors %}
-          <div class="field-errors">
-            {% for err in form.quantity.errors %}
-              <div>{{ err }}</div>
-            {% endfor %}
-          </div>
-        {% endif %}
+      <div class="form-grid-2">
+        <div class="field-block field-block-no-margin">
+          <label class="field-label" for="id_quantity">株数</label>
+          <input
+            id="id_quantity"
+            type="number"
+            step="0.01"
+            inputmode="decimal"
+            name="quantity"
+            class="field-input"
+            placeholder="100"
+            value="{% if form.quantity.value and form.quantity.value != '0' %}{{ form.quantity.value }}{% endif %}">
+          {% if form.quantity.errors %}
+            <div class="field-errors">
+              {% for err in form.quantity.errors %}
+                <div>{{ err }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="field-block field-block-no-margin">
+          <label class="field-label" for="id_avg_cost">平均取得単価</label>
+          <input
+            id="id_avg_cost"
+            type="number"
+            step="0.01"
+            inputmode="decimal"
+            name="avg_cost"
+            class="field-input"
+            placeholder="2780.5 / 187.25"
+            value="{% if form.avg_cost.value and form.avg_cost.value != '0' %}{{ form.avg_cost.value }}{% endif %}">
+          {% if form.avg_cost.errors %}
+            <div class="field-errors">
+              {% for err in form.avg_cost.errors %}
+                <div>{{ err }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
       </div>
 
-      <div class="field-block">
-        <label class="field-label" for="id_avg_cost">平均取得単価</label>
-        <input
-          id="id_avg_cost"
-          type="number"
-          step="0.01"
-          inputmode="decimal"
-          name="avg_cost"
-          class="field-input field-input-lg"
-          placeholder="例: 2780.5 / 187.25"
-          value="{% if form.avg_cost.value and form.avg_cost.value != '0' %}{{ form.avg_cost.value }}{% endif %}">
-        {% if form.avg_cost.errors %}
-          <div class="field-errors">
-            {% for err in form.avg_cost.errors %}
-              <div>{{ err }}</div>
-            {% endfor %}
-          </div>
-        {% endif %}
-      </div>
-    </section>
+      <div class="form-grid-2 form-grid-gap-top">
+        <div class="field-block field-block-no-margin">
+          <label class="field-label" for="id_opened_at">保有開始日</label>
+          <input
+            id="id_opened_at"
+            type="date"
+            name="opened_at"
+            class="field-input"
+            value="{{ form.opened_at.value|default_if_none:'' }}">
+          {% if form.opened_at.errors %}
+            <div class="field-errors">
+              {% for err in form.opened_at.errors %}
+                <div>{{ err }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
 
-    <section class="form-section-card">
-      <div class="section-head">
-        <div class="section-kicker">STEP 4</div>
-        <div class="section-title">追加情報</div>
-        <div class="section-note">必要なものだけ入れれば大丈夫です</div>
-      </div>
-
-      <div class="field-block">
-        <label class="field-label" for="id_opened_at">保有開始日</label>
-        <input
-          id="id_opened_at"
-          type="date"
-          name="opened_at"
-          class="field-input"
-          value="{{ form.opened_at.value|default_if_none:'' }}">
-        {% if form.opened_at.errors %}
-          <div class="field-errors">
-            {% for err in form.opened_at.errors %}
-              <div>{{ err }}</div>
-            {% endfor %}
-          </div>
-        {% endif %}
+        <div class="field-block field-block-no-margin is-hidden" id="fxFieldWrap">
+          <label class="field-label" for="id_fx_rate">為替レート</label>
+          <input
+            id="id_fx_rate"
+            type="text"
+            name="fx_rate"
+            inputmode="decimal"
+            autocomplete="off"
+            class="field-input"
+            placeholder="155.250000"
+            value="{{ form.fx_rate.value|default_if_none:'' }}">
+          <div class="field-help" id="fxHelpText">1通貨あたりの円を入力します。</div>
+          {% if form.fx_rate.errors %}
+            <div class="field-errors">
+              {% for err in form.fx_rate.errors %}
+                <div>{{ err }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
       </div>
 
-      <div class="field-block" id="fxFieldWrap">
-        <label class="field-label" for="id_fx_rate">為替レート</label>
-        <input
-          id="id_fx_rate"
-          type="text"
-          name="fx_rate"
-          inputmode="decimal"
-          autocomplete="off"
-          class="field-input"
-          placeholder="米国株などJPY以外のとき必須。例: 155.250000"
-          value="{{ form.fx_rate.value|default_if_none:'' }}">
-        <div class="field-help" id="fxHelpText">1通貨あたりの円を入力します。</div>
-        {% if form.fx_rate.errors %}
-          <div class="field-errors">
-            {% for err in form.fx_rate.errors %}
-              <div>{{ err }}</div>
-            {% endfor %}
-          </div>
-        {% endif %}
-      </div>
-
-      <div class="field-block">
+      <div class="field-block field-block-gap-top">
         <label class="field-label" for="id_memo">メモ</label>
         <textarea
           id="id_memo"
           name="memo"
-          class="field-textarea"
-          placeholder="売買理由、補足、あとで見返したいことなど">{{ form.memo.value|default_if_none:'' }}</textarea>
+          class="field-textarea field-textarea-compact"
+          placeholder="売買理由、補足、あとで見返したいこと">{{ form.memo.value|default_if_none:'' }}</textarea>
         {% if form.memo.errors %}
           <div class="field-errors">
             {% for err in form.memo.errors %}
@@ -313,6 +275,62 @@
     </section>
 
     <div class="bottom-safe-space"></div>
+
+    <div class="live-preview-dock">
+      <div class="live-preview-card">
+        <div class="live-preview-head">
+          <div>
+            <div class="live-preview-title">登録プレビュー</div>
+            <div class="live-preview-note">下を見れば今の入力内容がそのまま分かります</div>
+          </div>
+          <div class="live-preview-side-badge" id="sidePreviewBadge">BUY</div>
+        </div>
+
+        <div class="live-preview-main">
+          <div class="live-preview-code" id="codePreview">{{ form.ticker.value|default_if_none:"—" }}</div>
+          <div class="live-preview-name" id="namePreviewDock">{{ form.name.value|default_if_none:"銘柄名を取得します" }}</div>
+        </div>
+
+        <div class="live-preview-chip-row">
+          <span class="preview-chip" id="brokerPreviewChip">楽天</span>
+          <span class="preview-chip" id="accountPreviewChip">特定</span>
+          <span class="preview-chip" id="marketPreviewChip">—</span>
+          <span class="preview-chip" id="currencyPreviewChip">—</span>
+        </div>
+
+        <div class="live-preview-grid">
+          <div class="live-preview-item">
+            <div class="live-preview-k">セクター</div>
+            <div class="live-preview-v" id="sectorPreviewDock">{{ form.sector.value|default_if_none:"—" }}</div>
+          </div>
+          <div class="live-preview-item">
+            <div class="live-preview-k">株数</div>
+            <div class="live-preview-v" id="qtyPreview">—</div>
+          </div>
+          <div class="live-preview-item">
+            <div class="live-preview-k">平均取得単価</div>
+            <div class="live-preview-v" id="avgCostPreview">—</div>
+          </div>
+          <div class="live-preview-item">
+            <div class="live-preview-k">保有開始日</div>
+            <div class="live-preview-v" id="openedPreview">—</div>
+          </div>
+          <div class="live-preview-item" id="fxPreviewWrap">
+            <div class="live-preview-k">為替レート</div>
+            <div class="live-preview-v" id="fxPreview">—</div>
+          </div>
+          <div class="live-preview-item">
+            <div class="live-preview-k">想定取得額</div>
+            <div class="live-preview-v" id="estimatePreview">—</div>
+          </div>
+        </div>
+
+        <div class="live-preview-memo">
+          <div class="live-preview-k">メモ</div>
+          <div class="live-preview-memo-v" id="memoPreview">なし</div>
+        </div>
+      </div>
+    </div>
 
     <div class="bottom-action-bar">
       <a href="{% url 'holding_list' %}" class="bottom-action-btn bottom-action-btn-sub">戻る</a>
@@ -333,7 +351,11 @@
   const sectorInput = form.querySelector('input[name="sector"]');
   const marketInput = form.querySelector('input[name="market"]');
   const currencyInput = form.querySelector('input[name="currency"]');
+  const qtyInput = form.querySelector('input[name="quantity"]');
+  const avgCostInput = form.querySelector('input[name="avg_cost"]');
+  const openedInput = form.querySelector('input[name="opened_at"]');
   const fxInput = form.querySelector('input[name="fx_rate"]');
+  const memoInput = form.querySelector('textarea[name="memo"]');
 
   const brokerSelect = form.querySelector('select[name="broker"]');
   const accountSelect = form.querySelector('select[name="account"]');
@@ -347,14 +369,38 @@
   const fxFieldWrap = document.getElementById("fxFieldWrap");
   const fxHelpText = document.getElementById("fxHelpText");
 
+  const codePreview = document.getElementById("codePreview");
+  const namePreviewDock = document.getElementById("namePreviewDock");
+  const sectorPreviewDock = document.getElementById("sectorPreviewDock");
+  const brokerPreviewChip = document.getElementById("brokerPreviewChip");
+  const accountPreviewChip = document.getElementById("accountPreviewChip");
+  const marketPreviewChip = document.getElementById("marketPreviewChip");
+  const currencyPreviewChip = document.getElementById("currencyPreviewChip");
+  const sidePreviewBadge = document.getElementById("sidePreviewBadge");
+  const qtyPreview = document.getElementById("qtyPreview");
+  const avgCostPreview = document.getElementById("avgCostPreview");
+  const openedPreview = document.getElementById("openedPreview");
+  const fxPreviewWrap = document.getElementById("fxPreviewWrap");
+  const fxPreview = document.getElementById("fxPreview");
+  const estimatePreview = document.getElementById("estimatePreview");
+  const memoPreview = document.getElementById("memoPreview");
+
   const state = {
-    userEditedName: false,
-    userEditedSector: false,
-    lastCode: "",
-    lastName: "",
-    lastSector: "",
     timer: null,
     controller: null,
+    lastCode: "",
+  };
+
+  const brokerLabelMap = {
+    RAKUTEN: "楽天",
+    SBI: "SBI",
+    MATSUI: "松井"
+  };
+
+  const accountLabelMap = {
+    SPEC: "特定",
+    NISA: "NISA",
+    MARGIN: "信用"
   };
 
   function toHalfWidth(str){
@@ -381,16 +427,18 @@
     return { market: "", currency: "", status: "未判定" };
   }
 
+  function formatNumber(value, digits){
+    const num = Number(value);
+    if (!isFinite(num)) return "—";
+    return num.toLocaleString("ja-JP", {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits
+    });
+  }
+
   function setLookupStatus(text, mode){
     lookupStatus.textContent = text || "未判定";
     lookupStatus.dataset.mode = mode || "idle";
-  }
-
-  function updatePreviewTexts(){
-    const name = (nameInput?.value || "").trim();
-    const sector = (sectorInput?.value || "").trim();
-    namePreview.textContent = name || "未取得";
-    sectorPreview.textContent = sector || "未取得";
   }
 
   function updateMarketCurrencyUI(code){
@@ -401,6 +449,9 @@
 
     marketBadge.textContent = meta.market || "—";
     currencyBadge.textContent = meta.currency || "—";
+
+    marketPreviewChip.textContent = meta.market || "—";
+    currencyPreviewChip.textContent = meta.currency || "—";
 
     if (!meta.market) {
       marketBadge.dataset.kind = "idle";
@@ -417,6 +468,9 @@
     if (fxFieldWrap) {
       fxFieldWrap.classList.toggle("is-hidden", !showFx);
     }
+    if (fxPreviewWrap) {
+      fxPreviewWrap.classList.toggle("is-hidden", !showFx);
+    }
     if (fxHelpText) {
       fxHelpText.textContent = showFx
         ? "1通貨あたりの円を入力します。米国株では必須です。"
@@ -432,6 +486,64 @@
     }
   }
 
+  function updatePreviewTexts(){
+    const code = (tickerInput.value || "").trim();
+    const name = (nameInput.value || "").trim();
+    const sector = (sectorInput.value || "").trim();
+    const qty = (qtyInput.value || "").trim();
+    const avgCost = (avgCostInput.value || "").trim();
+    const opened = (openedInput.value || "").trim();
+    const fx = (fxInput.value || "").trim();
+    const memo = (memoInput.value || "").trim();
+    const currency = (currencyInput.value || "").trim() || "JPY";
+
+    codePreview.textContent = code || "—";
+    namePreview.textContent = name || "未取得";
+    sectorPreview.textContent = sector || "未取得";
+
+    namePreviewDock.textContent = name || "銘柄名を取得します";
+    sectorPreviewDock.textContent = sector || "—";
+
+    qtyPreview.textContent = qty ? formatNumber(qty, 2).replace(/\.00$/, "") + " 株" : "—";
+
+    if (avgCost) {
+      if (currency !== "JPY") {
+        avgCostPreview.textContent = formatNumber(avgCost, 2) + " " + currency;
+      } else {
+        avgCostPreview.textContent = "¥" + formatNumber(avgCost, 2);
+      }
+    } else {
+      avgCostPreview.textContent = "—";
+    }
+
+    openedPreview.textContent = opened || "—";
+
+    if (currency !== "JPY") {
+      fxPreview.textContent = fx ? formatNumber(fx, 6) + " 円" : "—";
+    } else {
+      fxPreview.textContent = "不要";
+    }
+
+    memoPreview.textContent = memo || "なし";
+
+    const qtyNum = Number(qty);
+    const avgNum = Number(avgCost);
+    if (isFinite(qtyNum) && isFinite(avgNum) && qty !== "" && avgCost !== "") {
+      const total = qtyNum * avgNum;
+      if (currency !== "JPY") {
+        estimatePreview.textContent = formatNumber(total, 2) + " " + currency;
+      } else {
+        estimatePreview.textContent = "¥" + formatNumber(total, 0);
+      }
+    } else {
+      estimatePreview.textContent = "—";
+    }
+
+    const side = (sideSelect?.value || "BUY").toUpperCase();
+    sidePreviewBadge.textContent = side;
+    sidePreviewBadge.dataset.side = side;
+  }
+
   function renderChoiceGroup(group, value){
     const selector = '[data-choice-btn][data-choice-group="' + group + '"]';
     document.querySelectorAll(selector).forEach((btn) => {
@@ -442,20 +554,38 @@
   function syncChoice(group, value){
     if (group === "broker" && brokerSelect) {
       brokerSelect.value = value;
+      brokerPreviewChip.textContent = brokerLabelMap[value] || value || "—";
     }
+
     if (group === "account" && accountSelect) {
       accountSelect.value = value;
+      accountPreviewChip.textContent = accountLabelMap[value] || value || "—";
     }
+
     if (group === "side" && sideSelect) {
       sideSelect.value = value;
     }
+
     renderChoiceGroup(group, value);
+    updatePreviewTexts();
   }
 
   function initChoiceGroups(){
-    if (brokerSelect) syncChoice("broker", brokerSelect.value || "RAKUTEN");
-    if (accountSelect) syncChoice("account", accountSelect.value || "SPEC");
-    if (sideSelect) syncChoice("side", sideSelect.value || "BUY");
+    const brokerValue = brokerSelect && ["RAKUTEN", "SBI", "MATSUI"].includes(brokerSelect.value)
+      ? brokerSelect.value
+      : "RAKUTEN";
+
+    const accountValue = accountSelect && ["SPEC", "NISA", "MARGIN"].includes(accountSelect.value)
+      ? accountSelect.value
+      : "SPEC";
+
+    const sideValue = sideSelect && ["BUY", "SELL"].includes(sideSelect.value)
+      ? sideSelect.value
+      : "BUY";
+
+    syncChoice("broker", brokerValue);
+    syncChoice("account", accountValue);
+    syncChoice("side", sideValue);
   }
 
   function applyLookupData(data){
@@ -466,48 +596,29 @@
       tickerInput.value = normalizedCode;
     }
 
-    updateMarketCurrencyUI(normalizedCode);
-
-    const codeChanged = normalizedCode && normalizedCode !== state.lastCode;
-
-    const currentName = (nameInput.value || "").trim();
-    const currentSector = (sectorInput.value || "").trim();
-
-    const canOverwriteName =
-      !state.userEditedName ||
-      !currentName ||
-      currentName === state.lastName;
-
-    const canOverwriteSector =
-      !state.userEditedSector ||
-      !currentSector ||
-      currentSector === state.lastSector;
-
-    if (data.name && (codeChanged || canOverwriteName)) {
-      nameInput.value = data.name;
-      state.userEditedName = false;
+    if (data.name !== undefined) {
+      nameInput.value = data.name || "";
     }
-
-    if (data.sector !== undefined && (codeChanged || canOverwriteSector)) {
+    if (data.sector !== undefined) {
       sectorInput.value = data.sector || "";
-      state.userEditedSector = false;
     }
 
     state.lastCode = normalizedCode;
-    state.lastName = (nameInput.value || "").trim();
-    state.lastSector = (sectorInput.value || "").trim();
-
+    updateMarketCurrencyUI(normalizedCode);
     updatePreviewTexts();
     setLookupStatus("自動反映しました", "ok");
   }
 
-  function lookupCode(immediate){
+  function lookupCode(){
     const code = normalizeTickerValue(tickerInput.value || "");
     tickerInput.value = code;
     updateMarketCurrencyUI(code);
     updatePreviewTexts();
 
     if (!code) {
+      nameInput.value = "";
+      sectorInput.value = "";
+      updatePreviewTexts();
       return;
     }
 
@@ -540,8 +651,8 @@
       clearTimeout(state.timer);
     }
     state.timer = setTimeout(() => {
-      lookupCode(false);
-    }, 380);
+      lookupCode();
+    }, 320);
   }
 
   tickerInput.addEventListener("input", function(){
@@ -553,26 +664,18 @@
   });
 
   tickerInput.addEventListener("blur", function(){
-    lookupCode(true);
+    lookupCode();
   });
 
   tickerInput.addEventListener("change", function(){
-    lookupCode(true);
+    lookupCode();
   });
 
-  if (nameInput) {
-    nameInput.addEventListener("input", function(){
-      state.userEditedName = true;
-      updatePreviewTexts();
-    });
-  }
-
-  if (sectorInput) {
-    sectorInput.addEventListener("input", function(){
-      state.userEditedSector = true;
-      updatePreviewTexts();
-    });
-  }
+  [qtyInput, avgCostInput, openedInput, fxInput, memoInput].forEach((el) => {
+    if (!el) return;
+    el.addEventListener("input", updatePreviewTexts);
+    el.addEventListener("change", updatePreviewTexts);
+  });
 
   document.querySelectorAll("[data-choice-btn]").forEach((btn) => {
     btn.addEventListener("click", function(){
@@ -583,15 +686,15 @@
   });
 
   initChoiceGroups();
-  updatePreviewTexts();
 
   const initialCode = normalizeTickerValue(tickerInput.value || "");
   if (initialCode) {
     tickerInput.value = initialCode;
     updateMarketCurrencyUI(initialCode);
-    lookupCode(true);
+    lookupCode();
   } else {
     updateMarketCurrencyUI("");
+    updatePreviewTexts();
   }
 })();
 </script>
