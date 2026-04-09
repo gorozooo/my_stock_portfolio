@@ -1,3 +1,19 @@
+<!--
+[FILE] _close_sheet.html
+[PATH] templates/realized/_close_sheet.html
+
+このファイルは何？
+- 保有のクローズ（SELL / BUY）入力画面です。
+- 上で入力して、下の固定プレビューで内容を確認しながら記録する画面です。
+
+今回の作り直しポイント
+- 上側を入力エリア、下側を固定プレビューに整理
+- SELL / BUY の切替を見やすく
+- 数量 / 単価 / 手数料 / 税金 / 実損 を入力しながら、下で即確認
+- JPY以外のときだけ為替レートを表示
+- 下部固定アクションで「キャンセル / 記録」を押しやすくする
+-->
+
 {% extends "base.html" %}
 {% load humanize %}
 
@@ -5,213 +21,1037 @@
 
 {% block head %}
 <style>
-  .sheet { max-width: 720px; margin: 12px auto; padding: 12px; }
-  .sheet .in{appearance:none;-webkit-appearance:none;width:100%;border-radius:12px;padding:12px 14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#e9ecff;outline:none;transition:.15s}
-  .sheet .in::placeholder{color:rgba(233,236,255,.45)}
-  .sheet .in:focus{border-color:rgba(99,102,241,.55);box-shadow:0 0 0 3px rgba(99,102,241,.22)}
-  .sheet .btn-primary{width:100%;border:0;border-radius:14px;padding:14px 16px;background:linear-gradient(180deg,#6d73ff,#5561f2);color:#fff;font-weight:700}
-  .sheet .btn-ghost{width:100%;border:1px solid rgba(255,255,255,.15);border-radius:14px;padding:14px 16px;color:#e9ecff;background:transparent}
-  .sheet .sheet-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  .sheet .sheet-title{font-weight:700;font-size:18px;margin-bottom:10px}
-  .sheet .sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-  .sheet .label{font-size:12px;color:#a7b1d8}
-  .tabs{display:flex;gap:8px;margin:8px 0 12px}
-  .tab{padding:8px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.15);cursor:pointer}
-  .tab.active{background:rgba(255,255,255,.12)}
-  .sign-wrap{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center}
-  .sign-btn{min-width:38px;padding:10px 0;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e9ecff}
-  @media (max-width: 420px){ .sheet { padding: 8px } }
+  *{box-sizing:border-box}
+
+  .close-page{
+    max-width:760px;
+    margin:0 auto;
+    padding:12px 10px 164px;
+    color:#e9ecff;
+  }
+
+  .close-head{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:12px;
+    margin-bottom:10px;
+  }
+
+  .close-head-main{
+    min-width:0;
+    flex:1 1 auto;
+  }
+
+  .close-title{
+    margin:0;
+    font-size:24px;
+    font-weight:800;
+    line-height:1.25;
+    color:#f8fbff;
+    word-break:break-word;
+  }
+
+  .close-sub{
+    margin-top:6px;
+    font-size:12px;
+    line-height:1.6;
+    color:#94a3b8;
+  }
+
+  .close-head-link{
+    flex:0 0 auto;
+    border:0;
+    background:none;
+    color:#c7d2fe;
+    font-size:13px;
+    font-weight:800;
+    text-decoration:underline;
+    padding:2px 0;
+  }
+
+  .close-form{
+    display:grid;
+    gap:10px;
+    min-width:0;
+  }
+
+  .close-card{
+    min-width:0;
+    overflow:hidden;
+    padding:12px;
+    border-radius:18px;
+    border:1px solid rgba(255,255,255,.08);
+    background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.05) inset,
+      0 10px 28px rgba(0,0,0,.14);
+  }
+
+  .close-card-head{
+    margin-bottom:10px;
+  }
+
+  .close-card-title{
+    font-size:18px;
+    font-weight:800;
+    line-height:1.2;
+    color:#f4f7ff;
+  }
+
+  .close-card-note{
+    margin-top:3px;
+    font-size:11px;
+    line-height:1.5;
+    color:#8fa0b7;
+  }
+
+  .close-tabs{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:8px;
+    margin-top:2px;
+  }
+
+  .close-tab{
+    appearance:none;
+    -webkit-appearance:none;
+    width:100%;
+    min-height:48px;
+    padding:0 10px;
+    border-radius:14px;
+    border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.05);
+    color:#dbe3f4;
+    font-size:15px;
+    font-weight:800;
+    text-align:center;
+    transition:
+      transform .08s ease,
+      border-color .16s ease,
+      background .16s ease,
+      box-shadow .16s ease;
+  }
+
+  .close-tab:active{
+    transform:scale(.985);
+  }
+
+  .close-tab.active[data-side="SELL"]{
+    border-color:rgba(244,63,94,.42);
+    background:rgba(244,63,94,.16);
+    color:#ffe4eb;
+    box-shadow:0 0 0 4px rgba(244,63,94,.12);
+  }
+
+  .close-tab.active[data-side="BUY"]{
+    border-color:rgba(16,185,129,.42);
+    background:rgba(16,185,129,.16);
+    color:#dfffee;
+    box-shadow:0 0 0 4px rgba(16,185,129,.12);
+  }
+
+  .field-grid-2{
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0,1fr));
+    gap:10px;
+    min-width:0;
+  }
+
+  .field-grid-2 > *{
+    min-width:0;
+  }
+
+  .field-block{
+    min-width:0;
+  }
+
+  .field-block + .field-block{
+    margin-top:10px;
+  }
+
+  .field-label{
+    display:block;
+    margin-bottom:6px;
+    font-size:12px;
+    font-weight:700;
+    color:#cfd8ea;
+  }
+
+  .field-help{
+    margin-top:5px;
+    font-size:11px;
+    line-height:1.5;
+    color:#8fa0b7;
+  }
+
+  .hold-note{
+    margin-top:5px;
+    font-size:11px;
+    color:#94a3b8;
+  }
+
+  .close-in{
+    appearance:none;
+    -webkit-appearance:none;
+    width:100%;
+    max-width:100%;
+    min-width:0;
+    min-height:50px;
+    padding:0 14px;
+    border-radius:15px;
+    border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.06);
+    color:#eef2ff;
+    outline:none;
+    font-size:17px;
+    font-weight:700;
+    line-height:50px;
+    transition:
+      border-color .16s ease,
+      box-shadow .16s ease,
+      background .16s ease;
+  }
+
+  .close-in::placeholder{
+    color:rgba(233,236,255,.45);
+    font-weight:600;
+  }
+
+  .close-in:focus{
+    border-color:rgba(99,102,241,.55);
+    box-shadow:0 0 0 4px rgba(99,102,241,.18);
+    background:rgba(255,255,255,.08);
+  }
+
+  .close-textarea{
+    min-height:84px;
+    padding:12px 14px;
+    line-height:1.6;
+    resize:vertical;
+  }
+
+  .sign-wrap{
+    display:grid;
+    grid-template-columns:52px minmax(0,1fr) 52px;
+    gap:8px;
+    align-items:center;
+    min-width:0;
+  }
+
+  .sign-btn{
+    appearance:none;
+    -webkit-appearance:none;
+    min-height:50px;
+    border-radius:14px;
+    border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.05);
+    color:#eef2ff;
+    font-size:24px;
+    font-weight:800;
+  }
+
+  .sign-btn:active{
+    transform:scale(.985);
+  }
+
+  .is-hidden{
+    display:none !important;
+  }
+
+  .preview-dock{
+    position:fixed;
+    left:0;
+    right:0;
+    bottom:calc(68px + env(safe-area-inset-bottom, 0px) + 74px);
+    z-index:24;
+    padding:0 10px;
+    pointer-events:none;
+  }
+
+  .preview-card{
+    pointer-events:auto;
+    max-width:760px;
+    margin:0 auto;
+    padding:11px;
+    border-radius:18px;
+    border:1px solid rgba(255,255,255,.10);
+    background:rgba(15,20,34,.94);
+    backdrop-filter:blur(14px);
+    -webkit-backdrop-filter:blur(14px);
+    box-shadow:
+      0 10px 28px rgba(0,0,0,.24),
+      0 1px 0 rgba(255,255,255,.05) inset;
+  }
+
+  .preview-top{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:10px;
+    margin-bottom:8px;
+    min-width:0;
+  }
+
+  .preview-main{
+    min-width:0;
+    flex:1 1 auto;
+  }
+
+  .preview-code{
+    font-size:12px;
+    font-weight:800;
+    color:#9fb6ff;
+    letter-spacing:.03em;
+    word-break:break-word;
+  }
+
+  .preview-name{
+    margin-top:3px;
+    font-size:18px;
+    font-weight:800;
+    color:#f8fbff;
+    line-height:1.35;
+    word-break:break-word;
+  }
+
+  .preview-side{
+    flex:0 0 auto;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:30px;
+    min-width:64px;
+    padding:0 12px;
+    border-radius:999px;
+    border:1px solid rgba(99,102,241,.28);
+    background:rgba(99,102,241,.14);
+    color:#eef2ff;
+    font-size:12px;
+    font-weight:800;
+    white-space:nowrap;
+  }
+
+  .preview-side[data-side="SELL"]{
+    border-color:rgba(244,63,94,.34);
+    background:rgba(244,63,94,.16);
+    color:#ffe4eb;
+  }
+
+  .preview-side[data-side="BUY"]{
+    border-color:rgba(16,185,129,.34);
+    background:rgba(16,185,129,.15);
+    color:#d9ffec;
+  }
+
+  .preview-chip-row{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    margin-bottom:8px;
+  }
+
+  .preview-chip{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:24px;
+    padding:0 9px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.10);
+    background:rgba(255,255,255,.06);
+    color:#dbe4f4;
+    font-size:11px;
+    font-weight:700;
+    white-space:nowrap;
+    max-width:100%;
+  }
+
+  .preview-chip[data-kind="broker-rakuten"]{
+    border-color:rgba(99,102,241,.34);
+    background:rgba(99,102,241,.18);
+    color:#dbe4ff;
+  }
+
+  .preview-chip[data-kind="broker-sbi"]{
+    border-color:rgba(14,165,233,.34);
+    background:rgba(14,165,233,.16);
+    color:#d8f3ff;
+  }
+
+  .preview-chip[data-kind="broker-matsui"]{
+    border-color:rgba(16,185,129,.34);
+    background:rgba(16,185,129,.16);
+    color:#d7ffea;
+  }
+
+  .preview-chip[data-kind="broker-other"]{
+    border-color:rgba(148,163,184,.28);
+    background:rgba(148,163,184,.12);
+    color:#e2e8f0;
+  }
+
+  .preview-chip[data-kind="account-spec"]{
+    border-color:rgba(148,163,184,.28);
+    background:rgba(148,163,184,.12);
+    color:#e2e8f0;
+  }
+
+  .preview-chip[data-kind="account-nisa"]{
+    border-color:rgba(245,158,11,.34);
+    background:rgba(245,158,11,.16);
+    color:#fde68a;
+  }
+
+  .preview-chip[data-kind="account-margin"]{
+    border-color:rgba(244,63,94,.34);
+    background:rgba(244,63,94,.16);
+    color:#fecdd3;
+  }
+
+  .preview-pill-row{
+    display:flex;
+    flex-wrap:wrap;
+    gap:7px;
+    margin-bottom:8px;
+  }
+
+  .preview-pill{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    min-height:32px;
+    max-width:100%;
+    padding:0 10px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.10);
+    background:rgba(255,255,255,.05);
+  }
+
+  .preview-pill-k{
+    font-size:10px;
+    font-weight:700;
+    color:#8ea0b7;
+    white-space:nowrap;
+  }
+
+  .preview-pill-v{
+    font-size:12px;
+    font-weight:800;
+    color:#eef2ff;
+    white-space:nowrap;
+    max-width:180px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+
+  .preview-memo{
+    padding:8px 10px;
+    border-radius:13px;
+    background:rgba(255,255,255,.045);
+    border:1px solid rgba(255,255,255,.06);
+  }
+
+  .preview-memo-v{
+    font-size:12px;
+    font-weight:700;
+    line-height:1.45;
+    color:#dbe5f8;
+    word-break:break-word;
+    display:-webkit-box;
+    -webkit-line-clamp:2;
+    -webkit-box-orient:vertical;
+    overflow:hidden;
+  }
+
+  .bottom-safe-space{
+    height:300px;
+  }
+
+  .bottom-action-bar{
+    position:fixed;
+    left:0;
+    right:0;
+    bottom:calc(68px + env(safe-area-inset-bottom, 0px));
+    z-index:25;
+    display:grid;
+    grid-template-columns:1fr 1.15fr;
+    gap:10px;
+    max-width:760px;
+    margin:0 auto;
+    padding:0 10px;
+  }
+
+  .bottom-btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:56px;
+    padding:0 16px;
+    border-radius:18px;
+    text-decoration:none;
+    border:1px solid rgba(255,255,255,.14);
+    font-size:17px;
+    font-weight:800;
+    transition:
+      transform .08s ease,
+      opacity .16s ease,
+      box-shadow .16s ease,
+      background .16s ease;
+  }
+
+  .bottom-btn:active{
+    transform:scale(.985);
+  }
+
+  .bottom-btn-sub{
+    background:rgba(255,255,255,.07);
+    color:#e5e7eb;
+    box-shadow:0 10px 24px rgba(0,0,0,.14);
+  }
+
+  .bottom-btn-main{
+    border:0;
+    background:linear-gradient(180deg,#6d73ff,#5561f2);
+    color:#fff;
+    box-shadow:0 14px 30px rgba(85,97,242,.32);
+  }
+
+  @media (max-width:560px){
+    .close-page{
+      padding:10px 8px 164px;
+    }
+
+    .close-title{
+      font-size:22px;
+    }
+
+    .close-in{
+      min-height:48px;
+      font-size:16px;
+      line-height:48px;
+    }
+
+    .close-tab{
+      min-height:46px;
+      font-size:14px;
+    }
+
+    .bottom-action-bar{
+      padding:0 8px;
+    }
+
+    .bottom-btn{
+      min-height:54px;
+      font-size:16px;
+      border-radius:16px;
+    }
+
+    .preview-card{
+      padding:10px;
+      border-radius:16px;
+    }
+
+    .preview-name{
+      font-size:16px;
+    }
+
+    .preview-pill-v{
+      max-width:130px;
+    }
+  }
+
+  @media (max-width:420px){
+    .field-grid-2{
+      grid-template-columns:1fr;
+    }
+
+    .bottom-safe-space{
+      height:320px;
+    }
+
+    .preview-pill-v{
+      max-width:110px;
+    }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="sheet" id="closeSheet" data-initial-side="{{ initial_side|default:'SELL' }}">
-  <div class="sheet-head">
-    <div class="sheet-title">
-      {{ h.ticker }}{% if h.name %}<span class="text-slate-400 text-xs font-normal">（{{ h.name }}）</span>{% endif %} をクローズ
+<div class="close-page" id="closeSheet" data-initial-side="{{ initial_side|default:'SELL' }}">
+  <div class="close-head">
+    <div class="close-head-main">
+      <h1 class="close-title">
+        {{ h.ticker }}{% if h.name %}（{{ h.name }}）{% endif %} をクローズ
+      </h1>
+      <div class="close-sub">上で入力、下で確認しながらそのまま記録できます。</div>
     </div>
-    <button type="button" class="text-indigo-300 underline" onclick="history.back()">閉じる</button>
+    <button type="button" class="close-head-link" onclick="history.back()">閉じる</button>
   </div>
 
-  <!-- SELL/BUY 切替 -->
-  <div class="tabs">
-    <button type="button" class="tab" data-side="SELL">SELL（売却）</button>
-    <button type="button" class="tab" data-side="BUY">BUY（買付）</button>
-  </div>
-
-  <form id="closeForm" action="{% url 'holding_close_submit' h.id %}" method="post" autocomplete="off">
+  <form id="closeForm" class="close-form" action="{% url 'holding_close_submit' h.id %}" method="post" autocomplete="off">
     {% csrf_token %}
     <input type="hidden" name="side" value="SELL">
 
-    <div class="sheet-row">
-      <label class="flex flex-col gap-1">
-        <span class="label">日付</span>
-        <input name="date" type="date" value="{{ prefill.date }}" class="in">
-      </label>
-      <label class="flex flex-col gap-1">
-        <span class="label">数量</span>
-        <input
-          name="qty"
-          type="text"
-          inputmode="numeric"
-          pattern="[0-9]*"
-          data-min="1"
-          data-max="{{ h_qty }}"
-          class="in"
-          placeholder="例: 100">
-        <small class="text-xs text-slate-500">保有: {{ h_qty }}</small>
-      </label>
-    </div>
+    <section class="close-card">
+      <div class="close-card-head">
+        <div class="close-card-title">売買方向</div>
+        <div class="close-card-note">SELL は売却、BUY は買い戻し / 買付で使います</div>
+      </div>
 
-    <label class="flex flex-col gap-1 mt-3">
-      <span class="label" data-price-label>売却単価</span>
-      <input name="price" inputmode="decimal" placeholder="例: 1234.5" class="in">
-    </label>
+      <div class="close-tabs">
+        <button type="button" class="close-tab" data-side="SELL">SELL（売却）</button>
+        <button type="button" class="close-tab" data-side="BUY">BUY（買付）</button>
+      </div>
+    </section>
 
-    <div class="sheet-row mt-3">
-      <label class="flex flex-col gap-1">
-        <span class="label">手数料（税込）</span>
-        <input name="fee" inputmode="decimal" placeholder="未入力なら0" class="in">
-      </label>
-      <label class="flex flex-col gap-1">
-        <span class="label">税金</span>
-        <input name="tax" inputmode="decimal" placeholder="未入力なら0" class="in">
-      </label>
-    </div>
+    <section class="close-card">
+      <div class="close-card-head">
+        <div class="close-card-title">基本入力</div>
+        <div class="close-card-note">日付、数量、単価を入れます</div>
+      </div>
 
-    <!-- 🔸 通貨・FX（JPY以外のときだけ表示。レートは証券会社レートを手入力） -->
-    {% if currency != "JPY" %}
-      <div class="sheet-row mt-3">
-        <label class="flex flex-col gap-1">
-          <span class="label">通貨</span>
-          <input class="in" value="{{ currency }}" disabled>
+      <div class="field-grid-2">
+        <label class="field-block">
+          <span class="field-label">日付</span>
+          <input name="date" type="date" value="{{ prefill.date }}" class="close-in">
         </label>
-        <label class="flex flex-col gap-1">
-          <span class="label">為替レート（1{{ currency }} あたりの円・証券会社レートを入力）</span>
+
+        <label class="field-block">
+          <span class="field-label">数量</span>
           <input
-            name="fx_rate"
-            inputmode="decimal"
-            placeholder="約定レートを入力（例: 155.250）"
-            class="in"
-            value="">
+            name="qty"
+            type="text"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            data-min="1"
+            data-max="{{ h_qty }}"
+            class="close-in"
+            placeholder="例: 100">
+          <div class="hold-note">保有: {{ h_qty }}</div>
         </label>
       </div>
-      <input type="hidden" name="currency" value="{{ currency }}">
-      <input type="hidden" name="country" value="{{ country|default:'JP' }}">
-    {% else %}
-      <input type="hidden" name="currency" value="JPY">
-      <input type="hidden" name="country" value="{{ country|default:'JP' }}">
-    {% endif %}
 
-    <!-- 実損 / キャッシュフロー -->
-    <label class="flex flex-col gap-1 mt-3">
-      <span class="label">実損 / キャッシュフロー（±・任意）</span>
-      <div class="sign-wrap">
-        <button type="button" class="sign-btn" data-sgn="-">−</button>
-        <input name="cashflow" type="text" inputmode="decimal"
-               pattern="-?[0-9]+([.,][0-9]+)?" placeholder="SELL:+利益 / −損失、BUY:通常0" class="in">
-        <button type="button" class="sign-btn" data-sgn="+">＋</button>
+      <div class="field-block">
+        <span class="field-label" data-price-label>売却単価</span>
+        <input name="price" inputmode="decimal" placeholder="例: 1234.5" class="close-in">
       </div>
-    </label>
+    </section>
 
-    <div class="sheet-row mt-3">
-      <label class="flex flex-col gap-1">
-        <span class="label">証券会社</span>
-        <select name="broker" class="in">
-          <option value="RAKUTEN" {% if prefill.broker == 'RAKUTEN' %}selected{% endif %}>楽天証券</option>
-          <option value="SBI" {% if prefill.broker == 'SBI' %}selected{% endif %}>SBI証券</option>
-          <option value="MATSUI" {% if prefill.broker == 'MATSUI' %}selected{% endif %}>松井証券</option>
-          <option value="OTHER" {% if prefill.broker == 'OTHER' or not prefill.broker %}selected{% endif %}>その他</option>
-        </select>
+    <section class="close-card">
+      <div class="close-card-head">
+        <div class="close-card-title">損益まわり</div>
+        <div class="close-card-note">手数料・税金・実損を必要なら入れます</div>
+      </div>
+
+      <div class="field-grid-2">
+        <label class="field-block">
+          <span class="field-label">手数料（税込）</span>
+          <input name="fee" inputmode="decimal" placeholder="未入力なら0" class="close-in">
+        </label>
+
+        <label class="field-block">
+          <span class="field-label">税金</span>
+          <input name="tax" inputmode="decimal" placeholder="未入力なら0" class="close-in">
+        </label>
+      </div>
+
+      <div class="field-block">
+        <span class="field-label">実損 / キャッシュフロー（±・任意）</span>
+        <div class="sign-wrap">
+          <button type="button" class="sign-btn" data-sgn="-">−</button>
+          <input
+            name="cashflow"
+            type="text"
+            inputmode="decimal"
+            pattern="-?[0-9]+([.,][0-9]+)?"
+            placeholder="SELL:+利益 / −損失、BUY:通常0"
+            class="close-in">
+          <button type="button" class="sign-btn" data-sgn="+">＋</button>
+        </div>
+      </div>
+
+      {% if currency != "JPY" %}
+        <div class="field-grid-2" id="fxFieldWrap">
+          <label class="field-block">
+            <span class="field-label">通貨</span>
+            <input class="close-in" value="{{ currency }}" disabled>
+          </label>
+
+          <label class="field-block">
+            <span class="field-label">為替レート（1{{ currency }}あたりの円）</span>
+            <input
+              name="fx_rate"
+              inputmode="decimal"
+              placeholder="約定レートを入力（例: 155.250）"
+              class="close-in"
+              value="">
+            <div class="field-help">証券会社の約定レートを入れます。</div>
+          </label>
+        </div>
+
+        <input type="hidden" name="currency" value="{{ currency }}">
+        <input type="hidden" name="country" value="{{ country|default:'JP' }}">
+      {% else %}
+        <input type="hidden" name="currency" value="JPY">
+        <input type="hidden" name="country" value="{{ country|default:'JP' }}">
+      {% endif %}
+    </section>
+
+    <section class="close-card">
+      <div class="close-card-head">
+        <div class="close-card-title">補足</div>
+        <div class="close-card-note">証券会社・口座区分・メモ</div>
+      </div>
+
+      <div class="field-grid-2">
+        <label class="field-block">
+          <span class="field-label">証券会社</span>
+          <select name="broker" class="close-in">
+            <option value="RAKUTEN" {% if prefill.broker == 'RAKUTEN' %}selected{% endif %}>楽天証券</option>
+            <option value="SBI" {% if prefill.broker == 'SBI' %}selected{% endif %}>SBI証券</option>
+            <option value="MATSUI" {% if prefill.broker == 'MATSUI' %}selected{% endif %}>松井証券</option>
+            <option value="OTHER" {% if prefill.broker == 'OTHER' or not prefill.broker %}selected{% endif %}>その他</option>
+          </select>
+        </label>
+
+        <label class="field-block">
+          <span class="field-label">口座区分</span>
+          <select name="account" class="close-in">
+            <option value="SPEC" {% if prefill.account == 'SPEC' %}selected{% endif %}>特定</option>
+            <option value="MARGIN" {% if prefill.account == 'MARGIN' %}selected{% endif %}>信用</option>
+            <option value="NISA" {% if prefill.account == 'NISA' %}selected{% endif %}>NISA</option>
+          </select>
+        </label>
+      </div>
+
+      <label class="field-block">
+        <span class="field-label">メモ</span>
+        <textarea name="memo" placeholder="任意メモ" class="close-in close-textarea"></textarea>
       </label>
-      <label class="flex flex-col gap-1">
-        <span class="label">口座区分</span>
-        <select name="account" class="in">
-          <option value="SPEC" {% if prefill.account == 'SPEC' %}selected{% endif %}>特定</option>
-          <option value="MARGIN" {% if prefill.account == 'MARGIN' %}selected{% endif %}>信用</option>
-          <option value="NISA" {% if prefill.account == 'NISA' %}selected{% endif %}>NISA</option>
-        </select>
-      </label>
-    </div>
+    </section>
 
-    <label class="flex flex-col gap-1 mt-3">
-      <span class="label">メモ</span>
-      <input name="memo" placeholder="任意メモ" class="in">
-    </label>
-
-    <div class="grid grid-cols-2 gap-2 mt-4">
-      <button type="button" class="btn-ghost" onclick="history.back()">キャンセル</button>
-      <button class="btn-primary" data-submit-label>売却を記録</button>
-    </div>
-
-    <!-- 固定 -->
     <input type="hidden" name="name" value="{{ h.name|default:'' }}">
     <input type="hidden" name="ticker" value="{{ h.ticker }}">
+
+    <div class="bottom-safe-space"></div>
+
+    <div class="preview-dock">
+      <div class="preview-card">
+        <div class="preview-top">
+          <div class="preview-main">
+            <div class="preview-code" id="previewTicker">{{ h.ticker }}</div>
+            <div class="preview-name" id="previewName">{{ h.name|default:"—" }}</div>
+          </div>
+          <div class="preview-side" id="previewSideBadge" data-side="SELL">SELL</div>
+        </div>
+
+        <div class="preview-chip-row">
+          <span class="preview-chip" id="previewBrokerChip" data-kind="broker-rakuten">楽天</span>
+          <span class="preview-chip" id="previewAccountChip" data-kind="account-spec">特定</span>
+          <span class="preview-chip" id="previewCountryChip">{{ country|default:"JP" }}</span>
+          <span class="preview-chip" id="previewCurrencyChip">{{ currency|default:"JPY" }}</span>
+        </div>
+
+        <div class="preview-pill-row">
+          <div class="preview-pill">
+            <span class="preview-pill-k">日付</span>
+            <span class="preview-pill-v" id="previewDate">{{ prefill.date }}</span>
+          </div>
+
+          <div class="preview-pill">
+            <span class="preview-pill-k">数量</span>
+            <span class="preview-pill-v" id="previewQty">—</span>
+          </div>
+
+          <div class="preview-pill">
+            <span class="preview-pill-k" id="previewPriceLabel">売却単価</span>
+            <span class="preview-pill-v" id="previewPrice">—</span>
+          </div>
+
+          <div class="preview-pill">
+            <span class="preview-pill-k">手数料</span>
+            <span class="preview-pill-v" id="previewFee">0</span>
+          </div>
+
+          <div class="preview-pill">
+            <span class="preview-pill-k">税金</span>
+            <span class="preview-pill-v" id="previewTax">0</span>
+          </div>
+
+          <div class="preview-pill">
+            <span class="preview-pill-k">実損入力</span>
+            <span class="preview-pill-v" id="previewCashflow">—</span>
+          </div>
+
+          <div class="preview-pill {% if currency == 'JPY' %}is-hidden{% endif %}" id="previewFxWrap">
+            <span class="preview-pill-k">為替</span>
+            <span class="preview-pill-v" id="previewFx">—</span>
+          </div>
+
+          <div class="preview-pill">
+            <span class="preview-pill-k">概算約定額</span>
+            <span class="preview-pill-v" id="previewGross">—</span>
+          </div>
+        </div>
+
+        <div class="preview-memo">
+          <div class="preview-memo-v" id="previewMemo">なし</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottom-action-bar">
+      <button type="button" class="bottom-btn bottom-btn-sub" onclick="history.back()">キャンセル</button>
+      <button type="submit" class="bottom-btn bottom-btn-main" data-submit-label>売却を記録</button>
+    </div>
   </form>
 </div>
 
 <script>
 (function(){
-  const root = document.getElementById('closeSheet');
+  const root = document.getElementById("closeSheet");
   if (!root) return;
 
-  const initial = (root.dataset.initialSide || 'SELL').toUpperCase();
-  const form = root.querySelector('#closeForm');
+  const form = document.getElementById("closeForm");
+  const initial = (root.dataset.initialSide || "SELL").toUpperCase();
+
   const sideInput = form.querySelector('input[name="side"]');
   const qtyInput = form.querySelector('input[name="qty"]');
+  const dateInput = form.querySelector('input[name="date"]');
+  const priceInput = form.querySelector('input[name="price"]');
+  const feeInput = form.querySelector('input[name="fee"]');
+  const taxInput = form.querySelector('input[name="tax"]');
+  const cashflowInput = form.querySelector('input[name="cashflow"]');
+  const fxInput = form.querySelector('input[name="fx_rate"]');
+  const brokerSelect = form.querySelector('select[name="broker"]');
+  const accountSelect = form.querySelector('select[name="account"]');
+  const memoInput = form.querySelector('textarea[name="memo"]');
   const priceLabel = root.querySelector('[data-price-label]');
-  const submitBtn= root.querySelector('[data-submit-label]');
+  const submitBtn = root.querySelector('[data-submit-label]');
 
-  function sanitizeQty() {
-    let v = (qtyInput.value || '').replace(/\D/g, '');
-    v = v.replace(/^0+(\d)/, '$1');
+  const previewSideBadge = document.getElementById("previewSideBadge");
+  const previewBrokerChip = document.getElementById("previewBrokerChip");
+  const previewAccountChip = document.getElementById("previewAccountChip");
+  const previewDate = document.getElementById("previewDate");
+  const previewQty = document.getElementById("previewQty");
+  const previewPriceLabel = document.getElementById("previewPriceLabel");
+  const previewPrice = document.getElementById("previewPrice");
+  const previewFee = document.getElementById("previewFee");
+  const previewTax = document.getElementById("previewTax");
+  const previewCashflow = document.getElementById("previewCashflow");
+  const previewFxWrap = document.getElementById("previewFxWrap");
+  const previewFx = document.getElementById("previewFx");
+  const previewGross = document.getElementById("previewGross");
+  const previewMemo = document.getElementById("previewMemo");
+  const previewCurrencyChip = document.getElementById("previewCurrencyChip");
+
+  const currency = (previewCurrencyChip ? previewCurrencyChip.textContent : "JPY").trim() || "JPY";
+
+  const brokerLabelMap = {
+    RAKUTEN: "楽天",
+    SBI: "SBI",
+    MATSUI: "松井",
+    OTHER: "その他"
+  };
+
+  const brokerKindMap = {
+    RAKUTEN: "broker-rakuten",
+    SBI: "broker-sbi",
+    MATSUI: "broker-matsui",
+    OTHER: "broker-other"
+  };
+
+  const accountLabelMap = {
+    SPEC: "特定",
+    NISA: "NISA",
+    MARGIN: "信用"
+  };
+
+  const accountKindMap = {
+    SPEC: "account-spec",
+    NISA: "account-nisa",
+    MARGIN: "account-margin"
+  };
+
+  function formatNumber(value, digits){
+    const num = Number(value);
+    if (!isFinite(num)) return "—";
+    return num.toLocaleString("ja-JP", {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits
+    });
+  }
+
+  function sanitizeQty(){
+    let v = (qtyInput.value || "").replace(/\D/g, "");
+    v = v.replace(/^0+(\d)/, "$1");
     qtyInput.value = v;
   }
-  qtyInput.addEventListener('input', sanitizeQty);
-  qtyInput.addEventListener('blur', () => {
+
+  function clampQtyIfNeeded(){
     sanitizeQty();
-    const min = parseInt(qtyInput.dataset.min || '1', 10);
-    const maxAttr = qtyInput.getAttribute('max');
+    const min = parseInt(qtyInput.dataset.min || "1", 10);
+    const maxAttr = qtyInput.getAttribute("max");
     const max = maxAttr ? parseInt(maxAttr, 10) : null;
-    let val = parseInt(qtyInput.value || '0', 10);
+    let val = parseInt(qtyInput.value || "0", 10);
+
     if (isNaN(val) || val < min) val = min;
     if (max !== null && val > max) val = max;
     qtyInput.value = String(val);
-  });
+  }
 
   function setSide(side){
     sideInput.value = side;
-    root.querySelectorAll('.tab').forEach(t=>{
-      t.classList.toggle('active', t.dataset.side === side);
+
+    root.querySelectorAll(".close-tab").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.side === side);
     });
-    if(side === 'SELL'){
-      priceLabel.textContent = '売却単価';
-      submitBtn.textContent = '売却を記録';
-      const mx = qtyInput.getAttribute('data-max');
-      if(mx){ qtyInput.setAttribute('max', mx); }
-    }else{
-      priceLabel.textContent = '買付単価';
-      submitBtn.textContent = '買付を記録';
-      qtyInput.removeAttribute('max');
+
+    if (side === "SELL") {
+      priceLabel.textContent = "売却単価";
+      previewPriceLabel.textContent = "売却単価";
+      submitBtn.textContent = "売却を記録";
+      previewSideBadge.textContent = "SELL";
+      previewSideBadge.dataset.side = "SELL";
+      const mx = qtyInput.getAttribute("data-max");
+      if (mx) qtyInput.setAttribute("max", mx);
+    } else {
+      priceLabel.textContent = "買付単価";
+      previewPriceLabel.textContent = "買付単価";
+      submitBtn.textContent = "買付を記録";
+      previewSideBadge.textContent = "BUY";
+      previewSideBadge.dataset.side = "BUY";
+      qtyInput.removeAttribute("max");
+    }
+
+    updatePreview();
+  }
+
+  function updatePreview(){
+    const qty = (qtyInput.value || "").trim();
+    const dateVal = (dateInput.value || "").trim();
+    const priceVal = (priceInput.value || "").trim();
+    const feeVal = (feeInput.value || "").trim();
+    const taxVal = (taxInput.value || "").trim();
+    const cashflowVal = (cashflowInput.value || "").trim();
+    const fxVal = fxInput ? (fxInput.value || "").trim() : "";
+    const memoVal = (memoInput.value || "").trim();
+    const brokerVal = (brokerSelect.value || "OTHER").toUpperCase();
+    const accountVal = (accountSelect.value || "SPEC").toUpperCase();
+
+    previewDate.textContent = dateVal || "—";
+    previewQty.textContent = qty ? formatNumber(qty, 0) + " 株" : "—";
+
+    if (priceVal) {
+      if (currency !== "JPY") {
+        previewPrice.textContent = formatNumber(priceVal, 2) + " " + currency;
+      } else {
+        previewPrice.textContent = "¥" + formatNumber(priceVal, 2);
+      }
+    } else {
+      previewPrice.textContent = "—";
+    }
+
+    if (feeVal) {
+      previewFee.textContent = currency !== "JPY"
+        ? formatNumber(feeVal, 2) + " " + currency
+        : "¥" + formatNumber(feeVal, 0);
+    } else {
+      previewFee.textContent = currency !== "JPY" ? "0 " + currency : "¥0";
+    }
+
+    if (taxVal) {
+      previewTax.textContent = currency !== "JPY"
+        ? formatNumber(taxVal, 2) + " " + currency
+        : "¥" + formatNumber(taxVal, 0);
+    } else {
+      previewTax.textContent = currency !== "JPY" ? "0 " + currency : "¥0";
+    }
+
+    if (cashflowVal) {
+      previewCashflow.textContent = currency !== "JPY"
+        ? cashflowVal + " " + currency
+        : cashflowVal;
+    } else {
+      previewCashflow.textContent = "—";
+    }
+
+    if (previewFxWrap) {
+      const showFx = currency !== "JPY";
+      previewFxWrap.classList.toggle("is-hidden", !showFx);
+      if (showFx) {
+        previewFx.textContent = fxVal ? formatNumber(fxVal, 6) + " 円" : "—";
+      }
+    }
+
+    previewMemo.textContent = memoVal || "なし";
+
+    previewBrokerChip.textContent = brokerLabelMap[brokerVal] || brokerVal || "—";
+    previewBrokerChip.dataset.kind = brokerKindMap[brokerVal] || "broker-other";
+
+    previewAccountChip.textContent = accountLabelMap[accountVal] || accountVal || "—";
+    previewAccountChip.dataset.kind = accountKindMap[accountVal] || "account-spec";
+
+    const qtyNum = Number(qty);
+    const priceNum = Number(priceVal);
+    if (isFinite(qtyNum) && isFinite(priceNum) && qty !== "" && priceVal !== "") {
+      const gross = qtyNum * priceNum;
+      if (currency !== "JPY") {
+        if (fxVal && isFinite(Number(fxVal))) {
+          const grossJpy = gross * Number(fxVal);
+          previewGross.textContent = formatNumber(gross, 2) + " " + currency + " / 約¥" + formatNumber(grossJpy, 0);
+        } else {
+          previewGross.textContent = formatNumber(gross, 2) + " " + currency;
+        }
+      } else {
+        previewGross.textContent = "¥" + formatNumber(gross, 0);
+      }
+    } else {
+      previewGross.textContent = "—";
     }
   }
 
-  setSide(initial);
-
-  root.querySelectorAll('.tab').forEach(btn=>{
-    btn.addEventListener('click', ()=> setSide(btn.dataset.side));
+  qtyInput.addEventListener("input", function(){
+    sanitizeQty();
+    updatePreview();
   });
 
-  root.querySelectorAll('.sign-btn').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const input = root.querySelector('input[name="cashflow"]');
-      if (!input) return;
-      const s = btn.dataset.sgn === '-' ? '-' : '';
-      const v = (input.value || '').replace(/^[+-]?/, '');
-      input.value = s + v;
-      input.focus();
+  qtyInput.addEventListener("blur", function(){
+    clampQtyIfNeeded();
+    updatePreview();
+  });
+
+  [dateInput, priceInput, feeInput, taxInput, cashflowInput, brokerSelect, accountSelect, memoInput].forEach((el) => {
+    if (!el) return;
+    el.addEventListener("input", updatePreview);
+    el.addEventListener("change", updatePreview);
+  });
+
+  if (fxInput) {
+    fxInput.addEventListener("input", updatePreview);
+    fxInput.addEventListener("change", updatePreview);
+  }
+
+  root.querySelectorAll(".close-tab").forEach((btn) => {
+    btn.addEventListener("click", function(){
+      setSide(btn.dataset.side);
     });
   });
+
+  root.querySelectorAll(".sign-btn").forEach((btn) => {
+    btn.addEventListener("click", function(){
+      if (!cashflowInput) return;
+      const sign = btn.dataset.sgn === "-" ? "-" : "";
+      const value = (cashflowInput.value || "").replace(/^[+-]?/, "");
+      cashflowInput.value = sign + value;
+      cashflowInput.focus();
+      updatePreview();
+    });
+  });
+
+  setSide(initial);
+  updatePreview();
 })();
 </script>
 {% endblock %}
