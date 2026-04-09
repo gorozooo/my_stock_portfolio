@@ -8,11 +8,10 @@
   上側を入力、下側をライブプレビューに分けた版です。
 
 今回の修正ポイント
-- 下 1/3 前後を固定ライブプレビューに変更
-- 銘柄名 / セクターはコードから自動反映のみ（手入力欄なし）
-- 証券会社は 楽天 / SBI / 松井 のみ
-- 保有開始日を入力側にしっかり残す
-- はみ出し防止を強めに調整
+- 下側ライブプレビューの見出し文言を削除
+- セクター / 株数 / 平均取得単価 / 保有開始日 / 想定取得単価をピル表示化
+- ライブプレビュー内スクロールをやめて、全部見える方向へ調整
+- 保有開始日の入力枠がはみ出ないようにレイアウトを補強
 -->
 
 {% extends "base.html" %}
@@ -20,7 +19,7 @@
 {% block title %}{% if mode == "edit" %}保有を編集{% else %}保有を追加{% endif %}{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/holdings_form.css' %}?v=20260409c">
+<link rel="stylesheet" href="{% static 'css/holdings_form.css' %}?v=20260409d">
 {% endblock %}
 
 {% block content %}
@@ -224,7 +223,7 @@
             id="id_opened_at"
             type="date"
             name="opened_at"
-            class="field-input"
+            class="field-input field-input-date"
             value="{{ form.opened_at.value|default_if_none:'' }}">
           {% if form.opened_at.errors %}
             <div class="field-errors">
@@ -278,17 +277,12 @@
 
     <div class="live-preview-dock">
       <div class="live-preview-card">
-        <div class="live-preview-head">
-          <div>
-            <div class="live-preview-title">登録プレビュー</div>
-            <div class="live-preview-note">下を見れば今の入力内容がそのまま分かります</div>
+        <div class="live-preview-topbar">
+          <div class="live-preview-main">
+            <div class="live-preview-code" id="codePreview">{{ form.ticker.value|default_if_none:"—" }}</div>
+            <div class="live-preview-name" id="namePreviewDock">{{ form.name.value|default_if_none:"銘柄名を取得します" }}</div>
           </div>
           <div class="live-preview-side-badge" id="sidePreviewBadge">BUY</div>
-        </div>
-
-        <div class="live-preview-main">
-          <div class="live-preview-code" id="codePreview">{{ form.ticker.value|default_if_none:"—" }}</div>
-          <div class="live-preview-name" id="namePreviewDock">{{ form.name.value|default_if_none:"銘柄名を取得します" }}</div>
         </div>
 
         <div class="live-preview-chip-row">
@@ -298,35 +292,39 @@
           <span class="preview-chip" id="currencyPreviewChip">—</span>
         </div>
 
-        <div class="live-preview-grid">
-          <div class="live-preview-item">
-            <div class="live-preview-k">セクター</div>
-            <div class="live-preview-v" id="sectorPreviewDock">{{ form.sector.value|default_if_none:"—" }}</div>
+        <div class="live-preview-pill-row">
+          <div class="preview-data-pill">
+            <span class="preview-data-pill-k">セクター</span>
+            <span class="preview-data-pill-v" id="sectorPreviewDock">{{ form.sector.value|default_if_none:"—" }}</span>
           </div>
-          <div class="live-preview-item">
-            <div class="live-preview-k">株数</div>
-            <div class="live-preview-v" id="qtyPreview">—</div>
+
+          <div class="preview-data-pill">
+            <span class="preview-data-pill-k">株数</span>
+            <span class="preview-data-pill-v" id="qtyPreview">—</span>
           </div>
-          <div class="live-preview-item">
-            <div class="live-preview-k">平均取得単価</div>
-            <div class="live-preview-v" id="avgCostPreview">—</div>
+
+          <div class="preview-data-pill">
+            <span class="preview-data-pill-k">平均取得単価</span>
+            <span class="preview-data-pill-v" id="avgCostPreview">—</span>
           </div>
-          <div class="live-preview-item">
-            <div class="live-preview-k">保有開始日</div>
-            <div class="live-preview-v" id="openedPreview">—</div>
+
+          <div class="preview-data-pill">
+            <span class="preview-data-pill-k">保有開始日</span>
+            <span class="preview-data-pill-v" id="openedPreview">—</span>
           </div>
-          <div class="live-preview-item" id="fxPreviewWrap">
-            <div class="live-preview-k">為替レート</div>
-            <div class="live-preview-v" id="fxPreview">—</div>
+
+          <div class="preview-data-pill" id="fxPreviewWrap">
+            <span class="preview-data-pill-k">為替レート</span>
+            <span class="preview-data-pill-v" id="fxPreview">—</span>
           </div>
-          <div class="live-preview-item">
-            <div class="live-preview-k">想定取得額</div>
-            <div class="live-preview-v" id="estimatePreview">—</div>
+
+          <div class="preview-data-pill">
+            <span class="preview-data-pill-k">想定取得額</span>
+            <span class="preview-data-pill-v" id="estimatePreview">—</span>
           </div>
         </div>
 
         <div class="live-preview-memo">
-          <div class="live-preview-k">メモ</div>
           <div class="live-preview-memo-v" id="memoPreview">なし</div>
         </div>
       </div>
