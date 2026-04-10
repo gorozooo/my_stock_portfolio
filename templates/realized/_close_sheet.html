@@ -11,7 +11,9 @@
 - 税金入力を廃止
 - 概算約定額を廃止
 - 手数料入力時は実損を、実損入力時は手数料をプレビューで自動計算
-- 実損は銘柄名の横に大きく表示（＋は緑、−は赤）
+- 実損は銘柄名の近くに大きめ表示
+- 手数料もその右で大きめ表示
+- 下のピルから「手数料」「実損入力」を削除
 -->
 
 {% extends "base.html" %}
@@ -314,9 +316,12 @@
     margin-top:3px;
   }
 
-  .preview-name{
+  .preview-name-wrap{
     min-width:0;
     flex:1 1 auto;
+  }
+
+  .preview-name{
     font-size:18px;
     font-weight:800;
     color:#f8fbff;
@@ -324,24 +329,47 @@
     word-break:break-word;
   }
 
-  .preview-pnl-big{
-    flex:0 0 auto;
-    font-size:18px;
-    font-weight:800;
-    line-height:1.35;
-    white-space:nowrap;
+  .preview-result-row{
+    display:flex;
+    align-items:center;
+    gap:14px;
+    flex-wrap:wrap;
+    margin-top:4px;
   }
 
-  .preview-pnl-big.pos{
+  .preview-pnl-main{
+    font-size:22px;
+    font-weight:900;
+    line-height:1.2;
+    white-space:nowrap;
+    letter-spacing:.01em;
+  }
+
+  .preview-pnl-main.pos{
     color:#22c55e;
   }
 
-  .preview-pnl-big.neg{
+  .preview-pnl-main.neg{
     color:#ef4444;
   }
 
-  .preview-pnl-big.neutral{
+  .preview-pnl-main.neutral{
     color:#e9ecff;
+  }
+
+  .preview-fee-main{
+    font-size:18px;
+    font-weight:800;
+    line-height:1.2;
+    color:#dbe4f4;
+    white-space:nowrap;
+  }
+
+  .preview-fee-main .k{
+    color:#8ea0b7;
+    font-size:12px;
+    font-weight:700;
+    margin-right:6px;
   }
 
   .preview-side{
@@ -581,8 +609,15 @@
       border-radius:16px;
     }
 
-    .preview-name,
-    .preview-pnl-big{
+    .preview-name{
+      font-size:16px;
+    }
+
+    .preview-pnl-main{
+      font-size:20px;
+    }
+
+    .preview-fee-main{
       font-size:16px;
     }
 
@@ -602,6 +637,18 @@
 
     .preview-pill-v{
       max-width:110px;
+    }
+
+    .preview-result-row{
+      gap:10px;
+    }
+
+    .preview-pnl-main{
+      font-size:19px;
+    }
+
+    .preview-fee-main{
+      font-size:15px;
     }
   }
 </style>
@@ -746,11 +793,16 @@
           <div class="preview-main">
             <div class="preview-code" id="previewTicker">{{ h.ticker }}</div>
             <div class="preview-title-row">
-              <div class="preview-name" id="previewName">{{ h.name|default:"—" }}</div>
-              <div class="preview-pnl-big neutral" id="previewPnlBig">—</div>
+              <div class="preview-name-wrap">
+                <div class="preview-name" id="previewName">{{ h.name|default:"—" }}</div>
+                <div class="preview-result-row">
+                  <div class="preview-pnl-main neutral" id="previewPnlMain">—</div>
+                  <div class="preview-fee-main" id="previewFeeMain"><span class="k">手数料</span><span class="v">—</span></div>
+                </div>
+              </div>
+              <div class="preview-side" id="previewSideBadge" data-side="SELL">SELL</div>
             </div>
           </div>
-          <div class="preview-side" id="previewSideBadge" data-side="SELL">SELL</div>
         </div>
 
         <div class="preview-chip-row">
@@ -774,16 +826,6 @@
           <div class="preview-pill">
             <span class="preview-pill-k" id="previewPriceLabel">売却単価</span>
             <span class="preview-pill-v" id="previewPrice">—</span>
-          </div>
-
-          <div class="preview-pill">
-            <span class="preview-pill-k">手数料</span>
-            <span class="preview-pill-v" id="previewFee">—</span>
-          </div>
-
-          <div class="preview-pill">
-            <span class="preview-pill-k">実損入力</span>
-            <span class="preview-pill-v" id="previewCashflow">—</span>
           </div>
 
           <div class="preview-pill {% if currency == 'JPY' %}is-hidden{% endif %}" id="previewFxWrap">
@@ -833,13 +875,12 @@
   const previewQty = document.getElementById("previewQty");
   const previewPriceLabel = document.getElementById("previewPriceLabel");
   const previewPrice = document.getElementById("previewPrice");
-  const previewFee = document.getElementById("previewFee");
-  const previewCashflow = document.getElementById("previewCashflow");
   const previewFxWrap = document.getElementById("previewFxWrap");
   const previewFx = document.getElementById("previewFx");
   const previewMemo = document.getElementById("previewMemo");
   const previewCurrencyChip = document.getElementById("previewCurrencyChip");
-  const previewPnlBig = document.getElementById("previewPnlBig");
+  const previewPnlMain = document.getElementById("previewPnlMain");
+  const previewFeeMain = document.getElementById("previewFeeMain");
 
   const currency = (previewCurrencyChip ? previewCurrencyChip.textContent : "JPY").trim() || "JPY";
   const brokerVal = (form.querySelector('input[name="broker"]').value || "OTHER").toUpperCase();
@@ -889,6 +930,17 @@
       return formatNumber(num, 2) + " " + currency;
     }
     return "¥" + formatNumber(num, 0);
+  }
+
+  function formatSignedMoney(value){
+    const num = Number(value);
+    if (!isFinite(num)) return "—";
+    const abs = Math.abs(num);
+    const sign = num > 0 ? "+" : (num < 0 ? "-" : "");
+    if (currency !== "JPY") {
+      return sign + formatNumber(abs, 2) + " " + currency;
+    }
+    return sign + "¥" + formatNumber(abs, 0);
   }
 
   function sanitizeQty(){
@@ -943,6 +995,12 @@
     }
 
     updatePreview();
+  }
+
+  function setPreviewFeeText(value){
+    const target = previewFeeMain.querySelector(".v");
+    if (!target) return;
+    target.textContent = value;
   }
 
   function updatePreview(){
@@ -1004,41 +1062,38 @@
     }
 
     if (previewFeeValue !== null && isFinite(previewFeeValue)) {
-      previewFee.textContent = formatMoney(previewFeeValue);
+      setPreviewFeeText(formatMoney(previewFeeValue));
     } else if (feeEntered) {
-      previewFee.textContent = formatMoney(Number(feeValRaw));
+      setPreviewFeeText(formatMoney(Number(feeValRaw)));
     } else {
-      previewFee.textContent = "—";
+      setPreviewFeeText("—");
     }
 
     if (previewCashflowValue !== null && isFinite(previewCashflowValue)) {
-      previewCashflow.textContent = formatMoney(previewCashflowValue);
-      previewPnlBig.textContent = formatMoney(previewCashflowValue);
-      previewPnlBig.classList.remove("neutral", "pos", "neg");
+      previewPnlMain.textContent = formatSignedMoney(previewCashflowValue);
+      previewPnlMain.classList.remove("neutral", "pos", "neg");
       if (previewCashflowValue > 0) {
-        previewPnlBig.classList.add("pos");
+        previewPnlMain.classList.add("pos");
       } else if (previewCashflowValue < 0) {
-        previewPnlBig.classList.add("neg");
+        previewPnlMain.classList.add("neg");
       } else {
-        previewPnlBig.classList.add("neutral");
+        previewPnlMain.classList.add("neutral");
       }
     } else if (cashflowEntered) {
       const rawCash = Number(cashflowValRaw);
-      previewCashflow.textContent = formatMoney(rawCash);
-      previewPnlBig.textContent = formatMoney(rawCash);
-      previewPnlBig.classList.remove("neutral", "pos", "neg");
+      previewPnlMain.textContent = formatSignedMoney(rawCash);
+      previewPnlMain.classList.remove("neutral", "pos", "neg");
       if (rawCash > 0) {
-        previewPnlBig.classList.add("pos");
+        previewPnlMain.classList.add("pos");
       } else if (rawCash < 0) {
-        previewPnlBig.classList.add("neg");
+        previewPnlMain.classList.add("neg");
       } else {
-        previewPnlBig.classList.add("neutral");
+        previewPnlMain.classList.add("neutral");
       }
     } else {
-      previewCashflow.textContent = "—";
-      previewPnlBig.textContent = "—";
-      previewPnlBig.classList.remove("pos", "neg");
-      previewPnlBig.classList.add("neutral");
+      previewPnlMain.textContent = "—";
+      previewPnlMain.classList.remove("pos", "neg");
+      previewPnlMain.classList.add("neutral");
     }
   }
 
