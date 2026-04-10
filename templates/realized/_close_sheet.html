@@ -6,12 +6,12 @@
 - 保有のクローズ（SELL / BUY）入力画面です。
 - 上で入力して、下の固定プレビューで内容を確認しながら記録する画面です。
 
-今回の作り直しポイント
-- 上側を入力エリア、下側を固定プレビューに整理
-- SELL / BUY の切替を見やすく
-- 数量 / 単価 / 手数料 / 税金 / 実損 を入力しながら、下で即確認
-- JPY以外のときだけ為替レートを表示
-- 下部固定アクションで「キャンセル / 記録」を押しやすくする
+今回の修正ポイント
+- 補足欄はメモだけに整理
+- 税金入力を廃止
+- 概算約定額を廃止
+- 手数料入力時は実損を、実損入力時は手数料をプレビューで自動計算
+- 実損は銘柄名の横に大きく表示（＋は緑、−は赤）
 -->
 
 {% extends "base.html" %}
@@ -306,13 +306,42 @@
     word-break:break-word;
   }
 
-  .preview-name{
+  .preview-title-row{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:10px;
     margin-top:3px;
+  }
+
+  .preview-name{
+    min-width:0;
+    flex:1 1 auto;
     font-size:18px;
     font-weight:800;
     color:#f8fbff;
     line-height:1.35;
     word-break:break-word;
+  }
+
+  .preview-pnl-big{
+    flex:0 0 auto;
+    font-size:18px;
+    font-weight:800;
+    line-height:1.35;
+    white-space:nowrap;
+  }
+
+  .preview-pnl-big.pos{
+    color:#22c55e;
+  }
+
+  .preview-pnl-big.neg{
+    color:#ef4444;
+  }
+
+  .preview-pnl-big.neutral{
+    color:#e9ecff;
   }
 
   .preview-side{
@@ -465,7 +494,7 @@
   }
 
   .bottom-safe-space{
-    height:300px;
+    height:280px;
   }
 
   .bottom-action-bar{
@@ -552,7 +581,8 @@
       border-radius:16px;
     }
 
-    .preview-name{
+    .preview-name,
+    .preview-pnl-big{
       font-size:16px;
     }
 
@@ -567,7 +597,7 @@
     }
 
     .bottom-safe-space{
-      height:320px;
+      height:300px;
     }
 
     .preview-pill-v{
@@ -578,7 +608,13 @@
 {% endblock %}
 
 {% block content %}
-<div class="close-page" id="closeSheet" data-initial-side="{{ initial_side|default:'SELL' }}">
+<div
+  class="close-page"
+  id="closeSheet"
+  data-initial-side="{{ initial_side|default:'SELL' }}"
+  data-holding-side="{{ h.side|default:'BUY' }}"
+  data-basis="{{ h.avg_cost|default_if_none:'0' }}"
+>
   <div class="close-head">
     <div class="close-head-main">
       <h1 class="close-title">
@@ -592,6 +628,9 @@
   <form id="closeForm" class="close-form" action="{% url 'holding_close_submit' h.id %}" method="post" autocomplete="off">
     {% csrf_token %}
     <input type="hidden" name="side" value="SELL">
+    <input type="hidden" name="broker" value="{{ prefill.broker }}">
+    <input type="hidden" name="account" value="{{ prefill.account }}">
+    <input type="hidden" name="tax" value="0">
 
     <section class="close-card">
       <div class="close-card-head">
@@ -641,19 +680,12 @@
     <section class="close-card">
       <div class="close-card-head">
         <div class="close-card-title">損益まわり</div>
-        <div class="close-card-note">手数料・税金・実損を必要なら入れます</div>
+        <div class="close-card-note">手数料か実損、どちらかを入れれば下で自動計算します</div>
       </div>
 
-      <div class="field-grid-2">
-        <label class="field-block">
-          <span class="field-label">手数料（税込）</span>
-          <input name="fee" inputmode="decimal" placeholder="未入力なら0" class="close-in">
-        </label>
-
-        <label class="field-block">
-          <span class="field-label">税金</span>
-          <input name="tax" inputmode="decimal" placeholder="未入力なら0" class="close-in">
-        </label>
+      <div class="field-block">
+        <span class="field-label">手数料（税込）</span>
+        <input name="fee" inputmode="decimal" placeholder="未入力なら0" class="close-in">
       </div>
 
       <div class="field-block">
@@ -672,22 +704,15 @@
       </div>
 
       {% if currency != "JPY" %}
-        <div class="field-grid-2" id="fxFieldWrap">
-          <label class="field-block">
-            <span class="field-label">通貨</span>
-            <input class="close-in" value="{{ currency }}" disabled>
-          </label>
-
-          <label class="field-block">
-            <span class="field-label">為替レート（1{{ currency }}あたりの円）</span>
-            <input
-              name="fx_rate"
-              inputmode="decimal"
-              placeholder="約定レートを入力（例: 155.250）"
-              class="close-in"
-              value="">
-            <div class="field-help">証券会社の約定レートを入れます。</div>
-          </label>
+        <div class="field-block" id="fxFieldWrap">
+          <span class="field-label">為替レート（1{{ currency }}あたりの円）</span>
+          <input
+            name="fx_rate"
+            inputmode="decimal"
+            placeholder="約定レートを入力（例: 155.250）"
+            class="close-in"
+            value="">
+          <div class="field-help">証券会社の約定レートを入れます。</div>
         </div>
 
         <input type="hidden" name="currency" value="{{ currency }}">
@@ -700,29 +725,8 @@
 
     <section class="close-card">
       <div class="close-card-head">
-        <div class="close-card-title">補足</div>
-        <div class="close-card-note">証券会社・口座区分・メモ</div>
-      </div>
-
-      <div class="field-grid-2">
-        <label class="field-block">
-          <span class="field-label">証券会社</span>
-          <select name="broker" class="close-in">
-            <option value="RAKUTEN" {% if prefill.broker == 'RAKUTEN' %}selected{% endif %}>楽天証券</option>
-            <option value="SBI" {% if prefill.broker == 'SBI' %}selected{% endif %}>SBI証券</option>
-            <option value="MATSUI" {% if prefill.broker == 'MATSUI' %}selected{% endif %}>松井証券</option>
-            <option value="OTHER" {% if prefill.broker == 'OTHER' or not prefill.broker %}selected{% endif %}>その他</option>
-          </select>
-        </label>
-
-        <label class="field-block">
-          <span class="field-label">口座区分</span>
-          <select name="account" class="close-in">
-            <option value="SPEC" {% if prefill.account == 'SPEC' %}selected{% endif %}>特定</option>
-            <option value="MARGIN" {% if prefill.account == 'MARGIN' %}selected{% endif %}>信用</option>
-            <option value="NISA" {% if prefill.account == 'NISA' %}selected{% endif %}>NISA</option>
-          </select>
-        </label>
+        <div class="close-card-title">メモ</div>
+        <div class="close-card-note">必要なときだけ入れればOKです</div>
       </div>
 
       <label class="field-block">
@@ -741,7 +745,10 @@
         <div class="preview-top">
           <div class="preview-main">
             <div class="preview-code" id="previewTicker">{{ h.ticker }}</div>
-            <div class="preview-name" id="previewName">{{ h.name|default:"—" }}</div>
+            <div class="preview-title-row">
+              <div class="preview-name" id="previewName">{{ h.name|default:"—" }}</div>
+              <div class="preview-pnl-big neutral" id="previewPnlBig">—</div>
+            </div>
           </div>
           <div class="preview-side" id="previewSideBadge" data-side="SELL">SELL</div>
         </div>
@@ -771,12 +778,7 @@
 
           <div class="preview-pill">
             <span class="preview-pill-k">手数料</span>
-            <span class="preview-pill-v" id="previewFee">0</span>
-          </div>
-
-          <div class="preview-pill">
-            <span class="preview-pill-k">税金</span>
-            <span class="preview-pill-v" id="previewTax">0</span>
+            <span class="preview-pill-v" id="previewFee">—</span>
           </div>
 
           <div class="preview-pill">
@@ -787,11 +789,6 @@
           <div class="preview-pill {% if currency == 'JPY' %}is-hidden{% endif %}" id="previewFxWrap">
             <span class="preview-pill-k">為替</span>
             <span class="preview-pill-v" id="previewFx">—</span>
-          </div>
-
-          <div class="preview-pill">
-            <span class="preview-pill-k">概算約定額</span>
-            <span class="preview-pill-v" id="previewGross">—</span>
           </div>
         </div>
 
@@ -815,17 +812,16 @@
 
   const form = document.getElementById("closeForm");
   const initial = (root.dataset.initialSide || "SELL").toUpperCase();
+  const holdingSide = (root.dataset.holdingSide || "BUY").toUpperCase();
+  const basisValue = Number(root.dataset.basis || "0");
 
   const sideInput = form.querySelector('input[name="side"]');
   const qtyInput = form.querySelector('input[name="qty"]');
   const dateInput = form.querySelector('input[name="date"]');
   const priceInput = form.querySelector('input[name="price"]');
   const feeInput = form.querySelector('input[name="fee"]');
-  const taxInput = form.querySelector('input[name="tax"]');
   const cashflowInput = form.querySelector('input[name="cashflow"]');
   const fxInput = form.querySelector('input[name="fx_rate"]');
-  const brokerSelect = form.querySelector('select[name="broker"]');
-  const accountSelect = form.querySelector('select[name="account"]');
   const memoInput = form.querySelector('textarea[name="memo"]');
   const priceLabel = root.querySelector('[data-price-label]');
   const submitBtn = root.querySelector('[data-submit-label]');
@@ -838,15 +834,18 @@
   const previewPriceLabel = document.getElementById("previewPriceLabel");
   const previewPrice = document.getElementById("previewPrice");
   const previewFee = document.getElementById("previewFee");
-  const previewTax = document.getElementById("previewTax");
   const previewCashflow = document.getElementById("previewCashflow");
   const previewFxWrap = document.getElementById("previewFxWrap");
   const previewFx = document.getElementById("previewFx");
-  const previewGross = document.getElementById("previewGross");
   const previewMemo = document.getElementById("previewMemo");
   const previewCurrencyChip = document.getElementById("previewCurrencyChip");
+  const previewPnlBig = document.getElementById("previewPnlBig");
 
   const currency = (previewCurrencyChip ? previewCurrencyChip.textContent : "JPY").trim() || "JPY";
+  const brokerVal = (form.querySelector('input[name="broker"]').value || "OTHER").toUpperCase();
+  const accountVal = (form.querySelector('input[name="account"]').value || "SPEC").toUpperCase();
+
+  let drivingField = "";
 
   const brokerLabelMap = {
     RAKUTEN: "楽天",
@@ -883,6 +882,15 @@
     });
   }
 
+  function formatMoney(value){
+    const num = Number(value);
+    if (!isFinite(num)) return "—";
+    if (currency !== "JPY") {
+      return formatNumber(num, 2) + " " + currency;
+    }
+    return "¥" + formatNumber(num, 0);
+  }
+
   function sanitizeQty(){
     let v = (qtyInput.value || "").replace(/\D/g, "");
     v = v.replace(/^0+(\d)/, "$1");
@@ -899,6 +907,15 @@
     if (isNaN(val) || val < min) val = min;
     if (max !== null && val > max) val = max;
     qtyInput.value = String(val);
+  }
+
+  function getRawPnl(qty, price){
+    if (!isFinite(qty) || !isFinite(price) || !isFinite(basisValue)) return null;
+
+    if (holdingSide === "BUY" && sideInput.value === "SELL") {
+      return (price - basisValue) * qty;
+    }
+    return (basisValue - price) * qty;
   }
 
   function setSide(side){
@@ -929,53 +946,22 @@
   }
 
   function updatePreview(){
-    const qty = (qtyInput.value || "").trim();
+    const qty = Number((qtyInput.value || "").trim());
     const dateVal = (dateInput.value || "").trim();
-    const priceVal = (priceInput.value || "").trim();
-    const feeVal = (feeInput.value || "").trim();
-    const taxVal = (taxInput.value || "").trim();
-    const cashflowVal = (cashflowInput.value || "").trim();
+    const priceVal = Number((priceInput.value || "").trim());
+    const feeValRaw = (feeInput.value || "").trim();
+    const cashflowValRaw = (cashflowInput.value || "").trim();
     const fxVal = fxInput ? (fxInput.value || "").trim() : "";
     const memoVal = (memoInput.value || "").trim();
-    const brokerVal = (brokerSelect.value || "OTHER").toUpperCase();
-    const accountVal = (accountSelect.value || "SPEC").toUpperCase();
 
     previewDate.textContent = dateVal || "—";
-    previewQty.textContent = qty ? formatNumber(qty, 0) + " 株" : "—";
+    previewQty.textContent = isFinite(qty) && qtyInput.value !== ""
+      ? formatNumber(qty, 0) + " 株"
+      : "—";
 
-    if (priceVal) {
-      if (currency !== "JPY") {
-        previewPrice.textContent = formatNumber(priceVal, 2) + " " + currency;
-      } else {
-        previewPrice.textContent = "¥" + formatNumber(priceVal, 2);
-      }
-    } else {
-      previewPrice.textContent = "—";
-    }
-
-    if (feeVal) {
-      previewFee.textContent = currency !== "JPY"
-        ? formatNumber(feeVal, 2) + " " + currency
-        : "¥" + formatNumber(feeVal, 0);
-    } else {
-      previewFee.textContent = currency !== "JPY" ? "0 " + currency : "¥0";
-    }
-
-    if (taxVal) {
-      previewTax.textContent = currency !== "JPY"
-        ? formatNumber(taxVal, 2) + " " + currency
-        : "¥" + formatNumber(taxVal, 0);
-    } else {
-      previewTax.textContent = currency !== "JPY" ? "0 " + currency : "¥0";
-    }
-
-    if (cashflowVal) {
-      previewCashflow.textContent = currency !== "JPY"
-        ? cashflowVal + " " + currency
-        : cashflowVal;
-    } else {
-      previewCashflow.textContent = "—";
-    }
+    previewPrice.textContent = isFinite(priceVal) && priceInput.value !== ""
+      ? formatMoney(priceVal)
+      : "—";
 
     if (previewFxWrap) {
       const showFx = currency !== "JPY";
@@ -993,22 +979,66 @@
     previewAccountChip.textContent = accountLabelMap[accountVal] || accountVal || "—";
     previewAccountChip.dataset.kind = accountKindMap[accountVal] || "account-spec";
 
-    const qtyNum = Number(qty);
-    const priceNum = Number(priceVal);
-    if (isFinite(qtyNum) && isFinite(priceNum) && qty !== "" && priceVal !== "") {
-      const gross = qtyNum * priceNum;
-      if (currency !== "JPY") {
-        if (fxVal && isFinite(Number(fxVal))) {
-          const grossJpy = gross * Number(fxVal);
-          previewGross.textContent = formatNumber(gross, 2) + " " + currency + " / 約¥" + formatNumber(grossJpy, 0);
-        } else {
-          previewGross.textContent = formatNumber(gross, 2) + " " + currency;
-        }
+    const rawPnl = getRawPnl(qty, priceVal);
+
+    const feeEntered = feeValRaw !== "" && isFinite(Number(feeValRaw));
+    const cashflowEntered = cashflowValRaw !== "" && isFinite(Number(cashflowValRaw));
+
+    let previewFeeValue = null;
+    let previewCashflowValue = null;
+
+    if (rawPnl !== null) {
+      if (drivingField === "fee" && feeEntered) {
+        previewFeeValue = Number(feeValRaw);
+        previewCashflowValue = rawPnl - previewFeeValue;
+      } else if (drivingField === "cashflow" && cashflowEntered) {
+        previewCashflowValue = Number(cashflowValRaw);
+        previewFeeValue = rawPnl - previewCashflowValue;
+      } else if (feeEntered) {
+        previewFeeValue = Number(feeValRaw);
+        previewCashflowValue = rawPnl - previewFeeValue;
+      } else if (cashflowEntered) {
+        previewCashflowValue = Number(cashflowValRaw);
+        previewFeeValue = rawPnl - previewCashflowValue;
+      }
+    }
+
+    if (previewFeeValue !== null && isFinite(previewFeeValue)) {
+      previewFee.textContent = formatMoney(previewFeeValue);
+    } else if (feeEntered) {
+      previewFee.textContent = formatMoney(Number(feeValRaw));
+    } else {
+      previewFee.textContent = "—";
+    }
+
+    if (previewCashflowValue !== null && isFinite(previewCashflowValue)) {
+      previewCashflow.textContent = formatMoney(previewCashflowValue);
+      previewPnlBig.textContent = formatMoney(previewCashflowValue);
+      previewPnlBig.classList.remove("neutral", "pos", "neg");
+      if (previewCashflowValue > 0) {
+        previewPnlBig.classList.add("pos");
+      } else if (previewCashflowValue < 0) {
+        previewPnlBig.classList.add("neg");
       } else {
-        previewGross.textContent = "¥" + formatNumber(gross, 0);
+        previewPnlBig.classList.add("neutral");
+      }
+    } else if (cashflowEntered) {
+      const rawCash = Number(cashflowValRaw);
+      previewCashflow.textContent = formatMoney(rawCash);
+      previewPnlBig.textContent = formatMoney(rawCash);
+      previewPnlBig.classList.remove("neutral", "pos", "neg");
+      if (rawCash > 0) {
+        previewPnlBig.classList.add("pos");
+      } else if (rawCash < 0) {
+        previewPnlBig.classList.add("neg");
+      } else {
+        previewPnlBig.classList.add("neutral");
       }
     } else {
-      previewGross.textContent = "—";
+      previewCashflow.textContent = "—";
+      previewPnlBig.textContent = "—";
+      previewPnlBig.classList.remove("pos", "neg");
+      previewPnlBig.classList.add("neutral");
     }
   }
 
@@ -1022,10 +1052,28 @@
     updatePreview();
   });
 
-  [dateInput, priceInput, feeInput, taxInput, cashflowInput, brokerSelect, accountSelect, memoInput].forEach((el) => {
+  [dateInput, priceInput, memoInput].forEach((el) => {
     if (!el) return;
     el.addEventListener("input", updatePreview);
     el.addEventListener("change", updatePreview);
+  });
+
+  feeInput.addEventListener("input", function(){
+    drivingField = "fee";
+    updatePreview();
+  });
+  feeInput.addEventListener("change", function(){
+    drivingField = "fee";
+    updatePreview();
+  });
+
+  cashflowInput.addEventListener("input", function(){
+    drivingField = "cashflow";
+    updatePreview();
+  });
+  cashflowInput.addEventListener("change", function(){
+    drivingField = "cashflow";
+    updatePreview();
   });
 
   if (fxInput) {
@@ -1045,6 +1093,7 @@
       const sign = btn.dataset.sgn === "-" ? "-" : "";
       const value = (cashflowInput.value || "").replace(/^[+-]?/, "");
       cashflowInput.value = sign + value;
+      drivingField = "cashflow";
       cashflowInput.focus();
       updatePreview();
     });
