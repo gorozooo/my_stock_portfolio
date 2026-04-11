@@ -32,6 +32,10 @@
 #   - POST action=toggle_monthly_todo_done で完了/未完了を切替
 #   - POST action=delete_monthly_todo で削除
 #   - 選択中の month に対応する TODO 一覧を context に渡す
+#
+# 今回の修正：
+# - HOUSE のカード請求集計で、memo/category だけでなく card フィールド側の名前も見るように修正
+#   → 「エポス」「イオン」「ヨドバシ」を資金移動のイオン銀行計算に正しく加算する
 # =========================================
 
 from decimal import Decimal
@@ -533,22 +537,46 @@ def _house_card_bill_sum_by_keyword(month: date, keyword: str) -> int:
     """
     何をする？
     - HOUSE のカード請求（var_type=CARD）から、keyword（例：エポス）に一致する分を合計
-    - memo か category.name のどちらかに入っていれば拾う
+    - memo / category.name / card.name / card文字列 のどれでも拾う
+    - ORMのjoin依存を避けるため、Python側で安全に判定する
     """
     kw = (keyword or "").strip()
     if not kw:
         return 0
 
-    qs = MonthlyVariableExpense.objects.filter(month=month, owner="HOUSE", var_type="CARD")
+    rows = MonthlyVariableExpense.objects.filter(
+        month=month,
+        owner="HOUSE",
+        var_type="CARD",
+    ).order_by("id")
 
-    try:
-        qs = qs.filter(memo__icontains=kw) | MonthlyVariableExpense.objects.filter(
-            month=month, owner="HOUSE", var_type="CARD", category__name__icontains=kw
-        )
-        return _sum_qs(qs, "amount")
-    except Exception:
-        qs = MonthlyVariableExpense.objects.filter(month=month, owner="HOUSE", var_type="CARD", memo__icontains=kw)
-        return _sum_qs(qs, "amount")
+    total = 0
+
+    for row in rows:
+        texts: list[str] = []
+
+        memo = getattr(row, "memo", None)
+        if memo:
+            texts.append(str(memo))
+
+        category_obj = getattr(row, "category", None)
+        category_name = getattr(category_obj, "name", None) if category_obj else None
+        if category_name:
+            texts.append(str(category_name))
+
+        card_obj = getattr(row, "card", None)
+        if card_obj:
+            card_name = getattr(card_obj, "name", None)
+            if card_name:
+                texts.append(str(card_name))
+            else:
+                texts.append(str(card_obj))
+
+        joined = " ".join(texts)
+        if kw.lower() in joined.lower():
+            total += _int(getattr(row, "amount", 0))
+
+    return _int(total)
 
 
 def _house_pension_insurance_fixed_sum() -> int:
