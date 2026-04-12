@@ -1,105 +1,261 @@
-{# templates/realized/_ranking.html #}
 {% load humanize %}
+
 <style>
-  .rk-wrap{margin-top:14px}
-  .rk-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
-  .rk-h{font-size:13px;color:#cbd5e1}
-  .rk-clear{font-size:11px;padding:4px 8px;border:1px solid rgba(148,163,184,.25);border-radius:8px;background:transparent;color:#cbd5e1}
-  .rk-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-  .rk-card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:10px}
-  .rk-ttl{font-size:12px;color:#94a3b8;margin-bottom:6px}
-  .rk-row{display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:8px;cursor:pointer}
-  .rk-row:hover{background:rgba(255,255,255,.06)}
-  .rk-name{font-size:13px;color:#e5e7eb;display:flex;gap:6px;align-items:baseline}
-  .rk-ticker{font-size:11px;color:#94a3b8}
-  .rk-mets{font-variant-numeric:tabular-nums;text-align:right}
-  .rk-mets div{line-height:1.2}
-  .pos{color:#86efac} .neg{color:#fca5a5}
-  .muted{color:#94a3b8}
-  @media (max-width: 640px){ .rk-grid{grid-template-columns:1fr} }
+  .rr-wrap{
+    margin-top:0;
+    padding:12px;
+  }
+
+  .rr-head{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:10px;
+    margin-bottom:12px;
+  }
+
+  .rr-head-main{
+    min-width:0;
+    flex:1 1 auto;
+  }
+
+  .rr-title{
+    font-size:15px;
+    font-weight:900;
+    color:#eef2ff;
+  }
+
+  .rr-note{
+    margin-top:4px;
+    font-size:12px;
+    line-height:1.6;
+    color:#94a3b8;
+  }
+
+  .rr-clear{
+    appearance:none;
+    -webkit-appearance:none;
+    min-height:36px;
+    padding:0 12px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.10);
+    background:rgba(255,255,255,.05);
+    color:#dbe4f4;
+    font-size:12px;
+    font-weight:900;
+  }
+
+  .rr-grid{
+    display:grid;
+    gap:12px;
+    grid-template-columns:1fr;
+  }
+
+  .rr-card{
+    padding:12px;
+    border-radius:18px;
+    border:1px solid rgba(255,255,255,.08);
+    background:rgba(255,255,255,.04);
+  }
+
+  .rr-card-title{
+    font-size:13px;
+    font-weight:900;
+    color:#c7d2fe;
+    margin-bottom:10px;
+    letter-spacing:.03em;
+  }
+
+  .rr-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    width:100%;
+    padding:10px;
+    border-radius:14px;
+    border:1px solid rgba(255,255,255,.06);
+    background:rgba(255,255,255,.03);
+    text-align:left;
+  }
+
+  .rr-row + .rr-row{
+    margin-top:8px;
+  }
+
+  .rr-left{
+    min-width:0;
+    flex:1 1 auto;
+  }
+
+  .rr-name{
+    font-size:16px;
+    font-weight:900;
+    color:#f8fbff;
+    line-height:1.35;
+    word-break:break-word;
+  }
+
+  .rr-sub{
+    margin-top:3px;
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    align-items:center;
+    font-size:11px;
+    color:#94a3b8;
+  }
+
+  .rr-ticker{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:22px;
+    padding:0 8px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.08);
+    background:rgba(255,255,255,.05);
+    color:#dbe4f4;
+    font-weight:800;
+  }
+
+  .rr-right{
+    flex:0 0 auto;
+    text-align:right;
+    font-variant-numeric:tabular-nums;
+  }
+
+  .rr-pnl{
+    font-size:18px;
+    font-weight:900;
+    line-height:1.2;
+  }
+
+  .rr-pos{color:#86efac}
+  .rr-neg{color:#fca5a5}
+  .rr-muted{color:#94a3b8}
+
+  .rr-meta{
+    margin-top:4px;
+    font-size:12px;
+    color:#9ca3af;
+    line-height:1.45;
+  }
+
+  .rr-empty{
+    padding:16px 14px;
+    border-radius:16px;
+    border:1px solid rgba(255,255,255,.08);
+    background:rgba(255,255,255,.04);
+    color:#94a3b8;
+    font-size:13px;
+    line-height:1.7;
+  }
 </style>
 
-<div class="rk-wrap" id="rkWrap">
-  <div class="rk-head">
-    <div class="rk-h">📊 銘柄別ランキング（実現PnL）</div>
-    <button type="button" class="rk-clear" id="rkClear">フィルタ解除</button>
+<div
+  id="pnlRankingWrap"
+  class="rr-wrap"
+  hx-get="{% url 'realized_ranking_partial' %}"
+  hx-trigger="pnl:refresh from:body"
+  hx-include="#q,[name=preset],[name=freq],[name=start],[name=end]"
+  hx-swap="outerHTML"
+>
+  <div class="rr-head">
+    <div class="rr-head-main">
+      <div class="rr-title">銘柄別ランキング</div>
+      <div class="rr-note">タップすると、その銘柄のドリルダウン明細を下に表示します。</div>
+    </div>
+    <button type="button" class="rr-clear" id="rkClear">フィルタ解除</button>
   </div>
 
-  {# top5 / worst5 のどちらかに要素があれば表示 #}
   {% if top5 or worst5 %}
-    <div class="rk-grid">
-      <div class="rk-card">
-        <div class="rk-ttl">🏅 TOP 5</div>
+    <div class="rr-grid">
+      <div class="rr-card">
+        <div class="rr-card-title">🏅 TOP 5</div>
+
         {% if top5 %}
           {% for r in top5 %}
-            <div class="rk-row"
-                 hx-get="{% url 'realized_ranking_detail_partial' %}"
-                 hx-target="#pnlRankingDetailWrap"
-                 hx-swap="outerHTML"
-                 hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
-                 hx-vals='{"ticker":"{{ r.ticker }}"}'>
-              <div class="rk-name">
-                <span>{% if r.name %}{{ r.name }}{% else %}{{ r.ticker }}{% endif %}</span>
-                <span class="rk-ticker">{{ r.ticker }}</span>
+            <button
+              type="button"
+              class="rr-row"
+              hx-get="{% url 'realized_ranking_detail_partial' %}"
+              hx-target="#pnlRankingDetailWrap"
+              hx-swap="outerHTML"
+              hx-include="#q,[name=preset],[name=freq],[name=start],[name=end]"
+              hx-vals='{"ticker":"{{ r.ticker }}"}'
+            >
+              <div class="rr-left">
+                <div class="rr-name">{% if r.name %}{{ r.name }}{% else %}{{ r.ticker }}{% endif %}</div>
+                <div class="rr-sub">
+                  <span class="rr-ticker">{{ r.ticker }}</span>
+                  <span>勝率 {{ r.win_rate|floatformat:0 }}%</span>
+                  <span>平均 ¥{{ r.avg|floatformat:0|intcomma }}</span>
+                </div>
               </div>
-              <div class="rk-mets">
-                {% with p=r.pnl %}
-                  <div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>
-                {% endwith %}
-                <div class="muted">勝率 {{ r.win_rate|floatformat:0 }}% / 平均 ¥{{ r.avg|floatformat:0|intcomma }}</div>
+
+              <div class="rr-right">
+                <div class="rr-pnl {% if r.pnl >= 0 %}rr-pos{% else %}rr-neg{% endif %}">
+                  ¥{{ r.pnl|floatformat:0|intcomma }}
+                </div>
               </div>
-            </div>
+            </button>
           {% endfor %}
         {% else %}
-          <div class="muted" style="padding:8px 0">データなし</div>
+          <div class="rr-empty">TOPデータがありません。</div>
         {% endif %}
       </div>
 
-      <div class="rk-card">
-        <div class="rk-ttl">📉 ワースト 5</div>
+      <div class="rr-card">
+        <div class="rr-card-title">📉 ワースト 5</div>
+
         {% if worst5 %}
           {% for r in worst5 %}
-            <div class="rk-row"
-                 hx-get="{% url 'realized_ranking_detail_partial' %}"
-                 hx-target="#pnlRankingDetailWrap"
-                 hx-swap="outerHTML"
-                 hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
-                 hx-vals='{"ticker":"{{ r.ticker }}"}'>
-              <div class="rk-name">
-                <span>{% if r.name %}{{ r.name }}{% else %}{{ r.ticker }}{% endif %}</span>
-                <span class="rk-ticker">{{ r.ticker }}</span>
+            <button
+              type="button"
+              class="rr-row"
+              hx-get="{% url 'realized_ranking_detail_partial' %}"
+              hx-target="#pnlRankingDetailWrap"
+              hx-swap="outerHTML"
+              hx-include="#q,[name=preset],[name=freq],[name=start],[name=end]"
+              hx-vals='{"ticker":"{{ r.ticker }}"}'
+            >
+              <div class="rr-left">
+                <div class="rr-name">{% if r.name %}{{ r.name }}{% else %}{{ r.ticker }}{% endif %}</div>
+                <div class="rr-sub">
+                  <span class="rr-ticker">{{ r.ticker }}</span>
+                  <span>勝率 {{ r.win_rate|floatformat:0 }}%</span>
+                  <span>平均 ¥{{ r.avg|floatformat:0|intcomma }}</span>
+                </div>
               </div>
-              <div class="rk-mets">
-                {% with p=r.pnl %}
-                  <div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>
-                {% endwith %}
-                <div class="muted">勝率 {{ r.win_rate|floatformat:0 }}% / 平均 ¥{{ r.avg|floatformat:0|intcomma }}</div>
+
+              <div class="rr-right">
+                <div class="rr-pnl {% if r.pnl >= 0 %}rr-pos{% else %}rr-neg{% endif %}">
+                  ¥{{ r.pnl|floatformat:0|intcomma }}
+                </div>
               </div>
-            </div>
+            </button>
           {% endfor %}
         {% else %}
-          <div class="muted" style="padding:8px 0">データなし</div>
+          <div class="rr-empty">ワーストデータがありません。</div>
         {% endif %}
       </div>
     </div>
   {% else %}
-    <div class="muted" style="padding:8px 0">データなし</div>
+    <div class="rr-empty">ランキング対象データがありません。</div>
   {% endif %}
 </div>
 
 <script>
-(() => {
-  // フィルタ解除（#q を空にして既存の更新連鎖を利用）
-  const qEl  = document.getElementById('q');
-  document.getElementById('rkClear')?.addEventListener('click', () => {
-    if (!qEl) return;
-    qEl.value = '';
-    if (window.htmx) {
-      document.body.dispatchEvent(new Event('pnl:refresh', {bubbles:true}));
-      htmx.trigger(qEl, 'search');
-    }
-    const d = document.getElementById('pnlRankingDetailWrap');
-    if (d) d.innerHTML = '';
+(function(){
+  const qEl = document.getElementById('q');
+  const clearBtn = document.getElementById('rkClear');
+
+  clearBtn?.addEventListener('click', function(){
+    if (qEl) qEl.value = '';
+    document.body.dispatchEvent(new Event('pnl:refresh', { bubbles:true }));
+    const detail = document.getElementById('pnlRankingDetailWrap');
+    if (detail) detail.innerHTML = '';
   });
 })();
 </script>
