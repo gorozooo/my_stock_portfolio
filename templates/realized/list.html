@@ -6,111 +6,417 @@
 <link rel="stylesheet" href="{% static 'css/realized.css' %}?v=10">
 <style>
   .view-hidden{display:none!important}
-  section{margin-top:12px}
+
+  .realized-page{
+    max-width:820px;
+    margin:0 auto;
+    padding:12px 10px 128px;
+    color:#e5e7eb;
+  }
+
+  .realized-page-head{
+    margin-bottom:12px;
+  }
+
+  .realized-page-title{
+    margin:0;
+    font-size:28px;
+    font-weight:900;
+    line-height:1.15;
+    color:#f8fbff;
+    letter-spacing:.01em;
+  }
+
+  .realized-page-sub{
+    margin-top:8px;
+    font-size:13px;
+    line-height:1.7;
+    color:#94a3b8;
+  }
+
+  .realized-sticky{
+    position:sticky;
+    top:calc(env(safe-area-inset-top, 0px) + 6px);
+    z-index:18;
+    margin-bottom:12px;
+    padding:10px;
+    border-radius:18px;
+    border:1px solid rgba(255,255,255,.08);
+    background:rgba(2,6,23,.82);
+    backdrop-filter:blur(14px);
+    -webkit-backdrop-filter:blur(14px);
+    box-shadow:
+      0 12px 30px rgba(0,0,0,.20),
+      0 1px 0 rgba(255,255,255,.05) inset;
+  }
+
+  .realized-search-row{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto auto;
+    gap:8px;
+    margin-bottom:10px;
+  }
+
+  .realized-search{
+    appearance:none;
+    -webkit-appearance:none;
+    width:100%;
+    min-width:0;
+    min-height:46px;
+    padding:0 14px;
+    border-radius:14px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.06);
+    color:#eef2ff;
+    font-size:16px;
+    font-weight:700;
+    outline:none;
+  }
+
+  .realized-search::placeholder{
+    color:rgba(226,232,240,.42);
+    font-weight:600;
+  }
+
+  .realized-search:focus{
+    border-color:rgba(99,102,241,.52);
+    box-shadow:0 0 0 4px rgba(99,102,241,.16);
+  }
+
+  .realized-search-btn{
+    appearance:none;
+    -webkit-appearance:none;
+    min-height:46px;
+    padding:0 14px;
+    border-radius:14px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.06);
+    color:#eef2ff;
+    font-size:14px;
+    font-weight:800;
+  }
+
+  .realized-search-btn.primary{
+    border:0;
+    background:linear-gradient(180deg,#6d73ff,#5561f2);
+    box-shadow:0 10px 24px rgba(85,97,242,.25);
+  }
+
+  .realized-top-nav{
+    display:grid;
+    grid-template-columns:repeat(4, minmax(0,1fr));
+    gap:8px;
+  }
+
+  .realized-top-nav-btn{
+    appearance:none;
+    -webkit-appearance:none;
+    min-height:42px;
+    padding:0 8px;
+    border-radius:14px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.05);
+    color:#dbe4f4;
+    font-size:13px;
+    font-weight:800;
+    letter-spacing:.02em;
+  }
+
+  .realized-top-nav-btn.is-active{
+    border-color:rgba(99,102,241,.38);
+    background:rgba(99,102,241,.18);
+    color:#f5f7ff;
+    box-shadow:0 0 0 4px rgba(99,102,241,.12);
+  }
+
+  .realized-section{
+    margin-top:12px;
+  }
+
+  .realized-section-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    margin-bottom:8px;
+  }
+
+  .realized-section-title{
+    font-size:15px;
+    font-weight:900;
+    color:#eef2ff;
+    letter-spacing:.02em;
+  }
+
+  .realized-section-note{
+    font-size:11px;
+    color:#94a3b8;
+    line-height:1.5;
+  }
+
+  .realized-frame{
+    border-radius:20px;
+    border:1px solid rgba(255,255,255,.08);
+    background:linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.025));
+    box-shadow:
+      0 10px 30px rgba(0,0,0,.16),
+      0 1px 0 rgba(255,255,255,.04) inset;
+    overflow:hidden;
+  }
+
+  .realized-loader{
+    padding:18px 14px;
+    color:#94a3b8;
+    font-size:13px;
+  }
+
+  .realized-csv-row{
+    display:flex;
+    justify-content:flex-end;
+    margin-bottom:8px;
+  }
+
+  .realized-csv-link{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:38px;
+    padding:0 12px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.05);
+    color:#dbe4f4;
+    text-decoration:none;
+    font-size:12px;
+    font-weight:800;
+  }
+
+  @media (max-width:640px){
+    .realized-page{
+      padding:10px 8px 128px;
+    }
+
+    .realized-page-title{
+      font-size:24px;
+    }
+
+    .realized-top-nav{
+      grid-template-columns:repeat(4, minmax(0,1fr));
+    }
+
+    .realized-top-nav-btn{
+      min-height:40px;
+      font-size:12px;
+      padding:0 4px;
+    }
+
+    .realized-search-row{
+      grid-template-columns:minmax(0,1fr) auto auto;
+      gap:6px;
+    }
+
+    .realized-search-btn{
+      padding:0 10px;
+      font-size:12px;
+    }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="pnl">
-
-  {# ── Section 1: 上部サマリー（証券会社別まで） ─── #}
-  <section id="realized-top">
-    <div id="pnlSummaryWrap">
-      {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers %}
+<div class="realized-page" id="realizedPage">
+  <div class="realized-page-head">
+    <h1 class="realized-page-title">実現損益</h1>
+    <div class="realized-page-sub">
+      総合 → 流れ → 銘柄 → 明細の順で、<br>
+      スマホで見やすく整理した実現損益ページです。
     </div>
+  </div>
+
+  <div class="realized-sticky">
+    <div class="realized-search-row">
+      <input
+        id="q"
+        name="q"
+        type="search"
+        class="realized-search"
+        placeholder="銘柄名 / コードで検索"
+        value="{{ q|default_if_none:'' }}">
+
+      <button type="button" class="realized-search-btn primary" id="btnRealizedApply">更新</button>
+      <button type="button" class="realized-search-btn" id="btnRealizedClear">クリア</button>
+    </div>
+
+    <div class="realized-top-nav">
+      <button type="button" class="realized-top-nav-btn is-active" data-show-section="overview">総合</button>
+      <button type="button" class="realized-top-nav-btn" data-show-section="flow">流れ</button>
+      <button type="button" class="realized-top-nav-btn" data-show-section="stocks">銘柄</button>
+      <button type="button" class="realized-top-nav-btn" data-show-section="details">明細</button>
+    </div>
+  </div>
+
+  <section class="realized-section" id="realizedSection-overview">
+    <div class="realized-section-head">
+      <div>
+        <div class="realized-section-title">AI総合サマリー</div>
+        <div class="realized-section-note">まずは全体の状態を一画面で把握するゾーンです。</div>
+      </div>
+    </div>
+
+    {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers %}
   </section>
 
-  {# ── Section 2: 期間サマリー（期間まとめ＋グラフ3枚） ─── #}
-  <section id="realized-summary" class="view-hidden">
-    {# 期間まとめ（ボタンでHX再描画／hidden inputsあり） #}
-    {% include "realized/_summary_period.html" %}
-    {# グラフ #}
+  <section class="realized-section view-hidden" id="realizedSection-flow">
+    <div class="realized-section-head">
+      <div>
+        <div class="realized-section-title">流れと傾向</div>
+        <div class="realized-section-note">期間カードとチャートで、いつ伸びていつ崩れたかを見ます。</div>
+      </div>
+    </div>
+
+    <div class="realized-frame">
+      <div
+        id="pnlPeriodWrap"
+        hx-get="{% url 'realized_summary_period' %}?preset=LAST_12M&freq=month&q={{ q|urlencode }}"
+        hx-trigger="load, pnl:refresh from:body"
+        hx-include="#q,[name=preset],[name=freq],[name=start],[name=end]"
+        hx-swap="outerHTML">
+        <div class="realized-loader">期間データを読み込み中…</div>
+      </div>
+    </div>
+
     {% include "realized/_monthly_chart.html" %}
     {% include "realized/_analysis_charts.html" %}
   </section>
 
-  {# ── Section 3: ランキング ─────────────────── #}
-  <section id="realized-ranking" class="view-hidden">
-    <div id="pnlRankingWrap"
-       hx-get="{% url 'realized_ranking_partial' %}?preset=LAST_12M&freq=month"
-       hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
-       hx-trigger="load, pnl:refresh from:body"
-       hx-swap="outerHTML">
-    <div style="color:#94a3b8;padding:8px 0">ランキングを読み込み中…</div>
-  </div>
+  <section class="realized-section view-hidden" id="realizedSection-stocks">
+    <div class="realized-section-head">
+      <div>
+        <div class="realized-section-title">銘柄ランキング</div>
+        <div class="realized-section-note">勝ち筋と崩れやすい銘柄をカードで見ます。</div>
+      </div>
+    </div>
 
-  {# ドリルダウンの明細を表示する場所 #}
-  <div id="pnlRankingDetailWrap"></div>
+    <div
+      id="pnlRankingWrap"
+      class="realized-frame"
+      hx-get="{% url 'realized_ranking_partial' %}?preset=LAST_12M&freq=month"
+      hx-include="#q,[name=preset],[name=freq],[name=start],[name=end]"
+      hx-trigger="load, pnl:refresh from:body"
+      hx-swap="outerHTML">
+      <div class="realized-loader">ランキングを読み込み中…</div>
+    </div>
+
+    <div id="pnlRankingDetailWrap"></div>
   </section>
 
-  {# ── Section 4: 明細（テーブル） ───────────────── #}
-  <section id="realized-details" class="view-hidden">
-    <div class="csv-link">
-      <a href="{% url 'realized_export_csv' %}?q={{ q|urlencode }}">CSVエクスポート</a>
+  <section class="realized-section view-hidden" id="realizedSection-details">
+    <div class="realized-section-head">
+      <div>
+        <div class="realized-section-title">明細</div>
+        <div class="realized-section-note">1件ずつのトレードをカードで確認するゾーンです。</div>
+      </div>
     </div>
-    <div id="pnlTableWrap"
-         hx-get="{% url 'realized_table_partial' %}?q={{ q|urlencode }}"
-         hx-trigger="load"
-         hx-swap="outerHTML">
-      {% include "realized/_table.html" with trades=trades %}
+
+    <div class="realized-csv-row">
+      <a class="realized-csv-link" href="{% url 'realized_export_csv' %}?q={{ q|urlencode }}">CSVエクスポート</a>
+    </div>
+
+    <div
+      id="pnlTableWrap"
+      class="realized-frame"
+      hx-get="{% url 'realized_table_partial' %}?q={{ q|urlencode }}"
+      hx-trigger="load, pnl:refresh from:body"
+      hx-include="#q"
+      hx-swap="outerHTML">
+      <div class="realized-loader">明細を読み込み中…</div>
     </div>
   </section>
 </div>
 
 <script>
 (function(){
+  const root = document.getElementById("realizedPage");
+  if (!root) return;
+
   const sections = {
-    top:     document.getElementById('realized-top'),
-    summary: document.getElementById('realized-summary'),
-    ranking: document.getElementById('realized-ranking'),
-    details: document.getElementById('realized-details'),
+    overview: document.getElementById("realizedSection-overview"),
+    flow: document.getElementById("realizedSection-flow"),
+    stocks: document.getElementById("realizedSection-stocks"),
+    details: document.getElementById("realizedSection-details"),
   };
 
-  function showOnly(key){
-    Object.values(sections).forEach(s => s && s.classList.add('view-hidden'));
-    const tgt = sections[key] || sections.top;
-    tgt.classList.remove('view-hidden');
+  const qInput = document.getElementById("q");
+  const applyBtn = document.getElementById("btnRealizedApply");
+  const clearBtn = document.getElementById("btnRealizedClear");
+  const navButtons = Array.from(root.querySelectorAll("[data-show-section]"));
 
-    // スクロール位置を上げる
-    try{ tgt.scrollIntoView({behavior:'smooth', block:'start'}); }catch(e){}
+  let activeSection = "overview";
 
-    // グラフ面は可視化直後に再レイアウト
-    if (key === 'summary'){
-      setTimeout(()=> window.dispatchEvent(new Event('resize')), 50);
-    }
+  function showSection(key){
+    activeSection = key in sections ? key : "overview";
 
-    // 初回ロード保証（HTMX領域）
-    if (key === 'ranking'){
-      const rk = document.getElementById('pnlRankingWrap');
-      if (rk && window.htmx) htmx.trigger(rk, 'load');
-    }
-    if (key === 'details'){
-      const tb = document.getElementById('pnlTableWrap');
-      if (tb && window.htmx) htmx.trigger(tb, 'load');
+    Object.entries(sections).forEach(([name, el]) => {
+      if (!el) return;
+      el.classList.toggle("view-hidden", name !== activeSection);
+    });
+
+    navButtons.forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.showSection === activeSection);
+    });
+
+    if (activeSection === "flow") {
+      setTimeout(() => window.dispatchEvent(new Event("resize")), 80);
     }
   }
 
-  // 初期表示：上部サマリー
-  if (document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', ()=> showOnly('top'), {once:true});
-  }else{
-    showOnly('top');
+  function refreshAll(){
+    document.body.dispatchEvent(new Event("pnl:refresh", { bubbles:true }));
   }
 
-  // bottom_tab.js からのサブメニュー操作
-  window.addEventListener('bottomtab:action', (ev)=>{
-    const d = ev.detail || {};
-    if (d.menu !== 'realized') return;
-    switch(d.action){
-      case 'show_summary': showOnly('summary'); break; // 期間まとめ＋グラフ
-      case 'show_ranking': showOnly('ranking'); break; // ランキングのみ
-      case 'show_details': showOnly('details'); break; // 明細のみ
-      default: showOnly('top'); break;                 // 上部サマリーのみ
+  navButtons.forEach((btn) => {
+    btn.addEventListener("click", function(){
+      showSection(btn.dataset.showSection || "overview");
+    });
+  });
+
+  applyBtn?.addEventListener("click", function(){
+    refreshAll();
+  });
+
+  clearBtn?.addEventListener("click", function(){
+    if (qInput) qInput.value = "";
+    refreshAll();
+  });
+
+  qInput?.addEventListener("keydown", function(e){
+    if (e.key === "Enter") {
+      e.preventDefault();
+      refreshAll();
     }
   });
 
-  // 検索確定で明細を前面へ（任意）
-  document.getElementById('q')?.addEventListener('search', ()=> showOnly('details'));
+  window.addEventListener("bottomtab:action", function(ev){
+    const d = ev.detail || {};
+    if (d.menu !== "realized") return;
+
+    switch (d.action) {
+      case "show_summary":
+        showSection("flow");
+        break;
+      case "show_ranking":
+        showSection("stocks");
+        break;
+      case "show_details":
+        showSection("details");
+        break;
+      default:
+        showSection("overview");
+        break;
+    }
+  });
+
+  showSection("overview");
 })();
 </script>
 {% endblock %}
