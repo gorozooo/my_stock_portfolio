@@ -1,3 +1,9 @@
+{# [FILE] _summary.html #}
+{# [PATH] templates/realized/_summary.html #}
+{# このファイルは何？ #}
+{# - 実現損益の総合サマリーと、証券会社別サマリーを表示する部分テンプレートです。 #}
+{# - AI総評 / 強み / 注意 / 次の一手 を表示します。 #}
+
 {% load humanize %}
 
 <style>
@@ -22,7 +28,6 @@
     scrollbar-width:none;
     -webkit-overflow-scrolling:touch;
   }
-
   .rs-broker-tabs::-webkit-scrollbar{display:none}
 
   .rs-broker-tab{
@@ -39,7 +44,6 @@
     font-weight:900;
     letter-spacing:.03em;
   }
-
   .rs-broker-tab.is-active{
     border-color:rgba(99,102,241,.34);
     background:rgba(99,102,241,.18);
@@ -203,10 +207,7 @@
     color:#dbe4f4;
   }
 
-  .rs-block{
-    margin-top:12px;
-  }
-
+  .rs-block{margin-top:12px}
   .rs-block-title{
     margin-bottom:8px;
     font-size:12px;
@@ -217,7 +218,6 @@
     align-items:center;
     gap:6px;
   }
-
   .rs-block-title::before{
     content:"";
     width:3px;
@@ -266,26 +266,11 @@
   }
 
   @media (max-width:640px){
-    .rs-wrap{
-      padding:10px;
-      border-radius:18px;
-    }
-
-    .rs-hero{
-      padding:12px;
-    }
-
-    .rs-hero-main{
-      grid-template-columns:1fr;
-    }
-
-    .rs-hero-big-v{
-      font-size:28px;
-    }
-
-    .rs-card-v{
-      font-size:21px;
-    }
+    .rs-wrap{padding:10px;border-radius:18px}
+    .rs-hero{padding:12px}
+    .rs-hero-main{grid-template-columns:1fr}
+    .rs-hero-big-v{font-size:28px}
+    .rs-card-v{font-size:21px}
   }
 </style>
 
@@ -294,7 +279,7 @@
   class="rs-wrap"
   hx-get="{% url 'realized_summary_partial' %}"
   hx-trigger="pnl:refresh from:body"
-  hx-include="#q"
+  hx-include="#q,#brokerFilterHidden,#yearFilterHidden,#monthFilterHidden"
   hx-swap="outerHTML"
 >
   <div class="rs-broker-tabs">
@@ -342,49 +327,19 @@
       <div class="rs-ai-grid">
         <div class="rs-ai-card">
           <div class="rs-ai-label summary">総評</div>
-          <div class="rs-ai-text">
-            {% if agg.pnl >= 0 and agg.win_rate >= 60 %}
-              収益も勝率もかなり安定寄りです。まずは「伸びている型を崩さないこと」が最優先です。
-            {% elif agg.pnl >= 0 %}
-              利益は積み上がっています。次は、勝ちを伸ばせているかよりも「負けをどこで止めたか」を見る段階です。
-            {% else %}
-              まだ損失先行です。今は取り返すより、負けが大きくなった月や銘柄を先に絞るのが効きます。
-            {% endif %}
-          </div>
+          <div class="rs-ai-text">{{ agg.ai_summary }}</div>
         </div>
-
         <div class="rs-ai-card">
           <div class="rs-ai-label good">強み</div>
-          <div class="rs-ai-text">
-            {% if agg.win_rate >= 60 %}
-              勝率が高めで、エントリー精度は崩れていません。勝ちパターンの再現性は十分あります。
-            {% elif agg.profit_sum > 0 %}
-              利益側の積み上げはできています。大勝ちよりも、勝ちの継続性が今の強みです。
-            {% else %}
-              いまは強みを作っている途中です。まずは「勝てた条件」を少数でも固定化するのが近道です。
-            {% endif %}
-          </div>
+          <div class="rs-ai-text">{{ agg.ai_good }}</div>
         </div>
-
         <div class="rs-ai-card">
           <div class="rs-ai-label warn">注意</div>
-          <div class="rs-ai-text">
-            {% if agg.avg_hold_days and agg.avg_hold_days >= 60 %}
-              平均保有日数が長めです。利確の遅れや、見切り遅れが混ざっていないか要注意です。
-            {% elif agg.fee and agg.fee >= 100000 %}
-              手数料負担がやや重めです。回転数が多い月は、勝率よりコストを先に点検したいです。
-            {% else %}
-              大きな崩れは見えにくいですが、勝率だけで安心せず「損失の深さ」を定期確認したい状態です。
-            {% endif %}
-          </div>
+          <div class="rs-ai-text">{{ agg.ai_warn }}</div>
         </div>
-
         <div class="rs-ai-card">
           <div class="rs-ai-label next">次の一手</div>
-          <div class="rs-ai-text">
-            まずは「流れ」で月別カードを見て、次に「銘柄」で上位と下位を確認するのが最短です。  
-            そのあと明細で、勝ち月と負け月の違いを1つだけ見つけると改善が早いです。
-          </div>
+          <div class="rs-ai-text">{{ agg.ai_next }}</div>
         </div>
       </div>
 
@@ -458,250 +413,96 @@
     {% endif %}
   </div>
 
-  <div class="rs-panel" data-rs-panel="rakuten">
-    <div class="rs-panel-body">
-      {% for b in agg_brokers %}
-        {% if b.broker == 'RAKUTEN' %}
-          <div class="rs-hero">
-            <div class="rs-hero-top">
-              <div class="rs-hero-title">楽天証券</div>
-              <div class="rs-hero-badge">{{ b.n|intcomma }} 件</div>
+  {% for b in agg_brokers %}
+    {% if b.broker == 'RAKUTEN' or b.broker == 'MATSUI' or b.broker == 'SBI' %}
+      <div class="rs-panel" data-rs-panel="{% if b.broker == 'RAKUTEN' %}rakuten{% elif b.broker == 'MATSUI' %}matsui{% else %}sbi{% endif %}">
+        <div class="rs-hero">
+          <div class="rs-hero-top">
+            <div class="rs-hero-title">
+              {% if b.broker == 'RAKUTEN' %}楽天証券
+              {% elif b.broker == 'MATSUI' %}松井証券
+              {% else %}SBI証券{% endif %}
             </div>
-
-            <div class="rs-hero-main">
-              <div>
-                <div class="rs-hero-big-k">累計実現損益</div>
-                <div class="rs-hero-big-v {% if b.pnl >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
-                  ¥{{ b.pnl|default_if_none:0|floatformat:0|intcomma }}
-                </div>
-              </div>
-
-              <div class="rs-mini-grid">
-                <div class="rs-mini">
-                  <div class="rs-mini-k">勝率</div>
-                  <div class="rs-mini-v">{{ b.win_rate|default_if_none:0|floatformat:1 }}%</div>
-                </div>
-                <div class="rs-mini">
-                  <div class="rs-mini-k">PF</div>
-                  {% if b.pf %}
-                    <div class="rs-mini-v">{{ b.pf|floatformat:2 }}</div>
-                  {% elif b.profit_sum and not b.loss_sum %}
-                    <div class="rs-mini-v">∞</div>
-                  {% else %}
-                    <div class="rs-mini-v rs-muted">—</div>
-                  {% endif %}
-                </div>
-              </div>
-            </div>
+            <div class="rs-hero-badge">{{ b.n|intcomma }} 件</div>
           </div>
 
-          <div class="rs-ai-card" style="margin-bottom:12px;">
-            <div class="rs-ai-label summary">楽天の見立て</div>
-            <div class="rs-ai-text">
-              {% if b.pnl >= 0 %}
-                楽天口座は利益側です。ここでは「勝率を守る」より、「何が利益を引っ張っているか」を見ると次に繋がります。
-              {% else %}
-                楽天口座はまだ損失側です。まずは明細で大きな負けを作った取引を数件に絞るのが先です。
-              {% endif %}
-            </div>
-          </div>
-
-          <div class="rs-metric-grid">
-            <div class="rs-card">
-              <div class="rs-card-k">平均実現損益率</div>
-              {% if b.avg_pnl_pct %}
-                <div class="rs-card-v">{{ b.avg_pnl_pct|floatformat:2 }}%</div>
-              {% else %}
-                <div class="rs-card-v rs-muted">—</div>
-              {% endif %}
-            </div>
-            <div class="rs-card">
-              <div class="rs-card-k">平均保有日数</div>
-              {% if b.avg_hold_days %}
-                <div class="rs-card-v">{{ b.avg_hold_days|floatformat:1 }}日</div>
-              {% else %}
-                <div class="rs-card-v rs-muted">—</div>
-              {% endif %}
-            </div>
-            <div class="rs-card">
-              <div class="rs-card-k">現金フロー合計</div>
-              <div class="rs-card-v {% if b.cash_total >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
-                ¥{{ b.cash_total|default_if_none:0|floatformat:0|intcomma }}
+          <div class="rs-hero-main">
+            <div>
+              <div class="rs-hero-big-k">累計実現損益</div>
+              <div class="rs-hero-big-v {% if b.pnl >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
+                ¥{{ b.pnl|default_if_none:0|floatformat:0|intcomma }}
               </div>
             </div>
-            <div class="rs-card">
-              <div class="rs-card-k">手数料合計</div>
-              <div class="rs-card-v">¥{{ b.fee|default_if_none:0|floatformat:0|intcomma }}</div>
-            </div>
-          </div>
-        {% endif %}
-      {% endfor %}
-    </div>
-  </div>
 
-  <div class="rs-panel" data-rs-panel="matsui">
-    <div class="rs-panel-body">
-      {% for b in agg_brokers %}
-        {% if b.broker == 'MATSUI' %}
-          <div class="rs-hero">
-            <div class="rs-hero-top">
-              <div class="rs-hero-title">松井証券</div>
-              <div class="rs-hero-badge">{{ b.n|intcomma }} 件</div>
-            </div>
-
-            <div class="rs-hero-main">
-              <div>
-                <div class="rs-hero-big-k">累計実現損益</div>
-                <div class="rs-hero-big-v {% if b.pnl >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
-                  ¥{{ b.pnl|default_if_none:0|floatformat:0|intcomma }}
-                </div>
+            <div class="rs-mini-grid">
+              <div class="rs-mini">
+                <div class="rs-mini-k">勝率</div>
+                <div class="rs-mini-v">{{ b.win_rate|default_if_none:0|floatformat:1 }}%</div>
               </div>
-
-              <div class="rs-mini-grid">
-                <div class="rs-mini">
-                  <div class="rs-mini-k">勝率</div>
-                  <div class="rs-mini-v">{{ b.win_rate|default_if_none:0|floatformat:1 }}%</div>
-                </div>
-                <div class="rs-mini">
-                  <div class="rs-mini-k">PF</div>
-                  {% if b.pf %}
-                    <div class="rs-mini-v">{{ b.pf|floatformat:2 }}</div>
-                  {% elif b.profit_sum and not b.loss_sum %}
-                    <div class="rs-mini-v">∞</div>
-                  {% else %}
-                    <div class="rs-mini-v rs-muted">—</div>
-                  {% endif %}
-                </div>
+              <div class="rs-mini">
+                <div class="rs-mini-k">PF</div>
+                {% if b.pf %}
+                  <div class="rs-mini-v">{{ b.pf|floatformat:2 }}</div>
+                {% elif b.profit_sum and not b.loss_sum %}
+                  <div class="rs-mini-v">∞</div>
+                {% else %}
+                  <div class="rs-mini-v rs-muted">—</div>
+                {% endif %}
               </div>
             </div>
           </div>
+        </div>
 
-          <div class="rs-ai-card" style="margin-bottom:12px;">
-            <div class="rs-ai-label summary">松井の見立て</div>
-            <div class="rs-ai-text">
-              {% if b.win_rate >= 60 %}
-                松井口座は精度が高めです。再現性が高い型がある可能性が強いです。
-              {% else %}
-                松井口座は勝率改善の余地があります。勝ち負けより、保有日数や手数料との相性を見たいです。
-              {% endif %}
+        <div class="rs-ai-grid">
+          <div class="rs-ai-card">
+            <div class="rs-ai-label summary">総評</div>
+            <div class="rs-ai-text">{{ b.ai_summary }}</div>
+          </div>
+          <div class="rs-ai-card">
+            <div class="rs-ai-label good">強み</div>
+            <div class="rs-ai-text">{{ b.ai_good }}</div>
+          </div>
+          <div class="rs-ai-card">
+            <div class="rs-ai-label warn">注意</div>
+            <div class="rs-ai-text">{{ b.ai_warn }}</div>
+          </div>
+          <div class="rs-ai-card">
+            <div class="rs-ai-label next">次の一手</div>
+            <div class="rs-ai-text">{{ b.ai_next }}</div>
+          </div>
+        </div>
+
+        <div class="rs-metric-grid">
+          <div class="rs-card">
+            <div class="rs-card-k">平均実現損益率</div>
+            {% if b.avg_pnl_pct %}
+              <div class="rs-card-v">{{ b.avg_pnl_pct|floatformat:2 }}%</div>
+            {% else %}
+              <div class="rs-card-v rs-muted">—</div>
+            {% endif %}
+          </div>
+          <div class="rs-card">
+            <div class="rs-card-k">平均保有日数</div>
+            {% if b.avg_hold_days %}
+              <div class="rs-card-v">{{ b.avg_hold_days|floatformat:1 }}日</div>
+            {% else %}
+              <div class="rs-card-v rs-muted">—</div>
+            {% endif %}
+          </div>
+          <div class="rs-card">
+            <div class="rs-card-k">現金フロー合計</div>
+            <div class="rs-card-v {% if b.cash_total >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
+              ¥{{ b.cash_total|default_if_none:0|floatformat:0|intcomma }}
             </div>
           </div>
-
-          <div class="rs-metric-grid">
-            <div class="rs-card">
-              <div class="rs-card-k">平均実現損益率</div>
-              {% if b.avg_pnl_pct %}
-                <div class="rs-card-v">{{ b.avg_pnl_pct|floatformat:2 }}%</div>
-              {% else %}
-                <div class="rs-card-v rs-muted">—</div>
-              {% endif %}
-            </div>
-            <div class="rs-card">
-              <div class="rs-card-k">平均保有日数</div>
-              {% if b.avg_hold_days %}
-                <div class="rs-card-v">{{ b.avg_hold_days|floatformat:1 }}日</div>
-              {% else %}
-                <div class="rs-card-v rs-muted">—</div>
-              {% endif %}
-            </div>
-            <div class="rs-card">
-              <div class="rs-card-k">現金フロー合計</div>
-              <div class="rs-card-v {% if b.cash_total >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
-                ¥{{ b.cash_total|default_if_none:0|floatformat:0|intcomma }}
-              </div>
-            </div>
-            <div class="rs-card">
-              <div class="rs-card-k">手数料合計</div>
-              <div class="rs-card-v">¥{{ b.fee|default_if_none:0|floatformat:0|intcomma }}</div>
-            </div>
+          <div class="rs-card">
+            <div class="rs-card-k">手数料合計</div>
+            <div class="rs-card-v">¥{{ b.fee|default_if_none:0|floatformat:0|intcomma }}</div>
           </div>
-        {% endif %}
-      {% endfor %}
-    </div>
-  </div>
-
-  <div class="rs-panel" data-rs-panel="sbi">
-    <div class="rs-panel-body">
-      {% for b in agg_brokers %}
-        {% if b.broker == 'SBI' %}
-          <div class="rs-hero">
-            <div class="rs-hero-top">
-              <div class="rs-hero-title">SBI証券</div>
-              <div class="rs-hero-badge">{{ b.n|intcomma }} 件</div>
-            </div>
-
-            <div class="rs-hero-main">
-              <div>
-                <div class="rs-hero-big-k">累計実現損益</div>
-                <div class="rs-hero-big-v {% if b.pnl >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
-                  ¥{{ b.pnl|default_if_none:0|floatformat:0|intcomma }}
-                </div>
-              </div>
-
-              <div class="rs-mini-grid">
-                <div class="rs-mini">
-                  <div class="rs-mini-k">勝率</div>
-                  <div class="rs-mini-v">{{ b.win_rate|default_if_none:0|floatformat:1 }}%</div>
-                </div>
-                <div class="rs-mini">
-                  <div class="rs-mini-k">PF</div>
-                  {% if b.pf %}
-                    <div class="rs-mini-v">{{ b.pf|floatformat:2 }}</div>
-                  {% elif b.profit_sum and not b.loss_sum %}
-                    <div class="rs-mini-v">∞</div>
-                  {% else %}
-                    <div class="rs-mini-v rs-muted">—</div>
-                  {% endif %}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="rs-ai-card" style="margin-bottom:12px;">
-            <div class="rs-ai-label summary">SBIの見立て</div>
-            <div class="rs-ai-text">
-              {% if b.pnl >= 0 and b.avg_hold_days and b.avg_hold_days <= 30 %}
-                SBI口座はテンポ良く利益化できています。短めの回転が噛み合っている可能性があります。
-              {% elif b.pnl >= 0 %}
-                SBI口座は利益側ですが、どの月で伸びたかを流れで確認すると武器が見つけやすいです。
-              {% else %}
-                SBI口座はまだ立て直し中です。月別で崩れた月を先に見ると改善点が見つけやすいです。
-              {% endif %}
-            </div>
-          </div>
-
-          <div class="rs-metric-grid">
-            <div class="rs-card">
-              <div class="rs-card-k">平均実現損益率</div>
-              {% if b.avg_pnl_pct %}
-                <div class="rs-card-v">{{ b.avg_pnl_pct|floatformat:2 }}%</div>
-              {% else %}
-                <div class="rs-card-v rs-muted">—</div>
-              {% endif %}
-            </div>
-            <div class="rs-card">
-              <div class="rs-card-k">平均保有日数</div>
-              {% if b.avg_hold_days %}
-                <div class="rs-card-v">{{ b.avg_hold_days|floatformat:1 }}日</div>
-              {% else %}
-                <div class="rs-card-v rs-muted">—</div>
-              {% endif %}
-            </div>
-            <div class="rs-card">
-              <div class="rs-card-k">現金フロー合計</div>
-              <div class="rs-card-v {% if b.cash_total >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
-                ¥{{ b.cash_total|default_if_none:0|floatformat:0|intcomma }}
-              </div>
-            </div>
-            <div class="rs-card">
-              <div class="rs-card-k">手数料合計</div>
-              <div class="rs-card-v">¥{{ b.fee|default_if_none:0|floatformat:0|intcomma }}</div>
-            </div>
-          </div>
-        {% endif %}
-      {% endfor %}
-    </div>
-  </div>
+        </div>
+      </div>
+    {% endif %}
+  {% endfor %}
 </div>
 
 <script>
@@ -727,9 +528,9 @@
     });
   });
 
-  root.querySelectorAll(".rs-panel-body").forEach((body) => {
-    if (!body.textContent.trim()) {
-      body.innerHTML = '<div class="rs-empty">この証券会社のデータはまだありません。</div>';
+  panels.forEach((panel) => {
+    if (!panel.textContent.trim()) {
+      panel.innerHTML = '<div class="rs-empty">この証券会社のデータはまだありません。</div>';
     }
   });
 
