@@ -1,279 +1,1205 @@
+<!--
+[FILE] form.html
+[PATH] templates/dividends/form.html
+
+このファイルは何？
+- 配当の記録画面です。
+- 上で入力して、下の固定プレビューで内容を確認しながら保存する画面です。
+
+今回の作り直しポイント
+- 上入力 / 下プレビュー構成に変更
+- 保有を選ぶと、ティッカー / 銘柄名 / 株数 / 取得単価 / 証券会社 / 口座区分を自動反映
+- コード入力時は銘柄名を自動補完
+- 税率をタップUIに変更
+- 下部プレビューで「税引前 / 税額 / 税引後 / 条件 / メモ」を即確認
+-->
+
 {% extends "base.html" %}
 {% block title %}配当を記録{% endblock %}
 
 {% block head %}
 <style>
-  .form-card{
-    display:grid; gap:16px; padding:18px;
-    border-radius:16px; background:rgba(255,255,255,.04);
+  *{box-sizing:border-box}
+
+  .div-page{
+    max-width:760px;
+    margin:0 auto;
+    padding:12px 10px 168px;
+    color:#e9ecff;
+  }
+
+  .div-head{
+    margin-bottom:12px;
+  }
+
+  .div-title{
+    margin:0;
+    font-size:26px;
+    font-weight:800;
+    line-height:1.2;
+    color:#f8fbff;
+  }
+
+  .div-sub{
+    margin-top:6px;
+    font-size:12px;
+    line-height:1.6;
+    color:#94a3b8;
+  }
+
+  .div-form{
+    display:grid;
+    gap:10px;
+  }
+
+  .div-card{
+    min-width:0;
+    overflow:hidden;
+    padding:12px;
+    border-radius:18px;
     border:1px solid rgba(255,255,255,.08);
-    max-width:720px; margin:0 auto;
-  }
-  .fi label{ display:block; font-size:13px; color:#9aa4b2; margin-bottom:4px; }
-  .fi input, .fi select, .fi textarea{
-    width:100%; padding:10px 12px; font-size:15px;
-    border-radius:12px; border:1px solid rgba(255,255,255,.16);
-    background:rgba(255,255,255,.06); color:#e6ebff; outline:none;
-    /* ▼重なり防止 */
-    box-sizing:border-box; display:block;
-  }
-  .fi textarea{ min-height:96px; resize:vertical; line-height:1.5; }
-
-  .row-2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-  /* ▼グリッドの子要素の最小幅を0にしてはみ出し→重なりを防止 */
-  .row-2 > .fi{ min-width:0; }
-
-  @media (max-width:520px){ .row-2{ grid-template-columns:1fr; } } /* ← 重なり解消 */
-
-  .btn-bar{ display:flex; gap:12px; margin-top:4px; }
-  .btn-bar button, .btn-bar a{
-    flex:1; text-align:center; padding:12px; border-radius:12px;
-    border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.06);
-    color:#e6ebff; text-decoration:none;
-  }
-  .btn-bar button:hover, .btn-bar a:hover{ background:rgba(255,255,255,.12); }
-  .error-box{ padding:10px; border:1px solid #ff9aa9; background:#2b1f24; color:#ffd1d1; border-radius:8px; font-size:14px; }
-  .hint {font-size:12px;color:#888}
-
-  /* 税率ピル */
-  .taxbox{display:flex;gap:10px;flex-wrap:wrap}
-  .taxbox input[type="checkbox"]{display:none}
-  .taxbox label{
-    display:inline-block; padding:8px 12px; border-radius:999px;
-    border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.06);
-    color:#e6ebff; cursor:pointer; font-size:14px; user-select:none;
-  }
-  .taxbox input[type="checkbox"]:checked + label{
-    outline:2px solid rgba(110,168,255,.55); background:rgba(110,168,255,.15);
+    background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.05) inset,
+      0 10px 28px rgba(0,0,0,.14);
   }
 
-  .preview{font-size:12px;color:#cdd6f6;margin-top:6px}
+  .div-card-head{
+    margin-bottom:10px;
+  }
+
+  .div-card-title{
+    font-size:18px;
+    font-weight:800;
+    line-height:1.2;
+    color:#f4f7ff;
+  }
+
+  .div-card-note{
+    margin-top:3px;
+    font-size:11px;
+    line-height:1.5;
+    color:#8fa0b7;
+  }
+
+  .field-block{
+    min-width:0;
+  }
+
+  .field-block + .field-block{
+    margin-top:10px;
+  }
+
+  .field-label{
+    display:block;
+    margin-bottom:6px;
+    font-size:12px;
+    font-weight:700;
+    color:#cfd8ea;
+  }
+
+  .field-help{
+    margin-top:5px;
+    font-size:11px;
+    line-height:1.5;
+    color:#8fa0b7;
+  }
+
+  .field-grid-2{
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0,1fr));
+    gap:10px;
+    min-width:0;
+  }
+
+  .field-grid-2 > *{
+    min-width:0;
+  }
+
+  .div-in,
+  .div-select,
+  .div-textarea{
+    appearance:none;
+    -webkit-appearance:none;
+    width:100%;
+    max-width:100%;
+    min-width:0;
+    min-height:50px;
+    padding:0 14px;
+    border-radius:15px;
+    border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.06);
+    color:#eef2ff;
+    outline:none;
+    font-size:17px;
+    font-weight:700;
+    line-height:50px;
+    transition:
+      border-color .16s ease,
+      box-shadow .16s ease,
+      background .16s ease;
+  }
+
+  .div-in::placeholder,
+  .div-textarea::placeholder{
+    color:rgba(233,236,255,.45);
+    font-weight:600;
+  }
+
+  .div-in:focus,
+  .div-select:focus,
+  .div-textarea:focus{
+    border-color:rgba(99,102,241,.55);
+    box-shadow:0 0 0 4px rgba(99,102,241,.18);
+    background:rgba(255,255,255,.08);
+  }
+
+  .div-textarea{
+    min-height:88px;
+    padding:12px 14px;
+    line-height:1.6;
+    resize:vertical;
+  }
+
+  .lookup-row{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:8px;
+    align-items:center;
+  }
+
+  .lookup-status{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:32px;
+    padding:0 12px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.06);
+    color:#cbd5e1;
+    font-size:11px;
+    font-weight:800;
+    white-space:nowrap;
+  }
+
+  .lookup-status[data-mode="loading"]{
+    border-color:rgba(59,130,246,.35);
+    background:rgba(59,130,246,.12);
+    color:#dbeafe;
+  }
+
+  .lookup-status[data-mode="ok"]{
+    border-color:rgba(16,185,129,.35);
+    background:rgba(16,185,129,.12);
+    color:#bbf7d0;
+  }
+
+  .lookup-status[data-mode="warn"]{
+    border-color:rgba(245,158,11,.35);
+    background:rgba(245,158,11,.12);
+    color:#fde68a;
+  }
+
+  .choice-grid{
+    display:grid;
+    gap:8px;
+  }
+
+  .choice-grid-2{
+    grid-template-columns:repeat(2, minmax(0,1fr));
+  }
+
+  .choice-grid-3{
+    grid-template-columns:repeat(3, minmax(0,1fr));
+  }
+
+  .choice-chip{
+    appearance:none;
+    -webkit-appearance:none;
+    width:100%;
+    min-height:46px;
+    padding:0 10px;
+    border-radius:14px;
+    border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.05);
+    color:#dbe3f4;
+    font-size:15px;
+    font-weight:800;
+    text-align:center;
+    transition:
+      transform .08s ease,
+      border-color .16s ease,
+      background .16s ease,
+      box-shadow .16s ease;
+  }
+
+  .choice-chip:active{
+    transform:scale(.985);
+  }
+
+  .choice-chip.is-active{
+    border-color:rgba(99,102,241,.44);
+    background:rgba(99,102,241,.18);
+    color:#f4f7ff;
+    box-shadow:0 0 0 4px rgba(99,102,241,.14);
+  }
+
+  .choice-chip[data-kind="broker-rakuten"].is-active{
+    border-color:rgba(99,102,241,.44);
+    background:rgba(99,102,241,.20);
+    color:#dbe4ff;
+  }
+
+  .choice-chip[data-kind="broker-sbi"].is-active{
+    border-color:rgba(14,165,233,.42);
+    background:rgba(14,165,233,.18);
+    color:#d8f3ff;
+  }
+
+  .choice-chip[data-kind="broker-matsui"].is-active{
+    border-color:rgba(16,185,129,.42);
+    background:rgba(16,185,129,.18);
+    color:#d7ffea;
+  }
+
+  .choice-chip[data-kind="account-spec"].is-active{
+    border-color:rgba(148,163,184,.34);
+    background:rgba(148,163,184,.16);
+    color:#e2e8f0;
+  }
+
+  .choice-chip[data-kind="account-nisa"].is-active{
+    border-color:rgba(245,158,11,.40);
+    background:rgba(245,158,11,.18);
+    color:#fde68a;
+  }
+
+  .choice-chip[data-kind="account-margin"].is-active{
+    border-color:rgba(244,63,94,.40);
+    background:rgba(244,63,94,.18);
+    color:#fecdd3;
+  }
+
+  .native-hidden{
+    display:none !important;
+  }
+
+  .error-box{
+    padding:12px 14px;
+    border-radius:16px;
+    border:1px solid rgba(239,68,68,.35);
+    background:rgba(239,68,68,.10);
+    color:#ffe4e6;
+    font-size:13px;
+    line-height:1.65;
+  }
+
+  .field-errors{
+    margin-top:7px;
+    display:grid;
+    gap:4px;
+    font-size:12px;
+    line-height:1.5;
+    color:#fecaca;
+  }
+
+  .preview-dock{
+    position:fixed;
+    left:0;
+    right:0;
+    bottom:calc(68px + env(safe-area-inset-bottom, 0px) + 74px);
+    z-index:24;
+    padding:0 10px;
+    pointer-events:none;
+  }
+
+  .preview-card{
+    pointer-events:auto;
+    max-width:760px;
+    margin:0 auto;
+    padding:11px;
+    border-radius:18px;
+    border:1px solid rgba(255,255,255,.10);
+    background:rgba(15,20,34,.94);
+    backdrop-filter:blur(14px);
+    -webkit-backdrop-filter:blur(14px);
+    box-shadow:
+      0 10px 28px rgba(0,0,0,.24),
+      0 1px 0 rgba(255,255,255,.05) inset;
+  }
+
+  .preview-top{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:10px;
+    margin-bottom:8px;
+  }
+
+  .preview-main{
+    min-width:0;
+    flex:1 1 auto;
+  }
+
+  .preview-code{
+    font-size:12px;
+    font-weight:800;
+    color:#9fb6ff;
+    letter-spacing:.03em;
+    word-break:break-word;
+  }
+
+  .preview-name{
+    margin-top:2px;
+    font-size:18px;
+    font-weight:800;
+    color:#f8fbff;
+    line-height:1.35;
+    word-break:break-word;
+  }
+
+  .preview-net{
+    flex:0 0 auto;
+    font-size:22px;
+    font-weight:900;
+    line-height:1.2;
+    color:#22c55e;
+    white-space:nowrap;
+    letter-spacing:.01em;
+  }
+
+  .preview-chip-row{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    margin-bottom:8px;
+  }
+
+  .preview-chip{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:24px;
+    padding:0 9px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.10);
+    background:rgba(255,255,255,.06);
+    color:#dbe4f4;
+    font-size:11px;
+    font-weight:700;
+    white-space:nowrap;
+    max-width:100%;
+  }
+
+  .preview-chip[data-kind="broker-rakuten"]{
+    border-color:rgba(99,102,241,.34);
+    background:rgba(99,102,241,.18);
+    color:#dbe4ff;
+  }
+
+  .preview-chip[data-kind="broker-sbi"]{
+    border-color:rgba(14,165,233,.34);
+    background:rgba(14,165,233,.16);
+    color:#d8f3ff;
+  }
+
+  .preview-chip[data-kind="broker-matsui"]{
+    border-color:rgba(16,185,129,.34);
+    background:rgba(16,185,129,.16);
+    color:#d7ffea;
+  }
+
+  .preview-chip[data-kind="account-spec"]{
+    border-color:rgba(148,163,184,.28);
+    background:rgba(148,163,184,.12);
+    color:#e2e8f0;
+  }
+
+  .preview-chip[data-kind="account-nisa"]{
+    border-color:rgba(245,158,11,.34);
+    background:rgba(245,158,11,.16);
+    color:#fde68a;
+  }
+
+  .preview-chip[data-kind="account-margin"]{
+    border-color:rgba(244,63,94,.34);
+    background:rgba(244,63,94,.16);
+    color:#fecdd3;
+  }
+
+  .preview-chip[data-kind="tax-0"]{
+    border-color:rgba(16,185,129,.34);
+    background:rgba(16,185,129,.14);
+    color:#d7ffea;
+  }
+
+  .preview-chip[data-kind="tax-20315"]{
+    border-color:rgba(245,158,11,.34);
+    background:rgba(245,158,11,.14);
+    color:#fde68a;
+  }
+
+  .preview-pill-row{
+    display:flex;
+    flex-wrap:wrap;
+    gap:7px;
+    margin-bottom:8px;
+  }
+
+  .preview-pill{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    min-height:32px;
+    max-width:100%;
+    padding:0 10px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.10);
+    background:rgba(255,255,255,.05);
+  }
+
+  .preview-pill-k{
+    font-size:10px;
+    font-weight:700;
+    color:#8ea0b7;
+    white-space:nowrap;
+  }
+
+  .preview-pill-v{
+    font-size:12px;
+    font-weight:800;
+    color:#eef2ff;
+    white-space:nowrap;
+    max-width:180px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+
+  .preview-memo{
+    padding:8px 10px;
+    border-radius:13px;
+    background:rgba(255,255,255,.045);
+    border:1px solid rgba(255,255,255,.06);
+  }
+
+  .preview-memo-v{
+    font-size:12px;
+    font-weight:700;
+    line-height:1.45;
+    color:#dbe5f8;
+    word-break:break-word;
+    display:-webkit-box;
+    -webkit-line-clamp:2;
+    -webkit-box-orient:vertical;
+    overflow:hidden;
+  }
+
+  .bottom-safe-space{
+    height:270px;
+  }
+
+  .bottom-action-bar{
+    position:fixed;
+    left:0;
+    right:0;
+    bottom:calc(68px + env(safe-area-inset-bottom, 0px));
+    z-index:25;
+    display:grid;
+    grid-template-columns:1fr 1.15fr;
+    gap:10px;
+    max-width:760px;
+    margin:0 auto;
+    padding:0 10px;
+  }
+
+  .bottom-btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:56px;
+    padding:0 16px;
+    border-radius:18px;
+    text-decoration:none;
+    border:1px solid rgba(255,255,255,.14);
+    font-size:17px;
+    font-weight:800;
+    transition:
+      transform .08s ease,
+      opacity .16s ease,
+      box-shadow .16s ease,
+      background .16s ease;
+  }
+
+  .bottom-btn:active{
+    transform:scale(.985);
+  }
+
+  .bottom-btn-sub{
+    background:rgba(255,255,255,.07);
+    color:#e5e7eb;
+    box-shadow:0 10px 24px rgba(0,0,0,.14);
+  }
+
+  .bottom-btn-main{
+    border:0;
+    background:linear-gradient(180deg,#6d73ff,#5561f2);
+    color:#fff;
+    box-shadow:0 14px 30px rgba(85,97,242,.32);
+  }
+
+  @media (max-width:560px){
+    .div-page{
+      padding:10px 8px 168px;
+    }
+
+    .div-title{
+      font-size:24px;
+    }
+
+    .div-in,
+    .div-select{
+      min-height:48px;
+      font-size:16px;
+      line-height:48px;
+    }
+
+    .preview-name{
+      font-size:16px;
+    }
+
+    .preview-net{
+      font-size:19px;
+    }
+
+    .preview-pill-v{
+      max-width:130px;
+    }
+
+    .bottom-action-bar{
+      padding:0 8px;
+    }
+
+    .bottom-btn{
+      min-height:54px;
+      font-size:16px;
+      border-radius:16px;
+    }
+  }
+
+  @media (max-width:420px){
+    .field-grid-2,
+    .choice-grid-3{
+      grid-template-columns:1fr;
+    }
+
+    .bottom-safe-space{
+      height:300px;
+    }
+
+    .preview-pill-v{
+      max-width:110px;
+    }
+
+    .lookup-row{
+      grid-template-columns:1fr;
+    }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="pnl">
-  <h1 style="margin-bottom:12px">配当を記録</h1>
+<div class="div-page">
+  <div class="div-head">
+    <h1 class="div-title">配当を記録</h1>
+    <div class="div-sub">上で入力、下のプレビューで金額や条件を確認しながら保存できます。</div>
+  </div>
 
-  <form method="post" class="form-card" id="divForm">
+  <form method="post" class="div-form" id="divForm" novalidate>
     {% csrf_token %}
 
-    <!-- 保有選択 -->
-    <div class="fi">
-      <label>保有（任意）</label>
-      <select id="selHolding" name="holding">
-        <option value="">未選択</option>
-        {% for h in holdings %}
-          <option value="{{ h.id }}"
-            {% if form.holding.value == h.id %}selected{% endif %}>
-            {{ h.name }}（{{ h.ticker }} × {{ h.quantity|default:"-" }}）
-          </option>
+    {% if form.non_field_errors %}
+      <div class="error-box">
+        {% for err in form.non_field_errors %}
+          <div>{{ err }}</div>
         {% endfor %}
-      </select>
-    </div>
-
-    <p class="hint">未登録の銘柄は下でティッカー/銘柄名・株数・取得単価を入力してください。</p>
-
-    <!-- ティッカー / 銘柄名 -->
-    <div class="fi">
-      <label>ティッカー/コード（保有未選択時は必須）</label>
-      <input id="inTicker" type="text" name="ticker" inputmode="latin"
-             autocomplete="off" autocapitalize="characters"
-             value="{{ form.ticker.value|default_if_none:'' }}">
-    </div>
-    <div class="fi">
-      <label>銘柄名（任意・自動補完／手入力可）</label>
-      <input id="inName" type="text" name="name" value="{{ form.name.value|default_if_none:'' }}">
-      <div class="hint">コード入力後に自動補完されます（取得不可のときは手入力）。</div>
-    </div>
-
-    <!-- 受取日 / 受取額（税引前） -->
-    <div class="row-2">
-      <div class="fi">
-        <label>受取日</label>
-        {{ form.date }}
       </div>
-      <div class="fi">
-        <label>受取額（税引前）</label>
-        <input id="inAmount" type="number" step="0.01" inputmode="decimal" name="amount"
-               value="{{ form.amount.value|default_if_none:'' }}">
-        <div id="js-preview" class="preview"></div>
-      </div>
-    </div>
+    {% endif %}
 
-    <!-- 税率 / 株数 -->
-    <div class="row-2">
-      <div class="fi">
-        <label>税率</label>
-        <div class="taxbox" id="js-taxbox">
-          <input type="checkbox" id="rate0" value="0"><label for="rate0">0%</label>
-          <input type="checkbox" id="rate20315" value="20.315"><label for="rate20315">20.315%</label>
+    <section class="div-card">
+      <div class="div-card-head">
+        <div class="div-card-title">対象銘柄</div>
+        <div class="div-card-note">保有を選ぶと自動反映されます。未選択ならコード入力で記録できます。</div>
+      </div>
+
+      <div class="field-block">
+        <label class="field-label" for="selHolding">保有（任意）</label>
+        <select id="selHolding" name="holding" class="div-select">
+          <option value="">未選択</option>
+          {% for h in holdings %}
+            <option value="{{ h.id }}" {% if form.holding.value == h.id %}selected{% endif %}>
+              {{ h.name }}（{{ h.ticker }} × {{ h.quantity|default:"-" }}）
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field-block">
+        <label class="field-label" for="inTicker">ティッカー / コード</label>
+        <div class="lookup-row">
+          <input
+            id="inTicker"
+            type="text"
+            name="ticker"
+            inputmode="latin"
+            autocomplete="off"
+            autocapitalize="characters"
+            class="div-in"
+            placeholder="例: 7203 / AAPL"
+            value="{{ form.ticker.value|default_if_none:'' }}">
+          <div class="lookup-status" id="lookupStatus" data-mode="idle">未判定</div>
         </div>
-        <!-- 送信用 -->
+        {% if form.ticker.errors %}
+          <div class="field-errors">
+            {% for err in form.ticker.errors %}
+              <div>{{ err }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="field-block">
+        <label class="field-label" for="inName">銘柄名</label>
+        <input
+          id="inName"
+          type="text"
+          name="name"
+          class="div-in"
+          placeholder="コード入力で自動補完 / 手入力も可"
+          value="{{ form.name.value|default_if_none:'' }}">
+        <div class="field-help">自動取得できない場合だけ手入力してください。</div>
+        {% if form.name.errors %}
+          <div class="field-errors">
+            {% for err in form.name.errors %}
+              <div>{{ err }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="div-card">
+      <div class="div-card-head">
+        <div class="div-card-title">金額</div>
+        <div class="div-card-note">税引前の受取額を入れると、税額と税引後を自動計算します。</div>
+      </div>
+
+      <div class="field-grid-2">
+        <label class="field-block">
+          <span class="field-label">受取日</span>
+          <input
+            type="date"
+            name="date"
+            id="inDate"
+            class="div-in"
+            value="{{ form.date.value|default_if_none:'' }}">
+          {% if form.date.errors %}
+            <div class="field-errors">
+              {% for err in form.date.errors %}
+                <div>{{ err }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </label>
+
+        <label class="field-block">
+          <span class="field-label">受取額（税引前）</span>
+          <input
+            id="inAmount"
+            type="number"
+            step="0.01"
+            inputmode="decimal"
+            name="amount"
+            class="div-in"
+            placeholder="例: 10000"
+            value="{{ form.amount.value|default_if_none:'' }}">
+          {% if form.amount.errors %}
+            <div class="field-errors">
+              {% for err in form.amount.errors %}
+                <div>{{ err }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </label>
+      </div>
+
+      <div class="field-block">
+        <span class="field-label">税率</span>
+        <div class="choice-grid choice-grid-2" id="taxChoiceGroup">
+          <button type="button" class="choice-chip" data-tax-btn data-tax-value="0">0%</button>
+          <button type="button" class="choice-chip" data-tax-btn data-tax-value="20.315">20.315%</button>
+        </div>
         <input type="hidden" name="tax_rate_pct" id="id_tax_rate_pct" value="{{ form.tax_rate_pct.value|default:'20.315' }}">
         <input type="hidden" name="tax" id="id_tax" value="{{ form.tax.value|default_if_none:'' }}">
       </div>
-      <div class="fi">
-        <label>株数</label>
-        <input id="inQty" type="number" inputmode="numeric" name="quantity"
-               value="{% if form.quantity.value and form.quantity.value != '0' %}{{ form.quantity.value }}{% endif %}">
-      </div>
-    </div>
+    </section>
 
-    <!-- 取得単価 / 予備 -->
-    <div class="row-2">
-      <div class="fi">
-        <label>取得単価</label>
-        <input id="inAvg" type="number" step="0.01" inputmode="decimal" name="purchase_price"
-               value="{% if form.purchase_price.value and form.purchase_price.value != '0' %}{{ form.purchase_price.value }}{% endif %}">
+    <section class="div-card">
+      <div class="div-card-head">
+        <div class="div-card-title">条件</div>
+        <div class="div-card-note">株数や取得単価、証券会社などを必要に応じて確認・修正します。</div>
       </div>
-      <div class="fi">
-        <label>&nbsp;</label>
-        <div></div>
+
+      <div class="field-grid-2">
+        <label class="field-block">
+          <span class="field-label">株数</span>
+          <input
+            id="inQty"
+            type="number"
+            inputmode="numeric"
+            name="quantity"
+            class="div-in"
+            placeholder="例: 100"
+            value="{% if form.quantity.value and form.quantity.value != '0' %}{{ form.quantity.value }}{% endif %}">
+        </label>
+
+        <label class="field-block">
+          <span class="field-label">取得単価</span>
+          <input
+            id="inAvg"
+            type="number"
+            step="0.01"
+            inputmode="decimal"
+            name="purchase_price"
+            class="div-in"
+            placeholder="例: 2500"
+            value="{% if form.purchase_price.value and form.purchase_price.value != '0' %}{{ form.purchase_price.value }}{% endif %}">
+        </label>
       </div>
-    </div>
 
-    <!-- 証券会社 / 口座区分 -->
-    <div class="row-2">
-      <div class="fi"><label>証券会社</label>{{ form.broker }}</div>
-      <div class="fi"><label>口座区分</label>{{ form.account }}</div>
-    </div>
+      <div class="native-hidden">
+        {{ form.broker }}
+        {{ form.account }}
+      </div>
 
-    <!-- メモ -->
-    <div class="fi">
-      <label>メモ</label>
-      {{ form.memo }}
-    </div>
+      <div class="field-block">
+        <span class="field-label">証券会社</span>
+        <div class="choice-grid choice-grid-3" data-choice-group="broker">
+          <button type="button" class="choice-chip" data-choice-btn data-choice-group="broker" data-choice-value="RAKUTEN" data-kind="broker-rakuten">楽天</button>
+          <button type="button" class="choice-chip" data-choice-btn data-choice-group="broker" data-choice-value="SBI" data-kind="broker-sbi">SBI</button>
+          <button type="button" class="choice-chip" data-choice-btn data-choice-group="broker" data-choice-value="MATSUI" data-kind="broker-matsui">松井</button>
+        </div>
+      </div>
+
+      <div class="field-block">
+        <span class="field-label">口座区分</span>
+        <div class="choice-grid choice-grid-3" data-choice-group="account">
+          <button type="button" class="choice-chip" data-choice-btn data-choice-group="account" data-choice-value="SPEC" data-kind="account-spec">特定</button>
+          <button type="button" class="choice-chip" data-choice-btn data-choice-group="account" data-choice-value="NISA" data-kind="account-nisa">NISA</button>
+          <button type="button" class="choice-chip" data-choice-btn data-choice-group="account" data-choice-value="MARGIN" data-kind="account-margin">信用</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="div-card">
+      <div class="div-card-head">
+        <div class="div-card-title">メモ</div>
+        <div class="div-card-note">必要なときだけ入れれば大丈夫です。</div>
+      </div>
+
+      <label class="field-block">
+        <span class="field-label">メモ</span>
+        <textarea id="inMemo" name="memo" class="div-textarea" placeholder="任意メモ">{{ form.memo.value|default_if_none:'' }}</textarea>
+      </label>
+    </section>
 
     {% if form.errors %}
       <div class="error-box">入力に誤りがあります。確認してください。</div>
     {% endif %}
 
-    <div class="btn-bar">
-      <button type="submit">保存</button>
-      <a href="{% url 'dividend_list' %}">戻る</a>
+    <div class="bottom-safe-space"></div>
+
+    <div class="preview-dock">
+      <div class="preview-card">
+        <div class="preview-top">
+          <div class="preview-main">
+            <div class="preview-code" id="previewTicker">—</div>
+            <div class="preview-name" id="previewName">未選択</div>
+          </div>
+          <div class="preview-net" id="previewNet">¥0</div>
+        </div>
+
+        <div class="preview-chip-row">
+          <span class="preview-chip" id="previewBrokerChip" data-kind="broker-rakuten">楽天</span>
+          <span class="preview-chip" id="previewAccountChip" data-kind="account-spec">特定</span>
+          <span class="preview-chip" id="previewTaxChip" data-kind="tax-20315">税率 20.315%</span>
+        </div>
+
+        <div class="preview-pill-row">
+          <div class="preview-pill">
+            <span class="preview-pill-k">受取日</span>
+            <span class="preview-pill-v" id="previewDate">—</span>
+          </div>
+
+          <div class="preview-pill">
+            <span class="preview-pill-k">税引前</span>
+            <span class="preview-pill-v" id="previewGross">¥0</span>
+          </div>
+
+          <div class="preview-pill">
+            <span class="preview-pill-k">税額</span>
+            <span class="preview-pill-v" id="previewTax">¥0</span>
+          </div>
+
+          <div class="preview-pill">
+            <span class="preview-pill-k">株数</span>
+            <span class="preview-pill-v" id="previewQty">—</span>
+          </div>
+
+          <div class="preview-pill">
+            <span class="preview-pill-k">取得単価</span>
+            <span class="preview-pill-v" id="previewAvg">—</span>
+          </div>
+        </div>
+
+        <div class="preview-memo">
+          <div class="preview-memo-v" id="previewMemo">なし</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottom-action-bar">
+      <a href="{% url 'dividend_list' %}" class="bottom-btn bottom-btn-sub">戻る</a>
+      <button type="submit" class="bottom-btn bottom-btn-main">保存する</button>
     </div>
   </form>
 </div>
 
-<!-- 保有データ（自動反映用） -->
 {{ holdings|json_script:"holdings-data" }}
 
 <script>
 (function(){
-  const HOLDINGS = JSON.parse(document.getElementById('holdings-data').textContent || '[]');
-  const $ = s => document.querySelector(s);
-
-  const sel        = $('#selHolding');
-  const inTicker   = $('#inTicker');
-  const inName     = $('#inName');
-  const inQty      = $('#inQty');
-  const inAvg      = $('#inAvg');
-  const brokerSel  = document.querySelector('select[name="broker"]');
-  const accountSel = document.querySelector('select[name="account"]');
-
-  // ティッカーは常に大文字化（カーソル維持）
-  inTicker?.addEventListener('input', e=>{
-    const p = e.target.selectionStart;
-    e.target.value = (e.target.value || '').toUpperCase();
-    e.target.setSelectionRange(p,p);
-  });
-
-  // ===== ティッカー → 銘柄の自動補完 =====
+  const holdingsScript = document.getElementById("holdings-data");
+  const HOLDINGS = holdingsScript ? JSON.parse(holdingsScript.textContent || "[]") : [];
   const endpoint = "{% url 'api_ticker_name' %}";
 
-  // ユーザーが手で銘柄名を編集したら“尊重”
-  let userEditedName = false;
-  let nameAutofilled = false;      // 直前が自動反映なら上書きOK
-  let lastResolvedCode = "";
-  inName?.addEventListener('input', ()=>{
-    userEditedName = true;
-    nameAutofilled = false;
-  });
+  const form = document.getElementById("divForm");
+  if (!form) return;
 
-  function applyName(data){
-    if (!data) return;
-    // API から code が返るならそれで入力欄も正規化
-    if (data.code && inTicker) inTicker.value = String(data.code).toUpperCase();
+  const selHolding   = document.getElementById("selHolding");
+  const inTicker     = document.getElementById("inTicker");
+  const inName       = document.getElementById("inName");
+  const inDate       = document.getElementById("inDate");
+  const inAmount     = document.getElementById("inAmount");
+  const inQty        = document.getElementById("inQty");
+  const inAvg        = document.getElementById("inAvg");
+  const inMemo       = document.getElementById("inMemo");
+  const lookupStatus = document.getElementById("lookupStatus");
 
-    const codeChanged = data.code && data.code !== lastResolvedCode;
-    const safeToOverwrite = !userEditedName || nameAutofilled || !inName.value;
+  const taxRateHidden = document.getElementById("id_tax_rate_pct");
+  const taxHidden     = document.getElementById("id_tax");
 
-    if (data.name && (codeChanged || safeToOverwrite)) {
-      inName.value = data.name;           // ← 毎回上書き（上の条件でユーザー編集は保護）
-      nameAutofilled = true;
-      userEditedName = false;
-      lastResolvedCode = data.code || (inTicker?.value || "");
-    }
+  const brokerSelect  = form.querySelector('select[name="broker"]');
+  const accountSelect = form.querySelector('select[name="account"]');
+
+  const previewTicker = document.getElementById("previewTicker");
+  const previewName   = document.getElementById("previewName");
+  const previewNet    = document.getElementById("previewNet");
+  const previewBrokerChip = document.getElementById("previewBrokerChip");
+  const previewAccountChip = document.getElementById("previewAccountChip");
+  const previewTaxChip = document.getElementById("previewTaxChip");
+  const previewDate   = document.getElementById("previewDate");
+  const previewGross  = document.getElementById("previewGross");
+  const previewTax    = document.getElementById("previewTax");
+  const previewQty    = document.getElementById("previewQty");
+  const previewAvg    = document.getElementById("previewAvg");
+  const previewMemo   = document.getElementById("previewMemo");
+
+  const state = {
+    userEditedName: false,
+    lastResolvedCode: "",
+    timer: null,
+    controller: null,
+  };
+
+  const brokerLabelMap = {
+    RAKUTEN: "楽天",
+    SBI: "SBI",
+    MATSUI: "松井",
+    OTHER: "その他"
+  };
+
+  const brokerKindMap = {
+    RAKUTEN: "broker-rakuten",
+    SBI: "broker-sbi",
+    MATSUI: "broker-matsui",
+    OTHER: "broker-rakuten"
+  };
+
+  const accountLabelMap = {
+    SPEC: "特定",
+    NISA: "NISA",
+    MARGIN: "信用"
+  };
+
+  const accountKindMap = {
+    SPEC: "account-spec",
+    NISA: "account-nisa",
+    MARGIN: "account-margin"
+  };
+
+  function toHalfWidth(str){
+    return (str || "").replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(ch){
+      return String.fromCharCode(ch.charCodeAt(0) - 0xFEE0);
+    });
   }
 
-  // 小さめデバウンスで都度問い合わせ
-  function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
-  function lookupName(code){
-    if (!code) return;
-    fetch(`${endpoint}?q=${encodeURIComponent(code)}`, {credentials:'same-origin'})
-      .then(r=>r.ok?r.json():Promise.reject())
-      .then(applyName)
-      .catch(()=>{});
+  function normalizeTickerValue(value){
+    let v = toHalfWidth(value || "");
+    v = v.replace(/[^0-9A-Za-z]/g, "");
+    return v.toUpperCase();
   }
-  const debouncedLookup = debounce(()=> lookupName(inTicker.value.trim()), 250);
 
-  // 入力中も解決／blur/change でも保険
-  inTicker?.addEventListener('input',  debouncedLookup);
-  inTicker?.addEventListener('change', ()=> lookupName(inTicker.value.trim()));
-  inTicker?.addEventListener('blur',   ()=> lookupName(inTicker.value.trim()));
+  function debounce(fn, ms){
+    let t;
+    return (...args) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...args), ms);
+    };
+  }
 
-  // ===== 保有選択 → 各項目を上書き反映 =====
+  function num(x){
+    const v = parseFloat(x);
+    return isNaN(v) ? 0 : v;
+  }
+
+  function fmtMoney(n){
+    const v = Number(n || 0);
+    return "¥" + v.toLocaleString("ja-JP", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2
+    });
+  }
+
+  function fmtQty(v){
+    if (v === null || v === undefined || v === "") return "—";
+    const n = Number(v);
+    if (!isFinite(n)) return "—";
+    return n.toLocaleString("ja-JP", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2
+    }) + " 株";
+  }
+
+  function fmtAvg(v){
+    if (v === null || v === undefined || v === "") return "—";
+    const n = Number(v);
+    if (!isFinite(n)) return "—";
+    return "¥" + n.toLocaleString("ja-JP", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2
+    });
+  }
+
+  function setLookupStatus(text, mode){
+    lookupStatus.textContent = text || "未判定";
+    lookupStatus.dataset.mode = mode || "idle";
+  }
+
+  function syncChoice(group, value){
+    if (group === "broker" && brokerSelect) brokerSelect.value = value;
+    if (group === "account" && accountSelect) accountSelect.value = value;
+
+    document.querySelectorAll('[data-choice-btn][data-choice-group="' + group + '"]').forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.choiceValue === value);
+    });
+
+    updatePreview();
+  }
+
+  function initChoiceGroups(){
+    if (brokerSelect) syncChoice("broker", brokerSelect.value || "RAKUTEN");
+    if (accountSelect) syncChoice("account", accountSelect.value || "SPEC");
+  }
+
+  function selectTaxRate(value){
+    taxRateHidden.value = String(value);
+    document.querySelectorAll("[data-tax-btn]").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.taxValue === String(value));
+    });
+    updateTaxAndPreview();
+  }
+
   function applyHolding(h){
     if (!h) return;
-    if (inTicker) inTicker.value = String(h.ticker||'').toUpperCase();
-    if (inName)   { inName.value = h.name || ''; nameAutofilled = true; userEditedName = false; }
-    if (inQty)    inQty.value    = (h.quantity != null && h.quantity !== '') ? h.quantity : '';
-    if (inAvg)    inAvg.value    = (h.avg_cost != null && h.avg_cost !== '') ? h.avg_cost : '';
-    if (brokerSel && h.broker){ brokerSel.value  = h.broker; }
-    if (accountSel && h.account){ accountSel.value = h.account; }
+
+    if (inTicker) inTicker.value = String(h.ticker || "").toUpperCase();
+    if (inName) {
+      inName.value = h.name || "";
+      state.userEditedName = false;
+      state.lastResolvedCode = String(h.ticker || "").toUpperCase();
+    }
+    if (inQty) inQty.value = h.quantity != null ? h.quantity : "";
+    if (inAvg) inAvg.value = h.avg_cost != null ? h.avg_cost : "";
+
+    if (brokerSelect && h.broker) syncChoice("broker", h.broker);
+    if (accountSelect && h.account) syncChoice("account", h.account);
+
+    setLookupStatus("保有から反映", "ok");
+    updatePreview();
   }
-  sel?.addEventListener('change', ()=>{
-    const h = HOLDINGS.find(x=> String(x.id) === String(sel.value));
-    applyHolding(h);
+
+  function applyLookupName(data){
+    if (!data) return;
+
+    const code = normalizeTickerValue(data.code || inTicker.value || "");
+    if (code) inTicker.value = code;
+
+    const codeChanged = code && code !== state.lastResolvedCode;
+    const currentName = (inName.value || "").trim();
+    const canOverwrite = !state.userEditedName || !currentName || codeChanged;
+
+    if (data.name && canOverwrite) {
+      inName.value = data.name;
+      state.userEditedName = false;
+    }
+
+    state.lastResolvedCode = code || state.lastResolvedCode;
+    setLookupStatus("自動補完しました", "ok");
+    updatePreview();
+  }
+
+  function lookupName(code){
+    if (!code) {
+      setLookupStatus("未判定", "idle");
+      return;
+    }
+
+    if (state.controller) state.controller.abort();
+    state.controller = new AbortController();
+
+    setLookupStatus("取得中…", "loading");
+
+    fetch(endpoint + "?q=" + encodeURIComponent(code), {
+      credentials: "same-origin",
+      signal: state.controller.signal
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("lookup failed");
+        return res.json();
+      })
+      .then((data) => {
+        applyLookupName(data);
+      })
+      .catch((err) => {
+        if (err && err.name === "AbortError") return;
+        setLookupStatus("取得できませんでした", "warn");
+      });
+  }
+
+  const debouncedLookup = debounce(() => {
+    lookupName((inTicker.value || "").trim());
+  }, 280);
+
+  function updateTaxAndPreview(){
+    const gross = num(inAmount.value);
+    const rate  = num(taxRateHidden.value);
+    const tax   = gross * (rate / 100.0);
+    const net   = gross - tax;
+
+    taxHidden.value = tax.toFixed(2);
+    updatePreview();
+  }
+
+  function updatePreview(){
+    const ticker = (inTicker.value || "").trim().toUpperCase();
+    const name   = (inName.value || "").trim();
+    const dt     = (inDate.value || "").trim();
+    const gross  = num(inAmount.value);
+    const tax    = num(taxHidden.value);
+    const net    = gross - tax;
+    const rate   = (taxRateHidden.value || "20.315").trim();
+    const qty    = (inQty.value || "").trim();
+    const avg    = (inAvg.value || "").trim();
+    const memo   = (inMemo.value || "").trim();
+
+    const brokerVal  = (brokerSelect?.value || "RAKUTEN").toUpperCase();
+    const accountVal = (accountSelect?.value || "SPEC").toUpperCase();
+
+    previewTicker.textContent = ticker || "—";
+    previewName.textContent = name || "未選択";
+    previewNet.textContent = fmtMoney(net);
+
+    previewBrokerChip.textContent = brokerLabelMap[brokerVal] || brokerVal || "—";
+    previewBrokerChip.dataset.kind = brokerKindMap[brokerVal] || "broker-rakuten";
+
+    previewAccountChip.textContent = accountLabelMap[accountVal] || accountVal || "—";
+    previewAccountChip.dataset.kind = accountKindMap[accountVal] || "account-spec";
+
+    previewTaxChip.textContent = "税率 " + rate + "%";
+    previewTaxChip.dataset.kind = rate === "0" ? "tax-0" : "tax-20315";
+
+    previewDate.textContent  = dt || "—";
+    previewGross.textContent = fmtMoney(gross);
+    previewTax.textContent   = fmtMoney(tax);
+    previewQty.textContent   = fmtQty(qty);
+    previewAvg.textContent   = fmtAvg(avg);
+    previewMemo.textContent  = memo || "なし";
+  }
+
+  selHolding?.addEventListener("change", () => {
+    const selected = HOLDINGS.find((x) => String(x.id) === String(selHolding.value));
+    applyHolding(selected);
   });
-  if (sel && sel.value){
-    const h = HOLDINGS.find(x=> String(x.id) === String(sel.value));
-    applyHolding(h);
-  }
 
-  // ===== 税率ピル + 税額自動計算（そのまま） =====
-  const $amount = document.getElementById('inAmount');
-  const $prev   = document.getElementById('js-preview');
-  const $rateHidden = document.getElementById('id_tax_rate_pct');
-  const $taxHidden  = document.getElementById('id_tax');
-  const $taxBox = document.getElementById('js-taxbox');
-  const pills   = Array.from($taxBox.querySelectorAll('input[type="checkbox"]'));
+  inTicker?.addEventListener("input", (e) => {
+    e.target.value = normalizeTickerValue(e.target.value || "");
+    debouncedLookup();
+    updatePreview();
+  });
 
-  function selectRate(val){
-    pills.forEach(cb => cb.checked = (cb.value === String(val)));
-    $rateHidden.value = String(val);
-    updateTax();
-  }
-  selectRate($rateHidden.value || "20.315");
-  pills.forEach(cb=>{
-    cb.addEventListener('change', ()=>{
-      if (!cb.checked){ cb.checked = true; return; }
-      selectRate(cb.value);
+  inTicker?.addEventListener("blur", () => {
+    lookupName((inTicker.value || "").trim());
+  });
+
+  inTicker?.addEventListener("change", () => {
+    lookupName((inTicker.value || "").trim());
+  });
+
+  inName?.addEventListener("input", () => {
+    state.userEditedName = true;
+    updatePreview();
+  });
+
+  [inDate, inAmount, inQty, inAvg, inMemo].forEach((el) => {
+    if (!el) return;
+    el.addEventListener("input", updateTaxAndPreview);
+    el.addEventListener("change", updateTaxAndPreview);
+  });
+
+  document.querySelectorAll("[data-choice-btn]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      syncChoice(btn.dataset.choiceGroup, btn.dataset.choiceValue);
     });
   });
-  function num(x){ const v=parseFloat(x); return isNaN(v)?0:v; }
-  function fmt(n){ return (Math.round(n*100)/100).toLocaleString('ja-JP'); }
-  function updateTax(){
-    const gross = num($amount?.value);
-    const rate  = num($rateHidden.value);
-    const tax   = gross * (rate/100);
-    const net   = gross - tax;
-    if ($taxHidden) $taxHidden.value = tax.toFixed(2);
-    if ($prev) $prev.textContent = gross>0 ? `税額: ${fmt(tax)} ／ 税引後: ${fmt(net)}` : '';
+
+  document.querySelectorAll("[data-tax-btn]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      selectTaxRate(btn.dataset.taxValue);
+    });
+  });
+
+  initChoiceGroups();
+  selectTaxRate(taxRateHidden.value || "20.315");
+
+  if (selHolding && selHolding.value) {
+    const selected = HOLDINGS.find((x) => String(x.id) === String(selHolding.value));
+    applyHolding(selected);
+  } else if ((inTicker.value || "").trim()) {
+    lookupName((inTicker.value || "").trim());
+  } else {
+    updatePreview();
   }
-  $amount?.addEventListener('input', updateTax);
-  updateTax();
 })();
 </script>
 {% endblock %}
