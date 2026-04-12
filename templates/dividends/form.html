@@ -12,6 +12,10 @@
 - コード入力時は銘柄名を自動補完
 - 税率をタップUIに変更
 - 下部プレビューで「税引前 / 税額 / 税引後 / 条件 / メモ」を即確認
+
+今回の微調整
+- 証券会社 / 口座区分の選択肢をスマホでも横並び3列で表示
+- 縦に伸びすぎないようにボタンサイズも少し締める
 -->
 
 {% extends "base.html" %}
@@ -211,6 +215,11 @@
   }
 
   .choice-grid-3{
+    grid-template-columns:repeat(3, minmax(0,1fr));
+  }
+
+  .choice-grid-broker,
+  .choice-grid-account{
     grid-template-columns:repeat(3, minmax(0,1fr));
   }
 
@@ -564,6 +573,13 @@
       line-height:48px;
     }
 
+    .choice-chip{
+      min-height:42px;
+      padding:0 6px;
+      font-size:14px;
+      border-radius:12px;
+    }
+
     .preview-name{
       font-size:16px;
     }
@@ -588,9 +604,13 @@
   }
 
   @media (max-width:420px){
-    .field-grid-2,
-    .choice-grid-3{
+    .field-grid-2{
       grid-template-columns:1fr;
+    }
+
+    .choice-grid-broker,
+    .choice-grid-account{
+      grid-template-columns:repeat(3, minmax(0,1fr));
     }
 
     .bottom-safe-space{
@@ -784,7 +804,7 @@
 
       <div class="field-block">
         <span class="field-label">証券会社</span>
-        <div class="choice-grid choice-grid-3" data-choice-group="broker">
+        <div class="choice-grid choice-grid-broker" data-choice-group="broker">
           <button type="button" class="choice-chip" data-choice-btn data-choice-group="broker" data-choice-value="RAKUTEN" data-kind="broker-rakuten">楽天</button>
           <button type="button" class="choice-chip" data-choice-btn data-choice-group="broker" data-choice-value="SBI" data-kind="broker-sbi">SBI</button>
           <button type="button" class="choice-chip" data-choice-btn data-choice-group="broker" data-choice-value="MATSUI" data-kind="broker-matsui">松井</button>
@@ -793,7 +813,7 @@
 
       <div class="field-block">
         <span class="field-label">口座区分</span>
-        <div class="choice-grid choice-grid-3" data-choice-group="account">
+        <div class="choice-grid choice-grid-account" data-choice-group="account">
           <button type="button" class="choice-chip" data-choice-btn data-choice-group="account" data-choice-value="SPEC" data-kind="account-spec">特定</button>
           <button type="button" class="choice-chip" data-choice-btn data-choice-group="account" data-choice-value="NISA" data-kind="account-nisa">NISA</button>
           <button type="button" class="choice-chip" data-choice-btn data-choice-group="account" data-choice-value="MARGIN" data-kind="account-margin">信用</button>
