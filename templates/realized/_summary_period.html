@@ -1,20 +1,19 @@
+{# [FILE] _summary_period.html #}
+{# [PATH] templates/realized/_summary_period.html #}
+{# このファイルは何？ #}
+{# - 月別 / 年別の期間サマリーをカードで表示する部分テンプレートです。 #}
+{# - タップで選択期間を強調し、チャートとも連動します。 #}
+
 {% load humanize %}
 
 <style>
-  .rp-wrap{
-    padding:12px;
-  }
-
-  .rp-head{
-    margin-bottom:10px;
-  }
-
+  .rp-wrap{padding:12px}
+  .rp-head{margin-bottom:10px}
   .rp-title{
     font-size:15px;
     font-weight:900;
     color:#eef2ff;
   }
-
   .rp-note{
     margin-top:4px;
     font-size:12px;
@@ -57,13 +56,8 @@
     box-shadow:0 0 0 4px rgba(99,102,241,.10);
   }
 
-  .rp-clear{
-    display:none;
-  }
-
-  .rp-clear.show{
-    display:inline-flex;
-  }
+  .rp-clear{display:none}
+  .rp-clear.show{display:inline-flex}
 
   .rp-selected{
     margin-bottom:12px;
@@ -142,9 +136,7 @@
       box-shadow .16s ease;
   }
 
-  .rp-card:active{
-    transform:scale(.99);
-  }
+  .rp-card:active{transform:scale(.99)}
 
   .rp-card.is-focus{
     border-color:rgba(99,102,241,.32);
@@ -191,25 +183,6 @@
     font-size:13px;
     line-height:1.7;
   }
-
-  @media (max-width:420px){
-    .rp-wrap{
-      padding:10px;
-    }
-
-    .rp-selected-grid,
-    .rp-card-grid{
-      grid-template-columns:1fr 1fr;
-    }
-
-    .rp-period{
-      font-size:16px;
-    }
-
-    .rp-pnl{
-      font-size:18px;
-    }
-  }
 </style>
 
 <div
@@ -219,7 +192,7 @@
   data-freq="{{ freq }}"
   hx-get="{% url 'realized_summary_period' %}"
   hx-trigger="pnl:refresh from:body"
-  hx-include="#q,[name=preset],[name=freq],[name=start],[name=end]"
+  hx-include="#q,#brokerFilterHidden,#yearFilterHidden,#monthFilterHidden,[name=preset],[name=freq],[name=start],[name=end]"
   hx-swap="outerHTML"
 >
   <input type="hidden" name="preset" id="periodPreset" value="{{ preset }}">
@@ -229,7 +202,7 @@
 
   <div class="rp-head">
     <div class="rp-title">期間サマリ</div>
-    <div class="rp-note">月別 / 年別のカードをタップすると、下のグラフと連動します。</div>
+    <div class="rp-note">月別 / 年別のカードをタップすると、グラフの該当期間も強調されます。</div>
   </div>
 
   <div class="rp-controls">
@@ -238,6 +211,7 @@
               hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq={{ freq }}&q={{ q|urlencode }}"
               hx-target="#pnlPeriodWrap"
               hx-swap="outerHTML"
+              hx-include="#brokerFilterHidden,#yearFilterHidden,#monthFilterHidden"
               aria-current="{% if preset == 'THIS_MONTH' %}true{% else %}false{% endif %}">
         今月
       </button>
@@ -246,6 +220,7 @@
               hx-get="{% url 'realized_summary_period' %}?preset=THIS_YEAR&freq={{ freq }}&q={{ q|urlencode }}"
               hx-target="#pnlPeriodWrap"
               hx-swap="outerHTML"
+              hx-include="#brokerFilterHidden,#yearFilterHidden,#monthFilterHidden"
               aria-current="{% if preset == 'THIS_YEAR' %}true{% else %}false{% endif %}">
         今年
       </button>
@@ -254,6 +229,7 @@
               hx-get="{% url 'realized_summary_period' %}?preset=LAST_12M&freq={{ freq }}&q={{ q|urlencode }}"
               hx-target="#pnlPeriodWrap"
               hx-swap="outerHTML"
+              hx-include="#brokerFilterHidden,#yearFilterHidden,#monthFilterHidden"
               aria-current="{% if preset == 'LAST_12M' %}true{% else %}false{% endif %}">
         過去12ヶ月
       </button>
@@ -264,6 +240,7 @@
               hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=month&q={{ q|urlencode }}"
               hx-target="#pnlPeriodWrap"
               hx-swap="outerHTML"
+              hx-include="#brokerFilterHidden,#yearFilterHidden,#monthFilterHidden"
               aria-current="{% if freq == 'month' %}true{% else %}false{% endif %}">
         月別
       </button>
@@ -272,6 +249,7 @@
               hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=year&q={{ q|urlencode }}"
               hx-target="#pnlPeriodWrap"
               hx-swap="outerHTML"
+              hx-include="#brokerFilterHidden,#yearFilterHidden,#monthFilterHidden"
               aria-current="{% if freq == 'year' %}true{% else %}false{% endif %}">
         年別
       </button>
