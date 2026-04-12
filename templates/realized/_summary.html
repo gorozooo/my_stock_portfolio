@@ -1,74 +1,224 @@
-{# templates/realized/_summary.html #}
 {% load humanize %}
 
 <style>
-  .real-wrap{
+  .rs-wrap{
     margin-top:8px;
     padding:12px;
-    border-radius:20px;
-    background:radial-gradient(circle at top,#1f2937 0,#020617 60%);
-    border:1px solid rgba(148,163,184,.38);
-    box-shadow:0 18px 40px rgba(15,23,42,.9);
+    border-radius:22px;
+    background:
+      radial-gradient(circle at top, rgba(31,41,55,.96) 0%, rgba(2,6,23,.98) 62%);
+    border:1px solid rgba(148,163,184,.22);
+    box-shadow:
+      0 18px 40px rgba(15,23,42,.55),
+      0 1px 0 rgba(255,255,255,.04) inset;
   }
 
-  /* ==== タブ ==== */
-  .real-tabs{
+  .rs-broker-tabs{
     display:flex;
     gap:8px;
-    margin-bottom:14px;
-    padding:3px;
-    border-radius:999px;
-    background:linear-gradient(135deg,rgba(129,140,248,.7),rgba(45,212,191,.55));
-    box-shadow:0 10px 28px rgba(15,23,42,.9);
-  }
-  .real-tab{
-    flex:1;
-    border:none;
-    border-radius:999px;
-    padding:9px 6px;
-    font-size:12px;
-    font-weight:600;
-    letter-spacing:.06em;
-    text-align:center;
-    color:#e5e7eb;
-    background:transparent;
-    cursor:pointer;
-    position:relative;
-    overflow:hidden;
-  }
-  .real-tab span{position:relative;z-index:1}
-  .real-tab::before{
-    content:"";
-    position:absolute;
-    inset:0;
-    border-radius:inherit;
-    background:radial-gradient(circle at top,#4f46e5,#111827);
-    opacity:0;
-    transform:scale(.94);
-    transition:opacity .16s ease-out, transform .16s ease-out;
-  }
-  .real-tab.active{
-    color:#f9fafb;
-    text-shadow:0 0 14px rgba(129,140,248,.9);
-  }
-  .real-tab.active::before{
-    opacity:1;
-    transform:scale(1);
+    overflow-x:auto;
+    padding-bottom:2px;
+    margin-bottom:12px;
+    scrollbar-width:none;
+    -webkit-overflow-scrolling:touch;
   }
 
-  /* ==== セクション見出し ==== */
-  .section-title{
-    margin-top:4px;
-    margin-bottom:6px;
+  .rs-broker-tabs::-webkit-scrollbar{display:none}
+
+  .rs-broker-tab{
+    appearance:none;
+    -webkit-appearance:none;
+    flex:0 0 auto;
+    min-height:38px;
+    padding:0 14px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.10);
+    background:rgba(255,255,255,.05);
+    color:#dbe4f4;
+    font-size:12px;
+    font-weight:900;
+    letter-spacing:.03em;
+  }
+
+  .rs-broker-tab.is-active{
+    border-color:rgba(99,102,241,.34);
+    background:rgba(99,102,241,.18);
+    color:#f5f7ff;
+    box-shadow:0 0 0 4px rgba(99,102,241,.10);
+  }
+
+  .rs-panel{display:none}
+  .rs-panel.is-active{display:block}
+
+  .rs-hero{
+    padding:14px;
+    border-radius:18px;
+    border:1px solid rgba(255,255,255,.08);
+    background:
+      linear-gradient(135deg, rgba(99,102,241,.18), rgba(2,6,23,.24) 45%, rgba(34,197,94,.12));
+    box-shadow:
+      0 12px 28px rgba(0,0,0,.18),
+      0 1px 0 rgba(255,255,255,.05) inset;
+    margin-bottom:12px;
+  }
+
+  .rs-hero-top{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:12px;
+    margin-bottom:10px;
+  }
+
+  .rs-hero-title{
+    font-size:12px;
+    font-weight:900;
+    color:#a5b4fc;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+  }
+
+  .rs-hero-badge{
+    flex:0 0 auto;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:28px;
+    padding:0 10px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.10);
+    background:rgba(255,255,255,.08);
+    color:#eef2ff;
+    font-size:11px;
+    font-weight:900;
+    white-space:nowrap;
+  }
+
+  .rs-hero-main{
+    display:grid;
+    grid-template-columns:1.2fr .8fr;
+    gap:10px;
+  }
+
+  .rs-hero-big-k{
+    font-size:11px;
+    color:#8fa0b7;
+    margin-bottom:5px;
+  }
+
+  .rs-hero-big-v{
+    font-size:32px;
+    font-weight:900;
+    line-height:1.05;
+    letter-spacing:.01em;
+    font-variant-numeric:tabular-nums;
+  }
+
+  .rs-pos{color:#86efac}
+  .rs-neg{color:#fca5a5}
+  .rs-muted{color:#94a3b8}
+
+  .rs-mini-grid{
+    display:grid;
+    gap:8px;
+  }
+
+  .rs-mini{
+    padding:10px 12px;
+    border-radius:14px;
+    border:1px solid rgba(255,255,255,.08);
+    background:rgba(2,6,23,.34);
+  }
+
+  .rs-mini-k{
+    font-size:10px;
+    color:#94a3b8;
+    margin-bottom:4px;
+    text-transform:uppercase;
+    letter-spacing:.05em;
+  }
+
+  .rs-mini-v{
+    font-size:16px;
+    font-weight:900;
+    line-height:1.2;
+    color:#eef2ff;
+    font-variant-numeric:tabular-nums;
+  }
+
+  .rs-ai-grid{
+    display:grid;
+    gap:10px;
+    grid-template-columns:1fr;
+    margin-bottom:12px;
+  }
+
+  .rs-ai-card{
+    padding:12px;
+    border-radius:16px;
+    border:1px solid rgba(255,255,255,.08);
+    background:rgba(255,255,255,.04);
+  }
+
+  .rs-ai-label{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:24px;
+    padding:0 9px;
+    border-radius:999px;
+    font-size:11px;
+    font-weight:900;
+    letter-spacing:.02em;
+    margin-bottom:8px;
+  }
+
+  .rs-ai-label.summary{
+    background:rgba(99,102,241,.18);
+    color:#dbe4ff;
+    border:1px solid rgba(99,102,241,.28);
+  }
+
+  .rs-ai-label.good{
+    background:rgba(16,185,129,.18);
+    color:#d9ffec;
+    border:1px solid rgba(16,185,129,.28);
+  }
+
+  .rs-ai-label.warn{
+    background:rgba(245,158,11,.18);
+    color:#fde68a;
+    border:1px solid rgba(245,158,11,.28);
+  }
+
+  .rs-ai-label.next{
+    background:rgba(59,130,246,.18);
+    color:#dbeafe;
+    border:1px solid rgba(59,130,246,.28);
+  }
+
+  .rs-ai-text{
+    font-size:13px;
+    line-height:1.65;
+    color:#dbe4f4;
+  }
+
+  .rs-block{
+    margin-top:12px;
+  }
+
+  .rs-block-title{
+    margin-bottom:8px;
     font-size:12px;
     color:#a5b4fc;
     letter-spacing:.08em;
     text-transform:uppercase;
     display:flex;
     align-items:center;
-    gap:4px;
+    gap:6px;
   }
-  .section-title::before{
+
+  .rs-block-title::before{
     content:"";
     width:3px;
     height:14px;
@@ -77,550 +227,512 @@
     opacity:.9;
   }
 
-  /* ==== グリッド & カード ==== */
-  .summary-grid{
+  .rs-metric-grid{
     display:grid;
-    gap:12px;
-    grid-template-columns:repeat(4,minmax(0,1fr));
-  }
-  .sum-card{
-    background:rgba(15,23,42,.96);
-    border-radius:14px;
-    padding:10px 12px;
-    border:1px solid rgba(148,163,184,.45);
-    box-shadow:0 12px 30px rgba(15,23,42,.9);
-  }
-  .k{font-size:11px;color:#9ca3af;margin-bottom:6px}
-  .v{font-size:18px;font-weight:700}
-  .mono{font-variant-numeric:tabular-nums}
-  .pos{color:#4ade80}
-  .neg{color:#fb7171}
-  .muted{color:#9ca3af}
-
-  /* ==== タブの中身表示制御 ==== */
-  .real-panel{display:none;animation:panelFade .18s ease-out}
-  .real-panel.active{display:block}
-
-  @keyframes panelFade{
-    from{opacity:0;transform:translateY(4px)}
-    to{opacity:1;transform:translateY(0)}
+    grid-template-columns:repeat(2, minmax(0,1fr));
+    gap:10px;
   }
 
-  /* ==== 総合タブ内の追加ブロック ==== */
-  .real-period-block{
-    margin-top:18px;
-    border-radius:18px;
-    border:1px solid rgba(148,163,184,.35);
-    background:radial-gradient(circle at top,#020617 0,#020617 55%,#0b1120 100%);
-    padding:10px 10px 2px;
-  }
-  .real-ranking-block{
-    margin-top:16px;
-    border-radius:18px;
-    border:1px solid rgba(148,163,184,.35);
-    background:radial-gradient(circle at top,#020617 0,#020617 55%,#020617 100%);
-    padding:10px 10px 4px;
+  .rs-card{
+    padding:12px;
+    border-radius:16px;
+    border:1px solid rgba(255,255,255,.08);
+    background:rgba(255,255,255,.04);
   }
 
-  @media (max-width:1024px){
-    .summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rs-card-k{
+    font-size:11px;
+    color:#94a3b8;
+    margin-bottom:6px;
+    line-height:1.45;
   }
+
+  .rs-card-v{
+    font-size:23px;
+    font-weight:900;
+    line-height:1.15;
+    color:#eef2ff;
+    font-variant-numeric:tabular-nums;
+  }
+
+  .rs-empty{
+    padding:16px 14px;
+    border-radius:16px;
+    border:1px solid rgba(255,255,255,.08);
+    background:rgba(255,255,255,.04);
+    color:#94a3b8;
+    font-size:13px;
+    line-height:1.7;
+  }
+
   @media (max-width:640px){
-    .summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-    .real-wrap{padding:10px}
+    .rs-wrap{
+      padding:10px;
+      border-radius:18px;
+    }
+
+    .rs-hero{
+      padding:12px;
+    }
+
+    .rs-hero-main{
+      grid-template-columns:1fr;
+    }
+
+    .rs-hero-big-v{
+      font-size:28px;
+    }
+
+    .rs-card-v{
+      font-size:21px;
+    }
   }
 </style>
 
-<div class="real-wrap" id="realSummaryRoot">
-  <!-- ==== タブ ==== -->
-  <div class="real-tabs" role="tablist">
-    <button type="button" class="real-tab active" data-tab="total"  role="tab" aria-selected="true"><span>総合</span></button>
-    <button type="button" class="real-tab"        data-tab="rakuten" role="tab"><span>楽天</span></button>
-    <button type="button" class="real-tab"        data-tab="matsui"  role="tab"><span>松井</span></button>
-    <button type="button" class="real-tab"        data-tab="sbi"     role="tab"><span>SBI</span></button>
+<div
+  id="pnlSummaryWrap"
+  class="rs-wrap"
+  hx-get="{% url 'realized_summary_partial' %}"
+  hx-trigger="pnl:refresh from:body"
+  hx-include="#q"
+  hx-swap="outerHTML"
+>
+  <div class="rs-broker-tabs">
+    <button type="button" class="rs-broker-tab is-active" data-rs-tab="all">総合</button>
+    <button type="button" class="rs-broker-tab" data-rs-tab="rakuten">楽天</button>
+    <button type="button" class="rs-broker-tab" data-rs-tab="matsui">松井</button>
+    <button type="button" class="rs-broker-tab" data-rs-tab="sbi">SBI</button>
   </div>
 
-  {# ====総合タブ：KPI ＋ 期間サマリ ＋ ランキング========== #}
-  <div class="real-panel active" data-panel="total">
-    <div class="section-title">📊 パフォーマンス</div>
-    <div class="summary-grid">
-      <div class="sum-card">
-        <div class="k">件数</div>
-        <div class="v mono">{{ agg.n|intcomma }}</div>
-      </div>
-
-      <div class="sum-card">
-        <div class="k">勝率(%)</div>
-        <div class="v mono">{{ agg.win_rate|floatformat:1 }}%</div>
-      </div>
-
-      <div class="sum-card">
-        <div class="k">平均実現損益(%)</div>
-        {% if agg.avg_pnl_pct is not None %}
-          <div class="v mono">{{ agg.avg_pnl_pct|floatformat:2 }}%</div>
-        {% else %}
-          <div class="v mono muted">—</div>
-        {% endif %}
-      </div>
-
-      <div class="sum-card">
-        <div class="k">PF（利益 / |損失|）</div>
-        {% with pf=agg.pf ps=agg.profit_sum ls=agg.loss_sum %}
-          {% if pf %}
-            <div class="v mono">{{ pf|floatformat:2 }}</div>
-          {% elif ps and not ls %}
-            <div class="v mono">∞</div>
-          {% else %}
-            <div class="v mono muted">—</div>
-          {% endif %}
-        {% endwith %}
-      </div>
-    </div>
-
-    <div class="section-title">💰 損益・フロー</div>
-    <div class="summary-grid">
-      <div class="sum-card">
-        <div class="k">📈実現損益累計</div>
-        {% with v=agg.pnl %}
-          <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
-            ¥{{ v|floatformat:0|intcomma }}
-          </div>
-        {% endwith %}
-      </div>
-
-      <div class="sum-card">
-        <div class="k">利益合計</div>
-        <div class="v mono pos">¥{{ agg.profit_sum|default_if_none:0|floatformat:0|intcomma }}</div>
-      </div>
-
-      <div class="sum-card">
-        <div class="k">損失合計</div>
-        {% if agg.loss_sum is not None %}
-          <div class="v mono neg">¥{{ agg.loss_sum|floatformat:0|intcomma }}</div>
-        {% else %}
-          <div class="v mono muted">—</div>
-        {% endif %}
-      </div>
-
-      <div class="sum-card">
-        <div class="k">平均保有日数</div>
-        {% if agg.avg_hold_days is not None %}
-          <div class="v mono">{{ agg.avg_hold_days|floatformat:1 }} 日</div>
-        {% else %}
-          <div class="v mono muted">—</div>
-        {% endif %}
-      </div>
-
-      <div class="sum-card">
-        <div class="k">💰現金フロー（現物）</div>
-        {% with v=agg.cash_spec %}
-          <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
-            ¥{{ v|floatformat:0|intcomma }}
-          </div>
-        {% endwith %}
-      </div>
-
-      <div class="sum-card">
-        <div class="k">💰現金フロー（信用）</div>
-        {% with v=agg.cash_margin %}
-          <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
-            ¥{{ v|floatformat:0|intcomma }}
-          </div>
-        {% endwith %}
-      </div>
-
-      <div class="sum-card">
-        <div class="k">💰現金フロー合計</div>
-        {% with v=agg.cash_total %}
-          <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
-            ¥{{ v|floatformat:0|intcomma }}
-          </div>
-        {% endwith %}
-      </div>
-
-      <div class="sum-card">
-        <div class="k">手数料合計</div>
-        <div class="v mono">¥{{ agg.fee|default_if_none:0|floatformat:0|intcomma }}</div>
-      </div>
-    </div>
-
-    {# ---- 期間サマリ（既存のテンプレをそのまま埋め込み） ---- #}
-    <div class="real-period-block" id="real-period-block-total">
-      <div class="section-title">📆 期間サマリ</div>
-      {# 期間まとめ（プリセットボタン＋集計） #}
-      {% include "realized/_summary_period.html" %}
-      {# 月次グラフ＆分析グラフ #}
-      {% include "realized/_monthly_chart.html" %}
-      {% include "realized/_analysis_charts.html" %}
-    </div>
-
-    {# ---- ランキング（TOP画面版） ---- #}
-    <div class="real-ranking-block" id="real-ranking-block-total">
-      <div class="section-title">🏅 ランキング</div>
-      <div id="pnlRankingInTotal"
-           hx-get="{% url 'realized_ranking_partial' %}?preset=LAST_12M&freq=month"
-           hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
-           hx-trigger="load, pnl:refresh from:body"
-           hx-swap="outerHTML">
-        <div style="color:#94a3b8;padding:8px 0">ランキングを読み込み中…</div>
-      </div>
-    </div>
-  </div>
-
-  {# ====楽天タブ======== #}
-  <div class="real-panel" data-panel="rakuten">
-    {% for b in agg_brokers %}
-      {% if b.broker == 'RAKUTEN' %}
-        <div class="section-title">📊 楽天証券パフォーマンス</div>
-        <div class="summary-grid">
-          <div class="sum-card">
-            <div class="k">件数</div>
-            <div class="v mono">{{ b.n|intcomma }}</div>
-          </div>
-
-          <div class="sum-card">
-            <div class="k">勝率(%)</div>
-            <div class="v mono">{{ b.win_rate|floatformat:1 }}%</div>
-          </div>
-
-          <div class="sum-card">
-            <div class="k">平均実現損益(%)</div>
-            {% if b.avg_pnl_pct is not None %}
-              <div class="v mono">{{ b.avg_pnl_pct|floatformat:2 }}%</div>
-            {% else %}
-              <div class="v mono muted">—</div>
-            {% endif %}
-          </div>
-
-          <div class="sum-card">
-            <div class="k">PF（利益 / |損失|）</div>
-            {% with pf=b.pf ps=b.profit_sum ls=b.loss_sum %}
-              {% if pf %}
-                <div class="v mono">{{ pf|floatformat:2 }}</div>
-              {% elif ps and not ls %}
-                <div class="v mono">∞</div>
-              {% else %}
-                <div class="v mono muted">—</div>
-              {% endif %}
-            {% endwith %}
-          </div>
+  <div class="rs-panel is-active" data-rs-panel="all">
+    {% if agg.n %}
+      <div class="rs-hero">
+        <div class="rs-hero-top">
+          <div class="rs-hero-title">AI総合サマリー</div>
+          <div class="rs-hero-badge">全 {{ agg.n|intcomma }} 件</div>
         </div>
 
-        <div class="section-title">💰 損益・フロー</div>
-        <div class="summary-grid">
-          <div class="sum-card">
-            <div class="k">📈実現損益累計</div>
-            {% with v=b.pnl %}
-              <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
-                ¥{{ v|floatformat:0|intcomma }}
-              </div>
-            {% endwith %}
+        <div class="rs-hero-main">
+          <div>
+            <div class="rs-hero-big-k">累計実現損益</div>
+            <div class="rs-hero-big-v {% if agg.pnl >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
+              ¥{{ agg.pnl|default_if_none:0|floatformat:0|intcomma }}
+            </div>
           </div>
 
-          <div class="sum-card">
-            <div class="k">利益合計</div>
-            <div class="v mono pos">¥{{ b.profit_sum|default_if_none:0|floatformat:0|intcomma }}</div>
-          </div>
-
-          <div class="sum-card">
-            <div class="k">損失合計</div>
-            {% if b.loss_sum is not None %}
-              <div class="v mono neg">¥{{ b.loss_sum|floatformat:0|intcomma }}</div>
-            {% else %}
-              <div class="v mono muted">—</div>
-            {% endif %}
-          </div>
-
-          <div class="sum-card">
-            <div class="k">平均保有日数</div>
-            {% if b.avg_hold_days is not None %}
-              <div class="v mono">{{ b.avg_hold_days|floatformat:1 }} 日</div>
-            {% else %}
-              <div class="v mono muted">—</div>
-            {% endif %}
-          </div>
-
-          <div class="sum-card">
-            <div class="k">💰現金フロー（現物）</div>
-            {% with v=b.cash_spec %}
-              <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
-                ¥{{ v|floatformat:0|intcomma }}
-              </div>
-            {% endwith %}
-          </div>
-
-          <div class="sum-card">
-            <div class="k">💰現金フロー（信用）</div>
-            {% with v=b.cash_margin %}
-              <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
-                ¥{{ v|floatformat:0|intcomma }}
-              </div>
-            {% endwith %}
-          </div>
-
-          <div class="sum-card">
-            <div class="k">💰現金フロー合計</div>
-            {% with v=b.cash_total %}
-              <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
-                ¥{{ v|floatformat:0|intcomma }}
-              </div>
-            {% endwith %}
-          </div>
-
-          <div class="sum-card">
-            <div class="k">手数料合計</div>
-            <div class="v mono">
-              ¥{{ b.fee|default_if_none:0|floatformat:0|intcomma }}
+          <div class="rs-mini-grid">
+            <div class="rs-mini">
+              <div class="rs-mini-k">勝率</div>
+              <div class="rs-mini-v">{{ agg.win_rate|default_if_none:0|floatformat:1 }}%</div>
+            </div>
+            <div class="rs-mini">
+              <div class="rs-mini-k">PF</div>
+              {% if agg.pf %}
+                <div class="rs-mini-v">{{ agg.pf|floatformat:2 }}</div>
+              {% elif agg.profit_sum and not agg.loss_sum %}
+                <div class="rs-mini-v">∞</div>
+              {% else %}
+                <div class="rs-mini-v rs-muted">—</div>
+              {% endif %}
             </div>
           </div>
         </div>
-      {% endif %}
-    {% empty %}
-      <div class="sum-card">楽天証券のデータがありません。</div>
-    {% endfor %}
-  </div>
+      </div>
 
-  {# ====松井タブ======== #}
-  <div class="real-panel" data-panel="matsui">
-    {% for b in agg_brokers %}
-      {% if b.broker == 'MATSUI' %}
-        <div class="section-title">📊 松井証券パフォーマンス</div>
-        <div class="summary-grid">
-          <div class="sum-card">
-            <div class="k">件数</div>
-            <div class="v mono">{{ b.n|intcomma }}</div>
-          </div>
-
-          <div class="sum-card">
-            <div class="k">勝率(%)</div>
-            <div class="v mono">{{ b.win_rate|floatformat:1 }}%</div>
-          </div>
-
-          <div class="sum-card">
-            <div class="k">平均実現損益(%)</div>
-            {% if b.avg_pnl_pct is not None %}
-              <div class="v mono">{{ b.avg_pnl_pct|floatformat:2 }}%</div>
+      <div class="rs-ai-grid">
+        <div class="rs-ai-card">
+          <div class="rs-ai-label summary">総評</div>
+          <div class="rs-ai-text">
+            {% if agg.pnl >= 0 and agg.win_rate >= 60 %}
+              収益も勝率もかなり安定寄りです。まずは「伸びている型を崩さないこと」が最優先です。
+            {% elif agg.pnl >= 0 %}
+              利益は積み上がっています。次は、勝ちを伸ばせているかよりも「負けをどこで止めたか」を見る段階です。
             {% else %}
-              <div class="v mono muted">—</div>
+              まだ損失先行です。今は取り返すより、負けが大きくなった月や銘柄を先に絞るのが効きます。
             {% endif %}
-          </div>
-
-          <div class="sum-card">
-            <div class="k">PF（利益 / |損失|）</div>
-            {% with pf=b.pf ps=b.profit_sum ls=b.loss_sum %}
-              {% if pf %}
-                <div class="v mono">{{ pf|floatformat:2 }}</div>
-              {% elif ps and not ls %}
-                <div class="v mono">∞</div>
-              {% else %}
-                <div class="v mono muted">—</div>
-              {% endif %}
-            {% endwith %}
           </div>
         </div>
 
-        <div class="section-title">💰 損益・フロー</div>
-        <div class="summary-grid">
-          <div class="sum-card">
-            <div class="k">📈実現損益累計</div>
-            {% with v=b.pnl %}
-              <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
-                ¥{{ v|floatformat:0|intcomma }}
-              </div>
-            {% endwith %}
-          </div>
-
-          <div class="sum-card">
-            <div class="k">利益合計</div>
-            <div class="v mono pos">¥{{ b.profit_sum|default_if_none:0|floatformat:0|intcomma }}</div>
-          </div>
-
-          <div class="sum-card">
-            <div class="k">損失合計</div>
-            {% if b.loss_sum is not None %}
-              <div class="v mono neg">¥{{ b.loss_sum|floatformat:0|intcomma }}</div>
+        <div class="rs-ai-card">
+          <div class="rs-ai-label good">強み</div>
+          <div class="rs-ai-text">
+            {% if agg.win_rate >= 60 %}
+              勝率が高めで、エントリー精度は崩れていません。勝ちパターンの再現性は十分あります。
+            {% elif agg.profit_sum > 0 %}
+              利益側の積み上げはできています。大勝ちよりも、勝ちの継続性が今の強みです。
             {% else %}
-              <div class="v mono muted">—</div>
+              いまは強みを作っている途中です。まずは「勝てた条件」を少数でも固定化するのが近道です。
             {% endif %}
           </div>
+        </div>
 
-          <div class="sum-card">
-            <div class="k">平均保有日数</div>
-            {% if b.avg_hold_days is not None %}
-              <div class="v mono">{{ b.avg_hold_days|floatformat:1 }} 日</div>
+        <div class="rs-ai-card">
+          <div class="rs-ai-label warn">注意</div>
+          <div class="rs-ai-text">
+            {% if agg.avg_hold_days and agg.avg_hold_days >= 60 %}
+              平均保有日数が長めです。利確の遅れや、見切り遅れが混ざっていないか要注意です。
+            {% elif agg.fee and agg.fee >= 100000 %}
+              手数料負担がやや重めです。回転数が多い月は、勝率よりコストを先に点検したいです。
             {% else %}
-              <div class="v mono muted">—</div>
+              大きな崩れは見えにくいですが、勝率だけで安心せず「損失の深さ」を定期確認したい状態です。
             {% endif %}
           </div>
+        </div>
 
-          <div class="sum-card">
-            <div class="k">💰現金フロー（現物）</div>
-            {% with v=b.cash_spec %}
-              <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
-                ¥{{ v|floatformat:0|intcomma }}
-              </div>
-            {% endwith %}
+        <div class="rs-ai-card">
+          <div class="rs-ai-label next">次の一手</div>
+          <div class="rs-ai-text">
+            まずは「流れ」で月別カードを見て、次に「銘柄」で上位と下位を確認するのが最短です。  
+            そのあと明細で、勝ち月と負け月の違いを1つだけ見つけると改善が早いです。
           </div>
+        </div>
+      </div>
 
-          <div class="sum-card">
-            <div class="k">💰現金フロー（信用）</div>
-            {% with v=b.cash_margin %}
-              <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
-                ¥{{ v|floatformat:0|intcomma }}
-              </div>
-            {% endwith %}
+      <div class="rs-block">
+        <div class="rs-block-title">パフォーマンス</div>
+        <div class="rs-metric-grid">
+          <div class="rs-card">
+            <div class="rs-card-k">件数</div>
+            <div class="rs-card-v">{{ agg.n|intcomma }}</div>
           </div>
-
-          <div class="sum-card">
-            <div class="k">💰現金フロー合計</div>
-            {% with v=b.cash_total %}
-              <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
-                ¥{{ v|floatformat:0|intcomma }}
-              </div>
-            {% endwith %}
+          <div class="rs-card">
+            <div class="rs-card-k">勝率</div>
+            <div class="rs-card-v">{{ agg.win_rate|default_if_none:0|floatformat:1 }}%</div>
           </div>
+          <div class="rs-card">
+            <div class="rs-card-k">平均実現損益率</div>
+            {% if agg.avg_pnl_pct %}
+              <div class="rs-card-v">{{ agg.avg_pnl_pct|floatformat:2 }}%</div>
+            {% else %}
+              <div class="rs-card-v rs-muted">—</div>
+            {% endif %}
+          </div>
+          <div class="rs-card">
+            <div class="rs-card-k">平均保有日数</div>
+            {% if agg.avg_hold_days %}
+              <div class="rs-card-v">{{ agg.avg_hold_days|floatformat:1 }}日</div>
+            {% else %}
+              <div class="rs-card-v rs-muted">—</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
 
-          <div class="sum-card">
-            <div class="k">手数料合計</div>
-            <div class="v mono">
-              ¥{{ b.fee|default_if_none:0|floatformat:0|intcomma }}
+      <div class="rs-block">
+        <div class="rs-block-title">損益・フロー</div>
+        <div class="rs-metric-grid">
+          <div class="rs-card">
+            <div class="rs-card-k">利益合計</div>
+            <div class="rs-card-v rs-pos">¥{{ agg.profit_sum|default_if_none:0|floatformat:0|intcomma }}</div>
+          </div>
+          <div class="rs-card">
+            <div class="rs-card-k">損失合計</div>
+            <div class="rs-card-v rs-neg">¥{{ agg.loss_sum|default_if_none:0|floatformat:0|intcomma }}</div>
+          </div>
+          <div class="rs-card">
+            <div class="rs-card-k">現金フロー合計</div>
+            <div class="rs-card-v {% if agg.cash_total >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
+              ¥{{ agg.cash_total|default_if_none:0|floatformat:0|intcomma }}
+            </div>
+          </div>
+          <div class="rs-card">
+            <div class="rs-card-k">手数料合計</div>
+            <div class="rs-card-v">¥{{ agg.fee|default_if_none:0|floatformat:0|intcomma }}</div>
+          </div>
+          <div class="rs-card">
+            <div class="rs-card-k">現物フロー</div>
+            <div class="rs-card-v {% if agg.cash_spec >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
+              ¥{{ agg.cash_spec|default_if_none:0|floatformat:0|intcomma }}
+            </div>
+          </div>
+          <div class="rs-card">
+            <div class="rs-card-k">信用フロー</div>
+            <div class="rs-card-v {% if agg.cash_margin >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
+              ¥{{ agg.cash_margin|default_if_none:0|floatformat:0|intcomma }}
             </div>
           </div>
         </div>
-      {% endif %}
-    {% empty %}
-      <div class="sum-card">松井証券のデータがありません。</div>
-    {% endfor %}
+      </div>
+    {% else %}
+      <div class="rs-empty">まだ実現損益データがありません。</div>
+    {% endif %}
   </div>
 
-  {# ====SBIタブ======== #}
-  <div class="real-panel" data-panel="sbi">
-    {% for b in agg_brokers %}
-      {% if b.broker == 'SBI' %}
-        <div class="section-title">📊 SBI証券パフォーマンス</div>
-        <div class="summary-grid">
-          <div class="sum-card">
-            <div class="k">件数</div>
-            <div class="v mono">{{ b.n|intcomma }}</div>
-          </div>
+  <div class="rs-panel" data-rs-panel="rakuten">
+    <div class="rs-panel-body">
+      {% for b in agg_brokers %}
+        {% if b.broker == 'RAKUTEN' %}
+          <div class="rs-hero">
+            <div class="rs-hero-top">
+              <div class="rs-hero-title">楽天証券</div>
+              <div class="rs-hero-badge">{{ b.n|intcomma }} 件</div>
+            </div>
 
-          <div class="sum-card">
-            <div class="k">勝率(%)</div>
-            <div class="v mono">{{ b.win_rate|floatformat:1 }}%</div>
-          </div>
-
-          <div class="sum-card">
-            <div class="k">平均実現損益(%)</div>
-            {% if b.avg_pnl_pct is not None %}
-              <div class="v mono">{{ b.avg_pnl_pct|floatformat:2 }}%</div>
-            {% else %}
-              <div class="v mono muted">—</div>
-            {% endif %}
-          </div>
-
-          <div class="sum-card">
-            <div class="k">PF（利益 / |損失|）</div>
-            {% with pf=b.pf ps=b.profit_sum ls=b.loss_sum %}
-              {% if pf %}
-                <div class="v mono">{{ pf|floatformat:2 }}</div>
-              {% elif ps and not ls %}
-                <div class="v mono">∞</div>
-              {% else %}
-                <div class="v mono muted">—</div>
-              {% endif %}
-            {% endwith %}
-          </div>
-        </div>
-
-        <div class="section-title">💰 損益・フロー</div>
-        <div class="summary-grid">
-          <div class="sum-card">
-            <div class="k">📈実現損益累計</div>
-            {% with v=b.pnl %}
-              <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
-                ¥{{ v|floatformat:0|intcomma }}
+            <div class="rs-hero-main">
+              <div>
+                <div class="rs-hero-big-k">累計実現損益</div>
+                <div class="rs-hero-big-v {% if b.pnl >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
+                  ¥{{ b.pnl|default_if_none:0|floatformat:0|intcomma }}
+                </div>
               </div>
-            {% endwith %}
-          </div>
 
-          <div class="sum-card">
-            <div class="k">利益合計</div>
-            <div class="v mono pos">¥{{ b.profit_sum|default_if_none:0|floatformat:0|intcomma }}</div>
-          </div>
-
-          <div class="sum-card">
-            <div class="k">損失合計</div>
-            {% if b.loss_sum is not None %}
-              <div class="v mono neg">¥{{ b.loss_sum|floatformat:0|intcomma }}</div>
-            {% else %}
-              <div class="v mono muted">—</div>
-            {% endif %}
-          </div>
-
-          <div class="sum-card">
-            <div class="k">平均保有日数</div>
-            {% if b.avg_hold_days is not None %}
-              <div class="v mono">{{ b.avg_hold_days|floatformat:1 }} 日</div>
-            {% else %}
-              <div class="v mono muted">—</div>
-            {% endif %}
-          </div>
-
-          <div class="sum-card">
-            <div class="k">💰現金フロー（現物）</div>
-            {% with v=b.cash_spec %}
-              <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
-                ¥{{ v|floatformat:0|intcomma }}
+              <div class="rs-mini-grid">
+                <div class="rs-mini">
+                  <div class="rs-mini-k">勝率</div>
+                  <div class="rs-mini-v">{{ b.win_rate|default_if_none:0|floatformat:1 }}%</div>
+                </div>
+                <div class="rs-mini">
+                  <div class="rs-mini-k">PF</div>
+                  {% if b.pf %}
+                    <div class="rs-mini-v">{{ b.pf|floatformat:2 }}</div>
+                  {% elif b.profit_sum and not b.loss_sum %}
+                    <div class="rs-mini-v">∞</div>
+                  {% else %}
+                    <div class="rs-mini-v rs-muted">—</div>
+                  {% endif %}
+                </div>
               </div>
-            {% endwith %}
-          </div>
-
-          <div class="sum-card">
-            <div class="k">💰現金フロー（信用）</div>
-            {% with v=b.cash_margin %}
-              <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
-                ¥{{ v|floatformat:0|intcomma }}
-              </div>
-            {% endwith %}
-          </div>
-
-          <div class="sum-card">
-            <div class="k">💰現金フロー合計</div>
-            {% with v=b.cash_total %}
-              <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
-                ¥{{ v|floatformat:0|intcomma }}
-              </div>
-            {% endwith %}
-          </div>
-
-          <div class="sum-card">
-            <div class="k">手数料合計</div>
-            <div class="v mono">
-              ¥{{ b.fee|default_if_none:0|floatformat:0|intcomma }}
             </div>
           </div>
-        </div>
-      {% endif %}
-    {% empty %}
-      <div class="sum-card">SBI証券のデータがありません。</div>
-    {% endfor %}
+
+          <div class="rs-ai-card" style="margin-bottom:12px;">
+            <div class="rs-ai-label summary">楽天の見立て</div>
+            <div class="rs-ai-text">
+              {% if b.pnl >= 0 %}
+                楽天口座は利益側です。ここでは「勝率を守る」より、「何が利益を引っ張っているか」を見ると次に繋がります。
+              {% else %}
+                楽天口座はまだ損失側です。まずは明細で大きな負けを作った取引を数件に絞るのが先です。
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="rs-metric-grid">
+            <div class="rs-card">
+              <div class="rs-card-k">平均実現損益率</div>
+              {% if b.avg_pnl_pct %}
+                <div class="rs-card-v">{{ b.avg_pnl_pct|floatformat:2 }}%</div>
+              {% else %}
+                <div class="rs-card-v rs-muted">—</div>
+              {% endif %}
+            </div>
+            <div class="rs-card">
+              <div class="rs-card-k">平均保有日数</div>
+              {% if b.avg_hold_days %}
+                <div class="rs-card-v">{{ b.avg_hold_days|floatformat:1 }}日</div>
+              {% else %}
+                <div class="rs-card-v rs-muted">—</div>
+              {% endif %}
+            </div>
+            <div class="rs-card">
+              <div class="rs-card-k">現金フロー合計</div>
+              <div class="rs-card-v {% if b.cash_total >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
+                ¥{{ b.cash_total|default_if_none:0|floatformat:0|intcomma }}
+              </div>
+            </div>
+            <div class="rs-card">
+              <div class="rs-card-k">手数料合計</div>
+              <div class="rs-card-v">¥{{ b.fee|default_if_none:0|floatformat:0|intcomma }}</div>
+            </div>
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="rs-panel" data-rs-panel="matsui">
+    <div class="rs-panel-body">
+      {% for b in agg_brokers %}
+        {% if b.broker == 'MATSUI' %}
+          <div class="rs-hero">
+            <div class="rs-hero-top">
+              <div class="rs-hero-title">松井証券</div>
+              <div class="rs-hero-badge">{{ b.n|intcomma }} 件</div>
+            </div>
+
+            <div class="rs-hero-main">
+              <div>
+                <div class="rs-hero-big-k">累計実現損益</div>
+                <div class="rs-hero-big-v {% if b.pnl >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
+                  ¥{{ b.pnl|default_if_none:0|floatformat:0|intcomma }}
+                </div>
+              </div>
+
+              <div class="rs-mini-grid">
+                <div class="rs-mini">
+                  <div class="rs-mini-k">勝率</div>
+                  <div class="rs-mini-v">{{ b.win_rate|default_if_none:0|floatformat:1 }}%</div>
+                </div>
+                <div class="rs-mini">
+                  <div class="rs-mini-k">PF</div>
+                  {% if b.pf %}
+                    <div class="rs-mini-v">{{ b.pf|floatformat:2 }}</div>
+                  {% elif b.profit_sum and not b.loss_sum %}
+                    <div class="rs-mini-v">∞</div>
+                  {% else %}
+                    <div class="rs-mini-v rs-muted">—</div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rs-ai-card" style="margin-bottom:12px;">
+            <div class="rs-ai-label summary">松井の見立て</div>
+            <div class="rs-ai-text">
+              {% if b.win_rate >= 60 %}
+                松井口座は精度が高めです。再現性が高い型がある可能性が強いです。
+              {% else %}
+                松井口座は勝率改善の余地があります。勝ち負けより、保有日数や手数料との相性を見たいです。
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="rs-metric-grid">
+            <div class="rs-card">
+              <div class="rs-card-k">平均実現損益率</div>
+              {% if b.avg_pnl_pct %}
+                <div class="rs-card-v">{{ b.avg_pnl_pct|floatformat:2 }}%</div>
+              {% else %}
+                <div class="rs-card-v rs-muted">—</div>
+              {% endif %}
+            </div>
+            <div class="rs-card">
+              <div class="rs-card-k">平均保有日数</div>
+              {% if b.avg_hold_days %}
+                <div class="rs-card-v">{{ b.avg_hold_days|floatformat:1 }}日</div>
+              {% else %}
+                <div class="rs-card-v rs-muted">—</div>
+              {% endif %}
+            </div>
+            <div class="rs-card">
+              <div class="rs-card-k">現金フロー合計</div>
+              <div class="rs-card-v {% if b.cash_total >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
+                ¥{{ b.cash_total|default_if_none:0|floatformat:0|intcomma }}
+              </div>
+            </div>
+            <div class="rs-card">
+              <div class="rs-card-k">手数料合計</div>
+              <div class="rs-card-v">¥{{ b.fee|default_if_none:0|floatformat:0|intcomma }}</div>
+            </div>
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="rs-panel" data-rs-panel="sbi">
+    <div class="rs-panel-body">
+      {% for b in agg_brokers %}
+        {% if b.broker == 'SBI' %}
+          <div class="rs-hero">
+            <div class="rs-hero-top">
+              <div class="rs-hero-title">SBI証券</div>
+              <div class="rs-hero-badge">{{ b.n|intcomma }} 件</div>
+            </div>
+
+            <div class="rs-hero-main">
+              <div>
+                <div class="rs-hero-big-k">累計実現損益</div>
+                <div class="rs-hero-big-v {% if b.pnl >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
+                  ¥{{ b.pnl|default_if_none:0|floatformat:0|intcomma }}
+                </div>
+              </div>
+
+              <div class="rs-mini-grid">
+                <div class="rs-mini">
+                  <div class="rs-mini-k">勝率</div>
+                  <div class="rs-mini-v">{{ b.win_rate|default_if_none:0|floatformat:1 }}%</div>
+                </div>
+                <div class="rs-mini">
+                  <div class="rs-mini-k">PF</div>
+                  {% if b.pf %}
+                    <div class="rs-mini-v">{{ b.pf|floatformat:2 }}</div>
+                  {% elif b.profit_sum and not b.loss_sum %}
+                    <div class="rs-mini-v">∞</div>
+                  {% else %}
+                    <div class="rs-mini-v rs-muted">—</div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rs-ai-card" style="margin-bottom:12px;">
+            <div class="rs-ai-label summary">SBIの見立て</div>
+            <div class="rs-ai-text">
+              {% if b.pnl >= 0 and b.avg_hold_days and b.avg_hold_days <= 30 %}
+                SBI口座はテンポ良く利益化できています。短めの回転が噛み合っている可能性があります。
+              {% elif b.pnl >= 0 %}
+                SBI口座は利益側ですが、どの月で伸びたかを流れで確認すると武器が見つけやすいです。
+              {% else %}
+                SBI口座はまだ立て直し中です。月別で崩れた月を先に見ると改善点が見つけやすいです。
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="rs-metric-grid">
+            <div class="rs-card">
+              <div class="rs-card-k">平均実現損益率</div>
+              {% if b.avg_pnl_pct %}
+                <div class="rs-card-v">{{ b.avg_pnl_pct|floatformat:2 }}%</div>
+              {% else %}
+                <div class="rs-card-v rs-muted">—</div>
+              {% endif %}
+            </div>
+            <div class="rs-card">
+              <div class="rs-card-k">平均保有日数</div>
+              {% if b.avg_hold_days %}
+                <div class="rs-card-v">{{ b.avg_hold_days|floatformat:1 }}日</div>
+              {% else %}
+                <div class="rs-card-v rs-muted">—</div>
+              {% endif %}
+            </div>
+            <div class="rs-card">
+              <div class="rs-card-k">現金フロー合計</div>
+              <div class="rs-card-v {% if b.cash_total >= 0 %}rs-pos{% else %}rs-neg{% endif %}">
+                ¥{{ b.cash_total|default_if_none:0|floatformat:0|intcomma }}
+              </div>
+            </div>
+            <div class="rs-card">
+              <div class="rs-card-k">手数料合計</div>
+              <div class="rs-card-v">¥{{ b.fee|default_if_none:0|floatformat:0|intcomma }}</div>
+            </div>
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
   </div>
 </div>
 
 <script>
-document.addEventListener("DOMContentLoaded", () => {
-  const root = document.getElementById("realSummaryRoot");
+(function(){
+  const root = document.getElementById("pnlSummaryWrap");
   if (!root) return;
 
-  const tabs   = root.querySelectorAll(".real-tab");
-  const panels = root.querySelectorAll(".real-panel");
+  const tabs = Array.from(root.querySelectorAll("[data-rs-tab]"));
+  const panels = Array.from(root.querySelectorAll("[data-rs-panel]"));
 
-  tabs.forEach(tab => {
-    tab.addEventListener("click", () => {
-      const target = tab.dataset.tab;
-      tabs.forEach(t => t.classList.toggle("active", t === tab));
-      panels.forEach(p => p.classList.toggle("active", p.dataset.panel === target));
+  function activate(key){
+    tabs.forEach((tab) => {
+      tab.classList.toggle("is-active", tab.dataset.rsTab === key);
+    });
+    panels.forEach((panel) => {
+      panel.classList.toggle("is-active", panel.dataset.rsPanel === key);
+    });
+  }
+
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", function(){
+      activate(tab.dataset.rsTab || "all");
     });
   });
-});
+
+  root.querySelectorAll(".rs-panel-body").forEach((body) => {
+    if (!body.textContent.trim()) {
+      body.innerHTML = '<div class="rs-empty">この証券会社のデータはまだありません。</div>';
+    }
+  });
+
+  activate("all");
+})();
 </script>
