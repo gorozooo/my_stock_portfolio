@@ -1,288 +1,477 @@
-{# templates/realized/_summary_period.html #}
 {% load humanize %}
+
 <style>
-  .period-wrap{margin-top:14px}
-  .period-head{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
-  .btn{font-size:12px;padding:6px 10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:transparent;color:#e5e7eb}
-  .btn[aria-current="true"]{background:rgba(255,255,255,.10)}
-
-  .tbl{width:100%;border-collapse:separate;border-spacing:0}
-  .tbl th,.tbl td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.08)}
-  .tbl thead th{font-size:12px;color:#a7b1d8;text-align:right;white-space:nowrap}
-  .tbl thead th:first-child,
-  .tbl tbody td:first-child{
-    text-align:left;
-    white-space:nowrap;
+  .rp-wrap{
+    padding:12px;
   }
-  .tbl .num{
-    text-align:right;
-    white-space:nowrap;
+
+  .rp-head{
+    margin-bottom:10px;
+  }
+
+  .rp-title{
+    font-size:15px;
+    font-weight:900;
+    color:#eef2ff;
+  }
+
+  .rp-note{
+    margin-top:4px;
+    font-size:12px;
+    line-height:1.6;
+    color:#94a3b8;
+  }
+
+  .rp-controls{
+    display:grid;
+    gap:8px;
+    margin-bottom:12px;
+  }
+
+  .rp-chip-row{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+
+  .rp-chip{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:36px;
+    padding:0 12px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.10);
+    background:rgba(255,255,255,.05);
+    color:#dbe4f4;
+    text-decoration:none;
+    font-size:12px;
+    font-weight:900;
+    letter-spacing:.02em;
+  }
+
+  .rp-chip[aria-current="true"]{
+    border-color:rgba(99,102,241,.34);
+    background:rgba(99,102,241,.18);
+    color:#f5f7ff;
+    box-shadow:0 0 0 4px rgba(99,102,241,.10);
+  }
+
+  .rp-clear{
+    display:none;
+  }
+
+  .rp-clear.show{
+    display:inline-flex;
+  }
+
+  .rp-selected{
+    margin-bottom:12px;
+    padding:12px;
+    border-radius:16px;
+    border:1px solid rgba(255,255,255,.08);
+    background:
+      linear-gradient(135deg, rgba(99,102,241,.14), rgba(255,255,255,.03));
+  }
+
+  .rp-selected-k{
+    font-size:11px;
+    color:#a5b4fc;
+    margin-bottom:6px;
+    font-weight:900;
+    letter-spacing:.05em;
+    text-transform:uppercase;
+  }
+
+  .rp-selected-v{
+    font-size:20px;
+    font-weight:900;
+    color:#eef2ff;
+    margin-bottom:10px;
+  }
+
+  .rp-selected-grid{
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0,1fr));
+    gap:8px;
+  }
+
+  .rp-mini{
+    padding:10px;
+    border-radius:14px;
+    border:1px solid rgba(255,255,255,.08);
+    background:rgba(255,255,255,.04);
+  }
+
+  .rp-mini-k{
+    font-size:10px;
+    color:#94a3b8;
+    margin-bottom:4px;
+  }
+
+  .rp-mini-v{
+    font-size:15px;
+    font-weight:900;
+    color:#eef2ff;
     font-variant-numeric:tabular-nums;
-  }
-  .pos{color:#86efac}
-  .neg{color:#fca5a5}
-  .tbl tbody tr.is-focus > td{
-    background:rgba(59,130,246,.10);
+    line-height:1.2;
   }
 
-  /* 横スクロール用ラッパと最小幅 */
-  .h-scroll{
-    overflow-x:auto;
-    -webkit-overflow-scrolling:touch;
+  .rp-pos{color:#86efac}
+  .rp-neg{color:#fca5a5}
+  .rp-muted{color:#94a3b8}
+
+  .rp-list{
+    display:grid;
+    gap:10px;
   }
-  .tbl-wide{
-    min-width:880px;
+
+  .rp-card{
+    appearance:none;
+    -webkit-appearance:none;
+    width:100%;
+    padding:12px;
+    border-radius:16px;
+    border:1px solid rgba(255,255,255,.08);
+    background:rgba(255,255,255,.04);
+    text-align:left;
+    transition:
+      transform .08s ease,
+      border-color .16s ease,
+      background .16s ease,
+      box-shadow .16s ease;
+  }
+
+  .rp-card:active{
+    transform:scale(.99);
+  }
+
+  .rp-card.is-focus{
+    border-color:rgba(99,102,241,.32);
+    background:rgba(99,102,241,.12);
+    box-shadow:0 0 0 4px rgba(99,102,241,.10);
+  }
+
+  .rp-card-top{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:10px;
+    margin-bottom:10px;
+  }
+
+  .rp-period{
+    font-size:18px;
+    font-weight:900;
+    color:#f8fbff;
+    line-height:1.2;
+  }
+
+  .rp-pnl{
+    flex:0 0 auto;
+    font-size:20px;
+    font-weight:900;
+    line-height:1.15;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+  }
+
+  .rp-card-grid{
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0,1fr));
+    gap:8px;
+  }
+
+  .rp-empty{
+    padding:16px 14px;
+    border-radius:16px;
+    border:1px solid rgba(255,255,255,.08);
+    background:rgba(255,255,255,.04);
+    color:#94a3b8;
+    font-size:13px;
+    line-height:1.7;
+  }
+
+  @media (max-width:420px){
+    .rp-wrap{
+      padding:10px;
+    }
+
+    .rp-selected-grid,
+    .rp-card-grid{
+      grid-template-columns:1fr 1fr;
+    }
+
+    .rp-period{
+      font-size:16px;
+    }
+
+    .rp-pnl{
+      font-size:18px;
+    }
   }
 </style>
 
-<div id="pnlPeriodWrap" class="period-wrap"
-     data-preset="{{ preset }}" data-freq="{{ freq }}">
-
-  {# ランキング等が hx-include で拾うための隠しフィールド #}
+<div
+  id="pnlPeriodWrap"
+  class="rp-wrap"
+  data-preset="{{ preset }}"
+  data-freq="{{ freq }}"
+  hx-get="{% url 'realized_summary_period' %}"
+  hx-trigger="pnl:refresh from:body"
+  hx-include="#q,[name=preset],[name=freq],[name=start],[name=end]"
+  hx-swap="outerHTML"
+>
   <input type="hidden" name="preset" id="periodPreset" value="{{ preset }}">
-  <input type="hidden" name="freq"   id="periodFreq"   value="{{ freq }}">
-  <input type="hidden" name="start"  id="periodStart"
-         value="{% if start %}{{ start|date:'Y-m-d' }}{% endif %}">
-  <input type="hidden" name="end"    id="periodEnd"
-         value="{% if end %}{{ end|date:'Y-m-d' }}{% endif %}">
+  <input type="hidden" name="freq" id="periodFreq" value="{{ freq }}">
+  <input type="hidden" name="start" id="periodStart" value="{% if start %}{{ start|date:'Y-m-d' }}{% endif %}">
+  <input type="hidden" name="end" id="periodEnd" value="{% if end %}{{ end|date:'Y-m-d' }}{% endif %}">
 
-  <div class="period-head">
-    <div style="font-size:12px;color:#a7b1d8">期間まとめ</div>
-
-    <button class="btn"
-            hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq={{ freq }}&q={{ q|urlencode }}"
-            hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
-            aria-current="{% if preset == 'THIS_MONTH' %}true{% else %}false{% endif %}">
-      今月
-    </button>
-    <button class="btn"
-            hx-get="{% url 'realized_summary_period' %}?preset=THIS_YEAR&freq={{ freq }}&q={{ q|urlencode }}"
-            hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
-            aria-current="{% if preset == 'THIS_YEAR' %}true{% else %}false{% endif %}">
-      今年
-    </button>
-    <button class="btn"
-            hx-get="{% url 'realized_summary_period' %}?preset=LAST_12M&freq={{ freq }}&q={{ q|urlencode }}"
-            hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
-            aria-current="{% if preset == 'LAST_12M' %}true{% else %}false{% endif %}">
-      過去12ヶ月
-    </button>
-
-    <button class="btn"
-            hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=month&q={{ q|urlencode }}"
-            hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
-            aria-current="{% if freq == 'month' %}true{% else %}false{% endif %}">
-      月次
-    </button>
-    <button class="btn"
-            hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=year&q={{ q|urlencode }}"
-            hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
-            aria-current="{% if freq == 'year' %}true{% else %}false{% endif %}">
-      年次
-    </button>
-
-    <button id="btnClearFocus" class="btn" type="button"
-            style="display:{% if focus %}block{% else %}none{% endif %}">
-      全体に戻る
-    </button>
+  <div class="rp-head">
+    <div class="rp-title">期間サマリ</div>
+    <div class="rp-note">月別 / 年別のカードをタップすると、下のグラフと連動します。</div>
   </div>
 
-  {# ─ 選択サマリー ─ #}
+  <div class="rp-controls">
+    <div class="rp-chip-row">
+      <button class="rp-chip"
+              hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq={{ freq }}&q={{ q|urlencode }}"
+              hx-target="#pnlPeriodWrap"
+              hx-swap="outerHTML"
+              aria-current="{% if preset == 'THIS_MONTH' %}true{% else %}false{% endif %}">
+        今月
+      </button>
+
+      <button class="rp-chip"
+              hx-get="{% url 'realized_summary_period' %}?preset=THIS_YEAR&freq={{ freq }}&q={{ q|urlencode }}"
+              hx-target="#pnlPeriodWrap"
+              hx-swap="outerHTML"
+              aria-current="{% if preset == 'THIS_YEAR' %}true{% else %}false{% endif %}">
+        今年
+      </button>
+
+      <button class="rp-chip"
+              hx-get="{% url 'realized_summary_period' %}?preset=LAST_12M&freq={{ freq }}&q={{ q|urlencode }}"
+              hx-target="#pnlPeriodWrap"
+              hx-swap="outerHTML"
+              aria-current="{% if preset == 'LAST_12M' %}true{% else %}false{% endif %}">
+        過去12ヶ月
+      </button>
+    </div>
+
+    <div class="rp-chip-row">
+      <button class="rp-chip"
+              hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=month&q={{ q|urlencode }}"
+              hx-target="#pnlPeriodWrap"
+              hx-swap="outerHTML"
+              aria-current="{% if freq == 'month' %}true{% else %}false{% endif %}">
+        月別
+      </button>
+
+      <button class="rp-chip"
+              hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=year&q={{ q|urlencode }}"
+              hx-target="#pnlPeriodWrap"
+              hx-swap="outerHTML"
+              aria-current="{% if freq == 'year' %}true{% else %}false{% endif %}">
+        年別
+      </button>
+
+      <button type="button" id="btnClearFocus" class="rp-chip rp-clear {% if focus %}show{% endif %}">
+        全体に戻る
+      </button>
+    </div>
+  </div>
+
   <div id="periodSelectedBox">
     {% if selected %}
-      <div class="rounded-xl p-3 mb-2"
-           style="border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04)">
-        <div class="text-xs text-slate-400 mb-1">
-          選択: {{ selected.label }}
-        </div>
-        <div class="grid grid-cols-2 gap-2 text-[14px]">
-          <div>件数: {{ selected.n|intcomma }}</div>
-          <div>数量: {{ selected.qty|intcomma }}</div>
-          <div>手数料: ¥{{ selected.fee|floatformat:0|intcomma }}</div>
-          <div>📈PnL:
-            <span class="{% if selected.pnl >= 0 %}pos{% else %}neg{% endif %}">
-              ¥{{ selected.pnl|floatformat:0|intcomma }}
-            </span>
+      <div class="rp-selected">
+        <div class="rp-selected-k">選択中の期間</div>
+        <div class="rp-selected-v">{{ selected.label }}</div>
+
+        <div class="rp-selected-grid">
+          <div class="rp-mini">
+            <div class="rp-mini-k">件数</div>
+            <div class="rp-mini-v">{{ selected.n|intcomma }}</div>
           </div>
-          <div>💰現金(現物):
-            <span class="{% if selected.cash_spec >= 0 %}pos{% else %}neg{% endif %}">
-              ¥{{ selected.cash_spec|floatformat:0|intcomma }}
-            </span>
+          <div class="rp-mini">
+            <div class="rp-mini-k">数量</div>
+            <div class="rp-mini-v">{{ selected.qty|intcomma }}</div>
           </div>
-          <div>💰現金(信用):
-            <span class="{% if selected.cash_margin >= 0 %}pos{% else %}neg{% endif %}">
-              ¥{{ selected.cash_margin|floatformat:0|intcomma }}
-            </span>
-          </div>
-          <div class="col-span-2">💰現金(合計):
-            <span class="{% if selected.cash_total >= 0 %}pos{% else %}neg{% endif %}">
+          <div class="rp-mini">
+            <div class="rp-mini-k">現金フロー合計</div>
+            <div class="rp-mini-v {% if selected.cash_total >= 0 %}rp-pos{% else %}rp-neg{% endif %}">
               ¥{{ selected.cash_total|floatformat:0|intcomma }}
-            </span>
+            </div>
+          </div>
+          <div class="rp-mini">
+            <div class="rp-mini-k">PnL</div>
+            <div class="rp-mini-v {% if selected.pnl >= 0 %}rp-pos{% else %}rp-neg{% endif %}">
+              ¥{{ selected.pnl|floatformat:0|intcomma }}
+            </div>
+          </div>
+          <div class="rp-mini">
+            <div class="rp-mini-k">現物フロー</div>
+            <div class="rp-mini-v {% if selected.cash_spec >= 0 %}rp-pos{% else %}rp-neg{% endif %}">
+              ¥{{ selected.cash_spec|floatformat:0|intcomma }}
+            </div>
+          </div>
+          <div class="rp-mini">
+            <div class="rp-mini-k">信用フロー</div>
+            <div class="rp-mini-v {% if selected.cash_margin >= 0 %}rp-pos{% else %}rp-neg{% endif %}">
+              ¥{{ selected.cash_margin|floatformat:0|intcomma }}
+            </div>
           </div>
         </div>
       </div>
     {% endif %}
   </div>
 
-  {# ▼ テーブルを横スクロールラッパで包む ▼ #}
-  <div class="h-scroll">
-    <table class="tbl tbl-wide">
-      <thead>
-        <tr>
-          <th>期間</th>
-          <th>件数</th>
-          <th>数量</th>
-          <th>手数料</th>
-          <th>💰現金(現物)</th>
-          <th>💰現金(信用)</th>
-          <th>💰現金(合計)</th>
-          <th>📈PnL</th>
-        </tr>
-      </thead>
-      <tbody class="text-[15px]">
-        {% if rows %}
-          {% for r in rows %}
-            <tr
-              data-period="{{ r.label }}"
-              data-n="{{ r.n }}"
-              data-qty="{{ r.qty }}"
-              data-fee="{{ r.fee }}"
-              data-cash-spec="{{ r.cash_spec }}"
-              data-cash-margin="{{ r.cash_margin }}"
-              data-cash-total="{{ r.cash_total }}"
-              data-pnl="{{ r.pnl }}"
-              class="{% if focus and r.label == focus %}is-focus{% endif %}">
-              <td>{{ r.label }}</td>
-              <td class="num">{{ r.n|intcomma }}</td>
-              <td class="num">{{ r.qty|intcomma }}</td>
-              <td class="num">¥{{ r.fee|floatformat:0|intcomma }}</td>
-              <td class="num">
-                {% with v=r.cash_spec %}
-                  <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">
-                    ¥{{ v|floatformat:0|intcomma }}
-                  </span>
-                {% endwith %}
-              </td>
-              <td class="num">
-                {% with v=r.cash_margin %}
-                  <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">
-                    ¥{{ v|floatformat:0|intcomma }}
-                  </span>
-                {% endwith %}
-              </td>
-              <td class="num">
-                {% with v=r.cash_total %}
-                  <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">
-                    ¥{{ v|floatformat:0|intcomma }}
-                  </span>
-                {% endwith %}
-              </td>
-              <td class="num">
-                {% with v=r.pnl %}
-                  <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">
-                    ¥{{ v|floatformat:0|intcomma }}
-                  </span>
-                {% endwith %}
-              </td>
-            </tr>
-          {% endfor %}
-        {% else %}
-          <tr>
-            <td colspan="8" style="color:#94a3b8">データなし</td>
-          </tr>
-        {% endif %}
-      </tbody>
-    </table>
-  </div>
+  {% if rows %}
+    <div class="rp-list">
+      {% for r in rows %}
+        <button
+          type="button"
+          class="rp-card {% if focus and r.label == focus %}is-focus{% endif %}"
+          data-period="{{ r.label }}"
+          data-n="{{ r.n }}"
+          data-qty="{{ r.qty }}"
+          data-fee="{{ r.fee }}"
+          data-cash-spec="{{ r.cash_spec }}"
+          data-cash-margin="{{ r.cash_margin }}"
+          data-cash-total="{{ r.cash_total }}"
+          data-pnl="{{ r.pnl }}"
+        >
+          <div class="rp-card-top">
+            <div class="rp-period">{{ r.label }}</div>
+            <div class="rp-pnl {% if r.pnl >= 0 %}rp-pos{% else %}rp-neg{% endif %}">
+              ¥{{ r.pnl|floatformat:0|intcomma }}
+            </div>
+          </div>
+
+          <div class="rp-card-grid">
+            <div class="rp-mini">
+              <div class="rp-mini-k">件数</div>
+              <div class="rp-mini-v">{{ r.n|intcomma }}</div>
+            </div>
+            <div class="rp-mini">
+              <div class="rp-mini-k">数量</div>
+              <div class="rp-mini-v">{{ r.qty|intcomma }}</div>
+            </div>
+            <div class="rp-mini">
+              <div class="rp-mini-k">現金フロー合計</div>
+              <div class="rp-mini-v {% if r.cash_total >= 0 %}rp-pos{% else %}rp-neg{% endif %}">
+                ¥{{ r.cash_total|floatformat:0|intcomma }}
+              </div>
+            </div>
+            <div class="rp-mini">
+              <div class="rp-mini-k">手数料</div>
+              <div class="rp-mini-v">¥{{ r.fee|floatformat:0|intcomma }}</div>
+            </div>
+          </div>
+        </button>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="rp-empty">表示できる期間データがありません。</div>
+  {% endif %}
 </div>
 
 <script>
 (function(){
-  const wrap = document.getElementById('pnlPeriodWrap');
+  const wrap = document.getElementById("pnlPeriodWrap");
   if (!wrap) return;
 
-  const selBox  = document.getElementById('periodSelectedBox');
-  const btnClear = document.getElementById('btnClearFocus');
+  const selectedBox = document.getElementById("periodSelectedBox");
+  const clearBtn = document.getElementById("btnClearFocus");
 
-  const yen = v => '¥' + Number(v || 0).toLocaleString();
+  function yen(v){
+    return "¥" + Number(v || 0).toLocaleString("ja-JP");
+  }
 
-  function buildSelectedHTML(row){
-    const d = row.dataset;
-    const pnl = Number(d.pnl || 0);
-    const cs  = Number(d.cashSpec || d['cash-spec'] || 0);
-    const cm  = Number(d.cashMargin || d['cash-margin'] || 0);
-    const ct  = Number(d.cashTotal || d['cash-total'] || (cs + cm));
-    const cls = v => (Number(v) >= 0 ? 'pos' : 'neg');
+  function cls(v){
+    return Number(v || 0) >= 0 ? "rp-pos" : "rp-neg";
+  }
 
+  function buildSelectedHTML(card){
+    const d = card.dataset || {};
     return `
-      <div class="rounded-xl p-3 mb-2"
-           style="border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04)">
-        <div class="text-xs text-slate-400 mb-1">選択: ${d.period || ''}</div>
-        <div class="grid grid-cols-2 gap-2 text-[14px]">
-          <div>件数: ${Number(d.n || 0).toLocaleString()}</div>
-          <div>数量: ${Number(d.qty || 0).toLocaleString()}</div>
-          <div>手数料: ${yen(d.fee)}</div>
-          <div>📈PnL: <span class="${cls(pnl)}">${yen(pnl)}</span></div>
-          <div>💰現金(現物): <span class="${cls(cs)}">${yen(cs)}</span></div>
-          <div>💰現金(信用): <span class="${cls(cm)}">${yen(cm)}</span></div>
-          <div class="col-span-2">💰現金(合計): <span class="${cls(ct)}">${yen(ct)}</span></div>
+      <div class="rp-selected">
+        <div class="rp-selected-k">選択中の期間</div>
+        <div class="rp-selected-v">${d.period || ""}</div>
+        <div class="rp-selected-grid">
+          <div class="rp-mini">
+            <div class="rp-mini-k">件数</div>
+            <div class="rp-mini-v">${Number(d.n || 0).toLocaleString("ja-JP")}</div>
+          </div>
+          <div class="rp-mini">
+            <div class="rp-mini-k">数量</div>
+            <div class="rp-mini-v">${Number(d.qty || 0).toLocaleString("ja-JP")}</div>
+          </div>
+          <div class="rp-mini">
+            <div class="rp-mini-k">現金フロー合計</div>
+            <div class="rp-mini-v ${cls(d.cashTotal)}">${yen(d.cashTotal)}</div>
+          </div>
+          <div class="rp-mini">
+            <div class="rp-mini-k">PnL</div>
+            <div class="rp-mini-v ${cls(d.pnl)}">${yen(d.pnl)}</div>
+          </div>
+          <div class="rp-mini">
+            <div class="rp-mini-k">現物フロー</div>
+            <div class="rp-mini-v ${cls(d.cashSpec)}">${yen(d.cashSpec)}</div>
+          </div>
+          <div class="rp-mini">
+            <div class="rp-mini-k">信用フロー</div>
+            <div class="rp-mini-v ${cls(d.cashMargin)}">${yen(d.cashMargin)}</div>
+          </div>
         </div>
       </div>
     `;
   }
 
   function clearFocus(){
-    wrap.querySelectorAll('tbody tr').forEach(tr =>
-      tr.classList.remove('is-focus')
-    );
-    selBox.innerHTML = '';
-    if (btnClear) btnClear.style.display = 'none';
-  }
-
-  function focusLabel(label){
-    let target = null;
-    wrap.querySelectorAll('tbody tr[data-period]').forEach(tr => {
-      const hit = (tr.dataset.period === label);
-      tr.classList.toggle('is-focus', hit);
-      if (hit) target = tr;
+    wrap.querySelectorAll(".rp-card").forEach((card) => {
+      card.classList.remove("is-focus");
     });
-    if (target){
-      selBox.innerHTML = buildSelectedHTML(target);
-      if (btnClear) btnClear.style.display = '';
-      try{
-        target.scrollIntoView({behavior:'smooth', block:'center'});
-      }catch(e){}
-    }
+    if (selectedBox) selectedBox.innerHTML = "";
+    if (clearBtn) clearBtn.classList.remove("show");
   }
 
-  // 行タップで上部サマリー＆行ハイライト
-  wrap.addEventListener('click', (e)=>{
-    const tr = e.target.closest('tbody tr[data-period]');
-    if (!tr) return;
-    focusLabel(tr.dataset.period);
+  function focusByLabel(label){
+    let target = null;
+
+    wrap.querySelectorAll(".rp-card").forEach((card) => {
+      const hit = card.dataset.period === label;
+      card.classList.toggle("is-focus", hit);
+      if (hit) target = card;
+    });
+
+    if (!target) return;
+
+    if (selectedBox) {
+      selectedBox.innerHTML = buildSelectedHTML(target);
+    }
+    if (clearBtn) {
+      clearBtn.classList.add("show");
+    }
+
+    document.body.dispatchEvent(new CustomEvent("pnl:focus", {
+      detail: { label: label },
+      bubbles: true
+    }));
+  }
+
+  wrap.querySelectorAll(".rp-card").forEach((card) => {
+    card.addEventListener("click", function(){
+      focusByLabel(card.dataset.period || "");
+    });
   });
 
-  // チャートからの通知でフォーカス
-  document.addEventListener('pnl:focus-period', (e)=>{
-    if (e.detail && e.detail.label){
-      focusLabel(e.detail.label);
-    }
-  });
+  clearBtn?.addEventListener("click", clearFocus);
 
-  // 全体に戻る
-  btnClear?.addEventListener('click', clearFocus);
-
-  // ランキング等更新のトリガー（総合タブ内のランキングコンポーネントが拾う）
-  const fireRefresh = () => {
-    const ev = new Event('pnl:refresh');
-    document.body.dispatchEvent(ev);
-  };
-  fireRefresh();
-
-  document.addEventListener('htmx:afterSwap', ev => {
-    if (ev.target && ev.target.id === 'pnlPeriodWrap'){
-      fireRefresh();
-    }
+  document.addEventListener("pnl:focus-period", function(e){
+    const label = e?.detail?.label;
+    if (!label) return;
+    focusByLabel(label);
   });
 })();
 </script>
