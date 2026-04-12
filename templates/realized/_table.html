@@ -1,9 +1,13 @@
+{# [FILE] _table.html #}
+{# [PATH] templates/realized/_table.html #}
+{# このファイルは何？ #}
+{# - 実現損益の明細カード一覧です。 #}
+{# - テーブルではなくスマホ向けカード表示にしています。 #}
+
 {% load humanize %}
 
 <style>
-  .rt-wrap{
-    padding:12px;
-  }
+  .rt-wrap{padding:12px}
 
   .rt-head{
     display:flex;
@@ -272,7 +276,7 @@
   class="rt-wrap"
   hx-get="{% url 'realized_table_partial' %}"
   hx-trigger="pnl:refresh from:body"
-  hx-include="#q"
+  hx-include="#q,#brokerFilterHidden,#yearFilterHidden,#monthFilterHidden"
   hx-swap="outerHTML"
 >
   <div class="rt-head">
@@ -421,7 +425,7 @@
             <form
               hx-post="{% url 'realized_delete' t.id %}"
               hx-swap="none"
-              hx-include="#q"
+              hx-include="#q,#brokerFilterHidden,#yearFilterHidden,#monthFilterHidden"
               hx-confirm="削除しますか？"
               hx-on::after-request="
                 if (event.detail.successful) {
