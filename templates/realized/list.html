@@ -1,3 +1,9 @@
+{# [FILE] list.html #}
+{# [PATH] templates/realized/list.html #}
+{# このファイルは何？ #}
+{# - 実現損益ページの本体です。 #}
+{# - 上部固定の「証券会社 / 年 / 月 / 検索」と、総合 / 流れ / 銘柄 / 明細 の切替を担当します。 #}
+
 {% extends "base.html" %}
 {% load static %}
 {% block title %}実現損益{% endblock %}
@@ -14,10 +20,7 @@
     color:#e5e7eb;
   }
 
-  .realized-page-head{
-    margin-bottom:12px;
-  }
-
+  .realized-page-head{margin-bottom:12px}
   .realized-page-title{
     margin:0;
     font-size:28px;
@@ -26,7 +29,6 @@
     color:#f8fbff;
     letter-spacing:.01em;
   }
-
   .realized-page-sub{
     margin-top:8px;
     font-size:13px;
@@ -72,12 +74,10 @@
     font-weight:700;
     outline:none;
   }
-
   .realized-search::placeholder{
     color:rgba(226,232,240,.42);
     font-weight:600;
   }
-
   .realized-search:focus{
     border-color:rgba(99,102,241,.52);
     box-shadow:0 0 0 4px rgba(99,102,241,.16);
@@ -95,17 +95,62 @@
     font-size:14px;
     font-weight:800;
   }
-
   .realized-search-btn.primary{
     border:0;
     background:linear-gradient(180deg,#6d73ff,#5561f2);
     box-shadow:0 10px 24px rgba(85,97,242,.25);
   }
 
+  .filter-block + .filter-block{margin-top:8px}
+  .filter-label{
+    display:block;
+    margin-bottom:6px;
+    font-size:11px;
+    font-weight:900;
+    color:#94a3b8;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+  }
+
+  .filter-chip-row{
+    display:flex;
+    gap:8px;
+    overflow-x:auto;
+    padding-bottom:2px;
+    scrollbar-width:none;
+    -webkit-overflow-scrolling:touch;
+  }
+  .filter-chip-row::-webkit-scrollbar{display:none}
+
+  .filter-chip{
+    appearance:none;
+    -webkit-appearance:none;
+    flex:0 0 auto;
+    min-height:36px;
+    padding:0 12px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.10);
+    background:rgba(255,255,255,.05);
+    color:#dbe4f4;
+    font-size:12px;
+    font-weight:900;
+    white-space:nowrap;
+  }
+  .filter-chip.is-active{
+    border-color:rgba(99,102,241,.34);
+    background:rgba(99,102,241,.18);
+    color:#f5f7ff;
+    box-shadow:0 0 0 4px rgba(99,102,241,.10);
+  }
+  .filter-chip.is-disabled{
+    opacity:.36;
+  }
+
   .realized-top-nav{
     display:grid;
     grid-template-columns:repeat(4, minmax(0,1fr));
     gap:8px;
+    margin-top:10px;
   }
 
   .realized-top-nav-btn{
@@ -129,10 +174,7 @@
     box-shadow:0 0 0 4px rgba(99,102,241,.12);
   }
 
-  .realized-section{
-    margin-top:12px;
-  }
-
+  .realized-section{margin-top:12px}
   .realized-section-head{
     display:flex;
     align-items:center;
@@ -140,14 +182,12 @@
     gap:10px;
     margin-bottom:8px;
   }
-
   .realized-section-title{
     font-size:15px;
     font-weight:900;
     color:#eef2ff;
     letter-spacing:.02em;
   }
-
   .realized-section-note{
     font-size:11px;
     color:#94a3b8;
@@ -191,33 +231,22 @@
     font-weight:800;
   }
 
+  .hidden-state{display:none!important}
+
   @media (max-width:640px){
     .realized-page{
       padding:10px 8px 128px;
     }
-
-    .realized-page-title{
-      font-size:24px;
+    .realized-page-title{font-size:24px}
+    .realized-search-row{gap:6px}
+    .realized-search-btn{
+      padding:0 10px;
+      font-size:12px;
     }
-
-    .realized-top-nav{
-      grid-template-columns:repeat(4, minmax(0,1fr));
-    }
-
     .realized-top-nav-btn{
       min-height:40px;
       font-size:12px;
       padding:0 4px;
-    }
-
-    .realized-search-row{
-      grid-template-columns:minmax(0,1fr) auto auto;
-      gap:6px;
-    }
-
-    .realized-search-btn{
-      padding:0 10px;
-      font-size:12px;
     }
   }
 </style>
@@ -225,11 +254,15 @@
 
 {% block content %}
 <div class="realized-page" id="realizedPage">
+  <input type="hidden" id="brokerFilterHidden" name="broker_filter" value="{{ ui_filters.broker|default:'ALL' }}">
+  <input type="hidden" id="yearFilterHidden" name="year_filter" value="{{ ui_filters.year|default:'' }}">
+  <input type="hidden" id="monthFilterHidden" name="month_filter" value="{{ ui_filters.month|default:'' }}">
+
   <div class="realized-page-head">
     <h1 class="realized-page-title">実現損益</h1>
     <div class="realized-page-sub">
-      総合 → 流れ → 銘柄 → 明細の順で、<br>
-      スマホで見やすく整理した実現損益ページです。
+      証券会社別・年別・月別でパッと切り替えながら、<br>
+      総合 → 流れ → 銘柄 → 明細 の順で深掘りできます。
     </div>
   </div>
 
@@ -242,9 +275,38 @@
         class="realized-search"
         placeholder="銘柄名 / コードで検索"
         value="{{ q|default_if_none:'' }}">
-
       <button type="button" class="realized-search-btn primary" id="btnRealizedApply">更新</button>
       <button type="button" class="realized-search-btn" id="btnRealizedClear">クリア</button>
+    </div>
+
+    <div class="filter-block">
+      <div class="filter-label">証券会社</div>
+      <div class="filter-chip-row">
+        <button type="button" class="filter-chip" data-broker-chip="ALL">全体</button>
+        <button type="button" class="filter-chip" data-broker-chip="RAKUTEN">楽天</button>
+        <button type="button" class="filter-chip" data-broker-chip="MATSUI">松井</button>
+        <button type="button" class="filter-chip" data-broker-chip="SBI">SBI</button>
+      </div>
+    </div>
+
+    <div class="filter-block">
+      <div class="filter-label">年</div>
+      <div class="filter-chip-row">
+        <button type="button" class="filter-chip" data-year-chip="">全期間</button>
+        {% for y in available_years %}
+          <button type="button" class="filter-chip" data-year-chip="{{ y }}">{{ y }}</button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="filter-block">
+      <div class="filter-label">月</div>
+      <div class="filter-chip-row" id="monthChipRow">
+        <button type="button" class="filter-chip" data-month-chip="">通年</button>
+        {% for m in month_choices %}
+          <button type="button" class="filter-chip" data-month-chip="{{ m.value }}">{{ m.label }}</button>
+        {% endfor %}
+      </div>
     </div>
 
     <div class="realized-top-nav">
@@ -259,30 +321,29 @@
     <div class="realized-section-head">
       <div>
         <div class="realized-section-title">AI総合サマリー</div>
-        <div class="realized-section-note">まずは全体の状態を一画面で把握するゾーンです。</div>
+        <div class="realized-section-note">まずは今の状態を一画面で把握するゾーンです。</div>
       </div>
     </div>
 
-    {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers %}
+    {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers ui_filters=ui_filters %}
   </section>
 
   <section class="realized-section view-hidden" id="realizedSection-flow">
     <div class="realized-section-head">
       <div>
         <div class="realized-section-title">流れと傾向</div>
-        <div class="realized-section-note">期間カードとチャートで、いつ伸びていつ崩れたかを見ます。</div>
+        <div class="realized-section-note">月別 / 年別の流れを見ながら、伸びた時期と崩れた時期を掴みます。</div>
       </div>
     </div>
 
-    <div class="realized-frame">
-      <div
-        id="pnlPeriodWrap"
-        hx-get="{% url 'realized_summary_period' %}?preset=LAST_12M&freq=month&q={{ q|urlencode }}"
-        hx-trigger="load, pnl:refresh from:body"
-        hx-include="#q,[name=preset],[name=freq],[name=start],[name=end]"
-        hx-swap="outerHTML">
-        <div class="realized-loader">期間データを読み込み中…</div>
-      </div>
+    <div
+      id="pnlPeriodWrap"
+      class="realized-frame"
+      hx-get="{% url 'realized_summary_period' %}?preset=LAST_12M&freq=month&q={{ q|urlencode }}"
+      hx-trigger="load, pnl:refresh from:body"
+      hx-include="#q,#brokerFilterHidden,#yearFilterHidden,#monthFilterHidden,[name=preset],[name=freq],[name=start],[name=end]"
+      hx-swap="outerHTML">
+      <div class="realized-loader">期間データを読み込み中…</div>
     </div>
 
     {% include "realized/_monthly_chart.html" %}
@@ -301,7 +362,7 @@
       id="pnlRankingWrap"
       class="realized-frame"
       hx-get="{% url 'realized_ranking_partial' %}?preset=LAST_12M&freq=month"
-      hx-include="#q,[name=preset],[name=freq],[name=start],[name=end]"
+      hx-include="#q,#brokerFilterHidden,#yearFilterHidden,#monthFilterHidden,[name=preset],[name=freq],[name=start],[name=end]"
       hx-trigger="load, pnl:refresh from:body"
       hx-swap="outerHTML">
       <div class="realized-loader">ランキングを読み込み中…</div>
@@ -314,12 +375,12 @@
     <div class="realized-section-head">
       <div>
         <div class="realized-section-title">明細</div>
-        <div class="realized-section-note">1件ずつのトレードをカードで確認するゾーンです。</div>
+        <div class="realized-section-note">1件ずつのトレードをスマホで読みやすいカードにしています。</div>
       </div>
     </div>
 
     <div class="realized-csv-row">
-      <a class="realized-csv-link" href="{% url 'realized_export_csv' %}?q={{ q|urlencode }}">CSVエクスポート</a>
+      <a class="realized-csv-link" id="realizedCsvLink" href="{% url 'realized_export_csv' %}?q={{ q|urlencode }}">CSVエクスポート</a>
     </div>
 
     <div
@@ -327,7 +388,7 @@
       class="realized-frame"
       hx-get="{% url 'realized_table_partial' %}?q={{ q|urlencode }}"
       hx-trigger="load, pnl:refresh from:body"
-      hx-include="#q"
+      hx-include="#q,#brokerFilterHidden,#yearFilterHidden,#monthFilterHidden"
       hx-swap="outerHTML">
       <div class="realized-loader">明細を読み込み中…</div>
     </div>
@@ -351,7 +412,45 @@
   const clearBtn = document.getElementById("btnRealizedClear");
   const navButtons = Array.from(root.querySelectorAll("[data-show-section]"));
 
+  const brokerHidden = document.getElementById("brokerFilterHidden");
+  const yearHidden = document.getElementById("yearFilterHidden");
+  const monthHidden = document.getElementById("monthFilterHidden");
+  const csvLink = document.getElementById("realizedCsvLink");
+
   let activeSection = "overview";
+
+  function updateCsvLink(){
+    if (!csvLink) return;
+    const params = new URLSearchParams();
+    if (qInput?.value) params.set("q", qInput.value);
+    if (brokerHidden?.value) params.set("broker_filter", brokerHidden.value);
+    if (yearHidden?.value) params.set("year_filter", yearHidden.value);
+    if (monthHidden?.value) params.set("month_filter", monthHidden.value);
+    csvLink.href = "{% url 'realized_export_csv' %}" + (params.toString() ? "?" + params.toString() : "");
+  }
+
+  function setActiveChips(){
+    const broker = brokerHidden?.value || "ALL";
+    const year = yearHidden?.value || "";
+    const month = monthHidden?.value || "";
+
+    root.querySelectorAll("[data-broker-chip]").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.brokerChip === broker);
+    });
+
+    root.querySelectorAll("[data-year-chip]").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.yearChip === year);
+    });
+
+    const monthEnabled = !!year;
+
+    root.querySelectorAll("[data-month-chip]").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.monthChip === month);
+      btn.classList.toggle("is-disabled", !monthEnabled && btn.dataset.monthChip !== "");
+    });
+
+    updateCsvLink();
+  }
 
   function showSection(key){
     activeSection = key in sections ? key : "overview";
@@ -371,6 +470,7 @@
   }
 
   function refreshAll(){
+    setActiveChips();
     document.body.dispatchEvent(new Event("pnl:refresh", { bubbles:true }));
   }
 
@@ -380,12 +480,43 @@
     });
   });
 
+  root.querySelectorAll("[data-broker-chip]").forEach((btn) => {
+    btn.addEventListener("click", function(){
+      if (brokerHidden) brokerHidden.value = btn.dataset.brokerChip || "ALL";
+      refreshAll();
+    });
+  });
+
+  root.querySelectorAll("[data-year-chip]").forEach((btn) => {
+    btn.addEventListener("click", function(){
+      const nextYear = btn.dataset.yearChip || "";
+      if (yearHidden) yearHidden.value = nextYear;
+      if (!nextYear && monthHidden) monthHidden.value = "";
+      refreshAll();
+    });
+  });
+
+  root.querySelectorAll("[data-month-chip]").forEach((btn) => {
+    btn.addEventListener("click", function(){
+      const month = btn.dataset.monthChip || "";
+      const year = yearHidden?.value || "";
+
+      if (!year && month !== "") return;
+
+      if (monthHidden) monthHidden.value = month;
+      refreshAll();
+    });
+  });
+
   applyBtn?.addEventListener("click", function(){
     refreshAll();
   });
 
   clearBtn?.addEventListener("click", function(){
     if (qInput) qInput.value = "";
+    if (brokerHidden) brokerHidden.value = "ALL";
+    if (yearHidden) yearHidden.value = "";
+    if (monthHidden) monthHidden.value = "";
     refreshAll();
   });
 
@@ -416,6 +547,7 @@
     }
   });
 
+  setActiveChips();
   showSection("overview");
 })();
 </script>
