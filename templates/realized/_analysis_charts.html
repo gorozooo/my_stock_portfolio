@@ -1,3 +1,8 @@
+{# [FILE] _analysis_charts.html #}
+{# [PATH] templates/realized/_analysis_charts.html #}
+{# このファイルは何？ #}
+{# - メインチャートの補助として、累積PnL推移と分布を見るチャート群です。 #}
+
 <div class="mt-4 grid gap-4">
   <div class="rounded-[22px] border border-white/10 bg-white/5 p-3 shadow-[0_12px_30px_rgba(0,0,0,.16)]">
     <div class="flex items-start justify-between gap-3 mb-3">
@@ -44,12 +49,19 @@
     });
   }
 
-  const $q = () => document.querySelector('#q');
-
   async function fetchMonthly() {
-    const qEl = $q();
-    const q = qEl ? encodeURIComponent(qEl.value || '') : '';
-    const url = "{% url 'realized_chart_monthly' %}?q=" + q;
+    const params = new URLSearchParams();
+    const qEl = document.querySelector('#q');
+    const brokerEl = document.querySelector('#brokerFilterHidden');
+    const yearEl = document.querySelector('#yearFilterHidden');
+    const monthEl = document.querySelector('#monthFilterHidden');
+
+    if (qEl?.value) params.set('q', qEl.value);
+    if (brokerEl?.value) params.set('broker_filter', brokerEl.value);
+    if (yearEl?.value) params.set('year_filter', yearEl.value);
+    if (monthEl?.value) params.set('month_filter', monthEl.value);
+
+    const url = "{% url 'realized_chart_monthly' %}?" + params.toString();
     const res = await fetch(url, { credentials:'same-origin' });
     return await res.json();
   }
@@ -231,7 +243,7 @@
     drawAll(true);
   }
 
-  const qEl = $q();
+  const qEl = document.querySelector('#q');
   if (qEl) {
     ['change','blur','keydown'].forEach(ev => {
       qEl.addEventListener(ev, e => {
