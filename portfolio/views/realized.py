@@ -4,18 +4,16 @@
 # このファイルは何？
 # - 実現損益の一覧表示・分析表示・月次表示・CSV出力・クローズシート表示を担当する view
 #
-# 今回の目的
-# - 重い集計/注釈ロジックを services/trades/metrics_service.py へ分離
-# - このファイルは view 本来の役割に寄せる
-#
-# 注意
-# - create / delete / close_submit の更新処理は realized_actions.py 側を使う前提
-# - このファイルでは一覧・集計・部分描画・クローズシート表示に集中する
+# 今回の修正ポイント
+# - 上部固定UI用に「証券会社 / 年 / 月」フィルタを追加
+# - 同じ条件が 総合 / 流れ / 銘柄 / 明細 に全部連動するように統一
+# - スマホ向けの新レイアウトに合わせて、AIコメント用の文言も view 側で生成
 
 from __future__ import annotations
 
 from decimal import Decimal
 from datetime import date as _date, timedelta, datetime
+from typing import Any
 import csv
 import logging
 import traceback
@@ -47,21 +45,180 @@ _aggregate = mts.aggregate
 _aggregate_by_broker = mts.aggregate_by_broker
 
 
+def _safe_int(v: Any) -> int | None:
+    try:
+        if v in (None, "", "ALL"):
+            return None
+        return int(str(v))
+    except Exception:
+        return None
+
+
+def _ui_filters_from_request(request) -> dict[str, str]:
+    broker = (request.GET.get("broker_filter") or "ALL").strip().upper()
+    if broker not in {"ALL", "RAKUTEN", "MATSUI", "SBI"}:
+        broker = "ALL"
+
+    year_val = _safe_int(request.GET.get("year_filter"))
+    month_val = _safe_int(request.GET.get("month_filter"))
+
+    year = str(year_val) if year_val else ""
+    month = f"{month_val:02d}" if month_val and 1 <= month_val <= 12 else ""
+
+    return {
+        "q": (request.GET.get("q") or "").strip(),
+        "broker": broker,
+        "year": year,
+        "month": month,
+    }
+
+
+def _apply_text_filter(qs, q: str):
+    if q:
+        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+    return qs
+
+
+def _apply_ui_filters(qs, ui_filters: dict[str, str]):
+    broker = ui_filters.get("broker") or "ALL"
+    year = ui_filters.get("year") or ""
+    month = ui_filters.get("month") or ""
+
+    if broker != "ALL":
+        qs = qs.filter(broker=broker)
+
+    if year:
+        qs = qs.filter(trade_at__year=int(year))
+        if month:
+            qs = qs.filter(trade_at__month=int(month))
+
+    return qs
+
+
+def _apply_period_filters(qs, request, ui_filters: dict[str, str]):
+    """
+    年/月の固定UIが選ばれている時は、そちらを優先。
+    何も選ばれていない時だけ preset/start/end を使う。
+    """
+    year = ui_filters.get("year") or ""
+    if year:
+        return qs, None, None, "UI_FILTER"
+
+    start, end, preset = _parse_period(request)
+    if start:
+        qs = qs.filter(trade_at__gte=start)
+    if end:
+        qs = qs.filter(trade_at__lte=end)
+    return qs, start, end, preset
+
+
+def _available_years_for_user(user) -> list[str]:
+    years = []
+    try:
+        for d in RealizedTrade.objects.filter(user=user).dates("trade_at", "year", order="DESC"):
+            years.append(str(d.year))
+    except Exception:
+        years = []
+    return years
+
+
+def _month_choices() -> list[dict[str, str]]:
+    return [{"value": f"{i:02d}", "label": f"{i}月"} for i in range(1, 13)]
+
+
+def _build_ai_insight(metrics: dict[str, Any], label: str = "総合") -> dict[str, str]:
+    n = int(metrics.get("n") or 0)
+    pnl = float(metrics.get("pnl") or 0)
+    win_rate = float(metrics.get("win_rate") or 0)
+    pf = float(metrics.get("pf") or 0) if metrics.get("pf") not in (None, "") else None
+    avg_hold = float(metrics.get("avg_hold_days") or 0) if metrics.get("avg_hold_days") not in (None, "") else None
+    fee = float(metrics.get("fee") or 0)
+    avg_pct = float(metrics.get("avg_pnl_pct") or 0) if metrics.get("avg_pnl_pct") not in (None, "") else None
+    profit_sum = float(metrics.get("profit_sum") or 0)
+    loss_sum = float(metrics.get("loss_sum") or 0)
+
+    if n == 0:
+        return {
+            "ai_summary": f"{label}はまだ分析できるデータがありません。",
+            "ai_good": "まずは数件でも実現データを貯めるのが最優先です。",
+            "ai_warn": "データ不足なので、今の段階では結論を出しすぎない方が安全です。",
+            "ai_next": "1ヶ月分か数件分たまったら、月別と銘柄別を見比べる流れがおすすめです。",
+        }
+
+    if pnl >= 0 and win_rate >= 60 and (pf is None or pf >= 1.2):
+        ai_summary = f"{label}はかなり安定寄りです。利益と勝率の両方が崩れていません。"
+    elif pnl >= 0:
+        ai_summary = f"{label}は利益側です。次は“何で勝っているか”を固定化するとさらに強くなります。"
+    else:
+        ai_summary = f"{label}はまだ損失先行です。まずは負け方を小さくする視点が最優先です。"
+
+    if win_rate >= 60:
+        ai_good = "勝率が高めで、エントリー精度は崩れていません。勝ちパターンの再現性が強みです。"
+    elif profit_sum > abs(loss_sum):
+        ai_good = "勝率が特別高くなくても、勝った時の取り方で支えられています。"
+    elif avg_pct is not None and avg_pct > 0:
+        ai_good = "1件あたりの平均成績は悪くありません。極端に崩れた取引を減らせば改善しやすいです。"
+    else:
+        ai_good = "今は強みを探している段階です。まずは勝てた条件を少数でも固定化するのが近道です。"
+
+    if avg_hold is not None and avg_hold >= 60:
+        ai_warn = "平均保有日数が長めです。利確の遅れか、見切り遅れが混ざっていないか要注意です。"
+    elif fee >= 100000:
+        ai_warn = "手数料負担がやや重めです。回転数が多い期間はコスト確認を優先したいです。"
+    elif pnl < 0 and loss_sum < 0:
+        ai_warn = "大きな負けを作った月や銘柄がないか、先にそこを絞るのが効きます。"
+    elif pf is not None and pf < 1:
+        ai_warn = "利益より損失の方が重い状態です。勝率より先に損失の深さを見たいです。"
+    else:
+        ai_warn = "大崩れは見えにくいですが、勝率だけで安心せず“損失の深さ”を定期確認したいです。"
+
+    if pnl >= 0:
+        ai_next = "次は『流れ』で月別カードを見て、そのあと『銘柄』で上位と下位を確認すると改善点が見つけやすいです。"
+    else:
+        ai_next = "まず『流れ』で崩れた月を1つ見つけて、次に『明細』でその月の共通点を1つだけ拾うのがおすすめです。"
+
+    return {
+        "ai_summary": ai_summary,
+        "ai_good": ai_good,
+        "ai_warn": ai_warn,
+        "ai_next": ai_next,
+    }
+
+
+def _decorate_agg_with_ai(agg: dict[str, Any], label: str = "総合") -> dict[str, Any]:
+    if not agg:
+        agg = {}
+    ai = _build_ai_insight(agg, label)
+    out = dict(agg)
+    out.update(ai)
+    return out
+
+
+def _decorate_broker_aggs(agg_brokers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out = []
+    broker_name_map = {
+        "RAKUTEN": "楽天証券",
+        "MATSUI": "松井証券",
+        "SBI": "SBI証券",
+    }
+    for b in agg_brokers:
+        label = broker_name_map.get((b.get("broker") or "").upper(), "この証券会社")
+        row = dict(b)
+        row.update(_build_ai_insight(b, label))
+        out.append(row)
+    return out
+
+
 @login_required
 @require_GET
 def monthly_kpis_partial(request):
-    """
-    月別のKPI（平均実現損益(%) / 勝率 / PF / 平均保有日数）を返す。
-    ※ BUY/SELL 両方あってもフィルタ期間内の SELL を対象に集計。
-    ※ PnL・PF は「円換算済みPnL」で計算する。
-    """
     q = (request.GET.get("q") or "").strip()
     start, end = _parse_period_from_request(request)
+    ui_filters = _ui_filters_from_request(request)
 
     qs = RealizedTrade.objects.filter(user=request.user, trade_at__range=(start, end))
-    if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
-
+    qs = _apply_ui_filters(qs, ui_filters)
+    qs = _apply_text_filter(qs, q)
     qs = _with_metrics(qs)
 
     total = 0
@@ -117,17 +274,13 @@ def monthly_kpis_partial(request):
 @login_required
 @require_GET
 def monthly_breakdown_partial(request):
-    """
-    期間内のブローカー別 / 口座区分別のブレークダウン。
-    PnL は円換算済みPnL（pnl_jpy_calc）の合計。
-    """
     q = (request.GET.get("q") or "").strip()
     start, end = _parse_period_from_request(request)
+    ui_filters = _ui_filters_from_request(request)
 
     qs = RealizedTrade.objects.filter(user=request.user, trade_at__range=(start, end))
-    if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
-
+    qs = _apply_ui_filters(qs, ui_filters)
+    qs = _apply_text_filter(qs, q)
     qs = _with_metrics(qs)
 
     broker_label = dict(RealizedTrade.BROKER_CHOICES)
@@ -174,19 +327,15 @@ def monthly_breakdown_partial(request):
 @login_required
 @require_GET
 def monthly_topworst_partial(request):
-    """
-    月別 PnL の Top3 / Worst3 を返す部分テンプレ。
-    - PnL は 円換算済みPnL（pnl_jpy_calc）の合計
-    - 期間は preset/start/end（_summary_period と同じ名前）を優先
-    - 期間指定が無ければ直近365日
-    """
     q = (request.GET.get("q") or "").strip()
+    ui_filters = _ui_filters_from_request(request)
 
     qs = RealizedTrade.objects.all()
     if any(f.name == "user" for f in RealizedTrade._meta.fields):
         qs = qs.filter(user=request.user)
-    if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+
+    qs = _apply_ui_filters(qs, ui_filters)
+    qs = _apply_text_filter(qs, q)
 
     preset = (request.GET.get("preset") or "").upper()
     start_raw = (request.GET.get("start") or "").strip()
@@ -203,21 +352,23 @@ def monthly_topworst_partial(request):
 
     today = timezone.localdate()
 
-    if not (start and end):
-        if preset == "THIS_MONTH":
-            start = today.replace(day=1)
-            end = today
-        elif preset == "THIS_YEAR":
-            start = today.replace(month=1, day=1)
-            end = today
-        elif preset == "LAST_12M":
-            start = today - timedelta(days=365)
-            end = today
-        else:
-            start = today - timedelta(days=365)
-            end = today
+    if not ui_filters.get("year"):
+        if not (start and end):
+            if preset == "THIS_MONTH":
+                start = today.replace(day=1)
+                end = today
+            elif preset == "THIS_YEAR":
+                start = today.replace(month=1, day=1)
+                end = today
+            elif preset == "LAST_12M":
+                start = today - timedelta(days=365)
+                end = today
+            else:
+                start = today - timedelta(days=365)
+                end = today
 
-    qs = qs.filter(trade_at__gte=start, trade_at__lte=end)
+        qs = qs.filter(trade_at__gte=start, trade_at__lte=end)
+
     qs = _with_metrics(qs)
 
     dec0 = Value(0, output_field=DEC2)
@@ -246,13 +397,8 @@ def monthly_topworst_partial(request):
 @login_required
 @require_GET
 def chart_daily_heat_json(request, year: int, month: int):
-    """
-    指定の year/month の日次ヒートマップ用 JSON を返す。
-    - pnl: その日の “投資家PnL”（= pnl_jpy_calc）の合計（円）
-    - cash_spec: 現物/NISA の現金フロー合計（cashflow_calc_jpy）
-    - cash_margin: 信用の現金相当（pnl_jpy_calc）
-    """
     q = (request.GET.get("q") or "").strip()
+    ui_filters = _ui_filters_from_request(request)
 
     try:
         start = _date(int(year), int(month), 1)
@@ -269,9 +415,8 @@ def chart_daily_heat_json(request, year: int, month: int):
         trade_at__gte=start,
         trade_at__lt=next_first,
     )
-    if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
-
+    qs = _apply_ui_filters(qs, {"broker": ui_filters["broker"], "year": "", "month": "", "q": q})
+    qs = _apply_text_filter(qs, q)
     qs = _with_metrics(qs)
 
     daily = (
@@ -344,11 +489,6 @@ def chart_daily_heat_json(request, year: int, month: int):
 @login_required
 @require_GET
 def monthly_page(request):
-    """
-    月別サマリーの専用ページ。
-    本体は空のコンテナを出すだけで、内容は _summary_period.html を
-    preset=LAST_12M & freq=month で HTMX 取得して差し込む。
-    """
     q = (request.GET.get("q") or "").strip()
     ctx = {
         "q": q,
@@ -361,23 +501,21 @@ def monthly_page(request):
 @login_required
 @require_GET
 def summary_period_partial(request):
-    """
-    月次/年次で 📈PnL と 💰現金（現物/信用/合計）を集計して返す。
-    """
     q = (request.GET.get("q") or "").strip()
     freq = (request.GET.get("freq") or "month").lower()
     focus = (request.GET.get("focus") or "").strip()
 
-    start, end, preset = _parse_period(request)
+    ui_filters = _ui_filters_from_request(request)
 
     qs = RealizedTrade.objects.filter(user=request.user)
-    if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+    qs = _apply_text_filter(qs, q)
+    qs = _apply_ui_filters(qs, ui_filters)
 
-    if start:
-        qs = qs.filter(trade_at__gte=start)
-    if end:
-        qs = qs.filter(trade_at__lte=end)
+    if ui_filters.get("year"):
+        start = end = None
+        preset = "UI_FILTER"
+    else:
+        qs, start, end, preset = _apply_period_filters(qs, request, ui_filters)
 
     qs = _with_metrics(qs)
 
@@ -396,10 +534,7 @@ def summary_period_partial(request):
             qty=Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
             fee=Coalesce(
                 Sum(
-                    Coalesce(
-                        F("fee"),
-                        Value(Decimal("0"), output_field=DEC2),
-                    )
+                    Coalesce(F("fee"), Value(Decimal("0"), output_field=DEC2))
                 ),
                 Value(Decimal("0"), output_field=DEC2),
             ),
@@ -456,42 +591,39 @@ def summary_period_partial(request):
         "q": q,
         "focus": focus if selected else "",
         "selected": selected,
+        "ui_filters": ui_filters,
     }
     return render(request, "realized/_summary_period.html", ctx)
 
 
 @login_required
 def realized_summary_partial(request):
-    q = (request.GET.get("q") or "").strip()
+    ui_filters = _ui_filters_from_request(request)
+    q = ui_filters["q"]
 
     qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
-    if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+    qs = _apply_text_filter(qs, q)
+    qs = _apply_ui_filters(qs, ui_filters)
 
-    agg = _aggregate(qs)
-    agg_brokers = _aggregate_by_broker(qs)
+    agg = _decorate_agg_with_ai(_aggregate(qs), "総合")
+    agg_brokers = _decorate_broker_aggs(_aggregate_by_broker(qs))
 
     return render(
         request,
         "realized/_summary.html",
-        {"agg": agg, "agg_brokers": agg_brokers, "q": q},
+        {"agg": agg, "agg_brokers": agg_brokers, "q": q, "ui_filters": ui_filters},
     )
 
 
 @login_required
 @require_GET
 def chart_monthly_json(request):
-    """
-    月次で集計して JSON 返却。
-    - pnl:    各月の “投資家PnL”（= pnl_jpy_calc 合計）
-    - cash:   各月の “現金フロー”（現物/NISA=受渡円、信用=円換算PnL）
-    """
-    q = (request.GET.get("q") or "").strip()
+    ui_filters = _ui_filters_from_request(request)
+    q = ui_filters["q"]
 
     qs = RealizedTrade.objects.filter(user=request.user)
-    if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
-
+    qs = _apply_text_filter(qs, q)
+    qs = _apply_ui_filters(qs, ui_filters)
     qs = _with_metrics(qs)
 
     monthly = (
@@ -563,23 +695,19 @@ def chart_monthly_json(request):
 @login_required
 @require_GET
 def realized_ranking_partial(request):
-    """
-    銘柄別ランキング（期間連動）
-    """
-    q = (request.GET.get("q") or "").strip()
-    start, end, preset = _parse_period(request)
+    ui_filters = _ui_filters_from_request(request)
+    q = ui_filters["q"]
     freq = (request.GET.get("freq") or "month").lower()
 
     base = RealizedTrade.objects.filter(user=request.user)
-    if q:
-        base = base.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+    base = _apply_text_filter(base, q)
+    base = _apply_ui_filters(base, ui_filters)
 
-    def apply_period(qs, s, e):
-        if s:
-            qs = qs.filter(trade_at__gte=s)
-        if e:
-            qs = qs.filter(trade_at__lte=e)
-        return qs
+    if ui_filters.get("year"):
+        start = end = None
+        used_preset = "UI_FILTER"
+    else:
+        base, start, end, used_preset = _apply_period_filters(base, request, ui_filters)
 
     def build_rows(qs):
         qs = _with_metrics(qs)
@@ -623,14 +751,18 @@ def realized_ranking_partial(request):
             )
         return rows
 
-    rows = build_rows(apply_period(base, start, end))
-    used_preset = preset
+    rows = build_rows(base)
 
     if not rows:
         today = timezone.localdate()
         start_fb = (today.replace(day=1) - timezone.timedelta(days=365)).replace(day=1)
         end_fb = today
-        rows = build_rows(apply_period(base, start_fb, end_fb))
+        fallback = RealizedTrade.objects.filter(user=request.user)
+        fallback = _apply_text_filter(fallback, q)
+        fallback = _apply_ui_filters(fallback, ui_filters)
+        if not ui_filters.get("year"):
+            fallback = fallback.filter(trade_at__gte=start_fb, trade_at__lte=end_fb)
+        rows = build_rows(fallback)
         used_preset = "LAST_12M"
 
     top5 = sorted(rows, key=lambda x: (x["pnl"], x["win_rate"]), reverse=True)[:5]
@@ -641,9 +773,10 @@ def realized_ranking_partial(request):
         "worst5": worst5,
         "preset": used_preset,
         "freq": freq,
-        "start": start,
-        "end": end,
+        "start": start if not ui_filters.get("year") else None,
+        "end": end if not ui_filters.get("year") else None,
         "q": q,
+        "ui_filters": ui_filters,
     }
     return render(request, "realized/_ranking.html", ctx)
 
@@ -651,12 +784,9 @@ def realized_ranking_partial(request):
 @login_required
 @require_GET
 def realized_ranking_detail_partial(request):
-    """
-    銘柄ドリルダウン（期間連動）
-    """
     ticker = (request.GET.get("ticker") or "").strip()
-    q = (request.GET.get("q") or "").strip()
-    start, end, preset = _parse_period(request)
+    ui_filters = _ui_filters_from_request(request)
+    q = ui_filters["q"]
 
     if not ticker:
         return render(
@@ -666,12 +796,11 @@ def realized_ranking_detail_partial(request):
         )
 
     qs = RealizedTrade.objects.filter(user=request.user, ticker=ticker)
-    if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
-    if start:
-        qs = qs.filter(trade_at__gte=start)
-    if end:
-        qs = qs.filter(trade_at__lte=end)
+    qs = _apply_text_filter(qs, q)
+    qs = _apply_ui_filters(qs, ui_filters)
+
+    if not ui_filters.get("year"):
+        qs, _, _, _ = _apply_period_filters(qs, request, ui_filters)
 
     qs = _with_metrics(qs).order_by("-trade_at", "-id")
 
@@ -717,14 +846,16 @@ def realized_ranking_detail_partial(request):
 @login_required
 @require_GET
 def list_page(request):
-    q = (request.GET.get("q") or "").strip()
+    ui_filters = _ui_filters_from_request(request)
+    q = ui_filters["q"]
+
     qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
-    if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+    qs = _apply_text_filter(qs, q)
+    qs = _apply_ui_filters(qs, ui_filters)
 
     rows = _with_metrics(qs)
-    agg = _aggregate(qs)
-    agg_brokers = _aggregate_by_broker(qs)
+    agg = _decorate_agg_with_ai(_aggregate(qs), "総合")
+    agg_brokers = _decorate_broker_aggs(_aggregate_by_broker(qs))
 
     return render(
         request,
@@ -734,6 +865,9 @@ def list_page(request):
             "trades": rows,
             "agg": agg,
             "agg_brokers": agg_brokers,
+            "ui_filters": ui_filters,
+            "available_years": _available_years_for_user(request.user),
+            "month_choices": _month_choices(),
         },
     )
 
@@ -741,10 +875,12 @@ def list_page(request):
 @login_required
 @require_GET
 def export_csv(request):
-    q = (request.GET.get("q") or "").strip()
+    ui_filters = _ui_filters_from_request(request)
+    q = ui_filters["q"]
+
     qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
-    if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+    qs = _apply_text_filter(qs, q)
+    qs = _apply_ui_filters(qs, ui_filters)
     qs = _with_metrics(qs)
 
     resp = HttpResponse(content_type="text/csv; charset=utf-8")
@@ -826,13 +962,12 @@ def _parse_ymd(s: str):
 @login_required
 @require_GET
 def table_partial(request):
-    """
-    明細テーブル（部分描画）
-    """
     import re
 
     try:
-        q = (request.GET.get("q") or "").strip()
+        ui_filters = _ui_filters_from_request(request)
+        q = ui_filters["q"]
+
         ym_s = (request.GET.get("ym") or "").strip()
         start_s = (request.GET.get("start") or "").strip()
         end_s = (request.GET.get("end") or "").strip()
@@ -840,8 +975,8 @@ def table_partial(request):
         want_json = (request.GET.get("format") == "json") or ("application/json" in accept)
 
         qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
-        if q:
-            qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+        qs = _apply_text_filter(qs, q)
+        qs = _apply_ui_filters(qs, ui_filters)
 
         if re.fullmatch(r"\d{4}-\d{2}", ym_s):
             y, m = map(int, ym_s.split("-"))
@@ -869,7 +1004,7 @@ def table_partial(request):
                 qs = qs.filter(trade_at__lte=ed)
 
         rows = _with_metrics(qs)
-        html = render_to_string("realized/_table.html", {"trades": rows}, request=request)
+        html = render_to_string("realized/_table.html", {"trades": rows, "ui_filters": ui_filters}, request=request)
 
         if want_json:
             return JsonResponse({"ok": True, "html": html, "count": len(rows)})
@@ -897,16 +1032,20 @@ def table_partial(request):
 @require_GET
 def summary_partial(request):
     try:
-        q = (request.GET.get("q") or "").strip()
+        ui_filters = _ui_filters_from_request(request)
+        q = ui_filters["q"]
+
         qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
-        if q:
-            qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
-        agg = _aggregate(qs)
-        agg_brokers = _aggregate_by_broker(qs)
+        qs = _apply_text_filter(qs, q)
+        qs = _apply_ui_filters(qs, ui_filters)
+
+        agg = _decorate_agg_with_ai(_aggregate(qs), "総合")
+        agg_brokers = _decorate_broker_aggs(_aggregate_by_broker(qs))
+
         return render(
             request,
             "realized/_summary.html",
-            {"agg": agg, "agg_brokers": agg_brokers, "q": q},
+            {"agg": agg, "agg_brokers": agg_brokers, "q": q, "ui_filters": ui_filters},
         )
     except Exception as e:
         logger.exception("summary_partial error: %s", e)
@@ -927,9 +1066,6 @@ def summary_partial(request):
 @login_required
 @require_GET
 def close_sheet(request, pk: int):
-    """
-    保有 → 売却/買付のボトムシート
-    """
     try:
         holding_filters = {"pk": pk}
         if any(f.name == "user" for f in Holding._meta.fields):
