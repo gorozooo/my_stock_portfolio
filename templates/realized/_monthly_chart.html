@@ -1,28 +1,30 @@
-{# templates/realized/_monthly_chart.html #}
-<div class="mt-6 rounded-2xl bg-white/5 p-3">
-  <div class="flex items-center justify-between mb-2">
-    <div class="text-sm text-slate-300">月次サマリー</div>
+<div class="mt-4 rounded-[22px] border border-white/10 bg-white/5 p-3 shadow-[0_12px_30px_rgba(0,0,0,.16)]">
+  <div class="flex items-start justify-between gap-3 mb-3">
+    <div>
+      <div class="text-[15px] font-extrabold text-slate-100">月次メインチャート</div>
+      <div class="text-[12px] leading-6 text-slate-400">
+        PnL・現金フロー・累積PnL を1枚で見ます。<br>
+        点や棒をタップすると、上の期間カードと連動します。
+      </div>
+    </div>
 
-    <!-- 🔧 モバイル向け：凡例トグル -->
-    <div class="flex gap-2">
+    <div class="flex gap-2 flex-wrap justify-end">
       <button id="btnToggleCum"
-              class="text-[11px] px-2 py-1 rounded border border-amber-300/30 text-amber-200 hover:bg-amber-400/10"
-              type="button" aria-pressed="true" title="累積PnL の表示/非表示">累積PnL</button>
+              class="text-[11px] px-2.5 py-1.5 rounded-full border border-amber-300/30 text-amber-200 bg-amber-400/5"
+              type="button" aria-pressed="true">累積</button>
       <button id="btnToggleCash"
-              class="text-[11px] px-2 py-1 rounded border border-blue-300/30 text-blue-200 hover:bg-blue-400/10"
-              type="button" aria-pressed="true" title="現金フロー の表示/非表示">現金</button>
+              class="text-[11px] px-2.5 py-1.5 rounded-full border border-sky-300/30 text-sky-200 bg-sky-400/5"
+              type="button" aria-pressed="true">現金</button>
       <button id="btnTogglePnl"
-              class="text-[11px] px-2 py-1 rounded border border-emerald-300/30 text-emerald-200 hover:bg-emerald-400/10"
-              type="button" aria-pressed="true" title="PnL（月次）の表示/非表示">PnL</button>
+              class="text-[11px] px-2.5 py-1.5 rounded-full border border-emerald-300/30 text-emerald-200 bg-emerald-400/5"
+              type="button" aria-pressed="true">PnL</button>
     </div>
   </div>
 
-  <div class="text-xs text-slate-400 mb-2">
-    📈 PnL（投資家損益） / 💰 現金フロー / 📈 累積PnL（右軸）
-  </div>
-
-  <div style="height:240px">
-    <canvas id="pnlChart" style="width:100%;height:100%"></canvas>
+  <div class="rounded-2xl border border-white/8 bg-slate-950/40 p-2">
+    <div style="height:280px">
+      <canvas id="pnlChart" style="width:100%;height:100%"></canvas>
+    </div>
   </div>
 </div>
 
@@ -32,16 +34,15 @@
   const el = document.getElementById('pnlChart');
   if (!el) return;
 
-  // HiDPI 対策
   const resizeCanvasForHiDPI = (canvas) => {
     const ratio = Math.max(1, window.devicePixelRatio || 1);
     const r = canvas.getBoundingClientRect();
-    const w = Math.round(r.width  * ratio);
+    const w = Math.round(r.width * ratio);
     const h = Math.round(r.height * ratio);
     if (canvas.width !== w || canvas.height !== h) {
-      canvas.width  = w;
+      canvas.width = w;
       canvas.height = h;
-      canvas.style.width  = r.width + 'px';
+      canvas.style.width = r.width + 'px';
       canvas.style.height = r.height + 'px';
     }
   };
@@ -50,7 +51,7 @@
 
   async function fetchData() {
     const qEl = document.querySelector('#q');
-    const q   = qEl ? encodeURIComponent(qEl.value || '') : '';
+    const q = qEl ? encodeURIComponent(qEl.value || '') : '';
     const res = await fetch("{% url 'realized_chart_monthly' %}?q=" + q, { credentials: 'same-origin' });
     return await res.json();
   }
@@ -64,55 +65,91 @@
     const rect = el.getBoundingClientRect();
     if (!force && (rect.width === 0 || rect.height === 0)) return;
 
-    const data   = await fetchData();
-    const labels = data.labels   || [];
-    const cash   = data.cash     || [];
-    const pnl    = data.pnl      || [];
-    const pnlCum = data.pnl_cum  || [];
+    const data = await fetchData();
+    const labels = data.labels || [];
+    const cash = data.cash || [];
+    const pnl = data.pnl || [];
+    const pnlCum = data.pnl_cum || [];
 
-    const cashColors = cash.map(v => v >= 0 ? 'rgba(59,130,246,0.55)' : 'rgba(244,63,94,0.70)');
+    const cashColors = cash.map(v => v >= 0 ? 'rgba(59,130,246,0.52)' : 'rgba(244,63,94,0.70)');
 
-    if (chart) { chart.destroy(); chart = null; }
-    const ctx = el.getContext('2d');
+    if (chart) {
+      chart.destroy();
+      chart = null;
+    }
+
     resizeCanvasForHiDPI(el);
+    const ctx = el.getContext('2d');
 
     chart = new Chart(ctx, {
       type: 'bar',
       data: {
         labels,
         datasets: [
-          { type: 'bar',  label: '💰 現金',     data: cash,   backgroundColor: cashColors, borderWidth: 0,  yAxisID: 'y',  order: 2 },
-          { type: 'line', label: '📈 PnL',     data: pnl,    borderColor: 'rgba(16,185,129,1)', backgroundColor: 'rgba(16,185,129,0.15)', borderWidth: 2.5, pointRadius: 3, pointHoverRadius: 4, tension: 0.25, fill: false, yAxisID: 'y',  order: 1 },
-          { type: 'line', label: '📈 累積PnL', data: pnlCum, borderColor: '#fde68a', backgroundColor: 'rgba(253,230,138,0.18)', borderWidth: 3,   pointRadius: 3, pointHoverRadius: 4, tension: 0.18, fill: false, yAxisID: 'y2', order: 0 }
+          {
+            type: 'bar',
+            label: '💰 現金',
+            data: cash,
+            backgroundColor: cashColors,
+            borderWidth: 0,
+            yAxisID: 'y',
+            order: 2
+          },
+          {
+            type: 'line',
+            label: '📈 PnL',
+            data: pnl,
+            borderColor: 'rgba(16,185,129,1)',
+            backgroundColor: 'rgba(16,185,129,0.12)',
+            borderWidth: 2.5,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            tension: 0.22,
+            fill: false,
+            yAxisID: 'y',
+            order: 1
+          },
+          {
+            type: 'line',
+            label: '📈 累積PnL',
+            data: pnlCum,
+            borderColor: '#fde68a',
+            backgroundColor: 'rgba(253,230,138,0.14)',
+            borderWidth: 3,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            tension: 0.18,
+            fill: false,
+            yAxisID: 'y2',
+            order: 0
+          }
         ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
-
-        // ★ グラフクリック → 差し替えは行わず、期間表へフォーカスイベントを送るだけ
         onClick: (evt, elements, inst) => {
-          const pts = inst.getElementsAtEventForMode(evt, 'nearest', {intersect: true}, true);
+          const pts = inst.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
           if (!pts || !pts.length) return;
-          const label = inst.data.labels[pts[0].index];  // "YYYY-MM"
+          const label = inst.data.labels[pts[0].index];
           document.dispatchEvent(new CustomEvent('pnl:focus-period', {
-            detail: { label },
+            detail: { label: label },
             bubbles: true,
           }));
         },
-
         plugins: {
           legend: {
             labels: { color: '#e5e7eb', boxWidth: 12 },
             onClick: (e, legendItem, legend) => {
               const idx = legendItem.datasetIndex;
-              const ds  = legend.chart.isDatasetVisible(idx);
-              legend.chart.setDatasetVisibility(idx, !ds);
+              const visible = legend.chart.isDatasetVisible(idx);
+              legend.chart.setDatasetVisibility(idx, !visible);
               legend.chart.update();
-              if (idx === 0) setBtnState(document.getElementById('btnToggleCash'), !ds);
-              if (idx === 1) setBtnState(document.getElementById('btnTogglePnl'),  !ds);
-              if (idx === 2) setBtnState(document.getElementById('btnToggleCum'), !ds);
+
+              if (idx === 0) setBtnState(document.getElementById('btnToggleCash'), !visible);
+              if (idx === 1) setBtnState(document.getElementById('btnTogglePnl'), !visible);
+              if (idx === 2) setBtnState(document.getElementById('btnToggleCum'), !visible);
             }
           },
           tooltip: {
@@ -125,45 +162,57 @@
           }
         },
         scales: {
-          x:  { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(148,163,184,0.12)' } },
-          y:  { ticks: { color: '#cbd5e1', callback: v => '¥' + Number(v).toLocaleString() }, grid: { color: 'rgba(148,163,184,0.12)' } },
-          y2: { position: 'right', ticks: { color: '#fde68a', callback: v => '¥' + Number(v).toLocaleString() }, grid: { drawOnChartArea: false } }
+          x: {
+            ticks: { color: '#cbd5e1' },
+            grid: { color: 'rgba(148,163,184,0.10)' }
+          },
+          y: {
+            ticks: {
+              color: '#cbd5e1',
+              callback: v => '¥' + Number(v).toLocaleString()
+            },
+            grid: { color: 'rgba(148,163,184,0.10)' }
+          },
+          y2: {
+            position: 'right',
+            ticks: {
+              color: '#fde68a',
+              callback: v => '¥' + Number(v).toLocaleString()
+            },
+            grid: { drawOnChartArea: false }
+          }
         }
       }
     });
 
-    // グローバル参照（表→グラフ連動用）
     window._pnlChart = chart;
-
-    setBtnState(document.getElementById('btnToggleCum'),  true);
+    setBtnState(document.getElementById('btnToggleCum'), true);
     setBtnState(document.getElementById('btnToggleCash'), true);
-    setBtnState(document.getElementById('btnTogglePnl'),  true);
+    setBtnState(document.getElementById('btnTogglePnl'), true);
   }
 
-  // 初回描画
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => draw(true), { once: true });
   } else {
     draw(true);
   }
 
-  // キーワード変更 → 再描画
   const qEl = document.querySelector('#q');
   if (qEl) {
-    ['change','blur','keydown'].forEach(ev => {
+    ['change', 'blur', 'keydown'].forEach(ev => {
       qEl.addEventListener(ev, (e) => {
         if (ev !== 'keydown' || e.key === 'Enter') draw(true);
       });
     });
   }
 
-  // HTMX 差し替え後も再描画
   document.body.addEventListener('htmx:afterSwap', (e) => {
     if (!e.target) return;
-    if (['pnlTableWrap','pnlSummaryWrap','pnlPeriodWrap'].includes(e.target.id)) draw(true);
+    if (['pnlTableWrap', 'pnlSummaryWrap', 'pnlPeriodWrap'].includes(e.target.id)) {
+      draw(true);
+    }
   });
 
-  // 可視・回転対応
   const io = new IntersectionObserver((entries) => {
     const ent = entries[0];
     if (ent && ent.isIntersecting) {
@@ -191,32 +240,35 @@
 
   window.addEventListener('pageshow', () => draw(true));
 
-  // ── トグルボタン配線 ─
-  const btnCum  = document.getElementById('btnToggleCum');
+  const btnCum = document.getElementById('btnToggleCum');
   const btnCash = document.getElementById('btnToggleCash');
-  const btnPnl  = document.getElementById('btnTogglePnl');
+  const btnPnl = document.getElementById('btnTogglePnl');
 
-  function toggleDataset(index, btn){
+  function toggleDataset(index, btn) {
     if (!chart) return;
-    const vis = chart.isDatasetVisible(index);
-    chart.setDatasetVisibility(index, !vis);
+    const visible = chart.isDatasetVisible(index);
+    chart.setDatasetVisibility(index, !visible);
     chart.update();
-    setBtnState(btn, !vis);
+    setBtnState(btn, !visible);
   }
-  btnCum?.addEventListener('click',  () => toggleDataset(2, btnCum));
-  btnCash?.addEventListener('click', () => toggleDataset(0, btnCash));
-  btnPnl?.addEventListener('click',  () => toggleDataset(1, btnPnl));
 
-  // 表側からのフォーカス（pnl:focus）を受け取り、該当月を強調
+  btnCum?.addEventListener('click', () => toggleDataset(2, btnCum));
+  btnCash?.addEventListener('click', () => toggleDataset(0, btnCash));
+  btnPnl?.addEventListener('click', () => toggleDataset(1, btnPnl));
+
   document.body.addEventListener('pnl:focus', (e) => {
     const label = e?.detail?.label;
     if (!label || !window._pnlChart) return;
     const c = window._pnlChart;
     const idx = (c.data.labels || []).indexOf(label);
     if (idx < 0) return;
-    const act = [{datasetIndex:0,index:idx},{datasetIndex:1,index:idx},{datasetIndex:2,index:idx}];
+    const act = [
+      { datasetIndex: 0, index: idx },
+      { datasetIndex: 1, index: idx },
+      { datasetIndex: 2, index: idx }
+    ];
     c.setActiveElements(act);
-    c.tooltip.setActiveElements(act, {x:0,y:0});
+    c.tooltip.setActiveElements(act, { x: 0, y: 0 });
     c.update();
   });
 })();
