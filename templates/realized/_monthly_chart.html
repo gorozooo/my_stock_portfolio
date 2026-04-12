@@ -1,3 +1,9 @@
+{# [FILE] _monthly_chart.html #}
+{# [PATH] templates/realized/_monthly_chart.html #}
+{# このファイルは何？ #}
+{# - 実現損益のメインチャートです。 #}
+{# - PnL / 現金フロー / 累積PnL を重ねて表示します。 #}
+
 <div class="mt-4 rounded-[22px] border border-white/10 bg-white/5 p-3 shadow-[0_12px_30px_rgba(0,0,0,.16)]">
   <div class="flex items-start justify-between gap-3 mb-3">
     <div>
@@ -50,9 +56,18 @@
   let chart = null;
 
   async function fetchData() {
+    const params = new URLSearchParams();
     const qEl = document.querySelector('#q');
-    const q = qEl ? encodeURIComponent(qEl.value || '') : '';
-    const res = await fetch("{% url 'realized_chart_monthly' %}?q=" + q, { credentials: 'same-origin' });
+    const brokerEl = document.querySelector('#brokerFilterHidden');
+    const yearEl = document.querySelector('#yearFilterHidden');
+    const monthEl = document.querySelector('#monthFilterHidden');
+
+    if (qEl?.value) params.set('q', qEl.value);
+    if (brokerEl?.value) params.set('broker_filter', brokerEl.value);
+    if (yearEl?.value) params.set('year_filter', yearEl.value);
+    if (monthEl?.value) params.set('month_filter', monthEl.value);
+
+    const res = await fetch("{% url 'realized_chart_monthly' %}?" + params.toString(), { credentials: 'same-origin' });
     return await res.json();
   }
 
