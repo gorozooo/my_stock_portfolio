@@ -1,5 +1,5 @@
 """
-[FILE] auto_promote.py
+[FILE] autotrade/services/tuning/auto_promote.py
 [PATH] <project_root>/autotrade/services/tuning/auto_promote.py
 
 このファイルは何？
@@ -8,12 +8,10 @@
   「いまのACTIVEより良いもの」を ACTIVE に昇格させます。
 
 今回の修正：
-- run_tune=False の時でも、その日の phase 候補（MORNINGなど）をちゃんと拾う
-- 朝チューニング直後の CANDIDATE 群から best_candidate を選べるようにする
-- 既存候補の snapshot.tune_eval / tune_selected / improved_vs_active を見て昇格判定する
-- 朝は「直前に作った候補を使うだけ」、引け後は必要なら再チューニングあり
-- stop_only 引数を追加し、旧呼び出しとの互換も壊さない
-- JSONField の DB フィルタ依存を弱めるため、候補抽出は Python 側で保守的に行う
+- MORNING は「tune_selected=True の1件」を最優先で昇格判定する
+- EOD は昇格判定の前に、現ACTIVEで baseline を再計算する
+- これで「tune.best_candidate_id」と「実際に昇格したACTIVE」がズレる事故を防ぐ
+- これで EOD が古いACTIVE基準で比較する事故も防ぐ
 """
 
 from __future__ import annotations
@@ -21,6 +19,7 @@ from __future__ import annotations
 from datetime import date as dt_date
 from typing import Any, Dict, List, Optional, Tuple
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -30,6 +29,7 @@ from autotrade.models import (
     AutoTradeSettingSnapshot,
 )
 from autotrade.services.common.guards import is_emergency_stopped
+from autotrade.services.backtest.runner import run_detailed_backtests_for_universe
 from autotrade.services.tuning.auto_tune import auto_tune_generate_candidate
 
 
@@ -59,27 +59,21 @@ def _normalize_phase(phase: Optional[str]) -> str:
     return "EOD"
 
 
-def _iter_phase_candidates(*, target_date: dt_date, phase: str) -> List[AutoTradeSettingSnapshot]:
-    phase = _normalize_phase(phase)
-    out: List[AutoTradeSettingSnapshot] = []
-
-    for x in AutoTradeSettingSnapshot.objects.filter(status="CANDIDATE").order_by("-created_at", "-id"):
-        snap = x.snapshot if isinstance(x.snapshot, dict) else {}
-        tune = snap.get("tune") if isinstance(snap.get("tune"), dict) else {}
-
-        if str(tune.get("target_date") or "") != str(target_date):
-            continue
-        if _normalize_phase(tune.get("phase")) != phase:
-            continue
-
-        out.append(x)
-
-    return out
+def _candidate_queryset(*, target_date: dt_date, phase: str):
+    return (
+        AutoTradeSettingSnapshot.objects
+        .filter(
+            status="CANDIDATE",
+            snapshot__tune__target_date=str(target_date),
+            snapshot__tune__phase=str(phase),
+        )
+        .order_by("-created_at", "-id")
+    )
 
 
 def _extract_tune_eval(cand: AutoTradeSettingSnapshot) -> Dict[str, Any]:
     snap = cand.snapshot if isinstance(cand.snapshot, dict) else {}
-    te = snap.get("tune_eval") if isinstance(snap.get("tune_eval"), dict) else {}
+    te = snap.get("tune_eval") if isinstance(te.get("tune_eval"), dict) else {}
     return te
 
 
@@ -176,19 +170,25 @@ def _pick_best_existing_candidate(
     target_date: dt_date,
     phase: str,
 ) -> Tuple[Optional[AutoTradeSettingSnapshot], List[int]]:
-    candidates = list(_iter_phase_candidates(target_date=target_date, phase=phase))
+    candidates = list(_candidate_queryset(target_date=target_date, phase=phase))
     retained_ids = [int(x.id) for x in candidates]
 
     if not candidates:
         return None, retained_ids
 
-    selected = [x for x in candidates if _candidate_selected(x)]
-    if selected:
-        best = max(selected, key=_rank_tuple_from_candidate)
-    else:
-        best = max(candidates, key=_rank_tuple_from_candidate)
+    selected_improved = [x for x in candidates if _candidate_selected(x) and _candidate_improved(x)]
+    if selected_improved:
+        return max(selected_improved, key=_rank_tuple_from_candidate), retained_ids
 
-    return best, retained_ids
+    selected_only = [x for x in candidates if _candidate_selected(x)]
+    if selected_only:
+        return max(selected_only, key=_rank_tuple_from_candidate), retained_ids
+
+    improved_only = [x for x in candidates if _candidate_improved(x)]
+    if improved_only:
+        return max(improved_only, key=_rank_tuple_from_candidate), retained_ids
+
+    return None, retained_ids
 
 
 def _promotion_note(phase: str) -> str:
@@ -199,6 +199,39 @@ def _promotion_reason(phase: str) -> str:
     return "promoted_best_candidate_morning" if phase == "MORNING" else "promoted_best_candidate_eod"
 
 
+def _refresh_state_baseline_with_active(
+    *,
+    state: AutoTradeDailyState,
+    active: Optional[AutoTradeSettingSnapshot],
+    target_date: dt_date,
+    windows: Optional[List[int]],
+) -> Dict[str, Any]:
+    """
+    現ACTIVEを基準に state.backtest を再計算する。
+    EOD前にこれをやることで、古いACTIVE基準のまま比較する事故を防ぐ。
+    """
+    if active is None:
+        return {"ok": False, "skipped": True, "reason": "no_active_snapshot"}
+
+    uni = state.universe if isinstance(state.universe, dict) else {}
+    picks = [x.get("ticker") for x in (uni.get("picks") or []) if isinstance(x, dict) and x.get("ticker")]
+    picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
+
+    if not picks:
+        return {"ok": True, "skipped": True, "reason": "no_picks"}
+
+    run_detailed_backtests_for_universe(
+        snapshot=active,
+        picks=picks,
+        target_date=target_date,
+        windows=tuple(int(x) for x in (windows or getattr(settings, "AUTOTRADE_BT_WINDOWS", [20, 40, 60]))),
+        rr_breakout=None,
+        base_equity_yen=int(getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)),
+        force=True,
+    )
+    return {"ok": True, "skipped": False, "reason": "baseline_refreshed", "active_id": active.id}
+
+
 @transaction.atomic
 def auto_promote_if_ready(
     *,
@@ -206,7 +239,6 @@ def auto_promote_if_ready(
     windows: Optional[List[int]] = None,
     phase: str = "EOD",
     run_tune: bool = True,
-    stop_only: bool = False,
 ) -> Dict[str, Any]:
     if target_date is None:
         target_date = timezone.localdate()
@@ -223,21 +255,22 @@ def auto_promote_if_ready(
             "phase": phase,
         }
 
-    if bool(stop_only) and str(state.gate_level or "STOP").upper().strip() != "STOP":
-        return {
-            "ok": True,
-            "skipped": True,
-            "reason": "state_not_stop",
-            "phase": phase,
-            "gate_level": str(state.gate_level or ""),
-        }
-
     active = (
         AutoTradeSettingSnapshot.objects
         .filter(status="ACTIVE")
         .order_by("-created_at")
         .first()
     )
+
+    # EOD はまず「今のACTIVE」で baseline を揃える
+    refresh_payload: Dict[str, Any] = {}
+    if phase == "EOD" and active is not None:
+        refresh_payload = _refresh_state_baseline_with_active(
+            state=state,
+            active=active,
+            target_date=target_date,
+            windows=windows,
+        )
 
     tune_payload: Dict[str, Any] = {}
     retained_candidate_ids: List[int] = []
@@ -256,6 +289,7 @@ def auto_promote_if_ready(
             "improved": bool(getattr(tune_res, "improved", False)),
             "base": getattr(tune_res, "base", {}),
             "best": getattr(tune_res, "best", {}),
+            "diagnosis": getattr(tune_res, "diagnosis", {}),
         }
         retained_candidate_ids = list(getattr(tune_res, "retained_candidate_ids", []) or [])
         best_candidate_id = getattr(tune_res, "best_candidate_id", None)
@@ -270,6 +304,7 @@ def auto_promote_if_ready(
                 "candidate_id": best_candidate_id,
                 "improved": improved,
                 "retained_candidate_ids": retained_candidate_ids,
+                "refresh": refresh_payload,
                 "tune": tune_payload,
             }
     else:
@@ -287,6 +322,7 @@ def auto_promote_if_ready(
                 "candidate_id": None,
                 "improved": False,
                 "retained_candidate_ids": retained_candidate_ids,
+                "refresh": refresh_payload,
                 "tune": {
                     "best_candidate_id": None,
                     "improved": False,
@@ -313,6 +349,7 @@ def auto_promote_if_ready(
             "candidate_id": None,
             "improved": improved,
             "retained_candidate_ids": retained_candidate_ids,
+            "refresh": refresh_payload,
             "tune": tune_payload,
         }
 
@@ -330,6 +367,7 @@ def auto_promote_if_ready(
             "candidate_id": best_candidate_id,
             "improved": improved,
             "retained_candidate_ids": retained_candidate_ids,
+            "refresh": refresh_payload,
             "tune": tune_payload,
         }
 
@@ -343,6 +381,7 @@ def auto_promote_if_ready(
             "old_active_id": (active.id if active else None),
             "improved": False,
             "retained_candidate_ids": retained_candidate_ids,
+            "refresh": refresh_payload,
             "tune": tune_payload,
         }
 
@@ -393,6 +432,7 @@ def auto_promote_if_ready(
         "retained_candidate_ids": retained_candidate_ids,
         "base": tune_payload.get("base") or {},
         "best": tune_payload.get("best") or {},
+        "refresh": refresh_payload,
     }
     state.rules = rules
 
@@ -414,5 +454,6 @@ def auto_promote_if_ready(
         "candidate_id": cand.id,
         "improved": True,
         "retained_candidate_ids": retained_candidate_ids,
+        "refresh": refresh_payload,
         "tune": tune_payload,
     }
