@@ -11,6 +11,7 @@
 - effective_gate_level（FULL/LIGHT/STOP）を優先して使う
 - max_trades_override / max_positions_override / max_hold_bars_cap を反映
 - allow_long / allow_short を新規注文作成・約定時の両方で反映
+- STOP / intraday_guard / 時間制限 / max_trades 到達時は pending を取消して誤約定を防ぐ
 - 画面表示だけでなく、実際の執行が runtime に従うようにする
 """
 
@@ -225,6 +226,32 @@ def _maybe_log_runtime_summary(
     _set_rules_dict(state, rules)
 
 
+def _get_rr_from_snapshot(snapshot: Optional[AutoTradeSettingSnapshot]) -> float:
+    default = float(getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0))
+    if snapshot is None:
+        return default
+
+    sdict = snapshot.snapshot if isinstance(snapshot.snapshot, dict) else {}
+
+    lab = sdict.get("lab") if isinstance(sdict.get("lab"), dict) else {}
+    br = lab.get("BREAKOUT") if isinstance(lab.get("BREAKOUT"), dict) else {}
+
+    rr = _safe_float(br.get("rr"), 0.0)
+    if rr > 0:
+        return float(rr)
+
+    rr = _safe_float(sdict.get("rr_breakout"), 0.0)
+    if rr > 0:
+        return float(rr)
+
+    tune = sdict.get("tune") if isinstance(sdict.get("tune"), dict) else {}
+    rr = _safe_float(tune.get("rr_breakout"), 0.0)
+    if rr > 0:
+        return float(rr)
+
+    return default
+
+
 def _calc_shares(*, equity_yen: int, price: float, stop_pct: float) -> int:
     risk_pct = float(getattr(settings, "AUTOTRADE_RISK_TRADE_PCT", 0.0015))
     risk_yen = float(equity_yen) * risk_pct
@@ -422,6 +449,15 @@ def _compute_breakout_signal_from_prev_bar(
     return None
 
 
+def _clear_pending_orders_with_log(state: AutoTradeDailyState, *, reason: str) -> int:
+    pending = _get_pending_orders(state)
+    count = len(pending or {})
+    if count > 0:
+        _set_pending_orders(state, {})
+        _append_mode_log(state, mode="PAPER", msg=f"pending取消: {count}件 / reason={reason}")
+    return int(count)
+
+
 @transaction.atomic
 def run():
     lock_dir = str(getattr(settings, "AUTOTRADE_CRON_LOCK_DIR", "/tmp"))
@@ -491,7 +527,7 @@ def run():
             max_hold_bars=max_hold_bars,
         )
 
-        rr = _safe_float((active.snapshot or {}).get("rr_breakout"), float(getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0)))
+        rr = _get_rr_from_snapshot(active)
         if rr <= 0.1:
             rr = float(getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0))
 
@@ -581,8 +617,33 @@ def run():
 
         _set_last_bar_ts(state, cur_bar_ts)
 
+        # ---------------------------------------------------------
+        # 新規建て禁止条件を先に判定
+        # - pending 約定より前に評価する
+        # - 禁止なら pending を取消して誤約定を防ぐ
+        # ---------------------------------------------------------
+        entry_block_reason = None
+
+        rules = _get_rules_dict(state)
+        ig = rules.get("intraday_guard") if isinstance(rules.get("intraday_guard"), dict) else {}
+        ig_res = ig.get("result") if isinstance(ig.get("result"), dict) else {}
+        trades_today = _today_trade_count(user, today)
+
+        if gate_level == "STOP":
+            entry_block_reason = "gate_stop"
+        elif _forbid_new_entries_by_time(now):
+            entry_block_reason = "time_forbid_entries"
+        elif bool(ig_res.get("forbid_new_entries")):
+            entry_block_reason = "intraday_guard_forbid"
+        elif trades_today >= int(max_trades):
+            entry_block_reason = "max_trades"
+
+        if entry_block_reason is not None:
+            pending_cleared = _clear_pending_orders_with_log(state, reason=entry_block_reason)
+            pending = {}
+
         filled = 0
-        if gate_level != "STOP":
+        if entry_block_reason is None:
             for ticker, od in list((pending or {}).items()):
                 try:
                     if str(ticker) in (positions or {}):
@@ -760,38 +821,25 @@ def run():
             _append_mode_log(state, mode="PAPER", msg=f"クローズ：{closed}件（TP/SL/TIME）")
             _set_open_positions(state, positions)
 
-        if gate_level == "STOP":
-            _set_pending_orders(state, pending)
+        if entry_block_reason is not None:
             state.updated_at = timezone.now()
             _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
-            return {"ok": True, "skipped": True, "reason": "gate_stop", "filled": filled, "closed": closed}
-
-        if _forbid_new_entries_by_time(now):
-            if not _allow_hold_past_end():
-                pass
-            _set_pending_orders(state, pending)
-            state.updated_at = timezone.now()
-            _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
-            return {"ok": True, "skipped": True, "reason": "time_forbid_entries", "filled": filled, "closed": closed}
-
-        rules = _get_rules_dict(state)
-        ig = rules.get("intraday_guard") if isinstance(rules.get("intraday_guard"), dict) else {}
-        ig_res = ig.get("result") if isinstance(ig.get("result"), dict) else {}
-        if bool(ig_res.get("forbid_new_entries")):
-            _set_pending_orders(state, pending)
-            state.updated_at = timezone.now()
-            _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
-            return {"ok": True, "skipped": True, "reason": "intraday_guard_forbid", "filled": filled, "closed": closed}
-
-        trades_today = _today_trade_count(user, today)
-        if trades_today >= int(max_trades):
-            _append_mode_log(state, mode="PAPER", msg=f"新規禁止：当日取引回数が上限（{trades_today}/{max_trades}）")
-            _set_pending_orders(state, pending)
-            state.updated_at = timezone.now()
-            _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
-            return {"ok": True, "skipped": True, "reason": "max_trades", "filled": filled, "closed": closed}
+            return {
+                "ok": True,
+                "skipped": True,
+                "reason": str(entry_block_reason),
+                "filled": filled,
+                "closed": closed,
+                "pending_cleared": int(pending_cleared),
+                "effective_gate_level": gate_level,
+                "max_positions": int(max_pos),
+                "max_trades": int(max_trades),
+                "max_hold_bars": int(max_hold_bars),
+            }
 
         created_orders = 0
+        trades_today = _today_trade_count(user, today)
+
         for ticker in (picks or [])[:10]:
             t = str(ticker)
 
