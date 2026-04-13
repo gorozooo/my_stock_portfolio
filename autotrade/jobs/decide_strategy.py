@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional
 from django.conf import settings
 from django.utils import timezone
 
-from autotrade.models import AutoTradeDailyState
+from autotrade.models import AutoTradeDailyState, AutoTradeSettingSnapshot
 from autotrade.models_backtest import AutoTradeExecution
 from autotrade.services.decision.strategy import decide_strategy_for_state
 from autotrade.services.decision.rules import build_rules_for_today
@@ -233,7 +233,7 @@ def _summarize_recent_period(
 
             hold_total += _safe_int(getattr(e, "holding_minutes", 0), 0)
 
-        daily_rows.append({
+        daily_rows.append(
             {
                 "date": d.isoformat(),
                 "trades": len(day_execs),
@@ -606,7 +606,6 @@ def run():
         "mode": "BREAKOUT_ONLY",
     }
 
-    # 既存 rules の中で消したくないものは保持
     prev_rules = state.rules if isinstance(state.rules, dict) else {}
     preserved_rule_keys = [
         "execution_mode",
@@ -621,7 +620,6 @@ def run():
         "intraday_guard",
     ]
 
-    # ルール確定（effective gate と chosen を使う）
     equity_yen = state.equity_yen or getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)
     new_rules = build_rules_for_today(
         gate_level=str(effective_gate_level),
@@ -638,10 +636,8 @@ def run():
 
     state.rules = new_rules
 
-    # 実運用は effective gate を state に反映
     state.gate_level = str(effective_gate_level)
 
-    # gate_reason は朝の説明を尊重しつつ、実運用調整だけ追記
     if not (state.gate_reason or "").strip():
         if morning_gate_level == "STOP":
             state.gate_reason = "【最終判定】STOP（安全のため稼働しない）"
