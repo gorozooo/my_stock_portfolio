@@ -7,10 +7,9 @@
 - その日の対象銘柄を作り、ACTIVEで朝判定し、さらに朝チューニング→朝昇格判定まで行います。
 
 今回の修正：
-- 朝は必ずチューニングする
-- その直後、MORNINGで作ったCANDIDATE群を使って朝昇格判定する
-- 朝昇格判定では再チューニングしない（直前に作った候補をそのまま使う）
-- 朝にACTIVEが昇格したら、新ACTIVEで DailyState.backtest を再固定する
+- 直近5営業日 / 10営業日の recent diagnosis を rules に保存します
+- 朝チューニング結果にも diagnosis を返します
+- 直前の MORNING 候補をそのまま使って朝昇格判定します
 """
 
 from datetime import date
@@ -24,21 +23,16 @@ from autotrade.services.common.guards import is_emergency_stopped
 from autotrade.services.backtest.runner import run_detailed_backtests_for_universe
 from autotrade.services.tuning.auto_tune import auto_tune_generate_candidate
 from autotrade.services.tuning.auto_promote import auto_promote_if_ready
+from autotrade.services.tuning.recent_diagnosis import build_recent_diagnosis
 
 
 def run():
     today = date.today()
     state, _ = AutoTradeDailyState.objects.get_or_create(date=today)
 
-    # =========================================================
-    # 0) 非常停止ガード
-    # =========================================================
     if is_emergency_stopped(state):
         return {"ok": True, "skipped": True, "reason": "emergency_stop"}
 
-    # =========================================================
-    # 1) 今日の銘柄（5〜10）
-    # =========================================================
     universe = build_daily_universe(limit=10)
     picks = [x.get("ticker") for x in (universe.get("picks") or []) if isinstance(x, dict) and x.get("ticker")]
 
@@ -46,9 +40,6 @@ def run():
     state.updated_at = timezone.now()
     state.save(update_fields=["universe", "updated_at"])
 
-    # =========================================================
-    # 2) 朝の基準ACTIVEを取得
-    # =========================================================
     snapshot = (
         AutoTradeSettingSnapshot.objects
         .filter(status="ACTIVE")
@@ -69,39 +60,43 @@ def run():
 
     active_before_id = snapshot.id
 
-    # =========================================================
-    # 3) ACTIVEで朝判定（唯一の真実）
-    # =========================================================
     run_detailed_backtests_for_universe(
         snapshot=snapshot,
         picks=picks,
         target_date=today,
         windows=tuple(getattr(settings, "AUTOTRADE_BT_WINDOWS", [20, 40, 60])),
-        rr_breakout=None,  # runner側が snapshot から確定
+        rr_breakout=None,
         base_equity_yen=int(getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)),
         force=True,
     )
 
-    # =========================================================
-    # 4) 朝チューニング（毎朝必ず実行）
-    # =========================================================
+    morning_diagnosis = build_recent_diagnosis(
+        target_date=today,
+        phase="MORNING",
+        mode="PAPER",
+        strategy="BREAKOUT",
+        base_equity_yen=int(getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)),
+    )
+
+    rules = state.rules if isinstance(state.rules, dict) else {}
+    diag_root = rules.get("recent_diagnosis") if isinstance(rules.get("recent_diagnosis"), dict) else {}
+    diag_root["MORNING"] = morning_diagnosis
+    rules["recent_diagnosis"] = diag_root
+    state.rules = rules
+    state.updated_at = timezone.now()
+    state.save(update_fields=["rules", "updated_at"])
+
     tune_res = auto_tune_generate_candidate(
         target_date=today,
         windows=list(getattr(settings, "AUTOTRADE_BT_WINDOWS", [20, 40, 60])),
         phase="MORNING",
     )
 
-    # =========================================================
-    # 5) 朝昇格判定
-    #    - ここでは再チューニングしない
-    #    - 直前の MORNING 候補をそのまま拾って昇格判定する
-    # =========================================================
     promote_res = auto_promote_if_ready(
         target_date=today,
         windows=list(getattr(settings, "AUTOTRADE_BT_WINDOWS", [20, 40, 60])),
         phase="MORNING",
         run_tune=False,
-        stop_only=False,
     )
 
     active_after = (
@@ -111,26 +106,6 @@ def run():
         .first()
     )
 
-    # =========================================================
-    # 6) 朝昇格があった場合は、新ACTIVEで backtest を再固定
-    #    これをやらないと DailyState.backtest が旧ACTIVEのまま残る
-    # =========================================================
-    if (
-        bool(promote_res.get("promoted"))
-        and active_after is not None
-        and active_after.id != active_before_id
-        and picks
-    ):
-        run_detailed_backtests_for_universe(
-            snapshot=active_after,
-            picks=picks,
-            target_date=today,
-            windows=tuple(getattr(settings, "AUTOTRADE_BT_WINDOWS", [20, 40, 60])),
-            rr_breakout=None,
-            base_equity_yen=int(getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)),
-            force=True,
-        )
-
     return {
         "ok": True,
         "skipped": False,
@@ -138,6 +113,11 @@ def run():
         "active_before_id": active_before_id,
         "active_after_id": (active_after.id if active_after else None),
         "pick_count": len(picks),
+        "diagnosis": {
+            "regime_warning": morning_diagnosis.get("regime_warning"),
+            "diagnosis_tags": list(morning_diagnosis.get("diagnosis_tags") or []),
+            "preferred_knobs": list(morning_diagnosis.get("preferred_knobs") or []),
+        },
         "tune": {
             "ok": bool(getattr(tune_res, "ok", False)),
             "skipped": bool(getattr(tune_res, "skipped", True)),
@@ -146,6 +126,7 @@ def run():
             "best_candidate_id": getattr(tune_res, "best_candidate_id", None),
             "retained_candidate_ids": list(getattr(tune_res, "retained_candidate_ids", []) or []),
             "improved": bool(getattr(tune_res, "improved", False)),
+            "diagnosis": getattr(tune_res, "diagnosis", {}) or {},
         },
         "promote": promote_res,
     }
