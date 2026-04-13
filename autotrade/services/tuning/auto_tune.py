@@ -19,13 +19,13 @@
 - 候補評価中に DailyState を壊さないよう、state を退避→復元する
 
 今回の追加修正：
-- recent_diagnosis.build_recent_diagnosis() の実引数に合わせて、
-  user= を渡さないよう修正
-- EOD では include_today=True、MORNING では include_today=False に修正
+- recent_diagnosis.build_recent_diagnosis() の実シグネチャ差異に自動対応する
+  （target_date / as_of_date / date などの違いを吸収）
 """
 
 from __future__ import annotations
 
+import inspect
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import date as dt_date
@@ -702,6 +702,113 @@ def _restore_state(state: AutoTradeDailyState, orig: Dict[str, Any]) -> None:
     state.save(update_fields=["backtest", "gate_level", "gate_reason", "strategy", "strategy_decision", "updated_at"])
 
 
+def _call_recent_diagnosis(
+    *,
+    target_date: dt_date,
+    phase: str,
+    state: Optional[AutoTradeDailyState] = None,
+    active: Optional[AutoTradeSettingSnapshot] = None,
+) -> Dict[str, Any]:
+    """
+    recent_diagnosis.build_recent_diagnosis() の実シグネチャ差異を吸収する。
+    - target_date / as_of_date / date
+    - phase
+    - include_today
+    - mode / strategy
+    - user / state / snapshot / active_snapshot
+    など、存在する引数だけを渡す。
+    """
+    fn = diagnose_recent_execution_regime
+    include_today = str(phase or "").upper().strip() == "EOD"
+
+    try:
+        sig = inspect.signature(fn)
+        accepted = set(sig.parameters.keys())
+    except Exception:
+        accepted = set()
+
+    payload: Dict[str, Any] = {}
+
+    if "target_date" in accepted:
+        payload["target_date"] = target_date
+    elif "as_of_date" in accepted:
+        payload["as_of_date"] = target_date
+    elif "date" in accepted:
+        payload["date"] = target_date
+
+    if "phase" in accepted:
+        payload["phase"] = phase
+    if "include_today" in accepted:
+        payload["include_today"] = include_today
+    if "mode" in accepted:
+        payload["mode"] = "PAPER"
+    if "strategy" in accepted:
+        payload["strategy"] = "BREAKOUT"
+
+    if "user" in accepted and active is not None:
+        payload["user"] = active.user
+    if "state" in accepted and state is not None:
+        payload["state"] = state
+    if "snapshot" in accepted and active is not None:
+        payload["snapshot"] = active
+    if "active_snapshot" in accepted and active is not None:
+        payload["active_snapshot"] = active
+
+    try:
+        res = fn(**payload)
+        return res if isinstance(res, dict) else {}
+    except TypeError:
+        # 互換用の保険。最低限の候補で順に試す。
+        fallbacks: List[Dict[str, Any]] = [
+            {
+                "target_date": target_date,
+                "include_today": include_today,
+                "mode": "PAPER",
+                "strategy": "BREAKOUT",
+            },
+            {
+                "as_of_date": target_date,
+                "include_today": include_today,
+                "mode": "PAPER",
+                "strategy": "BREAKOUT",
+            },
+            {
+                "date": target_date,
+                "include_today": include_today,
+                "mode": "PAPER",
+                "strategy": "BREAKOUT",
+            },
+            {
+                "target_date": target_date,
+                "include_today": include_today,
+            },
+            {
+                "as_of_date": target_date,
+                "include_today": include_today,
+            },
+            {
+                "date": target_date,
+                "include_today": include_today,
+            },
+            {},
+        ]
+
+        for raw in fallbacks:
+            try:
+                candidate = {k: v for k, v in raw.items() if (not accepted or k in accepted)}
+                res = fn(**candidate)
+                return res if isinstance(res, dict) else {}
+            except TypeError:
+                continue
+            except Exception:
+                return {}
+
+    except Exception:
+        return {}
+
+    return {}
+
+
 @transaction.atomic
 def auto_tune_generate_candidate(
     *,
@@ -755,7 +862,6 @@ def auto_tune_generate_candidate(
             improved=False,
         )
 
-    # 同phaseの古い生成物は先に片付ける
     _clear_phase_generated_candidates(target_date=target_date, phase=phase)
 
     gate_bundle = _get_gate_bundle_from_state(state)
@@ -763,14 +869,12 @@ def auto_tune_generate_candidate(
     base_score = _aggregate_score(base_metrics, windows=list(windows))
     base_params = _extract_breakout_params(active)
 
-    raw_diagnosis = diagnose_recent_execution_regime(
-        as_of_date=target_date,
+    diagnosis = _call_recent_diagnosis(
+        target_date=target_date,
         phase=phase,
-        include_today=(phase == "EOD"),
-        mode="PAPER",
-        strategy="BREAKOUT",
+        state=state,
+        active=active,
     )
-    diagnosis = raw_diagnosis if isinstance(raw_diagnosis, dict) else {}
 
     base_pack = {
         "gate_level": str(gate_bundle.get("final_level") or "STOP").upper().strip(),
@@ -781,16 +885,13 @@ def auto_tune_generate_candidate(
         "regime_warning": str(diagnosis.get("regime_warning") or ""),
     }
 
-    # チューニング元
     source_snapshots: List[AutoTradeSettingSnapshot] = [active]
     if phase == "EOD":
-        # 朝に残した CANDIDATE も再チューニング対象
         for cand in _iter_candidate_snapshots_for_date(target_date=target_date):
             if cand.id == active.id:
                 continue
             source_snapshots.append(cand)
 
-    # 重複排除
     uniq_sources: List[AutoTradeSettingSnapshot] = []
     seen_source_ids = set()
     for s in source_snapshots:
@@ -904,12 +1005,10 @@ def auto_tune_generate_candidate(
 
         seen_ids = set()
 
-        # 1) 改善 best は 1件だけ先頭で残す
         if best_improved_row is not None:
             retained_rows.append(best_improved_row)
             seen_ids.add(int(best_improved_row["cand"].id))
 
-        # 2) 残り枠は reasonable 候補だけ
         if len(retained_rows) < keep_max:
             for row in sorted_rows:
                 cid = int(row["cand"].id)
@@ -923,7 +1022,6 @@ def auto_tune_generate_candidate(
                     break
 
     else:
-        # 引け後は「旧ACTIVEを超えた最良1件」だけ残す
         if best_improved_row is not None:
             retained_rows = [best_improved_row]
         else:
