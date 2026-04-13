@@ -33,8 +33,7 @@ from django.utils import timezone
 from autotrade.models import AutoTradeDailyState, AutoTradeSettingSnapshot
 from autotrade.services.common.guards import is_emergency_stopped
 from autotrade.services.backtest.runner import run_detailed_backtests_for_universe
-from autotrade.services.tuning.recent_diagnosis import diagnose_recent_execution_regime
-
+from autotrade.services.tuning.recent_diagnosis import build_recent_diagnosis as diagnose_recent_execution_regime
 
 _GATE_RANK = {"STOP": 0, "LIGHT": 1, "FULL": 2}
 
