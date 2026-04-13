@@ -15,7 +15,7 @@
 - 直近5営業日/10営業日の実Executionをここで診断する
 - 朝の見た目gateとは別に、「実運用だけ」の effective gate を決める
 - LONG_WEAK / OVERTRADING / TIME_BIASED を intraday 用ルールへ反映する
-- recent_diagnosis.py に依存せず、このファイル単体で完結する
+- STOPに落としすぎないよう、まずは LIGHT で耐える方向に調整する
 """
 
 from __future__ import annotations
@@ -397,76 +397,126 @@ def _build_recent_runtime_diagnosis(*, user, target_date: date) -> Dict[str, Any
 
 
 def _build_runtime_control(*, morning_gate_level: str, diagnosis: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    実運用だけの弱気補正。
+    方針：
+    - STOP はかなり重い条件の時だけ
+    - まずは LIGHT に落として回数/保有/片側停止で耐える
+    """
     morning_gate = str(morning_gate_level or "STOP").upper().strip()
     diagnosis = diagnosis if isinstance(diagnosis, dict) else {}
 
-    w5 = ((diagnosis.get("windows") or {}).get("5") or {}) if isinstance(diagnosis.get("windows"), dict) else {}
-    w10 = ((diagnosis.get("windows") or {}).get("10") or {}) if isinstance(diagnosis.get("windows"), dict) else {}
+    windows = diagnosis.get("windows") if isinstance(diagnosis.get("windows"), dict) else {}
+    w5 = (windows.get("5") or {}) if isinstance(windows, dict) else {}
+    w10 = (windows.get("10") or {}) if isinstance(windows, dict) else {}
+
     tags = [str(x) for x in (diagnosis.get("diagnosis_tags") or []) if str(x).strip()]
     regime_warning = str(diagnosis.get("regime_warning") or "").strip()
 
-    severe = False
-    if (
-        _safe_int(w5.get("trades"), 0) >= 5
-        and _safe_float(w5.get("pf"), 0.0) < 0.35
-        and _safe_int(w5.get("pnl_sum_yen"), 0) < 0
-        and _safe_int(w5.get("current_minus_streak"), 0) >= 3
-    ):
-        severe = True
+    pf5 = _safe_float(w5.get("pf"), 0.0)
+    pf10 = _safe_float(w10.get("pf"), 0.0)
+    pnl5 = _safe_int(w5.get("pnl_sum_yen"), 0)
+    pnl10 = _safe_int(w10.get("pnl_sum_yen"), 0)
+    trades5 = _safe_int(w5.get("trades"), 0)
+    trades10 = _safe_int(w10.get("trades"), 0)
+    minus_days5 = _safe_int(w5.get("minus_days"), 0)
+    minus_days10 = _safe_int(w10.get("minus_days"), 0)
+    streak5 = _safe_int(w5.get("current_minus_streak"), 0)
+    streak10 = _safe_int(w10.get("current_minus_streak"), 0)
 
-    if (
-        _safe_int(w10.get("trades"), 0) >= 10
-        and _safe_float(w10.get("pf"), 0.0) < 0.60
-        and _safe_int(w10.get("pnl_sum_yen"), 0) < 0
-        and _safe_int(w10.get("minus_days"), 0) >= 4
-    ):
-        severe = True
+    recent_breakdown = "RECENT_BREAKDOWN" in tags
+    no_edge = "NO_EDGE" in tags
+    sl_biased = "SL_BIASED" in tags
+    time_biased = "TIME_BIASED" in tags
+    losing_streaky = "LOSING_STREAKY" in tags
+    long_weak = "LONG_WEAK" in tags
+    overtrading = "OVERTRADING" in tags
+
+    # まずは LIGHT に寄せたいので、STOP はかなり重くする
+    catastrophic_stop = (
+        trades5 >= 6
+        and pf5 < 0.25
+        and pnl5 < 0
+        and minus_days5 >= 3
+        and streak5 >= 4
+        and trades10 >= 12
+        and pf10 < 0.55
+        and pnl10 < 0
+        and minus_days10 >= 5
+        and streak10 >= 4
+        and no_edge
+        and losing_streaky
+    )
+
+    # FULLのままだと危ないが、STOPまでは行かないケース
+    light_needed = False
+    if regime_warning == "RECENT_WEAK":
+        light_needed = True
+    if recent_breakdown and trades5 >= 4 and pf5 < 0.70 and pnl5 < 0:
+        light_needed = True
+    if no_edge and trades10 >= 10 and pf10 < 0.85 and pnl10 < 0:
+        light_needed = True
+    if losing_streaky and streak10 >= 3:
+        light_needed = True
 
     effective_gate = morning_gate
     runtime_notes: List[str] = []
 
     if morning_gate == "FULL":
-        if severe:
+        if catastrophic_stop:
             effective_gate = "STOP"
             runtime_notes.append("直近がかなり悪いので、実運用はSTOPに落とします。")
-        elif regime_warning == "RECENT_WEAK":
+        elif light_needed:
             effective_gate = "LIGHT"
             runtime_notes.append("直近悪化を考慮して、実運用はLIGHTに落とします。")
     elif morning_gate == "LIGHT":
-        if severe:
+        if catastrophic_stop:
             effective_gate = "STOP"
-            runtime_notes.append("LIGHTでも直近が悪いため、実運用はSTOPに落とします。")
+            runtime_notes.append("LIGHTでも直近がかなり悪いため、実運用はSTOPに落とします。")
+        else:
+            effective_gate = "LIGHT"
 
     allow_long = True
     allow_short = True
 
-    if "LONG_WEAK" in tags:
+    # 片側だけ弱い時は、その側だけ止める
+    if long_weak and effective_gate in ["FULL", "LIGHT"]:
         allow_long = False
         runtime_notes.append("LONG_WEAK のため、今日はロング新規を禁止します。")
 
     max_positions_override = None
-    if "SL_BIASED" in tags and effective_gate in ["FULL", "LIGHT"]:
-        max_positions_override = 1
-        runtime_notes.append("SL偏重のため、同時ポジション数を1に絞ります。")
+    if effective_gate in ["FULL", "LIGHT"]:
+        if sl_biased and recent_breakdown:
+            max_positions_override = 1
+            runtime_notes.append("SL偏重かつ直近悪化のため、同時ポジション数を1に絞ります。")
 
     max_trades_override = None
-    if "OVERTRADING" in tags:
-        if effective_gate == "FULL":
-            max_trades_override = 2
-        elif effective_gate == "LIGHT":
-            max_trades_override = 1
-        runtime_notes.append("OVERTRADING のため、当日回数をさらに絞ります。")
-    elif "TIME_BIASED" in tags:
-        if effective_gate == "FULL":
+    if effective_gate == "FULL":
+        if overtrading and time_biased:
             max_trades_override = 3
-        elif effective_gate == "LIGHT":
+            runtime_notes.append("OVERTRADING + TIME_BIASED のため、当日回数を3回までに抑えます。")
+        elif overtrading:
+            max_trades_override = 4
+            runtime_notes.append("OVERTRADING のため、当日回数を4回までに抑えます。")
+        elif time_biased:
+            max_trades_override = 4
+            runtime_notes.append("TIME_BIASED のため、当日回数を4回までに抑えます。")
+    elif effective_gate == "LIGHT":
+        if overtrading and time_biased:
+            max_trades_override = 1
+            runtime_notes.append("OVERTRADING + TIME_BIASED のため、当日回数を1回までに絞ります。")
+        elif overtrading or time_biased:
             max_trades_override = 2
-        runtime_notes.append("TIME_BIASED のため、回数を少し抑えます。")
+            runtime_notes.append("直近悪化を考慮して、当日回数を2回までに絞ります。")
 
     max_hold_bars_cap = None
-    if "TIME_BIASED" in tags:
-        max_hold_bars_cap = 6
-        runtime_notes.append("TIME_BIASED のため、最大保有を6本までに短縮します。")
+    if effective_gate in ["FULL", "LIGHT"] and time_biased:
+        if effective_gate == "FULL":
+            max_hold_bars_cap = 8
+            runtime_notes.append("TIME_BIASED のため、最大保有を8本までに短縮します。")
+        else:
+            max_hold_bars_cap = 6
+            runtime_notes.append("TIME_BIASED のため、最大保有を6本までに短縮します。")
 
     return {
         "original_gate_level": morning_gate,
@@ -494,6 +544,9 @@ def _build_gate_reason_suffix(runtime_control: Dict[str, Any]) -> str:
 
     if rc.get("allow_long") is False and rc.get("allow_short", True):
         lines.append("【実運用調整】LONG_WEAK のためロング新規を禁止")
+
+    if rc.get("allow_short") is False and rc.get("allow_long", True):
+        lines.append("【実運用調整】SHORT側が弱いためショート新規を禁止")
 
     if rc.get("max_positions_override") is not None:
         lines.append(f"【実運用調整】同時ポジション上限={_safe_int(rc.get('max_positions_override'), 1)}")
@@ -635,7 +688,6 @@ def run():
             new_rules[key] = prev_rules[key]
 
     state.rules = new_rules
-
     state.gate_level = str(effective_gate_level)
 
     if not (state.gate_reason or "").strip():
