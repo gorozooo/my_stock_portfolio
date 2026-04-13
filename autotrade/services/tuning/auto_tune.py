@@ -1,5 +1,5 @@
 """
-[FILE] autotrade/services/tuning/auto_tune.py
+[FILE] auto_tune.py
 [PATH] <project_root>/autotrade/services/tuning/auto_tune.py
 
 このファイルは何？
@@ -17,6 +17,11 @@
   - 旧ACTIVEより良い候補があれば 1つだけ残す
   - それ以外は RETIRED に寄せる
 - 候補評価中に DailyState を壊さないよう、state を退避→復元する
+
+今回の追加修正：
+- recent_diagnosis.build_recent_diagnosis() の実引数に合わせて、
+  user= を渡さないよう修正
+- EOD では include_today=True、MORNING では include_today=False に修正
 """
 
 from __future__ import annotations
@@ -34,6 +39,7 @@ from autotrade.models import AutoTradeDailyState, AutoTradeSettingSnapshot
 from autotrade.services.common.guards import is_emergency_stopped
 from autotrade.services.backtest.runner import run_detailed_backtests_for_universe
 from autotrade.services.tuning.recent_diagnosis import build_recent_diagnosis as diagnose_recent_execution_regime
+
 
 _GATE_RANK = {"STOP": 0, "LIGHT": 1, "FULL": 2}
 
@@ -757,14 +763,14 @@ def auto_tune_generate_candidate(
     base_score = _aggregate_score(base_metrics, windows=list(windows))
     base_params = _extract_breakout_params(active)
 
-    diagnosis = diagnose_recent_execution_regime(
-        user=active.user,
+    raw_diagnosis = diagnose_recent_execution_regime(
         as_of_date=target_date,
         phase=phase,
-        include_today=False,
+        include_today=(phase == "EOD"),
         mode="PAPER",
         strategy="BREAKOUT",
     )
+    diagnosis = raw_diagnosis if isinstance(raw_diagnosis, dict) else {}
 
     base_pack = {
         "gate_level": str(gate_bundle.get("final_level") or "STOP").upper().strip(),
