@@ -1,16 +1,18 @@
-# =========================================================
-# [FILE] autotrade/jobs/intraday_trade.py
-# [PATH] <project_root>/autotrade/jobs/intraday_trade.py
-#
-# このファイルは何？
-# - 場中（毎分）に動く「デモトレード（PAPER）執行ジョブ」です。
-#
-# 今回の変更：
-# - dashboard からの execution_mode（PAPER / LIVE）を読む
-# - ただし LIVE は現段階では安全装置で停止し、live_logs に理由だけ残す
-# - fake LIVE（本番のふりをしたPAPER記録）を絶対に作らない
-# - recent diagnosis による実運用調整（LIGHT/STOP落とし、方向制限、回数制限、保有短縮）を反映
-# =========================================================
+"""
+[FILE] intraday_trade.py
+[PATH] <project_root>/autotrade/jobs/intraday_trade.py
+
+このファイルは何？
+- 場中（毎分）に動く「デモトレード（PAPER）執行ジョブ」です。
+- 朝に decide_strategy が決めた rules/runtime を実際の執行へ反映します。
+
+今回の変更：
+- dashboard / decide_strategy で保存された runtime override を実際の場中執行に反映
+- effective_gate_level（FULL/LIGHT/STOP）を優先して使う
+- max_trades_override / max_positions_override / max_hold_bars_cap を反映
+- allow_long / allow_short を新規注文作成・約定時の両方で反映
+- 画面表示だけでなく、実際の執行が runtime に従うようにする
+"""
 
 from __future__ import annotations
 
@@ -79,6 +81,22 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
         return float(default)
 
 
+def _safe_bool(x: Any, default: bool = False) -> bool:
+    try:
+        if isinstance(x, bool):
+            return x
+        if x is None:
+            return default
+        s = str(x).strip().lower()
+        if s in {"1", "true", "yes", "on"}:
+            return True
+        if s in {"0", "false", "no", "off"}:
+            return False
+        return bool(x)
+    except Exception:
+        return bool(default)
+
+
 def _get_active_snapshot() -> Optional[AutoTradeSettingSnapshot]:
     return (
         AutoTradeSettingSnapshot.objects
@@ -95,6 +113,30 @@ def _get_today_picks_from_state(state: AutoTradeDailyState) -> List[str]:
     return picks
 
 
+def _get_rules_dict(state: AutoTradeDailyState) -> Dict[str, Any]:
+    return state.rules if isinstance(state.rules, dict) else {}
+
+
+def _set_rules_dict(state: AutoTradeDailyState, rules: Dict[str, Any]) -> None:
+    state.rules = rules
+
+
+def _get_runtime_dict(state: AutoTradeDailyState) -> Dict[str, Any]:
+    rules = _get_rules_dict(state)
+    runtime = rules.get("runtime")
+    return runtime if isinstance(runtime, dict) else {}
+
+
+def _get_effective_gate_level(state: AutoTradeDailyState) -> str:
+    runtime = _get_runtime_dict(state)
+    effective = str(runtime.get("effective_gate_level") or state.gate_level or "STOP").upper().strip()
+    if effective not in ["FULL", "LIGHT", "STOP"]:
+        effective = str(state.gate_level or "STOP").upper().strip()
+    if effective not in ["FULL", "LIGHT", "STOP"]:
+        effective = "STOP"
+    return effective
+
+
 def _gate_limits(gate_level: str) -> Tuple[int, int]:
     g = str(gate_level or "STOP").upper().strip()
     if g == "FULL":
@@ -108,6 +150,79 @@ def _gate_limits(gate_level: str) -> Tuple[int, int]:
             int(getattr(settings, "AUTOTRADE_MAX_TRADES_LIGHT", 3)),
         )
     return (0, 0)
+
+
+def _apply_runtime_position_trade_overrides(
+    state: AutoTradeDailyState,
+    *,
+    max_pos: int,
+    max_trades: int,
+) -> Tuple[int, int]:
+    runtime = _get_runtime_dict(state)
+
+    pos_override = runtime.get("max_positions_override")
+    if pos_override is not None:
+        max_pos = max(0, _safe_int(pos_override, max_pos))
+
+    trades_override = runtime.get("max_trades_override")
+    if trades_override is not None:
+        max_trades = max(0, _safe_int(trades_override, max_trades))
+
+    return int(max_pos), int(max_trades)
+
+
+def _apply_runtime_max_hold_cap(state: AutoTradeDailyState, *, max_hold_bars: int) -> int:
+    runtime = _get_runtime_dict(state)
+    cap = runtime.get("max_hold_bars_cap")
+    if cap is None:
+        return int(max_hold_bars)
+
+    cap_i = max(1, _safe_int(cap, max_hold_bars))
+    return int(min(int(max_hold_bars), cap_i))
+
+
+def _runtime_allows_side(state: AutoTradeDailyState, side: str) -> bool:
+    runtime = _get_runtime_dict(state)
+    s = str(side or "").upper().strip()
+
+    allow_long = _safe_bool(runtime.get("allow_long"), True)
+    allow_short = _safe_bool(runtime.get("allow_short"), True)
+
+    if s == "LONG":
+        return bool(allow_long)
+    if s == "SHORT":
+        return bool(allow_short)
+    return False
+
+
+def _maybe_log_runtime_summary(
+    state: AutoTradeDailyState,
+    *,
+    gate_level: str,
+    max_pos: int,
+    max_trades: int,
+    max_hold_bars: int,
+) -> None:
+    rules = _get_rules_dict(state)
+    runtime = _get_runtime_dict(state)
+    if not runtime:
+        return
+
+    if rules.get("paper_runtime_logged_once"):
+        return
+
+    allow_long = _safe_bool(runtime.get("allow_long"), True)
+    allow_short = _safe_bool(runtime.get("allow_short"), True)
+
+    msg = (
+        f"runtime適用: gate={gate_level} / "
+        f"max_pos={max_pos} / max_trades={max_trades} / max_hold_bars={max_hold_bars} / "
+        f"allow_long={'ON' if allow_long else 'OFF'} / "
+        f"allow_short={'ON' if allow_short else 'OFF'}"
+    )
+    _append_mode_log(state, mode="PAPER", msg=msg)
+    rules["paper_runtime_logged_once"] = True
+    _set_rules_dict(state, rules)
 
 
 def _calc_shares(*, equity_yen: int, price: float, stop_pct: float) -> int:
@@ -152,75 +267,12 @@ def _trend_allows(*, snapshot: AutoTradeSettingSnapshot, ticker: str, entry_dt: 
     return False
 
 
-def _get_rules_dict(state: AutoTradeDailyState) -> Dict[str, Any]:
-    return state.rules if isinstance(state.rules, dict) else {}
-
-
-def _set_rules_dict(state: AutoTradeDailyState, rules: Dict[str, Any]) -> None:
-    state.rules = rules
-
-
 def _get_execution_mode_from_state(state: AutoTradeDailyState) -> str:
     rules = _get_rules_dict(state)
     mode = str(rules.get("execution_mode") or "PAPER").upper().strip()
     if mode not in ["PAPER", "LIVE"]:
         mode = "PAPER"
     return mode
-
-
-def _get_runtime_dict(state: AutoTradeDailyState) -> Dict[str, Any]:
-    rules = _get_rules_dict(state)
-    rt = rules.get("runtime")
-    return rt if isinstance(rt, dict) else {}
-
-
-def _get_effective_gate_level(state: AutoTradeDailyState) -> str:
-    rt = _get_runtime_dict(state)
-    lv = str(rt.get("effective_gate_level") or state.gate_level or "STOP").upper().strip()
-    if lv not in ["FULL", "LIGHT", "STOP"]:
-        lv = "STOP"
-    return lv
-
-
-def _get_runtime_limits(state: AutoTradeDailyState, gate_level: str) -> Tuple[int, int]:
-    rules = _get_rules_dict(state)
-
-    risk = rules.get("risk") if isinstance(rules.get("risk"), dict) else {}
-    limits = rules.get("limits") if isinstance(rules.get("limits"), dict) else {}
-
-    pos_from_rules = risk.get("max_positions")
-    trades_from_rules = limits.get("max_trades_per_day")
-
-    if pos_from_rules is not None and trades_from_rules is not None:
-        return (
-            max(0, _safe_int(pos_from_rules, 0)),
-            max(0, _safe_int(trades_from_rules, 0)),
-        )
-
-    return _gate_limits(gate_level)
-
-
-def _runtime_allows_side(state: AutoTradeDailyState, side: str) -> bool:
-    rt = _get_runtime_dict(state)
-    s = str(side or "").upper().strip()
-
-    allow_long = bool(rt.get("allow_long", True))
-    allow_short = bool(rt.get("allow_short", True))
-
-    if s == "LONG":
-        return allow_long
-    if s == "SHORT":
-        return allow_short
-    return False
-
-
-def _runtime_max_hold_bars_cap(state: AutoTradeDailyState) -> Optional[int]:
-    rt = _get_runtime_dict(state)
-    x = rt.get("max_hold_bars_cap")
-    if x is None:
-        return None
-    v = _safe_int(x, 0)
-    return v if v > 0 else None
 
 
 def _append_mode_log(state: AutoTradeDailyState, *, mode: str, msg: str) -> None:
@@ -391,7 +443,7 @@ def run():
 
         exec_mode = _get_execution_mode_from_state(state)
 
-        # LIVE は安全停止
+        # LIVE は現段階では安全装置で停止
         if exec_mode == "LIVE":
             _append_mode_log(
                 state,
@@ -419,17 +471,25 @@ def run():
             return {"ok": True, "skipped": True, "reason": "no_picks"}
 
         gate_level = _get_effective_gate_level(state)
-        max_pos, max_trades = _get_runtime_limits(state, gate_level)
+        max_pos, max_trades = _gate_limits(gate_level)
+        max_pos, max_trades = _apply_runtime_position_trade_overrides(
+            state,
+            max_pos=max_pos,
+            max_trades=max_trades,
+        )
 
         stop_pct = float(_get_stop_pct_breakout_from_snapshot(active))
         lookback_bars = int(_get_lookback_bars_from_snapshot(active))
         max_hold_bars = int(_get_max_hold_bars_from_snapshot(active))
+        max_hold_bars = _apply_runtime_max_hold_cap(state, max_hold_bars=max_hold_bars)
 
-        hold_cap = _runtime_max_hold_bars_cap(state)
-        if hold_cap is not None:
-            max_hold_bars = min(int(max_hold_bars), int(hold_cap))
-            if max_hold_bars < 1:
-                max_hold_bars = 1
+        _maybe_log_runtime_summary(
+            state,
+            gate_level=gate_level,
+            max_pos=max_pos,
+            max_trades=max_trades,
+            max_hold_bars=max_hold_bars,
+        )
 
         rr = _safe_float((active.snapshot or {}).get("rr_breakout"), float(getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0)))
         if rr <= 0.1:
@@ -439,12 +499,6 @@ def run():
 
         positions = _get_open_positions(state)
         pending = _get_pending_orders(state)
-
-        # runtime で禁止された side の pending は掃除
-        for ticker, od in list((pending or {}).items()):
-            side = str((od or {}).get("side") or "").upper().strip()
-            if side in ["LONG", "SHORT"] and not _runtime_allows_side(state, side):
-                pending.pop(str(ticker), None)
 
         if _is_force_close_time(now):
             closed = 0
@@ -554,6 +608,7 @@ def run():
 
                     if not _runtime_allows_side(state, side):
                         pending.pop(str(ticker), None)
+                        _append_mode_log(state, mode="PAPER", msg=f"runtime制限で pending取消：{ticker} {side}")
                         continue
 
                     raw_open = float(cur["open"])
@@ -595,7 +650,6 @@ def run():
                             "rr": float(rr),
                             "lookback_bars": int(lookback_bars),
                             "max_hold_bars": int(max_hold_bars),
-                            "runtime_hold_cap": (int(hold_cap) if hold_cap is not None else None),
                         },
                         "filled_bar_ts": str(cur["ts"]),
                     }
@@ -752,7 +806,7 @@ def run():
             if sig is None:
                 continue
 
-            if not _runtime_allows_side(state, str(sig).upper()):
+            if not _runtime_allows_side(state, sig):
                 continue
 
             pending[t] = {
@@ -777,9 +831,13 @@ def run():
             "ok": True,
             "skipped": False,
             "bar_ts": cur_bar_ts,
+            "effective_gate_level": gate_level,
             "filled": filled,
             "closed": closed,
             "orders_created": created_orders,
             "open_positions": len(positions or {}),
             "pending_orders": len(pending or {}),
+            "max_positions": int(max_pos),
+            "max_trades": int(max_trades),
+            "max_hold_bars": int(max_hold_bars),
         }
