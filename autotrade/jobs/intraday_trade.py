@@ -1,5 +1,5 @@
 # =========================================================
-# [FILE] intraday_trade.py
+# [FILE] autotrade/jobs/intraday_trade.py
 # [PATH] <project_root>/autotrade/jobs/intraday_trade.py
 #
 # このファイルは何？
@@ -9,6 +9,7 @@
 # - dashboard からの execution_mode（PAPER / LIVE）を読む
 # - ただし LIVE は現段階では安全装置で停止し、live_logs に理由だけ残す
 # - fake LIVE（本番のふりをしたPAPER記録）を絶対に作らない
+# - recent diagnosis による実運用調整（LIGHT/STOP落とし、方向制限、回数制限、保有短縮）を反映
 # =========================================================
 
 from __future__ import annotations
@@ -165,6 +166,61 @@ def _get_execution_mode_from_state(state: AutoTradeDailyState) -> str:
     if mode not in ["PAPER", "LIVE"]:
         mode = "PAPER"
     return mode
+
+
+def _get_runtime_dict(state: AutoTradeDailyState) -> Dict[str, Any]:
+    rules = _get_rules_dict(state)
+    rt = rules.get("runtime")
+    return rt if isinstance(rt, dict) else {}
+
+
+def _get_effective_gate_level(state: AutoTradeDailyState) -> str:
+    rt = _get_runtime_dict(state)
+    lv = str(rt.get("effective_gate_level") or state.gate_level or "STOP").upper().strip()
+    if lv not in ["FULL", "LIGHT", "STOP"]:
+        lv = "STOP"
+    return lv
+
+
+def _get_runtime_limits(state: AutoTradeDailyState, gate_level: str) -> Tuple[int, int]:
+    rules = _get_rules_dict(state)
+
+    risk = rules.get("risk") if isinstance(rules.get("risk"), dict) else {}
+    limits = rules.get("limits") if isinstance(rules.get("limits"), dict) else {}
+
+    pos_from_rules = risk.get("max_positions")
+    trades_from_rules = limits.get("max_trades_per_day")
+
+    if pos_from_rules is not None and trades_from_rules is not None:
+        return (
+            max(0, _safe_int(pos_from_rules, 0)),
+            max(0, _safe_int(trades_from_rules, 0)),
+        )
+
+    return _gate_limits(gate_level)
+
+
+def _runtime_allows_side(state: AutoTradeDailyState, side: str) -> bool:
+    rt = _get_runtime_dict(state)
+    s = str(side or "").upper().strip()
+
+    allow_long = bool(rt.get("allow_long", True))
+    allow_short = bool(rt.get("allow_short", True))
+
+    if s == "LONG":
+        return allow_long
+    if s == "SHORT":
+        return allow_short
+    return False
+
+
+def _runtime_max_hold_bars_cap(state: AutoTradeDailyState) -> Optional[int]:
+    rt = _get_runtime_dict(state)
+    x = rt.get("max_hold_bars_cap")
+    if x is None:
+        return None
+    v = _safe_int(x, 0)
+    return v if v > 0 else None
 
 
 def _append_mode_log(state: AutoTradeDailyState, *, mode: str, msg: str) -> None:
@@ -335,8 +391,7 @@ def run():
 
         exec_mode = _get_execution_mode_from_state(state)
 
-        # ★ 安全装置：
-        # LIVE は現段階では実発注層が無いので、絶対に fake LIVE を作らず止める
+        # LIVE は安全停止
         if exec_mode == "LIVE":
             _append_mode_log(
                 state,
@@ -363,12 +418,18 @@ def run():
             _db_retry(lambda: state.save(update_fields=["rules", "updated_at"]))
             return {"ok": True, "skipped": True, "reason": "no_picks"}
 
-        gate_level = str(state.gate_level or "STOP").upper().strip()
-        max_pos, max_trades = _gate_limits(gate_level)
+        gate_level = _get_effective_gate_level(state)
+        max_pos, max_trades = _get_runtime_limits(state, gate_level)
 
         stop_pct = float(_get_stop_pct_breakout_from_snapshot(active))
         lookback_bars = int(_get_lookback_bars_from_snapshot(active))
         max_hold_bars = int(_get_max_hold_bars_from_snapshot(active))
+
+        hold_cap = _runtime_max_hold_bars_cap(state)
+        if hold_cap is not None:
+            max_hold_bars = min(int(max_hold_bars), int(hold_cap))
+            if max_hold_bars < 1:
+                max_hold_bars = 1
 
         rr = _safe_float((active.snapshot or {}).get("rr_breakout"), float(getattr(settings, "AUTOTRADE_RR_BREAKOUT", 2.0)))
         if rr <= 0.1:
@@ -378,6 +439,12 @@ def run():
 
         positions = _get_open_positions(state)
         pending = _get_pending_orders(state)
+
+        # runtime で禁止された side の pending は掃除
+        for ticker, od in list((pending or {}).items()):
+            side = str((od or {}).get("side") or "").upper().strip()
+            if side in ["LONG", "SHORT"] and not _runtime_allows_side(state, side):
+                pending.pop(str(ticker), None)
 
         if _is_force_close_time(now):
             closed = 0
@@ -485,6 +552,10 @@ def run():
                         pending.pop(str(ticker), None)
                         continue
 
+                    if not _runtime_allows_side(state, side):
+                        pending.pop(str(ticker), None)
+                        continue
+
                     raw_open = float(cur["open"])
                     entry_at = cur["dt"]
 
@@ -524,6 +595,7 @@ def run():
                             "rr": float(rr),
                             "lookback_bars": int(lookback_bars),
                             "max_hold_bars": int(max_hold_bars),
+                            "runtime_hold_cap": (int(hold_cap) if hold_cap is not None else None),
                         },
                         "filled_bar_ts": str(cur["ts"]),
                     }
@@ -678,6 +750,9 @@ def run():
 
             sig = _compute_breakout_signal_from_prev_bar(ticker=t, lookback_bars=int(lookback_bars))
             if sig is None:
+                continue
+
+            if not _runtime_allows_side(state, str(sig).upper()):
                 continue
 
             pending[t] = {
