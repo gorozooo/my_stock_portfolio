@@ -1,17 +1,22 @@
 """
-[FILE] auto_tune.py
+[FILE] autotrade/services/tuning/auto_tune.py
 [PATH] <project_root>/autotrade/services/tuning/auto_tune.py
 
 このファイルは何？
 - 自動チューニングの本体です。
 - ACTIVE を基準に複数ノブを一気に試し、その日の候補を作ります。
 
-今回の変更：
-- 直近5営業日 / 10営業日の実Execution診断を取り込みます
-- 「全部試す」は維持しつつ、最近の壊れ方に合う候補へ優先度ボーナスを付けます
-- 朝(MORNING)は良い候補を複数 CANDIDATE に残します
-- 引け後(EOD)は ACTIVE + 朝CANDIDATE を再チューニングし、不要候補は整理します
-- 候補評価中に DailyState を壊さないよう、state を退避→復元します
+今回の修正：
+- 朝（MORNING）:
+  - ACTIVE を基準に全部のノブを試す
+  - 現ACTIVEより良い候補があれば best は 1件だけに固定する
+  - best 以外でも「まだ見込みあり」は複数 CANDIDATE に残せる
+  - ただし tune_selected=True は best の1件だけ
+- 引け後（EOD）:
+  - ACTIVE に加えて、朝の CANDIDATE も再チューニング対象にする
+  - 旧ACTIVEより良い候補があれば 1つだけ残す
+  - それ以外は RETIRED に寄せる
+- 候補評価中に DailyState を壊さないよう、state を退避→復元する
 """
 
 from __future__ import annotations
@@ -28,7 +33,7 @@ from django.utils import timezone
 from autotrade.models import AutoTradeDailyState, AutoTradeSettingSnapshot
 from autotrade.services.common.guards import is_emergency_stopped
 from autotrade.services.backtest.runner import run_detailed_backtests_for_universe
-from autotrade.services.tuning.recent_diagnosis import build_recent_diagnosis
+from autotrade.services.tuning.recent_diagnosis import diagnose_recent_execution_regime
 
 
 _GATE_RANK = {"STOP": 0, "LIGHT": 1, "FULL": 2}
@@ -73,6 +78,10 @@ def _get_active_snapshot() -> Optional[AutoTradeSettingSnapshot]:
 
 
 def _iter_candidate_snapshots_for_date(*, target_date: dt_date) -> List[AutoTradeSettingSnapshot]:
+    """
+    今日の tune 対象として作られた CANDIDATE を Python 側で拾う。
+    SQLite の JSON 条件依存を弱めるため、保守的に Python で判定する。
+    """
     out: List[AutoTradeSettingSnapshot] = []
     for x in AutoTradeSettingSnapshot.objects.filter(status="CANDIDATE").order_by("-id"):
         snap = x.snapshot if isinstance(x.snapshot, dict) else {}
@@ -108,11 +117,17 @@ def _retire_snapshot(snap: AutoTradeSettingSnapshot, *, note: str) -> None:
 
 
 def _clear_phase_generated_candidates(*, target_date: dt_date, phase: str) -> None:
+    """
+    同じ日・同じphaseの再実行で、前回生成分が増殖しないように先に片付ける。
+    """
     for x in _iter_phase_generated_candidates(target_date=target_date, phase=phase):
         _retire_snapshot(x, note=f"clear_previous_{phase.lower()}_generated")
 
 
 def _get_gate_bundle_from_state(state: AutoTradeDailyState) -> Dict[str, Any]:
+    """
+    runner.py が作った gate を読む。
+    """
     bt = state.backtest if isinstance(state.backtest, dict) else {}
     gate = bt.get("gate") if isinstance(bt.get("gate"), dict) else {}
     final = gate.get("final") if isinstance(gate.get("final"), dict) else {}
@@ -159,6 +174,10 @@ def _get_rr_from_snapshot(snapshot: AutoTradeSettingSnapshot) -> float:
 
 
 def _get_baseline_metrics_from_state(state: AutoTradeDailyState, *, windows: List[int]) -> Dict[int, Dict[str, Dict[str, Any]]]:
+    """
+    baseline は state.backtest['by_window'] を読む。
+    morning_prepare 側が先に ACTIVE で固定しておく前提。
+    """
     bt = state.backtest if isinstance(state.backtest, dict) else {}
     by_window = bt.get("by_window") if isinstance(bt.get("by_window"), dict) else {}
 
@@ -183,6 +202,9 @@ def _get_baseline_metrics_from_state(state: AutoTradeDailyState, *, windows: Lis
 
 
 def _aggregate_score(metrics_by_window: Dict[int, Dict[str, Dict[str, Any]]], *, windows: List[int]) -> Dict[str, Any]:
+    """
+    BREAKOUT 一本運用の比較用スコア
+    """
     pnl = 0
     dd_pct = 0.0
     pf = 0.0
@@ -205,7 +227,7 @@ def _aggregate_score(metrics_by_window: Dict[int, Dict[str, Dict[str, Any]]], *,
     }
 
 
-def _build_tune_eval(base: Dict[str, Any], cand: Dict[str, Any], diagnosis: Dict[str, Any]) -> Dict[str, Any]:
+def _build_tune_eval(base: Dict[str, Any], cand: Dict[str, Any]) -> Dict[str, Any]:
     b_gate = str(base.get("gate_level") or "STOP")
     c_gate = str(cand.get("gate_level") or "STOP")
 
@@ -270,12 +292,6 @@ def _build_tune_eval(base: Dict[str, Any], cand: Dict[str, Any], diagnosis: Dict
             "max_dd_pct": float(c_dd - b_dd),
             "pf_avg": float(c_pf - b_pf),
             "trades_sum": int(c_tr - b_tr),
-        },
-        "diagnosis": {
-            "regime_warning": diagnosis.get("regime_warning"),
-            "diagnosis_tags": list(diagnosis.get("diagnosis_tags") or []),
-            "preferred_knobs": list(diagnosis.get("preferred_knobs") or []),
-            "preferred_moves": list(diagnosis.get("preferred_moves") or [])[:8],
         },
         "reasons": reasons,
     }
@@ -389,9 +405,27 @@ def _build_candidate_specs(
     base_params: Dict[str, Any],
     gate_level: str,
     phase: str,
+    diagnosis: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
+    """
+    全ノブを試す。
+    recent diagnosis がある時は preferred_knobs / preferred_moves を優先して並べる。
+    """
     phase = str(phase or "MORNING").upper().strip()
     gate_level = str(gate_level or "STOP").upper().strip()
+    diagnosis = diagnosis if isinstance(diagnosis, dict) else {}
+
+    preferred_knobs = [str(x) for x in (diagnosis.get("preferred_knobs") or []) if str(x).strip()]
+    preferred_moves_raw = diagnosis.get("preferred_moves") or []
+    preferred_moves: Dict[Tuple[str, str], int] = {}
+    for x in preferred_moves_raw:
+        if not isinstance(x, dict):
+            continue
+        knob = str(x.get("knob") or "").strip()
+        prefer = str(x.get("prefer") or "").strip()
+        weight = _safe_int(x.get("weight"), 0)
+        if knob and prefer:
+            preferred_moves[(knob, prefer)] = weight
 
     if phase == "EOD" and gate_level == "STOP":
         rr_step = 0.25
@@ -456,7 +490,7 @@ def _build_candidate_specs(
 
     specs: List[Dict[str, Any]] = []
 
-    def add_spec(knob: str, delta_label: str, params_patch: Dict[str, Any]) -> None:
+    def add_spec(knob: str, delta_label: str, params_patch: Dict[str, Any], move_tag: str = "") -> None:
         params = deepcopy(base_params)
         params.update(params_patch)
         params["rr_breakout"] = clamp_rr(_safe_float(params["rr_breakout"], base_params["rr_breakout"]))
@@ -465,34 +499,47 @@ def _build_candidate_specs(
         params["max_hold_bars"] = clamp_hold(_safe_int(params["max_hold_bars"], base_params["max_hold_bars"]))
         params["sma_days"] = clamp_sma(_safe_int(params["sma_days"], base_params["sma_days"]))
 
-        specs.append(
-            {
-                "knob": knob,
-                "delta_label": delta_label,
-                "params": params,
-            }
-        )
+        pref_weight = preferred_moves.get((knob, move_tag), 0)
+        knob_bias = 1 if knob in preferred_knobs else 0
 
-    add_spec("rr_breakout", f"+{rr_step:.3f}", {"rr_breakout": base_params["rr_breakout"] + rr_step})
-    add_spec("rr_breakout", f"-{rr_step:.3f}", {"rr_breakout": base_params["rr_breakout"] - rr_step})
+        specs.append({
+            "knob": knob,
+            "delta_label": delta_label,
+            "params": params,
+            "pref_weight": pref_weight,
+            "knob_bias": knob_bias,
+        })
 
-    add_spec("stop_pct", f"+{stop_step:.4f}", {"stop_pct": base_params["stop_pct"] + stop_step})
-    add_spec("stop_pct", f"-{stop_step:.4f}", {"stop_pct": base_params["stop_pct"] - stop_step})
+    add_spec("rr_breakout", f"+{rr_step:.3f}", {"rr_breakout": base_params["rr_breakout"] + rr_step}, "UP")
+    add_spec("rr_breakout", f"-{rr_step:.3f}", {"rr_breakout": base_params["rr_breakout"] - rr_step}, "DOWN")
 
-    add_spec("lookback_bars", f"+{lookback_step}", {"lookback_bars": base_params["lookback_bars"] + lookback_step})
-    add_spec("lookback_bars", f"-{lookback_step}", {"lookback_bars": base_params["lookback_bars"] - lookback_step})
+    add_spec("stop_pct", f"+{stop_step:.4f}", {"stop_pct": base_params["stop_pct"] + stop_step}, "UP")
+    add_spec("stop_pct", f"-{stop_step:.4f}", {"stop_pct": base_params["stop_pct"] - stop_step}, "DOWN")
 
-    add_spec("max_hold_bars", f"+{hold_step}", {"max_hold_bars": base_params["max_hold_bars"] + hold_step})
-    add_spec("max_hold_bars", f"-{hold_step}", {"max_hold_bars": base_params["max_hold_bars"] - hold_step})
+    add_spec("lookback_bars", f"+{lookback_step}", {"lookback_bars": base_params["lookback_bars"] + lookback_step}, "UP")
+    add_spec("lookback_bars", f"-{lookback_step}", {"lookback_bars": base_params["lookback_bars"] - lookback_step}, "DOWN")
 
-    add_spec("sma_days", f"+{sma_step}", {"sma_days": base_params["sma_days"] + sma_step})
-    add_spec("sma_days", f"-{sma_step}", {"sma_days": base_params["sma_days"] - sma_step})
+    add_spec("max_hold_bars", f"+{hold_step}", {"max_hold_bars": base_params["max_hold_bars"] + hold_step}, "UP")
+    add_spec("max_hold_bars", f"-{hold_step}", {"max_hold_bars": base_params["max_hold_bars"] - hold_step}, "DOWN")
+
+    add_spec("sma_days", f"+{sma_step}", {"sma_days": base_params["sma_days"] + sma_step}, "UP")
+    add_spec("sma_days", f"-{sma_step}", {"sma_days": base_params["sma_days"] - sma_step}, "DOWN")
 
     toggled_filter = "OFF" if str(base_params["daily_filter"]).upper() == "SMA" else "SMA"
-    add_spec("daily_filter", f"{base_params['daily_filter']}→{toggled_filter}", {"daily_filter": toggled_filter})
+    add_spec(
+        "daily_filter",
+        f"{base_params['daily_filter']}→{toggled_filter}",
+        {"daily_filter": toggled_filter},
+        "TO_SMA" if toggled_filter == "SMA" else "TO_OFF",
+    )
 
     toggled_direction = "BOTH" if str(base_params["direction"]).upper() == "TREND_ONLY" else "TREND_ONLY"
-    add_spec("direction", f"{base_params['direction']}→{toggled_direction}", {"direction": toggled_direction})
+    add_spec(
+        "direction",
+        f"{base_params['direction']}→{toggled_direction}",
+        {"direction": toggled_direction},
+        "TO_TREND_ONLY" if toggled_direction == "TREND_ONLY" else "TO_BOTH",
+    )
 
     seen = set()
     uniq: List[Dict[str, Any]] = []
@@ -503,11 +550,26 @@ def _build_candidate_specs(
         seen.add(key)
         uniq.append(spec)
 
+    uniq.sort(
+        key=lambda x: (
+            _safe_int(x.get("pref_weight"), 0),
+            _safe_int(x.get("knob_bias"), 0),
+        ),
+        reverse=True,
+    )
     return uniq
 
 
 def _rank_tuple(pack: Dict[str, Any]) -> Tuple[int, int, int, int, int]:
-    score = pack.get("score") if isinstance(pack.get("score"), dict) else {}
+    """
+    比較優先度
+    1) gate
+    2) PF
+    3) 損益
+    4) DD（小さい方がよい）
+    5) 取引回数
+    """
+    score = pack.get("score") or {}
     gate_level = str(pack.get("gate_level") or "STOP").upper().strip()
 
     pf_score = int(round(_safe_float(score.get("pf_avg"), 0.0) * 1000.0))
@@ -525,6 +587,9 @@ def _rank_tuple(pack: Dict[str, Any]) -> Tuple[int, int, int, int, int]:
 
 
 def _is_better(base: Dict[str, Any], cand: Dict[str, Any]) -> bool:
+    """
+    旧ACTIVEより良いか
+    """
     b = base.get("score") or {}
     c = cand.get("score") or {}
 
@@ -544,6 +609,9 @@ def _is_better(base: Dict[str, Any], cand: Dict[str, Any]) -> bool:
 
 
 def _is_reasonable_candidate(base: Dict[str, Any], cand: Dict[str, Any]) -> bool:
+    """
+    朝に複数 CANDIDATE を残すための「まだ見込みあり」判定
+    """
     b_gate = str(base.get("gate_level") or "STOP").upper().strip()
     c_gate = str(cand.get("gate_level") or "STOP").upper().strip()
 
@@ -629,54 +697,6 @@ def _restore_state(state: AutoTradeDailyState, orig: Dict[str, Any]) -> None:
     state.save(update_fields=["backtest", "gate_level", "gate_reason", "strategy", "strategy_decision", "updated_at"])
 
 
-def _spec_matches_prefer(delta_label: str, prefer: str) -> bool:
-    dl = str(delta_label or "")
-    pf = str(prefer or "").upper().strip()
-
-    if pf == "UP":
-        return dl.startswith("+")
-    if pf == "DOWN":
-        return dl.startswith("-")
-    if pf == "TO_SMA":
-        return ("→SMA" in dl) or ("->SMA" in dl)
-    if pf == "TO_OFF":
-        return ("→OFF" in dl) or ("->OFF" in dl)
-    if pf == "TO_TREND_ONLY":
-        return ("→TREND_ONLY" in dl) or ("->TREND_ONLY" in dl)
-    if pf == "TO_BOTH":
-        return ("→BOTH" in dl) or ("->BOTH" in dl)
-    return False
-
-
-def _spec_preference_bonus(spec: Dict[str, Any], diagnosis: Dict[str, Any]) -> int:
-    knob = str(spec.get("knob") or "")
-    delta_label = str(spec.get("delta_label") or "")
-    bonus = 0
-
-    for row in list(diagnosis.get("preferred_moves") or []):
-        if str(row.get("knob") or "") != knob:
-            continue
-        if _spec_matches_prefer(delta_label, str(row.get("prefer") or "")):
-            bonus += max(1, _safe_int(row.get("weight"), 0))
-
-    return int(bonus)
-
-
-def _row_rank_tuple(row: Dict[str, Any]) -> Tuple[int, int, int, int, int, int]:
-    pack = row.get("pack") if isinstance(row.get("pack"), dict) else {}
-    core = _rank_tuple(pack)
-    diagnosis_bonus = _safe_int(row.get("diagnosis_bonus"), 0)
-
-    return (
-        core[0],
-        diagnosis_bonus,
-        core[1],
-        core[2],
-        core[3],
-        core[4],
-    )
-
-
 @transaction.atomic
 def auto_tune_generate_candidate(
     *,
@@ -730,6 +750,7 @@ def auto_tune_generate_candidate(
             improved=False,
         )
 
+    # 同phaseの古い生成物は先に片付ける
     _clear_phase_generated_candidates(target_date=target_date, phase=phase)
 
     gate_bundle = _get_gate_bundle_from_state(state)
@@ -737,12 +758,13 @@ def auto_tune_generate_candidate(
     base_score = _aggregate_score(base_metrics, windows=list(windows))
     base_params = _extract_breakout_params(active)
 
-    diagnosis = build_recent_diagnosis(
-        target_date=target_date,
+    diagnosis = diagnose_recent_execution_regime(
+        user=active.user,
+        as_of_date=target_date,
         phase=phase,
+        include_today=False,
         mode="PAPER",
         strategy="BREAKOUT",
-        base_equity_yen=int(base_params.get("base_equity_yen") or getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)),
     )
 
     base_pack = {
@@ -751,16 +773,19 @@ def auto_tune_generate_candidate(
         "params": base_params,
         "active_snapshot_id": int(active.id),
         "diagnosis_tags": list(diagnosis.get("diagnosis_tags") or []),
-        "regime_warning": str(diagnosis.get("regime_warning") or "NORMAL"),
+        "regime_warning": str(diagnosis.get("regime_warning") or ""),
     }
 
+    # チューニング元
     source_snapshots: List[AutoTradeSettingSnapshot] = [active]
     if phase == "EOD":
+        # 朝に残した CANDIDATE も再チューニング対象
         for cand in _iter_candidate_snapshots_for_date(target_date=target_date):
             if cand.id == active.id:
                 continue
             source_snapshots.append(cand)
 
+    # 重複排除
     uniq_sources: List[AutoTradeSettingSnapshot] = []
     seen_source_ids = set()
     for s in source_snapshots:
@@ -774,7 +799,6 @@ def auto_tune_generate_candidate(
     candidate_rows: List[Dict[str, Any]] = []
 
     orig_state = _snapshot_state_for_restore(state)
-    seen_generated_param_keys = set()
 
     try:
         for source in source_snapshots:
@@ -783,14 +807,10 @@ def auto_tune_generate_candidate(
                 base_params=source_params,
                 gate_level=str(gate_bundle.get("final_level") or "STOP"),
                 phase=phase,
+                diagnosis=diagnosis,
             )
 
             for idx, spec in enumerate(specs, 1):
-                pkey = _params_key(spec["params"])
-                if pkey in seen_generated_param_keys:
-                    continue
-                seen_generated_param_keys.add(pkey)
-
                 snap_dict = source.snapshot if isinstance(source.snapshot, dict) else {}
                 new_snap = _apply_breakout_params(snap_dict, spec["params"])
 
@@ -834,36 +854,24 @@ def auto_tune_generate_candidate(
 
                 better = _is_better(base_pack, cand_pack)
                 reasonable = _is_reasonable_candidate(base_pack, cand_pack)
-                diagnosis_bonus = _spec_preference_bonus(spec, diagnosis)
 
                 snap_now = cand.snapshot if isinstance(cand.snapshot, dict) else {}
-                tune_eval = _build_tune_eval(base_pack, cand_pack, diagnosis)
-                tune_eval["improved_vs_active"] = bool(better)
-                tune_eval["reasonable_candidate"] = bool(reasonable)
-                tune_eval["diagnosis_bonus"] = int(diagnosis_bonus)
-                snap_now["tune_eval"] = tune_eval
+                snap_now["tune_eval"] = _build_tune_eval(base_pack, cand_pack)
+                snap_now["tune_eval"]["improved_vs_active"] = bool(better)
+                snap_now["tune_eval"]["reasonable_candidate"] = bool(reasonable)
+                snap_now["diagnosis"] = diagnosis
                 cand.snapshot = snap_now
                 cand.save(update_fields=["snapshot"])
 
-                candidate_rows.append(
-                    {
-                        "cand": cand,
-                        "pack": cand_pack,
-                        "better": bool(better),
-                        "reasonable": bool(reasonable),
-                        "diagnosis_bonus": int(diagnosis_bonus),
-                    }
-                )
+                candidate_rows.append({
+                    "cand": cand,
+                    "pack": cand_pack,
+                    "better": bool(better),
+                    "reasonable": bool(reasonable),
+                })
 
     finally:
         _restore_state(state, orig_state)
-
-    if phase == "EOD":
-        for src in source_snapshots:
-            if src.id == active.id:
-                continue
-            if src.status == "CANDIDATE":
-                _retire_snapshot(src, note="eod_source_consumed_by_retune")
 
     if not candidate_rows:
         return AutoTuneResult(
@@ -879,9 +887,9 @@ def auto_tune_generate_candidate(
         )
 
     improved_rows = [x for x in candidate_rows if x["better"]]
-    sorted_rows = sorted(candidate_rows, key=_row_rank_tuple, reverse=True)
+    sorted_rows = sorted(candidate_rows, key=lambda x: _rank_tuple(x["pack"]), reverse=True)
 
-    best_improved_row = max(improved_rows, key=_row_rank_tuple) if improved_rows else None
+    best_improved_row = max(improved_rows, key=lambda x: _rank_tuple(x["pack"])) if improved_rows else None
     improved = bool(best_improved_row)
 
     retained_rows: List[Dict[str, Any]] = []
@@ -890,15 +898,13 @@ def auto_tune_generate_candidate(
         keep_max = int(getattr(settings, "AUTOTRADE_MORNING_CANDIDATE_KEEP_MAX", 3))
 
         seen_ids = set()
-        for row in sorted(improved_rows, key=_row_rank_tuple, reverse=True):
-            cid = int(row["cand"].id)
-            if cid in seen_ids:
-                continue
-            retained_rows.append(row)
-            seen_ids.add(cid)
-            if len(retained_rows) >= keep_max:
-                break
 
+        # 1) 改善 best は 1件だけ先頭で残す
+        if best_improved_row is not None:
+            retained_rows.append(best_improved_row)
+            seen_ids.add(int(best_improved_row["cand"].id))
+
+        # 2) 残り枠は reasonable 候補だけ
         if len(retained_rows) < keep_max:
             for row in sorted_rows:
                 cid = int(row["cand"].id)
@@ -910,34 +916,54 @@ def auto_tune_generate_candidate(
                 seen_ids.add(cid)
                 if len(retained_rows) >= keep_max:
                     break
+
     else:
+        # 引け後は「旧ACTIVEを超えた最良1件」だけ残す
         if best_improved_row is not None:
             retained_rows = [best_improved_row]
         else:
             retained_rows = []
 
     retained_ids = [int(x["cand"].id) for x in retained_rows]
-    best_candidate_id = int(best_improved_row["cand"].id) if best_improved_row is not None else None
+    selected_candidate_id = int(best_improved_row["cand"].id) if best_improved_row is not None else None
 
     for row in candidate_rows:
         cand = row["cand"]
         snap_now = cand.snapshot if isinstance(cand.snapshot, dict) else {}
+        cid = int(cand.id)
 
-        if int(cand.id) in retained_ids:
+        if cid in retained_ids:
             cand.status = "CANDIDATE"
-            snap_now["tune_selected"] = True
-            snap_now["tune_improved"] = bool(row["better"])
+            snap_now["tune_retained"] = True
+
+            if selected_candidate_id is not None and cid == selected_candidate_id:
+                snap_now["tune_selected"] = True
+                snap_now["tune_improved"] = True
+            else:
+                snap_now["tune_selected"] = False
+                snap_now["tune_improved"] = bool(row["better"])
+
             cand.snapshot = snap_now
             cand.save(update_fields=["status", "snapshot"])
         else:
             cand.status = "RETIRED"
+            snap_now["tune_retained"] = False
             snap_now["tune_selected"] = False
             snap_now["tune_rejected"] = True
             cand.snapshot = snap_now
             cand.save(update_fields=["status", "snapshot"])
 
-    best_pack = best_improved_row["pack"] if best_improved_row is not None else {}
-    reason = "best_candidate_ready" if best_improved_row is not None else "no_better_candidate"
+    if best_improved_row is not None:
+        reason = "best_candidate_ready"
+        best_pack = best_improved_row["pack"]
+        best_candidate_id = selected_candidate_id
+    else:
+        if phase == "MORNING" and retained_rows:
+            reason = "reasonable_candidates_retained"
+        else:
+            reason = "no_better_candidate"
+        best_pack = {}
+        best_candidate_id = None
 
     return AutoTuneResult(
         ok=True,
