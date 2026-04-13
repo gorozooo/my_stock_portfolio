@@ -98,13 +98,13 @@ def build_rules_for_today(
         pos_limit = max(1, int(getattr(settings, "AUTOTRADE_MAX_POSITIONS_LIGHT", 1)))
         trade_limit = max(1, int(getattr(settings, "AUTOTRADE_MAX_TRADES_LIGHT", max(1, max_trades // 2))))
         mode_label = "軽い運用（慎重）"
-        gate_note = "中長期の成績に不安があるので、枚数と回数を減らして慎重に動かします。"
+        gate_note = "直近が弱めなので、枚数と回数を落として慎重に動かします。"
     else:  # STOP
         lot_multiplier = 0.0
         pos_limit = 0
         trade_limit = 0
         mode_label = "停止"
-        gate_note = "直近の成績が不安定なので、今日は自動売買しません。"
+        gate_note = "直近の成績がかなり不安定なので、今日は自動売買しません。"
 
     # --------------------------------------------------------
     # recent diagnosis による runtime 補正
@@ -135,6 +135,9 @@ def build_rules_for_today(
         runtime_notes.append("直近ではショート側が弱いため、今日はショート新規を止めます。")
     elif not allow_long and not allow_short:
         runtime_notes.append("方向優位が見えないため、今日は新規建てを止めます。")
+
+    if max_positions_override is not None:
+        runtime_notes.append(f"直近の悪化を考慮して、同時ポジション上限を {pos_limit} に絞ります。")
 
     if max_trades_override is not None:
         runtime_notes.append(f"直近の回しすぎ傾向を考慮して、当日回数上限を {trade_limit} 回に絞ります。")
