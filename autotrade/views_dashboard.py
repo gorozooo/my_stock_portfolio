@@ -24,6 +24,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest
 from django.shortcuts import render
 from django.utils import timezone
+from django.conf import settings
 
 from .models import AutoTradeDailyState, AutoTradeSettingSnapshot
 from .views_utils import get_nested_dict
