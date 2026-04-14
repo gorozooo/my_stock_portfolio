@@ -1,12 +1,12 @@
 //
-// [FILE] static/autotrade/dashboard.js
+// [FILE] dashboard.js
 // [PATH] <project_root>/static/autotrade/dashboard.js
 //
 // このファイルは何？
-// - 新ダッシュボードのフロント操作を担当します。
-// - 横スワイプのタブ連動
-// - DEMO / LIVE モード切替
-// - 非常停止ボタン
+// - ダッシュボードのフロント操作を担当します。
+// - DEMO / LIVE 切替
+// - 非常停止
+// - 横スワイプナビの切替表示
 //
 
 (() => {
@@ -33,62 +33,53 @@
     return { res, data };
   };
 
-  // =====================================
-  // 横スワイプ + タブ連動
-  // =====================================
-  const swiper = document.querySelector(".js-dash-swiper");
-  const navButtons = Array.from(document.querySelectorAll(".js-dash-nav-btn"));
+  // ========================================================
+  // 横スワイプナビ
+  // ========================================================
+  const swipe = document.getElementById("dashboardSwipe");
+  const navButtons = Array.from(document.querySelectorAll(".js-dashboard-nav-btn"));
 
-  const setActiveTab = (index) => {
-    navButtons.forEach((btn, i) => {
-      btn.classList.toggle("is-active", i === index);
-    });
-  };
-
-  navButtons.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      if (!swiper) return;
-      const page = parseInt(btn.getAttribute("data-page") || "0", 10);
-      const target = swiper.querySelector(`.autodash-page[data-page="${page}"]`);
-      if (!target) return;
-
-      target.scrollIntoView({
-        behavior: "smooth",
-        inline: "start",
-        block: "nearest",
+  if (swipe && navButtons.length) {
+    const setActive = (index) => {
+      navButtons.forEach((btn, i) => {
+        btn.classList.toggle("is-active", i === index);
       });
-      setActiveTab(page);
-    });
-  });
-
-  if (swiper) {
-    let ticking = false;
-
-    const updateFromScroll = () => {
-      const pages = Array.from(swiper.querySelectorAll(".autodash-page"));
-      if (!pages.length) return;
-
-      const left = swiper.scrollLeft;
-      const width = swiper.clientWidth || 1;
-      const index = Math.round(left / width);
-      setActiveTab(Math.max(0, Math.min(index, pages.length - 1)));
     };
 
-    swiper.addEventListener("scroll", () => {
+    navButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.getAttribute("data-index") || "0");
+        const target = swipe.querySelector(`.atx-panel[data-panel-index="${idx}"]`);
+        if (!target) return;
+
+        target.scrollIntoView({
+          behavior: "smooth",
+          inline: "start",
+          block: "nearest",
+        });
+        setActive(idx);
+      });
+    });
+
+    let ticking = false;
+    const onSwipeScroll = () => {
       if (ticking) return;
       ticking = true;
+
       window.requestAnimationFrame(() => {
-        updateFromScroll();
+        const width = swipe.clientWidth || 1;
+        const idx = Math.round(swipe.scrollLeft / width);
+        setActive(idx);
         ticking = false;
       });
-    }, { passive: true });
+    };
 
-    updateFromScroll();
+    swipe.addEventListener("scroll", onSwipeScroll, { passive: true });
   }
 
-  // =====================================
+  // ========================================================
   // Execution Mode Button
-  // =====================================
+  // ========================================================
   const modeButtons = Array.from(document.querySelectorAll(".js-mode-btn"));
   modeButtons.forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -127,9 +118,9 @@
     });
   });
 
-  // =====================================
+  // ========================================================
   // Emergency Stop Button
-  // =====================================
+  // ========================================================
   const btnStop = document.getElementById("btnStop");
   if (btnStop) {
     const url = btnStop.getAttribute("data-url");
