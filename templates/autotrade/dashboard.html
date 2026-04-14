@@ -3,14 +3,9 @@
 [PATH] <project_root>/templates/autotrade/dashboard.html
 
 このファイルは何？
-- AutoTrade の新ダッシュボードです。
-- 上部は固定の要約、下は横スワイプ4面で役割を分けて表示します。
-
-今回の設計：
-- 1面目：今日の運用
-- 2面目：通算成績
-- 3面目：診断と補正
-- 4面目：操作と履歴
+- AutoTrade の新ダッシュボード画面です。
+- 縦に全部並べるのではなく、「今日の運用 / 通算 / 診断 / 操作」を横スワイプで切り替える司令塔です。
+- DEMO / LIVE の通算成績を、日付が変わっても消えない形で表示します。
 -->
 {% extends "base.html" %}
 {% load humanize %}
@@ -18,319 +13,456 @@
 {% block title %}AutoTrade Dashboard{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'autotrade/dashboard.css' %}?v=10">
+<link rel="stylesheet" href="{% static 'autotrade/dashboard.css' %}?v=7">
 {% endblock %}
 
 {% block content %}
-<div class="autodash-wrap">
+<div class="atx-wrap">
 
-  <section class="autodash-hero">
-    <div class="autodash-hero-top">
-      <div>
-        <h1 class="autodash-title">AutoTrade Dashboard</h1>
-        <div class="autodash-subtitle">
-          「今日」と「通算」を分けて表示しています。通算は日付が変わってもリセットされません。
+  <section class="atx-hero">
+    <div class="atx-hero-top">
+      <div class="atx-hero-copy">
+        <div class="atx-title">AutoTrade Commander</div>
+        <div class="atx-subtitle">
+          「今日の運用」と「{{ current_mode_label }}通算」を分けて表示します。通算は日付が変わってもリセットされません。
         </div>
       </div>
 
-      <div class="autodash-badge {{ hero.badge_class }}">
-        {{ hero.gate_label }}
+      <div class="atx-gate-badge {{ runtime_view.effective_gate_class }}">
+        <span class="atx-gate-dot"></span>
+        実運用 {{ runtime_view.effective_gate_level }}
       </div>
     </div>
 
-    <div class="autodash-hero-card">
-      <div class="autodash-hero-label">まずここだけ見ればOK</div>
-      <div class="autodash-hero-headline">{{ hero.headline }}</div>
-
-      <div class="autodash-hero-grid">
-        <div class="autodash-kpi">
-          <div class="autodash-kpi-label">現在モード</div>
-          <div class="autodash-kpi-value">{{ hero.current_mode_display }}</div>
-        </div>
-
-        <div class="autodash-kpi">
-          <div class="autodash-kpi-label">通算総資産</div>
-          <div class="autodash-kpi-value">{{ mode_summary.cumulative_equity_yen|intcomma }} 円</div>
-        </div>
-
-        <div class="autodash-kpi">
-          <div class="autodash-kpi-label">通算損益</div>
-          <div class="autodash-kpi-value {% if mode_summary.all.pnl_sum_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
-            {{ mode_summary.all.pnl_sum_yen|intcomma }} 円
-          </div>
-        </div>
-
-        <div class="autodash-kpi">
-          <div class="autodash-kpi-label">今日の損益</div>
-          <div class="autodash-kpi-value {% if mode_summary.today.pnl_sum_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
-            {{ mode_summary.today.pnl_sum_yen|intcomma }} 円
-          </div>
+    <div class="atx-hero-grid">
+      <div class="atx-metric-card">
+        <div class="atx-metric-label">{{ current_mode_label }}通算総資産</div>
+        <div class="atx-metric-value">{{ mode_dashboard.cumulative_equity_yen|intcomma }} 円</div>
+        <div class="atx-metric-sub">
+          開始 {{ mode_dashboard.start_text }} ～ 最終更新 {{ mode_dashboard.last_updated_text }}
         </div>
       </div>
 
-      <div class="autodash-chip-row">
-        <div class="autodash-chip">期間 {{ mode_summary.period_text }}</div>
-        <div class="autodash-chip">取引 {{ mode_summary.all.trades }} 回</div>
-        <div class="autodash-chip">勝率 {{ mode_summary.all.win_rate_pct }}%</div>
-        <div class="autodash-chip">PF {{ mode_summary.all.pf }}</div>
-        <div class="autodash-chip">open {{ hero.open_count }}</div>
-        <div class="autodash-chip">pending {{ hero.pending_count }}</div>
+      <div class="atx-metric-card">
+        <div class="atx-metric-label">{{ current_mode_label }}通算損益</div>
+        <div class="atx-metric-value {% if mode_dashboard.cumulative_pnl_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
+          {{ mode_dashboard.cumulative_pnl_yen|intcomma }} 円
+        </div>
+        <div class="atx-metric-sub">
+          取引 {{ mode_dashboard.cumulative_trades }} 回 / 勝率 {{ mode_dashboard.cumulative_win_rate_pct }}%
+        </div>
       </div>
 
-      {% if state.gate_reason %}
-        <div class="autodash-hero-note">
-          {{ state.gate_reason|linebreaksbr }}
+      <div class="atx-metric-card">
+        <div class="atx-metric-label">{{ current_mode_label }}通算PF</div>
+        <div class="atx-metric-value">{{ mode_dashboard.cumulative_pf }}</div>
+        <div class="atx-metric-sub">
+          今日の{{ current_mode_label }}損益
+          <span class="{% if mode_dashboard.today_pnl_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
+            {{ mode_dashboard.today_pnl_yen|intcomma }} 円
+          </span>
         </div>
-      {% endif %}
+      </div>
     </div>
+
+    <div class="atx-command-line">
+      {{ runtime_view.summary_line }}
+    </div>
+
+    <div class="atx-hero-chips">
+      <div class="autotrade-chip">現在モード：{{ current_mode_label }}</div>
+      <div class="autotrade-chip">朝判定：{{ runtime_view.original_gate_level }}</div>
+      <div class="autotrade-chip">実運用：{{ runtime_view.effective_gate_level }}</div>
+      <div class="autotrade-chip">open中：{{ runtime_summary.open_count }}</div>
+      <div class="autotrade-chip">pending：{{ runtime_summary.pending_count }}</div>
+      <div class="autotrade-chip">ログ：{{ runtime_summary.log_count }}</div>
+    </div>
+
+    {% if gate_reason_lines %}
+      <div class="atx-hero-reason">
+        {{ gate_reason_lines.0 }}
+      </div>
+    {% endif %}
   </section>
 
-  <div class="autodash-tabbar">
-    <button type="button" class="autodash-tab is-active js-dash-nav-btn" data-page="0">今日の運用</button>
-    <button type="button" class="autodash-tab js-dash-nav-btn" data-page="1">通算成績</button>
-    <button type="button" class="autodash-tab js-dash-nav-btn" data-page="2">診断と補正</button>
-    <button type="button" class="autodash-tab js-dash-nav-btn" data-page="3">操作と履歴</button>
-  </div>
+  <nav class="atx-nav">
+    <button type="button" class="atx-nav-btn is-active js-dashboard-nav-btn" data-index="0">今日の運用</button>
+    <button type="button" class="atx-nav-btn js-dashboard-nav-btn" data-index="1">通算</button>
+    <button type="button" class="atx-nav-btn js-dashboard-nav-btn" data-index="2">診断</button>
+    <button type="button" class="atx-nav-btn js-dashboard-nav-btn" data-index="3">操作</button>
+  </nav>
 
-  <div class="autodash-swiper js-dash-swiper">
+  <section class="atx-swipe" id="dashboardSwipe">
 
-    <!-- 1面目 -->
-    <section class="autodash-page" data-page="0">
-      <div class="autodash-section-head">
-        <div>
-          <div class="autodash-section-title">今日の運用</div>
-          <div class="autodash-section-sub">今日どう動くかだけを、短く見ます</div>
-        </div>
-      </div>
-
-      <div class="autodash-stat-grid">
-        {% for item in today_panel.summary_cards %}
-          <div class="autodash-stat-card">
-            <div class="autodash-stat-label">{{ item.label }}</div>
-            <div class="autodash-stat-value {{ item.class }}">{{ item.value }}</div>
-            {% if item.sub %}
-              <div class="autodash-stat-sub">{{ item.sub }}</div>
-            {% endif %}
+    <!-- 1面目：今日の運用 -->
+    <article class="atx-panel" data-panel-index="0">
+      <section class="autotrade-card">
+        <div class="autotrade-row">
+          <div>
+            <div class="autotrade-h">今日の運用</div>
+            <div class="autotrade-muted">今日の場中で実際に使う制御だけを表示します</div>
           </div>
-        {% endfor %}
-      </div>
+          <div class="autotrade-pill {{ runtime_view.effective_gate_class }}">
+            実運用 {{ runtime_view.effective_gate_level }}
+          </div>
+        </div>
 
-      <div class="autodash-block">
-        <div class="autodash-block-title">実運用の制御</div>
-        <div class="autodash-mini-grid">
-          {% for item in today_panel.runtime_cards %}
-            <div class="autodash-mini-card">
-              <div class="autodash-mini-label">{{ item.label }}</div>
-              <div class="autodash-mini-value {{ item.class }}">{{ item.value }}</div>
+        <div class="atx-grid-2 atx-mt12">
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">朝判定</div>
+            <div class="atx-mini-value">{{ runtime_view.original_gate_level }}</div>
+          </div>
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">実運用</div>
+            <div class="atx-mini-value {{ runtime_view.effective_gate_class }}">{{ runtime_view.effective_gate_level }}</div>
+          </div>
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">ロング新規</div>
+            <div class="atx-mini-value {% if runtime_view.allow_long %}is-ok{% else %}is-bad{% endif %}">
+              {{ runtime_view.allow_long_label }}
             </div>
+          </div>
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">ショート新規</div>
+            <div class="atx-mini-value {% if runtime_view.allow_short %}is-ok{% else %}is-bad{% endif %}">
+              {{ runtime_view.allow_short_label }}
+            </div>
+          </div>
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">当日回数上限</div>
+            <div class="atx-mini-value">{{ runtime_view.max_trades }}</div>
+          </div>
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">最大保有本数</div>
+            <div class="atx-mini-value">{{ runtime_view.max_hold_bars }}</div>
+          </div>
+        </div>
+
+        <div class="autotrade-note atx-mt12">
+          {{ runtime_view.summary_line }}
+        </div>
+      </section>
+
+      <section class="autotrade-card">
+        <div class="autotrade-row">
+          <div>
+            <div class="autotrade-h">今日の状況</div>
+            <div class="autotrade-muted">当日の動きだけをすぐ確認できます</div>
+          </div>
+        </div>
+
+        <div class="atx-grid-2 atx-mt12">
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">今日の{{ current_mode_label }}損益</div>
+            <div class="atx-mini-value {% if mode_dashboard.today_pnl_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
+              {{ mode_dashboard.today_pnl_yen|intcomma }} 円
+            </div>
+          </div>
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">今日の{{ current_mode_label }}取引</div>
+            <div class="atx-mini-value">{{ mode_dashboard.today_trades }} 回</div>
+          </div>
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">open中</div>
+            <div class="atx-mini-value">{{ runtime_summary.open_count }}</div>
+          </div>
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">pending</div>
+            <div class="atx-mini-value">{{ runtime_summary.pending_count }}</div>
+          </div>
+        </div>
+
+        <div class="atx-rule-strip atx-mt12">
+          <div class="autotrade-chip">1回損失：{{ runtime_view.trade_loss_yen|intcomma }} 円</div>
+          <div class="autotrade-chip">日次損失：{{ runtime_view.day_loss_yen|intcomma }} 円</div>
+          <div class="autotrade-chip">稼働：{{ runtime_view.session_start }}〜{{ runtime_view.session_end }}</div>
+          <div class="autotrade-chip">強制全決済：{{ runtime_view.force_close }}</div>
+          <div class="autotrade-chip">同時ポジ上限：{{ runtime_view.max_positions }}</div>
+        </div>
+      </section>
+
+      <section class="autotrade-card">
+        <div class="autotrade-row">
+          <div>
+            <div class="autotrade-h">いま使っている設定</div>
+            <div class="autotrade-muted">ACTIVE Snapshot の要点だけを表示します</div>
+          </div>
+        </div>
+
+        <div class="autotrade-chips atx-mt12">
+          {% for x in active_summary_chips %}
+            <div class="autotrade-chip autotrade-mono">{{ x }}</div>
           {% endfor %}
         </div>
-      </div>
 
-      <div class="autodash-block">
-        <div class="autodash-block-title">今のACTIVE設定</div>
-        <div class="autodash-chip-row">
-          {% for chip in today_panel.active_summary_chips %}
-            <div class="autodash-chip">{{ chip }}</div>
-          {% endfor %}
-        </div>
-
-        <details class="autodash-details">
-          <summary>詳細を見る</summary>
-          <div class="autodash-chip-row autodash-mt10">
-            {% for chip in today_panel.active_detail_chips %}
-              <div class="autodash-chip autodash-chip-mono">{{ chip }}</div>
+        <details class="atx-mt12">
+          <summary class="autotrade-muted">▶ 詳細キーを見る</summary>
+          <div class="autotrade-chips atx-mt12">
+            {% for x in active_detail_chips %}
+              <div class="autotrade-chip autotrade-mono">{{ x }}</div>
             {% endfor %}
           </div>
         </details>
-      </div>
+      </section>
+    </article>
 
-      <div class="autodash-block">
-        <div class="autodash-block-title">今日の対象銘柄</div>
-        {% if today_panel.picks_preview %}
-          <div class="autodash-list">
-            {% for x in today_panel.picks_preview %}
-              <div class="autodash-list-row">
-                <div class="autodash-list-main">{{ x.ticker }}</div>
-                <div class="autodash-list-sub">{{ x.reason }}</div>
-              </div>
+    <!-- 2面目：通算 -->
+    <article class="atx-panel" data-panel-index="1">
+      <section class="autotrade-card">
+        <div class="autotrade-row">
+          <div>
+            <div class="autotrade-h">{{ current_mode_label }}通算</div>
+            <div class="autotrade-muted">日付が変わっても消えない成績です</div>
+          </div>
+          <div class="autotrade-pill">
+            {{ current_mode_label }}
+          </div>
+        </div>
+
+        <div class="atx-grid-2 atx-mt12">
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">通算損益</div>
+            <div class="atx-mini-value {% if mode_dashboard.cumulative_pnl_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
+              {{ mode_dashboard.cumulative_pnl_yen|intcomma }} 円
+            </div>
+          </div>
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">通算PF</div>
+            <div class="atx-mini-value">{{ mode_dashboard.cumulative_pf }}</div>
+          </div>
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">通算勝率</div>
+            <div class="atx-mini-value">{{ mode_dashboard.cumulative_win_rate_pct }}%</div>
+          </div>
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">通算取引数</div>
+            <div class="atx-mini-value">{{ mode_dashboard.cumulative_trades }} 回</div>
+          </div>
+        </div>
+
+        <div class="autotrade-note atx-mt12">
+          {{ current_mode_label }}通算総資産は
+          <strong>{{ mode_dashboard.cumulative_equity_yen|intcomma }} 円</strong>、
+          今日の想定総資産は
+          <strong>{{ state.equity_yen|default:0|intcomma }} 円</strong>
+          です。
+        </div>
+
+        <div class="atx-meta-row atx-mt12">
+          <div class="atx-meta-card">
+            <div class="atx-mini-label">開始</div>
+            <div class="atx-meta-value">{{ mode_dashboard.start_text }}</div>
+          </div>
+          <div class="atx-meta-card">
+            <div class="atx-mini-label">最終更新</div>
+            <div class="atx-meta-value">{{ mode_dashboard.last_updated_text }}</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="autotrade-card">
+        <div class="autotrade-row">
+          <div>
+            <div class="autotrade-h">直近の流れ</div>
+            <div class="autotrade-muted">通算だけでなく、直近5営業日 / 10営業日も分けて見ます</div>
+          </div>
+        </div>
+
+        <div class="atx-grid-2 atx-mt12">
+          <div class="atx-window-card">
+            <div class="autotrade-row">
+              <div class="autotrade-h">直近5営業日</div>
+              <div class="autotrade-pill {{ mode_dashboard.window_5.judge_class }}">{{ mode_dashboard.window_5.judge_text }}</div>
+            </div>
+            <div class="atx-window-main {% if mode_dashboard.window_5.pnl_sum_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
+              {{ mode_dashboard.window_5.pnl_sum_yen|intcomma }} 円
+            </div>
+            <div class="autotrade-muted">PF {{ mode_dashboard.window_5.pf }} / 勝率 {{ mode_dashboard.window_5.win_rate_pct }}%</div>
+          </div>
+
+          <div class="atx-window-card">
+            <div class="autotrade-row">
+              <div class="autotrade-h">直近10営業日</div>
+              <div class="autotrade-pill {{ mode_dashboard.window_10.judge_class }}">{{ mode_dashboard.window_10.judge_text }}</div>
+            </div>
+            <div class="atx-window-main {% if mode_dashboard.window_10.pnl_sum_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
+              {{ mode_dashboard.window_10.pnl_sum_yen|intcomma }} 円
+            </div>
+            <div class="autotrade-muted">PF {{ mode_dashboard.window_10.pf }} / 勝率 {{ mode_dashboard.window_10.win_rate_pct }}%</div>
+          </div>
+        </div>
+
+        <div class="atx-link-row atx-mt12">
+          <a class="autotrade-linkbtn" href="{% url 'autotrade:execution_report' %}?mode={{ current_mode }}">
+            今日の結果ページ
+          </a>
+          <a class="autotrade-linkbtn" href="{% url 'autotrade:demo_daily_history' %}?mode={{ current_mode }}">
+            日別履歴を見る
+          </a>
+        </div>
+      </section>
+    </article>
+
+    <!-- 3面目：診断 -->
+    <article class="atx-panel" data-panel-index="2">
+      <section class="autotrade-card">
+        <div class="autotrade-row">
+          <div>
+            <div class="autotrade-h">診断と補正</div>
+            <div class="autotrade-muted">朝の見た目判定と、実際の場中制御を分けて確認します</div>
+          </div>
+        </div>
+
+        <div class="atx-grid-2 atx-mt12">
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">朝判定</div>
+            <div class="atx-mini-value {{ runtime_view.original_gate_class }}">{{ runtime_view.original_gate_level }}</div>
+          </div>
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">実運用</div>
+            <div class="atx-mini-value {{ runtime_view.effective_gate_class }}">{{ runtime_view.effective_gate_level }}</div>
+          </div>
+        </div>
+
+        <div class="atx-diagnosis-box atx-mt12">
+          <div class="atx-mini-label">レジーム警告</div>
+          <div class="atx-diagnosis-main {% if runtime_view.regime_warning == 'NORMAL' %}is-ok{% else %}is-warn{% endif %}">
+            {{ runtime_view.regime_warning|default:"-" }}
+          </div>
+        </div>
+
+        {% if runtime_view.diagnosis_tags %}
+          <div class="autotrade-chips atx-mt12">
+            {% for tag in runtime_view.diagnosis_tags %}
+              <div class="autotrade-chip">{{ tag }}</div>
             {% endfor %}
           </div>
-        {% else %}
-          <div class="autodash-empty">まだ準備されていません</div>
         {% endif %}
-      </div>
-    </section>
 
-    <!-- 2面目 -->
-    <section class="autodash-page" data-page="1">
-      <div class="autodash-section-head">
-        <div>
-          <div class="autodash-section-title">通算成績</div>
-          <div class="autodash-section-sub">日付が変わっても消えない、そのモードの累計です</div>
-        </div>
-      </div>
-
-      <div class="autodash-stat-grid">
-        <div class="autodash-stat-card autodash-stat-card-wide">
-          <div class="autodash-stat-label">{{ current_mode_display }}通算総資産</div>
-          <div class="autodash-stat-value">{{ mode_summary.cumulative_equity_yen|intcomma }} 円</div>
-          <div class="autodash-stat-sub">開始 {{ mode_summary.start_text }} 〜 最終更新 {{ mode_summary.end_text }}</div>
-        </div>
-
-        <div class="autodash-stat-card">
-          <div class="autodash-stat-label">{{ current_mode_display }}通算損益</div>
-          <div class="autodash-stat-value {% if mode_summary.all.pnl_sum_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
-            {{ mode_summary.all.pnl_sum_yen|intcomma }} 円
+        {% if runtime_view.runtime_notes %}
+          <div class="atx-note-list-wrap atx-mt12">
+            <div class="atx-mini-label">今日この制御になっている理由</div>
+            <ul class="atx-note-list">
+              {% for x in runtime_view.runtime_notes %}
+                <li>{{ x }}</li>
+              {% endfor %}
+            </ul>
           </div>
-          <div class="autodash-stat-sub">取引 {{ mode_summary.all.trades }} 回</div>
+        {% endif %}
+      </section>
+
+      <section class="autotrade-card">
+        <div class="autotrade-row">
+          <div class="autotrade-h">期間ごとの朝判定</div>
+          <div class="autotrade-muted">朝ジョブが作った基準判定です</div>
         </div>
 
-        <div class="autodash-stat-card">
-          <div class="autodash-stat-label">{{ current_mode_display }}通算勝率</div>
-          <div class="autodash-stat-value">{{ mode_summary.all.win_rate_pct }}%</div>
-          <div class="autodash-stat-sub">稼働日 {{ mode_summary.active_days }} 日</div>
-        </div>
+        <details class="atx-mt12">
+          <summary class="autotrade-muted">▶ 開く</summary>
 
-        <div class="autodash-stat-card">
-          <div class="autodash-stat-label">{{ current_mode_display }}通算PF</div>
-          <div class="autodash-stat-value">{{ mode_summary.all.pf }}</div>
-          <div class="autodash-stat-sub">最大DD {{ mode_summary.all.dd_yen|intcomma }} 円</div>
-        </div>
-
-        <div class="autodash-stat-card">
-          <div class="autodash-stat-label">今日の損益</div>
-          <div class="autodash-stat-value {% if mode_summary.today.pnl_sum_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
-            {{ mode_summary.today.pnl_sum_yen|intcomma }} 円
-          </div>
-          <div class="autodash-stat-sub">今日の取引 {{ mode_summary.today.trades }} 回</div>
-        </div>
-      </div>
-
-      <div class="autodash-block">
-        <div class="autodash-block-title">直近5営業日 / 10営業日</div>
-        <div class="autodash-mini-grid">
-          <div class="autodash-mini-card">
-            <div class="autodash-mini-label">{{ mode_summary.recent_5.label }}</div>
-            <div class="autodash-mini-value {% if mode_summary.recent_5.pnl_sum_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
-              {{ mode_summary.recent_5.pnl_sum_yen|intcomma }} 円
-            </div>
-            <div class="autodash-mini-sub">
-              PF {{ mode_summary.recent_5.pf }} / 勝率 {{ mode_summary.recent_5.win_rate_pct }}%
-            </div>
-          </div>
-
-          <div class="autodash-mini-card">
-            <div class="autodash-mini-label">{{ mode_summary.recent_10.label }}</div>
-            <div class="autodash-mini-value {% if mode_summary.recent_10.pnl_sum_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
-              {{ mode_summary.recent_10.pnl_sum_yen|intcomma }} 円
-            </div>
-            <div class="autodash-mini-sub">
-              PF {{ mode_summary.recent_10.pf }} / 勝率 {{ mode_summary.recent_10.win_rate_pct }}%
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- 3面目 -->
-    <section class="autodash-page" data-page="2">
-      <div class="autodash-section-head">
-        <div>
-          <div class="autodash-section-title">診断と補正</div>
-          <div class="autodash-section-sub">なぜ今日そうなっているかを整理表示します</div>
-        </div>
-      </div>
-
-      <div class="autodash-mini-grid">
-        {% for item in diagnosis_panel.gate_cards %}
-          <div class="autodash-mini-card">
-            <div class="autodash-mini-label">{{ item.label }}</div>
-            <div class="autodash-mini-value">{{ item.value }}</div>
-          </div>
-        {% endfor %}
-      </div>
-
-      {% if diagnosis_panel.regime_warning %}
-        <div class="autodash-block">
-          <div class="autodash-block-title">直近診断</div>
-          <div class="autodash-highlight">{{ diagnosis_panel.regime_warning }}</div>
-          {% if diagnosis_panel.summary_text %}
-            <div class="autodash-block-sub">{{ diagnosis_panel.summary_text }}</div>
-          {% endif %}
-        </div>
-      {% endif %}
-
-      {% if diagnosis_panel.tags %}
-        <div class="autodash-block">
-          <div class="autodash-block-title">タグ</div>
-          <div class="autodash-chip-row">
-            {% for tag in diagnosis_panel.tags %}
-              <div class="autodash-chip">{{ tag }}</div>
-            {% endfor %}
-          </div>
-        </div>
-      {% endif %}
-
-      {% if diagnosis_panel.runtime_notes %}
-        <div class="autodash-block">
-          <div class="autodash-block-title">今日の補正内容</div>
-          <div class="autodash-note-list">
-            {% for note in diagnosis_panel.runtime_notes %}
-              <div class="autodash-note-item">{{ note }}</div>
-            {% endfor %}
-          </div>
-        </div>
-      {% endif %}
-
-      <div class="autodash-block">
-        <div class="autodash-block-title">期間ごとの判定</div>
-        <details class="autodash-details" open>
-          <summary>開く</summary>
-          <div class="autodash-mt10">
-            {% if diagnosis_panel.result_cards %}
-              {% for c in diagnosis_panel.result_cards %}
-                <div class="autodash-result-card">
-                  <div class="autodash-result-top">
-                    <div class="autodash-result-title">{{ c.strategy }} / {{ c.window }}日</div>
-                    <div class="autodash-pill {% if c.level == 'FULL' %}is-ok{% elif c.level == 'LIGHT' %}is-warn{% else %}is-bad{% endif %}">
+          <div class="atx-stack atx-mt12">
+            {% if result_cards %}
+              {% for c in result_cards %}
+                <div class="atx-window-card">
+                  <div class="autotrade-row">
+                    <div class="autotrade-h">{{ c.strategy }} / {{ c.window }}日</div>
+                    <div class="autotrade-pill {% if c.level == 'FULL' %}is-ok{% elif c.level == 'LIGHT' %}is-warn{% else %}is-bad{% endif %}">
                       {{ c.level }}
                     </div>
                   </div>
 
-                  <div class="autodash-result-one">{{ c.one_liner }}</div>
-
-                  <div class="autodash-result-meta">
-                    <div>損益 {{ c.pnl_yen|intcomma }}円</div>
-                    <div>勝率 {{ c.win_rate_pct }}%</div>
-                    <div>PF {{ c.pf }}</div>
-                    <div>最大DD {{ c.dd_yen|intcomma }}円</div>
+                  <div class="atx-window-main {% if c.pnl_yen >= 0 %}is-ok{% else %}is-bad{% endif %}">
+                    {{ c.pnl_yen|intcomma }} 円
                   </div>
+
+                  <div class="autotrade-muted atx-mt8">{{ c.one_liner }}</div>
+
+                  <div class="atx-kv atx-mt8">
+                    <div>N：{{ c.trades }}</div>
+                    <div>勝率：{{ c.win_rate_pct }}%</div>
+                    <div>PF：{{ c.pf }}</div>
+                    <div>最大DD：-{{ c.dd_yen|intcomma }} 円（-{{ c.dd_pct }}%）</div>
+                  </div>
+
+                  {% if c.miss_points %}
+                    <div class="atx-note-list-wrap atx-mt8">
+                      <ul class="atx-note-list">
+                        {% for m in c.miss_points %}
+                          <li>{{ m }}</li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                  {% endif %}
                 </div>
               {% endfor %}
             {% else %}
-              <div class="autodash-empty">まだ評価がありません</div>
+              <div class="autotrade-muted">まだ評価がありません</div>
             {% endif %}
           </div>
         </details>
-      </div>
-    </section>
+      </section>
 
-    <!-- 4面目 -->
-    <section class="autodash-page" data-page="3">
-      <div class="autodash-section-head">
-        <div>
-          <div class="autodash-section-title">操作と履歴</div>
-          <div class="autodash-section-sub">切替、履歴、ログ、停止をまとめています</div>
+      <section class="autotrade-card">
+        <div class="autotrade-row">
+          <div class="autotrade-h">基準値</div>
+          <div class="autotrade-muted">FULL / LIGHT の合格ラインです</div>
         </div>
-      </div>
 
-      <div class="autodash-block">
-        <div class="autodash-block-title">モード切替</div>
-        <div class="autodash-segment">
+        <details class="atx-mt12">
+          <summary class="autotrade-muted">▶ 開く</summary>
+
+          <div class="atx-grid-2 atx-mt12">
+            <div class="atx-window-card">
+              <div class="autotrade-h">FULL</div>
+              <div class="atx-kv atx-mt8">
+                <div>PF：{{ thresholds.FULL.min_pf }} 以上</div>
+                <div>DD：{{ thresholds.FULL.max_dd_pct|floatformat:2 }}% 以内</div>
+                <div>回数：{{ thresholds.FULL.min_trades }} 回以上</div>
+                {% if thresholds.FULL.min_win_rate %}
+                  <div>勝率：{{ thresholds.FULL.min_win_rate_pct }}% 以上</div>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="atx-window-card">
+              <div class="autotrade-h">LIGHT</div>
+              <div class="atx-kv atx-mt8">
+                <div>PF：{{ thresholds.LIGHT.min_pf }} 以上</div>
+                <div>DD：{{ thresholds.LIGHT.max_dd_pct|floatformat:2 }}% 以内</div>
+                <div>回数：{{ thresholds.LIGHT.min_trades }} 回以上</div>
+                {% if thresholds.LIGHT.min_win_rate %}
+                  <div>勝率：{{ thresholds.LIGHT.min_win_rate_pct }}% 以上</div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </details>
+      </section>
+    </article>
+
+    <!-- 4面目：操作 -->
+    <article class="atx-panel" data-panel-index="3">
+      <section class="autotrade-card">
+        <div class="autotrade-row">
+          <div>
+            <div class="autotrade-h">操作</div>
+            <div class="autotrade-muted">モード切替・結果確認・停止をここにまとめます</div>
+          </div>
+        </div>
+
+        <div class="atx-link-row atx-mt12">
+          <a class="autotrade-linkbtn" href="{% url 'autotrade:execution_report' %}?mode={{ current_mode }}">
+            今日の結果ページ
+          </a>
+          <a class="autotrade-linkbtn" href="{% url 'autotrade:demo_daily_history' %}?mode={{ current_mode }}">
+            日別履歴
+          </a>
+        </div>
+
+        <div class="autotrade-segment atx-mt12">
           <button
             type="button"
-            class="autodash-segment-btn js-mode-btn {% if current_mode == 'PAPER' %}is-active{% endif %}"
+            class="autotrade-segment-btn js-mode-btn {% if current_mode == 'PAPER' %}is-active{% endif %}"
             data-url="{% url 'autotrade:api_set_execution_mode' %}"
             data-mode="PAPER"
           >
@@ -339,7 +471,7 @@
 
           <button
             type="button"
-            class="autodash-segment-btn js-mode-btn {% if current_mode == 'LIVE' %}is-active{% endif %}"
+            class="autotrade-segment-btn js-mode-btn {% if current_mode == 'LIVE' %}is-active{% endif %}"
             data-url="{% url 'autotrade:api_set_execution_mode' %}"
             data-mode="LIVE"
           >
@@ -348,65 +480,62 @@
         </div>
 
         {% if current_mode == "LIVE" %}
-          <div class="autodash-note">
-            LIVEは今は準備モードです。安全装置により、現段階では実発注を行いません。
+          <div class="autotrade-note atx-mt12">
+            LIVE は将来の本番運用用です。今は安全装置により、実発注は行いません。
           </div>
         {% else %}
-          <div class="autodash-note">
-            現在は DEMO で稼働中です。通算成績は上段、日別の流れは「日別デモ履歴」で確認できます。
+          <div class="autotrade-note atx-mt12">
+            DEMO は日付が変わっても通算成績が残ります。流れは「通算」と「日別履歴」で確認できます。
           </div>
         {% endif %}
-      </div>
+      </section>
 
-      <div class="autodash-block">
-        <div class="autodash-block-title">移動</div>
-        <div class="autodash-link-grid">
-          <a class="autodash-linkbtn" href="{% url 'autotrade:execution_report' %}?mode={{ current_mode }}">今日の結果ページ</a>
-          <a class="autodash-linkbtn" href="{% url 'autotrade:demo_daily_history' %}">日別デモ履歴</a>
+      <section class="autotrade-card">
+        <div class="autotrade-row">
+          <div class="autotrade-h">いまの稼働状況</div>
+          <div class="autotrade-muted">open / pending / ログ件数</div>
         </div>
-      </div>
 
-      <div class="autodash-block">
-        <div class="autodash-block-title">ログ</div>
-        {% if runtime_summary.logs %}
-          <div class="autodash-log-list">
-            {% for x in runtime_summary.logs|slice:":8" %}
-              <div class="autodash-log-row">
-                <div class="autodash-log-ts">{{ x.ts }}</div>
-                <div class="autodash-log-msg">{{ x.msg }}</div>
-              </div>
-            {% endfor %}
+        <div class="atx-grid-3 atx-mt12">
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">open中</div>
+            <div class="atx-mini-value">{{ runtime_summary.open_count }}</div>
           </div>
-        {% else %}
-          <div class="autodash-empty">まだログがありません</div>
-        {% endif %}
-      </div>
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">pending</div>
+            <div class="atx-mini-value">{{ runtime_summary.pending_count }}</div>
+          </div>
+          <div class="atx-mini-card">
+            <div class="atx-mini-label">ログ件数</div>
+            <div class="atx-mini-value">{{ runtime_summary.log_count }}</div>
+          </div>
+        </div>
+      </section>
 
-      <div class="autodash-block">
-        <div class="autodash-block-title">非常停止</div>
+      <section class="autotrade-card">
+        <div class="autotrade-h autotrade-mb8">非常停止</div>
+
         {% if state.emergency_stop %}
-          <button class="autodash-stop-btn" id="btnStop" disabled>非常停止中</button>
-          <div class="autodash-note">
+          <button class="autotrade-btn-stop" id="btnStop" disabled>🛑 非常停止中</button>
+          <div class="autotrade-muted atx-mt12">
             停止時刻: {{ state.emergency_stopped_at|date:"Y-m-d H:i:s" }} /
             理由: {{ state.emergency_stop_reason|default:"-" }}
           </div>
         {% else %}
           <button
-            class="autodash-stop-btn"
+            class="autotrade-btn-stop"
             id="btnStop"
             data-url="{% url 'autotrade:api_emergency_stop' %}"
-          >
-            非常停止（ワンタップ）
-          </button>
-          <div class="autodash-note">
-            押すと即停止フラグを保存します。ジョブ側は次回参照で停止します。
+          >非常停止（ワンタップ）</button>
+          <div class="autotrade-muted atx-mt12">
+            押すと停止フラグを保存します。ジョブ側は次回実行時に参照して止まります。
           </div>
         {% endif %}
-      </div>
-    </section>
+      </section>
+    </article>
 
-  </div>
+  </section>
 </div>
 
-<script src="{% static 'autotrade/dashboard.js' %}?v=10" defer></script>
+<script src="{% static 'autotrade/dashboard.js' %}?v=7" defer></script>
 {% endblock %}
