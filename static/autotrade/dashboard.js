@@ -1,11 +1,12 @@
 //
-// [FILE] static/autotrade/dashboard.js
+// [FILE] dashboard.js
 // [PATH] <project_root>/static/autotrade/dashboard.js
 //
 // このファイルは何？
-// - ダッシュボード / 専用結果ページのフロント操作を担当します。
-// - 非常停止ボタン（API呼び出し）
-// - DEMO / LIVE モード切替（API呼び出し）
+// - ダッシュボードのフロント操作を担当します。
+// - DEMO / LIVE 切替
+// - 非常停止
+// - 横スワイプナビの切替表示
 //
 
 (() => {
@@ -32,9 +33,53 @@
     return { res, data };
   };
 
-  // =========================
+  // ========================================================
+  // 横スワイプナビ
+  // ========================================================
+  const swipe = document.getElementById("dashboardSwipe");
+  const navButtons = Array.from(document.querySelectorAll(".js-dashboard-nav-btn"));
+
+  if (swipe && navButtons.length) {
+    const setActive = (index) => {
+      navButtons.forEach((btn, i) => {
+        btn.classList.toggle("is-active", i === index);
+      });
+    };
+
+    navButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.getAttribute("data-index") || "0");
+        const target = swipe.querySelector(`.atx-panel[data-panel-index="${idx}"]`);
+        if (!target) return;
+
+        target.scrollIntoView({
+          behavior: "smooth",
+          inline: "start",
+          block: "nearest",
+        });
+        setActive(idx);
+      });
+    });
+
+    let ticking = false;
+    const onSwipeScroll = () => {
+      if (ticking) return;
+      ticking = true;
+
+      window.requestAnimationFrame(() => {
+        const width = swipe.clientWidth || 1;
+        const idx = Math.round(swipe.scrollLeft / width);
+        setActive(idx);
+        ticking = false;
+      });
+    };
+
+    swipe.addEventListener("scroll", onSwipeScroll, { passive: true });
+  }
+
+  // ========================================================
   // Execution Mode Button
-  // =========================
+  // ========================================================
   const modeButtons = Array.from(document.querySelectorAll(".js-mode-btn"));
   modeButtons.forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -54,29 +99,28 @@
       }
       if (!ok) return;
 
-      const buttons = Array.from(document.querySelectorAll(".js-mode-btn"));
-      buttons.forEach((x) => { x.disabled = true; });
+      modeButtons.forEach((x) => { x.disabled = true; });
 
       try {
         const { res, data } = await postJson(url, { mode });
 
         if (!res.ok || !data.ok) {
           alert(data.detail || "モード切替に失敗しました。");
-          buttons.forEach((x) => { x.disabled = false; });
+          modeButtons.forEach((x) => { x.disabled = false; });
           return;
         }
 
         location.reload();
       } catch (e) {
         alert("モード切替に失敗しました（通信）。");
-        buttons.forEach((x) => { x.disabled = false; });
+        modeButtons.forEach((x) => { x.disabled = false; });
       }
     });
   });
 
-  // =========================
+  // ========================================================
   // Emergency Stop Button
-  // =========================
+  // ========================================================
   const btnStop = document.getElementById("btnStop");
   if (btnStop) {
     const url = btnStop.getAttribute("data-url");
