@@ -19,10 +19,8 @@
 {% block content %}
 <div class="atx-wrap">
 
-  <section class="atx-hero">
+  
     <div class="atx-hero-top">
-      
-
       <div class="atx-gate-badge {{ runtime_view.effective_gate_class }}">
         <span class="atx-gate-dot"></span>
         実運用 {{ runtime_view.effective_gate_level }}
@@ -78,7 +76,7 @@
         {{ gate_reason_lines.0 }}
       </div>
     {% endif %}
-  </section>
+  
 
   <nav class="atx-nav">
     <button type="button" class="atx-nav-btn is-active js-dashboard-nav-btn" data-index="0">今日の運用</button>
