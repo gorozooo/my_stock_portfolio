@@ -1,5 +1,5 @@
 # =========================================================
-# [FILE] autotrade/views_dashboard.py
+# [FILE] views_dashboard.py
 # [PATH] <project_root>/autotrade/views_dashboard.py
 #
 # このファイルは何？
@@ -9,12 +9,10 @@
 #   「Execution（今日の事実ログ）」をまとめてテンプレへ渡します。
 #
 # 今回の修正：
-# - execution_report() を維持
-# - dashboard では現在モードの要点だけ表示
-# - 専用結果ページで、PAPER/LIVE/ALL の結果を見やすく出せるようにする
-# - エクイティ推移（equity_curve）が専用結果ページに表示されるようにする
-# - ★追加：demo_daily_history() を追加し、
-#   日別のデモ成績履歴を 5営業日 / 10営業日で見やすく確認できるようにする
+# - ダッシュボードで「今日の状態」と「デモ通算」を明確に分離
+# - デモ通算総資産 / デモ通算損益 / デモ通算PF を上段に渡す
+# - runtime 実運用制御（effective gate / LONG禁止 / 回数制限等）を見やすく渡す
+# - 既存の execution_report / demo_daily_history は維持
 # =========================================================
 
 from __future__ import annotations
@@ -392,6 +390,29 @@ def _fmt_dt_text(v: Any) -> str:
         return s
 
 
+def _first_line(text: Any, default: str = "-") -> str:
+    s = str(text or "").strip()
+    if not s:
+        return default
+    return s.splitlines()[0]
+
+
+def _get_exec_anchor_dt(exe: AutoTradeExecution):
+    return getattr(exe, "exit_at", None) or getattr(exe, "created_at", None)
+
+
+def _fmt_anchor_date(dt: Any) -> str:
+    if dt is None:
+        return "-"
+    try:
+        return timezone.localtime(dt).strftime("%Y-%m-%d")
+    except Exception:
+        try:
+            return str(dt)[:10]
+        except Exception:
+            return "-"
+
+
 def _build_runtime_bucket(state: AutoTradeDailyState, *, mode: str) -> Dict[str, Any]:
     mode_up = str(mode or "PAPER").upper().strip()
     prefix = "live" if mode_up == "LIVE" else "paper"
@@ -530,12 +551,87 @@ def _build_execution_stats(*, base_equity_yen: int, executions: List[AutoTradeEx
     }
 
 
+def _build_mode_dashboard_summary(*, user, mode: str, today) -> Dict[str, Any]:
+    mode_up = str(mode or "PAPER").upper().strip()
+    if mode_up not in ["PAPER", "LIVE"]:
+        mode_up = "PAPER"
+
+    base_equity_yen = int(getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000))
+
+    qs_all = (
+        AutoTradeExecution.objects
+        .filter(user=user, mode=mode_up)
+        .exclude(mode="BACKTEST")
+        .order_by("exit_at", "id")
+    )
+    execs_all = list(qs_all)
+
+    qs_today = (
+        AutoTradeExecution.objects
+        .filter(user=user, mode=mode_up, created_at__date=today)
+        .exclude(mode="BACKTEST")
+        .order_by("exit_at", "id")
+    )
+    execs_today = list(qs_today)
+
+    lifetime_stats = _build_execution_stats(
+        base_equity_yen=base_equity_yen,
+        executions=execs_all,
+    )
+    today_stats = _build_execution_stats(
+        base_equity_yen=base_equity_yen,
+        executions=execs_today,
+    )
+
+    anchors = [_get_exec_anchor_dt(x) for x in execs_all if _get_exec_anchor_dt(x) is not None]
+    first_dt = min(anchors) if anchors else None
+    last_dt = max(anchors) if anchors else None
+
+    return {
+        "mode": mode_up,
+        "label": "DEMO" if mode_up == "PAPER" else "LIVE",
+        "lifetime_stats": lifetime_stats,
+        "today_stats": today_stats,
+        "lifetime_equity_yen": int(base_equity_yen + _safe_int(lifetime_stats.get("pnl_sum_yen"), 0)),
+        "first_trade_text": _fmt_anchor_date(first_dt),
+        "last_trade_text": _fmt_anchor_date(last_dt),
+    }
+
+
+def _build_runtime_note_chips(runtime: Dict[str, Any]) -> List[str]:
+    runtime = runtime if isinstance(runtime, dict) else {}
+    chips: List[str] = []
+
+    original_gate = str(runtime.get("original_gate_level") or "").upper().strip()
+    effective_gate = str(runtime.get("effective_gate_level") or "").upper().strip()
+
+    if original_gate and effective_gate and original_gate != effective_gate:
+        chips.append(f"実運用 {original_gate} → {effective_gate}")
+
+    if runtime.get("allow_long") is False and runtime.get("allow_short", True):
+        chips.append("ロング新規 OFF")
+    elif runtime.get("allow_long", True) and runtime.get("allow_short") is False:
+        chips.append("ショート新規 OFF")
+    elif runtime.get("allow_long") is False and runtime.get("allow_short") is False:
+        chips.append("新規建て OFF")
+
+    if runtime.get("max_positions_override") is not None:
+        chips.append(f"同時ポジ { _safe_int(runtime.get('max_positions_override'), 0) }")
+
+    if runtime.get("max_trades_override") is not None:
+        chips.append(f"当日回数 { _safe_int(runtime.get('max_trades_override'), 0) } 回")
+
+    if runtime.get("max_hold_bars_cap") is not None:
+        chips.append(f"最大保有 { _safe_int(runtime.get('max_hold_bars_cap'), 0) } 本")
+
+    tags = [str(x) for x in (runtime.get("diagnosis_tags") or []) if str(x).strip()]
+    if tags:
+        chips.append(" / ".join(tags[:4]))
+
+    return chips
+
+
 def _build_equity_curve(*, base_equity_yen: int, executions: List[AutoTradeExecution]) -> List[Dict[str, Any]]:
-    """
-    簡易エクイティ推移（時刻 → 総資産）。
-    - base_equity から pnl を順に加算
-    - 表示時刻は exit_at 優先、無ければ created_at
-    """
     execs = list(executions or [])
     eq = int(base_equity_yen or 1_000_000)
 
@@ -562,11 +658,6 @@ def _build_equity_curve(*, base_equity_yen: int, executions: List[AutoTradeExecu
 
 
 def _build_demo_daily_rows(*, user, limit_days: int = 30) -> List[Dict[str, Any]]:
-    """
-    日別のデモ成績履歴を作る。
-    - DailyState をベースに「営業日単位」で表示
-    - その日にクローズした PAPER Execution を集計して 1日成績にする
-    """
     states = list(
         AutoTradeDailyState.objects.order_by("-date")[:max(10, int(limit_days))]
     )
@@ -635,11 +726,6 @@ def _build_demo_daily_rows(*, user, limit_days: int = 30) -> List[Dict[str, Any]
 
 
 def _judge_daily_window(summary: Dict[str, Any], required_days: int) -> Tuple[str, str]:
-    """
-    日別履歴ページ用の参考判定。
-    - あくまで“見やすくするための補助表示”
-    - 実運用ゲートそのものではない
-    """
     days = _safe_int(summary.get("days"), 0)
     trades = _safe_int(summary.get("trades"), 0)
     pnl = _safe_int(summary.get("pnl_sum_yen"), 0)
@@ -705,7 +791,6 @@ def _build_demo_window_summary(rows: List[Dict[str, Any]], *, window: int) -> Di
         pf_raw = 999.0 if sum_win_yen > 0 else 0.0
         pf_text = "999.000" if sum_win_yen > 0 else "0.000"
 
-    # 日別の損益推移からDDを出す
     cumulative = 0
     points = [0]
     for row in reversed(picked):
@@ -746,30 +831,40 @@ def dashboard(request: HttpRequest):
     active_snapshot = _get_active_snapshot(request.user)
     current_mode = _get_execution_mode_from_state(state)
 
-    executions_today_all = list(
-        AutoTradeExecution.objects.filter(
-            user=request.user,
-            created_at__date=today,
-        )
-        .exclude(mode="BACKTEST")
-        .order_by("exit_at", "id")
+    demo_summary = _build_mode_dashboard_summary(
+        user=request.user,
+        mode="PAPER",
+        today=today,
+    )
+    live_summary = _build_mode_dashboard_summary(
+        user=request.user,
+        mode="LIVE",
+        today=today,
     )
 
-    executions_current_mode = [
-        e for e in executions_today_all
-        if str(getattr(e, "mode", "")).upper() == current_mode
-    ]
+    current_mode_summary = demo_summary if current_mode == "PAPER" else live_summary
 
-    start_equity_yen = int(_safe_int(state.equity_yen, 1_000_000) - _safe_int(state.pnl_day_yen, 0))
-    if start_equity_yen <= 0:
-        start_equity_yen = int(_safe_int(state.equity_yen, 1_000_000)) or 1_000_000
+    rules = _get_rules_dict(state)
+    runtime_control = rules.get("runtime") if isinstance(rules.get("runtime"), dict) else {}
 
-    current_mode_stats = _build_execution_stats(
-        base_equity_yen=start_equity_yen,
-        executions=executions_current_mode,
-    )
+    runtime_original_gate = str(
+        runtime_control.get("original_gate_level") or state.gate_level or "STOP"
+    ).upper().strip()
+    runtime_effective_gate = str(
+        runtime_control.get("effective_gate_level") or state.gate_level or "STOP"
+    ).upper().strip()
+
+    if runtime_original_gate not in ["FULL", "LIGHT", "STOP"]:
+        runtime_original_gate = "STOP"
+    if runtime_effective_gate not in ["FULL", "LIGHT", "STOP"]:
+        runtime_effective_gate = runtime_original_gate
 
     runtime_summary = _build_runtime_bucket(state, mode=current_mode)
+
+    today_equity_yen = _safe_int(
+        state.equity_yen,
+        int(getattr(settings, "AUTOTRADE_BASE_EQUITY_YEN", 1_000_000)),
+    )
 
     ctx = {
         "state": state,
@@ -778,8 +873,22 @@ def dashboard(request: HttpRequest):
         "active_summary_chips": build_active_summary_chips_for_template(active_snapshot=active_snapshot),
         "active_detail_chips": build_active_detail_chips_for_template(active_snapshot=active_snapshot),
         "current_mode": current_mode,
-        "current_mode_stats": current_mode_stats,
+        "current_mode_today_stats": current_mode_summary["today_stats"],
+        "current_mode_lifetime_stats": current_mode_summary["lifetime_stats"],
         "runtime_summary": runtime_summary,
+        "runtime_control": runtime_control,
+        "runtime_original_gate": runtime_original_gate,
+        "runtime_effective_gate": runtime_effective_gate,
+        "runtime_note_chips": _build_runtime_note_chips(runtime_control),
+        "gate_reason_headline": _first_line(state.gate_reason, "まだ判定理由がありません"),
+        "today_equity_yen": int(today_equity_yen),
+
+        # DEMO通算 / 今日
+        "demo_lifetime_stats": demo_summary["lifetime_stats"],
+        "demo_lifetime_equity_yen": demo_summary["lifetime_equity_yen"],
+        "demo_first_trade_text": demo_summary["first_trade_text"],
+        "demo_last_trade_text": demo_summary["last_trade_text"],
+        "demo_today_stats": demo_summary["today_stats"],
     }
     return render(request, "autotrade/dashboard.html", ctx)
 
@@ -839,11 +948,6 @@ def execution_report(request: HttpRequest):
 
 @login_required
 def demo_daily_history(request: HttpRequest):
-    """
-    日別のデモ成績履歴ページ。
-    - DailyState を1営業日単位で並べる
-    - 直近5営業日 / 10営業日の見やすい集計も出す
-    """
     rows = _build_demo_daily_rows(user=request.user, limit_days=30)
     summary_5 = _build_demo_window_summary(rows, window=5)
     summary_10 = _build_demo_window_summary(rows, window=10)
