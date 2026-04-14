@@ -64,11 +64,8 @@
 
     <div class="atx-hero-chips">
       <div class="autotrade-chip">現在モード：{{ current_mode_label }}</div>
-      <div class="autotrade-chip">朝判定：{{ runtime_view.original_gate_level }}</div>
-      <div class="autotrade-chip">実運用：{{ runtime_view.effective_gate_level }}</div>
       <div class="autotrade-chip">open中：{{ runtime_summary.open_count }}</div>
       <div class="autotrade-chip">pending：{{ runtime_summary.pending_count }}</div>
-      <div class="autotrade-chip">ログ：{{ runtime_summary.log_count }}</div>
     </div>
 
     {% if gate_reason_lines %}
