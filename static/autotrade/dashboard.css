@@ -3,13 +3,9 @@
 [PATH] <project_root>/static/autotrade/dashboard.css
 
 このファイルは何？
-- AutoTrade ダッシュボード / 専用結果ページ / 日別デモ履歴ページ
-  の見た目を定義する共通CSSです。
-
-今回の修正：
-- 「今日」と「デモ通算」を分けて見やすく表示
-- 上段KPIを大きく、runtime制御をチップで見やすく整理
-- iPhone幅でもはみ出さないよう mobile safe を維持
+- AutoTrade ダッシュボード / 専用結果ページ / 日別履歴ページの共通CSSです。
+- 今回は新ダッシュボード用に「横スワイプ司令塔」の見た目を追加しています。
+- 既存ページが壊れないように、従来クラスも残しています。
 */
 
 :root{
@@ -21,6 +17,7 @@
   --autotrade-ok:#36d399;
   --autotrade-warn:#fbbf24;
   --autotrade-bad:#f87171;
+  --autotrade-soft:rgba(255,255,255,.04);
 }
 
 *,
@@ -35,6 +32,382 @@ body{
   overflow-x:hidden;
 }
 
+/* =========================================================
+   新ダッシュボード（atx-*）
+========================================================= */
+.atx-wrap{
+  width:100%;
+  max-width:980px;
+  margin:12px auto 0;
+  padding:14px 12px 140px;
+  color:var(--autotrade-txt);
+  overflow-x:hidden;
+}
+
+.atx-hero{
+  border:1px solid var(--autotrade-bd);
+  border-radius:22px;
+  padding:14px;
+  background:
+    radial-gradient(circle at top left, rgba(59,130,246,.16), transparent 42%),
+    radial-gradient(circle at top right, rgba(16,185,129,.10), transparent 35%),
+    rgba(255,255,255,.04);
+  backdrop-filter:blur(14px);
+  box-shadow:0 18px 40px rgba(2,6,23,.35);
+}
+
+.atx-hero-top{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:12px;
+  flex-wrap:wrap;
+}
+
+.atx-hero-copy{
+  min-width:0;
+  flex:1 1 320px;
+}
+
+.atx-title{
+  font-size:18px;
+  font-weight:900;
+  line-height:1.35;
+  word-break:break-word;
+  overflow-wrap:anywhere;
+}
+
+.atx-subtitle{
+  margin-top:4px;
+  color:var(--autotrade-mut);
+  font-size:12.5px;
+  line-height:1.6;
+  word-break:break-word;
+  overflow-wrap:anywhere;
+}
+
+.atx-gate-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  min-height:42px;
+  padding:10px 14px;
+  border-radius:16px;
+  border:1px solid var(--autotrade-bd);
+  background:rgba(255,255,255,.06);
+  font-weight:900;
+  letter-spacing:.01em;
+  white-space:normal;
+}
+
+.atx-gate-dot{
+  width:10px;
+  height:10px;
+  border-radius:999px;
+  background:currentColor;
+  flex:0 0 auto;
+}
+
+.atx-hero-grid{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0,1fr));
+  gap:10px;
+  margin-top:12px;
+}
+
+.atx-metric-card{
+  border:1px solid var(--autotrade-bd);
+  border-radius:16px;
+  padding:12px;
+  background:rgba(0,0,0,.18);
+  min-width:0;
+}
+
+.atx-metric-label{
+  color:var(--autotrade-mut);
+  font-size:12px;
+  line-height:1.45;
+}
+
+.atx-metric-value{
+  margin-top:4px;
+  font-size:18px;
+  font-weight:900;
+  line-height:1.25;
+  word-break:break-word;
+  overflow-wrap:anywhere;
+}
+
+.atx-metric-sub{
+  margin-top:6px;
+  color:var(--autotrade-mut);
+  font-size:12px;
+  line-height:1.55;
+  word-break:break-word;
+  overflow-wrap:anywhere;
+}
+
+.atx-command-line{
+  margin-top:12px;
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:14px;
+  padding:10px 12px;
+  background:rgba(0,0,0,.18);
+  font-weight:800;
+  line-height:1.55;
+  word-break:break-word;
+  overflow-wrap:anywhere;
+}
+
+.atx-hero-chips{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-top:12px;
+}
+
+.atx-hero-reason{
+  margin-top:12px;
+  padding:10px 12px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.04);
+  color:var(--autotrade-mut);
+  font-size:12.5px;
+  line-height:1.6;
+  word-break:break-word;
+  overflow-wrap:anywhere;
+}
+
+.atx-nav{
+  position:sticky;
+  top:8px;
+  z-index:20;
+  display:flex;
+  gap:8px;
+  margin-top:12px;
+  padding:8px;
+  border-radius:18px;
+  border:1px solid var(--autotrade-bd);
+  background:rgba(11,15,20,.78);
+  backdrop-filter:blur(14px);
+  overflow-x:auto;
+}
+
+.atx-nav-btn{
+  appearance:none;
+  border:none;
+  background:transparent;
+  color:var(--autotrade-mut);
+  border-radius:999px;
+  padding:10px 14px;
+  font-weight:900;
+  white-space:nowrap;
+  flex:0 0 auto;
+  transition:all .18s ease;
+}
+
+.atx-nav-btn.is-active{
+  background:rgba(255,255,255,.12);
+  color:var(--autotrade-txt);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);
+}
+
+.atx-swipe{
+  display:grid;
+  grid-auto-flow:column;
+  grid-auto-columns:100%;
+  gap:12px;
+  margin-top:12px;
+  overflow-x:auto;
+  scroll-snap-type:x mandatory;
+  scroll-behavior:smooth;
+  -webkit-overflow-scrolling:touch;
+  padding-bottom:4px;
+}
+
+.atx-swipe::-webkit-scrollbar{
+  display:none;
+}
+
+.atx-panel{
+  scroll-snap-align:start;
+  min-width:0;
+  display:grid;
+  gap:12px;
+}
+
+.atx-grid-2{
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0,1fr));
+  gap:10px;
+}
+
+.atx-grid-3{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0,1fr));
+  gap:10px;
+}
+
+.atx-mini-card{
+  border:1px solid var(--autotrade-bd);
+  border-radius:16px;
+  padding:12px;
+  background:rgba(0,0,0,.18);
+  min-width:0;
+}
+
+.atx-mini-label{
+  color:var(--autotrade-mut);
+  font-size:12px;
+  line-height:1.45;
+}
+
+.atx-mini-value{
+  margin-top:6px;
+  font-size:16px;
+  font-weight:900;
+  line-height:1.25;
+  word-break:break-word;
+  overflow-wrap:anywhere;
+}
+
+.atx-window-card{
+  border:1px solid var(--autotrade-bd);
+  border-radius:16px;
+  padding:12px;
+  background:rgba(0,0,0,.16);
+  min-width:0;
+}
+
+.atx-window-main{
+  margin-top:8px;
+  font-size:20px;
+  font-weight:900;
+  line-height:1.25;
+}
+
+.atx-meta-row{
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0,1fr));
+  gap:10px;
+}
+
+.atx-meta-card{
+  border:1px solid var(--autotrade-bd);
+  border-radius:14px;
+  padding:10px 12px;
+  background:rgba(0,0,0,.16);
+}
+
+.atx-meta-value{
+  margin-top:4px;
+  font-weight:800;
+  line-height:1.45;
+  word-break:break-word;
+  overflow-wrap:anywhere;
+}
+
+.atx-link-row{
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0,1fr));
+  gap:10px;
+}
+
+.atx-rule-strip{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.atx-diagnosis-box{
+  border:1px solid var(--autotrade-bd);
+  border-radius:16px;
+  padding:12px;
+  background:rgba(0,0,0,.18);
+}
+
+.atx-diagnosis-main{
+  margin-top:6px;
+  font-size:18px;
+  font-weight:900;
+  line-height:1.25;
+}
+
+.atx-note-list-wrap{
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:14px;
+  padding:10px 12px;
+  background:rgba(255,255,255,.03);
+}
+
+.atx-note-list{
+  margin:8px 0 0;
+  padding-left:18px;
+  line-height:1.65;
+  color:var(--autotrade-txt);
+}
+
+.atx-kv{
+  display:grid;
+  gap:4px;
+  color:var(--autotrade-mut);
+  font-size:12.5px;
+  line-height:1.6;
+}
+
+.atx-stack{
+  display:grid;
+  gap:10px;
+}
+
+.atx-kicker{
+  color:var(--autotrade-mut);
+  font-size:11.5px;
+  line-height:1.5;
+}
+
+.atx-mt12{ margin-top:12px; }
+
+@media (max-width: 760px){
+  .atx-wrap{
+    padding:12px 10px 140px;
+  }
+
+  .atx-hero-grid{
+    grid-template-columns:1fr;
+  }
+
+  .atx-grid-3{
+    grid-template-columns:1fr;
+  }
+}
+
+@media (max-width: 520px){
+  .atx-grid-2,
+  .atx-meta-row,
+  .atx-link-row{
+    grid-template-columns:1fr;
+  }
+
+  .atx-title{
+    font-size:17px;
+  }
+
+  .atx-metric-value{
+    font-size:17px;
+  }
+
+  .atx-mini-value,
+  .atx-window-main,
+  .atx-diagnosis-main{
+    font-size:18px;
+  }
+}
+
+/* =========================================================
+   既存クラス（execution_report / history 互換のため維持）
+========================================================= */
 .autotrade-wrap{
   width:100%;
   max-width:980px;
@@ -60,7 +433,7 @@ body{
 }
 
 .autotrade-title{
-  font-size:20px;
+  font-size:18px;
   font-weight:900;
   line-height:1.35;
   word-break:break-word;
@@ -110,34 +483,6 @@ body{
   overflow:hidden;
 }
 
-.autotrade-hero-card{
-  border-color:rgba(255,255,255,.16);
-  background:
-    linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04)),
-    var(--autotrade-card);
-}
-
-.autotrade-hero-grid{
-  display:grid;
-  grid-template-columns:repeat(2, minmax(0,1fr));
-  gap:10px;
-  min-width:0;
-}
-
-.autotrade-hero-box{
-  min-width:0;
-  max-width:100%;
-  border:1px solid var(--autotrade-bd);
-  border-radius:16px;
-  padding:12px;
-  background:rgba(0,0,0,.20);
-  overflow:hidden;
-}
-
-.autotrade-hero-box.is-strong{
-  background:rgba(255,255,255,.07);
-}
-
 .autotrade-kpi{
   display:grid;
   grid-template-columns:repeat(2, minmax(0,1fr));
@@ -168,23 +513,6 @@ body{
   font-size:20px;
   font-weight:900;
   line-height:1.25;
-  word-break:break-word;
-  overflow-wrap:anywhere;
-}
-
-.autotrade-big{
-  font-size:28px;
-  font-weight:900;
-  line-height:1.2;
-  word-break:break-word;
-  overflow-wrap:anywhere;
-}
-
-.autotrade-sub{
-  margin-top:6px;
-  color:var(--autotrade-mut);
-  font-size:12px;
-  line-height:1.5;
   word-break:break-word;
   overflow-wrap:anywhere;
 }
@@ -241,11 +569,6 @@ body{
   word-break:break-word;
   overflow-wrap:anywhere;
   white-space:normal;
-}
-
-.autotrade-chip.is-emphasis{
-  border-color:rgba(255,255,255,.20);
-  background:rgba(255,255,255,.08);
 }
 
 .autotrade-list{
@@ -422,15 +745,10 @@ summary{
   .autotrade-pill{
     max-width:100%;
   }
-
-  .autotrade-big{
-    font-size:24px;
-  }
 }
 
 @media (max-width: 380px){
-  .autotrade-kpi,
-  .autotrade-hero-grid{
+  .autotrade-kpi{
     grid-template-columns:1fr;
   }
 }
