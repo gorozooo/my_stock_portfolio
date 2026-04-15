@@ -4,7 +4,7 @@
 #
 # このファイルは何？
 # - tradeai のトップ画面を表示する view です。
-# - 今回は「土台がつながったか確認するための画面」です。
+# - 今回はウォッチリストとユニバースの状況も見えるようにしています。
 # =========================================================
 
 from datetime import timedelta
@@ -27,6 +27,9 @@ def dashboard(request):
     now = timezone.now()
     recent_from = now - timedelta(days=7)
 
+    recent_watchlist = WatchlistItem.objects.filter(user=user).order_by("priority", "ticker")[:6]
+    active_universe = UniverseTicker.objects.filter(user=user, is_active=True).order_by("priority", "ticker")[:8]
+
     context = {
         "page_title": "TradeAI",
         "universe_count": UniverseTicker.objects.filter(user=user, is_active=True).count(),
@@ -41,5 +44,7 @@ def dashboard(request):
             event_at__gte=recent_from,
         ).count(),
         "last_regime": RegimeSnapshot.objects.filter(user=user).order_by("-as_of").first(),
+        "recent_watchlist": recent_watchlist,
+        "active_universe": active_universe,
     }
     return render(request, "tradeai/dashboard.html", context)
