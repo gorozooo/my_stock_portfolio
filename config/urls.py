@@ -1,3 +1,14 @@
+# =========================================================
+# [FILE] urls.py
+# [PATH] <project_root>/config/urls.py
+#
+# このファイルは何？
+# - Djangoプロジェクト全体のURLルーティングです。
+#
+# 今回の修正：
+# 1) tradeai のURLを追加
+# =========================================================
+
 from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import TemplateView
@@ -6,6 +17,7 @@ from django.http import HttpResponse
 
 def healthz(request):
     return HttpResponse("ok", content_type="text/plain")
+
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -16,18 +28,21 @@ urlpatterns = [
     # AI
     path("aiapp/", include("aiapp.urls")),
 
+    # 新AI
+    path("tradeai/", include("tradeai.urls")),
+
     # 自動売買
     path("autotrade/", include("autotrade.urls")),
 
-    # ★ 家計簿（新規）
+    # 家計簿
     path("kakeibo/", include("kakeibo.urls")),
-    
-    # ★ 指標（新規）
+
+    # 指標
     path("shihyo/", include("shihyo.urls")),
-    
-    # ★ health check 専用
+
+    # health check
     path("healthz/", healthz),
-    
+
     # PWA: manifest / service worker
     path(
         "manifest.webmanifest",
