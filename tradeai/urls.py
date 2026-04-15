@@ -4,11 +4,14 @@
 #
 # このファイルは何？
 # - tradeai アプリのURL設定です。
-# - 今回はダッシュボードとウォッチリストをつなぎます。
+#
+# 今回の修正：
+# - 証券コード → 銘柄名自動補完APIを追加
 # =========================================================
 
 from django.urls import path
 
+from .views.api import api_ticker_name
 from .views.dashboard import dashboard
 from .views.watchlist import (
     watchlist_delete,
@@ -21,4 +24,5 @@ urlpatterns = [
     path("watchlist/", watchlist_page, name="tradeai_watchlist"),
     path("watchlist/<int:pk>/toggle/", watchlist_toggle_active, name="tradeai_watchlist_toggle"),
     path("watchlist/<int:pk>/delete/", watchlist_delete, name="tradeai_watchlist_delete"),
+    path("api/ticker-name/", api_ticker_name, name="tradeai_api_ticker_name"),
 ]
