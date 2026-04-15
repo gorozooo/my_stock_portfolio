@@ -5,8 +5,14 @@
 
 このファイルは何？
 - tradeai の保有監視画面です。
-- 現在保有している銘柄に対して、ロング/ショート別の扱い方を表示します。
-- 今回は GC/DC と ATR も表示します。
+- 現在保有している銘柄に対して、初心者でもわかりやすい言葉で
+  「今どう見るか」を先に表示する画面です。
+
+今回の修正：
+- 専門用語を前面から下げる
+- 結論先出しにする
+- KPIを4つに圧縮してコンパクト化
+- 詳細は折りたたみ表示にする
 =========================================================
 -->
 
@@ -17,126 +23,95 @@
 
 {% block content %}
 <section class="space-y-4">
-  <div class="rounded-3xl border border-slate-800 bg-slate-900/80 p-5 shadow-2xl">
+  <div class="rounded-3xl border border-slate-800 bg-slate-900/80 p-4 shadow-2xl">
     <div class="flex items-start justify-between gap-3">
       <div>
-        <p class="text-xs font-semibold tracking-widest text-rose-300">TRADEAI HOLDINGS</p>
-        <h1 class="mt-1 text-2xl font-bold text-white">保有監視</h1>
+        <p class="text-[11px] font-semibold tracking-widest text-rose-300">TRADEAI HOLDINGS</p>
+        <h1 class="mt-1 text-xl font-bold text-white">保有監視</h1>
         <p class="mt-2 text-sm leading-6 text-slate-300">
-          今ある保有銘柄を、ロング / ショート別に 継続・利確・損切りの観点で整理して表示します。
+          難しい指標をそのまま見せるのではなく、まず
+          <span class="font-semibold text-white">「今どう考えるか」</span>
+          を先に表示します。
         </p>
       </div>
       <a
         href="{% url 'tradeai_dashboard' %}"
-        class="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200"
+        class="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-[11px] font-semibold text-slate-200"
       >
-        ダッシュボードへ
+        戻る
       </a>
     </div>
   </div>
 
-  <div class="grid grid-cols-3 gap-3">
-    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <div class="text-xs text-slate-400">強い警戒</div>
-      <div class="mt-2 text-2xl font-bold text-rose-300">{{ strong_count|intcomma }}</div>
+  <div class="grid grid-cols-3 gap-2">
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+      <div class="text-[11px] text-slate-400">強い警戒</div>
+      <div class="mt-1 text-xl font-bold text-rose-300">{{ strong_count|intcomma }}</div>
     </div>
 
-    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <div class="text-xs text-slate-400">注意</div>
-      <div class="mt-2 text-2xl font-bold text-yellow-300">{{ attention_count|intcomma }}</div>
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+      <div class="text-[11px] text-slate-400">注意</div>
+      <div class="mt-1 text-xl font-bold text-yellow-300">{{ attention_count|intcomma }}</div>
     </div>
 
-    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <div class="text-xs text-slate-400">継続 / 参考</div>
-      <div class="mt-2 text-2xl font-bold text-emerald-300">{{ reference_count|intcomma }}</div>
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+      <div class="text-[11px] text-slate-400">様子見</div>
+      <div class="mt-1 text-xl font-bold text-emerald-300">{{ reference_count|intcomma }}</div>
     </div>
   </div>
 
-  <div class="rounded-3xl border border-slate-800 bg-slate-900 p-5">
+  <div class="rounded-3xl border border-slate-800 bg-slate-900 p-4">
     <div class="flex items-center justify-between gap-3">
       <h2 class="text-sm font-bold text-white">保有中の銘柄一覧</h2>
-      <div class="text-xs text-slate-400">{{ rows|length|intcomma }} 件</div>
+      <div class="text-[11px] text-slate-400">{{ rows|length|intcomma }} 件</div>
     </div>
 
     {% if rows %}
-      <div class="mt-4 space-y-3">
+      <div class="mt-3 space-y-3">
         {% for row in rows %}
           <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
             <div class="flex items-start justify-between gap-3">
-              <div>
-                <div class="text-base font-bold text-white">
-                  {{ row.ticker }}
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <div class="text-lg font-bold text-white">{{ row.ticker }}</div>
                   {% if row.name %}
-                    <span class="ml-2 text-sm font-medium text-slate-300">{{ row.name }}</span>
+                    <div class="truncate text-sm font-medium text-slate-300">{{ row.name }}</div>
                   {% endif %}
                 </div>
 
-                <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                <div class="mt-2 flex flex-wrap gap-2 text-[11px]">
                   {% if row.direction == "LONG" %}
-                    <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-300">ロング</span>
+                    <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-cyan-300">ロング</span>
                   {% else %}
-                    <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-300">ショート</span>
+                    <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-amber-300">ショート</span>
                   {% endif %}
 
                   {% if row.level == "STRONG" %}
-                    <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">{{ row.action_label }}</span>
+                    <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 font-semibold text-rose-300">{{ row.action_label }}</span>
                   {% elif row.level == "ATTENTION" %}
-                    <span class="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-1 text-yellow-300">{{ row.action_label }}</span>
+                    <span class="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2.5 py-1 font-semibold text-yellow-300">{{ row.action_label }}</span>
                   {% else %}
-                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">{{ row.action_label }}</span>
+                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 font-semibold text-emerald-300">{{ row.action_label }}</span>
                   {% endif %}
 
-                  <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ row.broker_label }}</span>
-                  <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ row.account_label }}</span>
-
-                  {% if row.ma_state == "GOLDEN_CROSS" %}
-                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">GC発生</span>
-                  {% elif row.ma_state == "ABOVE_GC" %}
-                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">GC上</span>
-                  {% elif row.ma_state == "DEAD_CROSS" %}
-                    <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">DC発生</span>
-                  {% elif row.ma_state == "BELOW_DC" %}
-                    <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">DC下</span>
-                  {% else %}
-                    <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">GC/DC不明</span>
-                  {% endif %}
+                  <span class="rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-slate-300">{{ row.broker_label }}</span>
+                  <span class="rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-slate-300">{{ row.account_label }}</span>
                 </div>
               </div>
 
-              <div class="text-right text-xs text-slate-400">
+              <div class="shrink-0 text-right">
                 {% if row.hold_days is not None %}
-                  <div>{{ row.hold_days }} 日保有</div>
+                  <div class="text-[11px] text-slate-400">{{ row.hold_days }} 日保有</div>
                 {% else %}
-                  <div>保有日数 -</div>
+                  <div class="text-[11px] text-slate-500">保有日数 -</div>
                 {% endif %}
               </div>
             </div>
 
-            <div class="mt-4 grid grid-cols-2 gap-3">
-              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
-                <div class="text-[11px] text-slate-400">数量</div>
-                <div class="mt-1 text-sm font-bold text-white">{{ row.quantity|intcomma }}</div>
-              </div>
-
-              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
-                <div class="text-[11px] text-slate-400">取得単価</div>
-                <div class="mt-1 text-sm font-bold text-white">{{ row.avg_cost|floatformat:2 }}</div>
-              </div>
-
-              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
-                <div class="text-[11px] text-slate-400">現在値</div>
-                <div class="mt-1 text-sm font-bold text-white">
-                  {% if row.last_price is not None %}
-                    {{ row.last_price|floatformat:2 }}
-                  {% else %}
-                    未取得
-                  {% endif %}
-                </div>
-              </div>
-
-              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
                 <div class="text-[11px] text-slate-400">損益率</div>
-                <div class="mt-1 text-sm font-bold
+                <div class="mt-1 text-base font-bold
                   {% if row.pnl_pct is None %}
                     text-slate-500
                   {% elif row.pnl_pct >= 0 %}
@@ -153,76 +128,202 @@
                 </div>
               </div>
 
-              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
-                <div class="text-[11px] text-slate-400">5日線</div>
-                <div class="mt-1 text-sm font-bold text-white">
-                  {% if row.short_ma is not None %}
-                    {{ row.short_ma|floatformat:2 }}
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">損益額</div>
+                <div class="mt-1 text-base font-bold
+                  {% if row.pnl_yen is None %}
+                    text-slate-500
+                  {% elif row.pnl_yen >= 0 %}
+                    text-emerald-300
                   {% else %}
-                    -
+                    text-rose-300
+                  {% endif %}
+                ">
+                  {% if row.pnl_yen is not None %}
+                    {{ row.pnl_yen|floatformat:0|intcomma }} 円
+                  {% else %}
+                    未取得
                   {% endif %}
                 </div>
               </div>
 
-              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
-                <div class="text-[11px] text-slate-400">25日線</div>
-                <div class="mt-1 text-sm font-bold text-white">
-                  {% if row.long_ma is not None %}
-                    {{ row.long_ma|floatformat:2 }}
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">今の流れ</div>
+                <div class="mt-1 text-base font-bold text-white">
+                  {% if row.ma_state == "GOLDEN_CROSS" %}
+                    上向きに転換
+                  {% elif row.ma_state == "ABOVE_GC" %}
+                    上向き
+                  {% elif row.ma_state == "DEAD_CROSS" %}
+                    下向きに転換
+                  {% elif row.ma_state == "BELOW_DC" %}
+                    下向き
                   {% else %}
-                    -
+                    まだ不明
                   {% endif %}
                 </div>
               </div>
 
-              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
-                <div class="text-[11px] text-slate-400">GC/DC判定</div>
-                <div class="mt-1 text-sm font-bold text-white">{{ row.ma_label }}</div>
-              </div>
-
-              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
-                <div class="text-[11px] text-slate-400">ATR(14)</div>
-                <div class="mt-1 text-sm font-bold text-white">
-                  {% if row.atr is not None %}
-                    {{ row.atr|floatformat:2 }}
-                    <span class="ml-1 text-xs text-slate-400">({{ row.atr_pct|floatformat:2 }}%)</span>
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">値動き</div>
+                <div class="mt-1 text-base font-bold text-white">
+                  {% if row.atr_pct is None %}
+                    まだ不明
+                  {% elif row.atr_pct >= 4 %}
+                    大きい
+                  {% elif row.atr_pct >= 2 %}
+                    やや大きめ
+                  {% elif row.atr_pct >= 1 %}
+                    ふつう
                   {% else %}
-                    -
+                    小さめ
                   {% endif %}
                 </div>
               </div>
             </div>
 
-            <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
-              <div class="text-[11px] text-slate-400">損益額</div>
-              <div class="mt-1 text-sm font-bold
-                {% if row.pnl_yen is None %}
-                  text-slate-500
-                {% elif row.pnl_yen >= 0 %}
-                  text-emerald-300
+            <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+              <div class="text-[11px] text-slate-400">ひとこと</div>
+              <div class="mt-1 text-sm leading-6 text-slate-100">
+                {% if row.action_key == "STOP_LOSS_WARNING" %}
+                  損失が大きめです。まずは見直し優先です。
+                {% elif row.action_key == "SQUEEZE_WARNING" %}
+                  逆行が強めです。踏み上げに注意したい状態です。
+                {% elif row.action_key == "BUYBACK_CANDIDATE" %}
+                  利益がかなり乗っています。買い戻しを考えやすい状態です。
+                {% elif row.action_key == "TAKE_PROFIT_CANDIDATE" %}
+                  利益が乗っています。利益確定を考えやすい状態です。
+                {% elif row.action_key == "TAKE_PROFIT_CAUTION" %}
+                  利益は出ています。少しずつ利確を意識したい状態です。
+                {% elif row.action_key == "REVERSAL_WARNING" %}
+                  流れが反対方向へ傾き気味です。反転注意です。
+                {% elif row.action_key == "MARGIN_STALE" %}
+                  信用保有が長めです。長期化リスクを確認したいです。
+                {% elif row.action_key == "PRICE_MISSING" %}
+                  価格が未更新なので、まだ判断材料が足りません。
                 {% else %}
-                  text-rose-300
+                  今のところ大きな警戒はありません。このまま様子見しやすい状態です。
                 {% endif %}
-              ">
-                {% if row.pnl_yen is not None %}
-                  {{ row.pnl_yen|floatformat:0|intcomma }} 円
+              </div>
+
+              <div class="mt-2 text-[11px] leading-5 text-slate-400">
+                {% if row.ma_state == "GOLDEN_CROSS" %}
+                  流れは上向きに変わり始めています。
+                {% elif row.ma_state == "ABOVE_GC" %}
+                  流れは上向きです。
+                {% elif row.ma_state == "DEAD_CROSS" %}
+                  流れは下向きに変わり始めています。
+                {% elif row.ma_state == "BELOW_DC" %}
+                  流れは下向きです。
                 {% else %}
-                  未取得
+                  流れはまだはっきりしません。
+                {% endif %}
+
+                {% if row.atr_pct is not None %}
+                  値動きは
+                  {% if row.atr_pct >= 4 %}
+                    かなり大きめ
+                  {% elif row.atr_pct >= 2 %}
+                    やや大きめ
+                  {% elif row.atr_pct >= 1 %}
+                    ふつう
+                  {% else %}
+                    小さめ
+                  {% endif %}
+                  です。
                 {% endif %}
               </div>
             </div>
 
-            {% if row.technical_summary %}
-              <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
-                <div class="text-[11px] text-slate-400">テクニカル概要</div>
-                <div class="mt-1 text-sm leading-6 text-slate-200">{{ row.technical_summary }}</div>
-              </div>
-            {% endif %}
+            <details class="mt-3 group rounded-2xl border border-slate-800 bg-slate-900">
+              <summary class="flex cursor-pointer list-none items-center justify-between px-3 py-3 text-sm font-semibold text-slate-200">
+                <span>くわしく見る</span>
+                <span class="text-xs text-slate-500 group-open:hidden">開く</span>
+                <span class="hidden text-xs text-slate-500 group-open:inline">閉じる</span>
+              </summary>
 
-            <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
-              <div class="text-[11px] text-slate-400">AIメモ</div>
-              <div class="mt-1 text-sm leading-6 text-slate-200">{{ row.reason_text }}</div>
-            </div>
+              <div class="border-t border-slate-800 px-3 py-3">
+                <div class="grid grid-cols-2 gap-2">
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">数量</div>
+                    <div class="mt-1 text-sm font-bold text-white">{{ row.quantity|intcomma }}</div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">取得単価</div>
+                    <div class="mt-1 text-sm font-bold text-white">{{ row.avg_cost|floatformat:2 }}</div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">現在値</div>
+                    <div class="mt-1 text-sm font-bold text-white">
+                      {% if row.last_price is not None %}
+                        {{ row.last_price|floatformat:2 }}
+                      {% else %}
+                        未取得
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">保有日数</div>
+                    <div class="mt-1 text-sm font-bold text-white">
+                      {% if row.hold_days is not None %}
+                        {{ row.hold_days }} 日
+                      {% else %}
+                        -
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">5日線</div>
+                    <div class="mt-1 text-sm font-bold text-white">
+                      {% if row.short_ma is not None %}
+                        {{ row.short_ma|floatformat:2 }}
+                      {% else %}
+                        -
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">25日線</div>
+                    <div class="mt-1 text-sm font-bold text-white">
+                      {% if row.long_ma is not None %}
+                        {{ row.long_ma|floatformat:2 }}
+                      {% else %}
+                        -
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">内部の流れ判定</div>
+                    <div class="mt-1 text-sm font-bold text-white">{{ row.ma_label }}</div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">最近の値幅の大きさ</div>
+                    <div class="mt-1 text-sm font-bold text-white">
+                      {% if row.atr is not None %}
+                        {{ row.atr|floatformat:2 }}
+                        <span class="ml-1 text-xs text-slate-400">({{ row.atr_pct|floatformat:2 }}%)</span>
+                      {% else %}
+                        -
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+
+                {% if row.reason_text %}
+                  <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">詳しい理由</div>
+                    <div class="mt-1 text-sm leading-6 text-slate-200">{{ row.reason_text }}</div>
+                  </div>
+                {% endif %}
+              </div>
+            </details>
           </div>
         {% endfor %}
       </div>
