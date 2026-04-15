@@ -1,0 +1,189 @@
+<!--
+=========================================================
+[FILE] watchlist.html
+[PATH] <project_root>/tradeai/templates/tradeai/watchlist.html
+
+このファイルは何？
+- tradeai のウォッチリスト登録・一覧画面です。
+- スマホでも使いやすいように、入力と一覧を1ページにまとめています。
+=========================================================
+-->
+
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}TradeAI ウォッチリスト{% endblock %}
+
+{% block content %}
+<section class="space-y-4">
+  <div class="rounded-3xl border border-slate-800 bg-slate-900/80 p-5 shadow-2xl">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <p class="text-xs font-semibold tracking-widest text-cyan-300">TRADEAI WATCHLIST</p>
+        <h1 class="mt-1 text-2xl font-bold text-white">ウォッチリスト</h1>
+        <p class="mt-2 text-sm leading-6 text-slate-300">
+          注目したい銘柄を追加しておくと、あとでユニバース構築時に監視対象へ入ります。
+        </p>
+      </div>
+      <a
+        href="{% url 'tradeai_dashboard' %}"
+        class="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200"
+      >
+        ダッシュボードへ
+      </a>
+    </div>
+  </div>
+
+  <div class="rounded-3xl border border-slate-800 bg-slate-900 p-5">
+    <h2 class="text-sm font-bold text-white">新しく追加 / 更新する</h2>
+
+    <form method="post" class="mt-4 space-y-4">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        <div class="rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+          {{ form.non_field_errors }}
+        </div>
+      {% endif %}
+
+      <div class="grid grid-cols-1 gap-4">
+        <div>
+          <label class="mb-2 block text-xs font-semibold text-slate-400">{{ form.ticker.label }}</label>
+          {{ form.ticker }}
+          {% if form.ticker.errors %}
+            <div class="mt-1 text-xs text-rose-300">{{ form.ticker.errors }}</div>
+          {% endif %}
+        </div>
+
+        <div>
+          <label class="mb-2 block text-xs font-semibold text-slate-400">{{ form.name.label }}</label>
+          {{ form.name }}
+          {% if form.name.errors %}
+            <div class="mt-1 text-xs text-rose-300">{{ form.name.errors }}</div>
+          {% endif %}
+        </div>
+
+        <div class="grid grid-cols-3 gap-3">
+          <label class="flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-200">
+            {{ form.long_enabled }}
+            <span>{{ form.long_enabled.label }}</span>
+          </label>
+
+          <label class="flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-200">
+            {{ form.short_enabled }}
+            <span>{{ form.short_enabled.label }}</span>
+          </label>
+
+          <label class="flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-200">
+            {{ form.notify_enabled }}
+            <span>{{ form.notify_enabled.label }}</span>
+          </label>
+        </div>
+
+        <div>
+          <label class="mb-2 block text-xs font-semibold text-slate-400">{{ form.priority.label }}</label>
+          {{ form.priority }}
+          {% if form.priority.errors %}
+            <div class="mt-1 text-xs text-rose-300">{{ form.priority.errors }}</div>
+          {% endif %}
+        </div>
+
+        <div>
+          <label class="mb-2 block text-xs font-semibold text-slate-400">{{ form.memo.label }}</label>
+          {{ form.memo }}
+          {% if form.memo.errors %}
+            <div class="mt-1 text-xs text-rose-300">{{ form.memo.errors }}</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <button
+        type="submit"
+        class="w-full rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-bold text-slate-950 shadow-lg shadow-cyan-500/20"
+      >
+        ウォッチリストへ保存
+      </button>
+    </form>
+  </div>
+
+  <div class="rounded-3xl border border-slate-800 bg-slate-900 p-5">
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-bold text-white">登録済み銘柄</h2>
+      <div class="text-xs text-slate-400">{{ items|length|intcomma }} 件</div>
+    </div>
+
+    {% if items %}
+      <div class="mt-4 space-y-3">
+        {% for item in items %}
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="text-base font-bold text-white">
+                  {{ item.ticker }}
+                  {% if item.name %}
+                    <span class="ml-2 text-sm font-medium text-slate-300">{{ item.name }}</span>
+                  {% endif %}
+                </div>
+
+                <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                  {% if item.is_active %}
+                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">監視中</span>
+                  {% else %}
+                    <span class="rounded-full border border-slate-600 bg-slate-800 px-2 py-1 text-slate-300">停止中</span>
+                  {% endif %}
+
+                  {% if item.long_enabled %}
+                    <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-300">LONG</span>
+                  {% endif %}
+
+                  {% if item.short_enabled %}
+                    <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-300">SHORT</span>
+                  {% endif %}
+
+                  {% if item.notify_enabled %}
+                    <span class="rounded-full border border-fuchsia-500/30 bg-fuchsia-500/10 px-2 py-1 text-fuchsia-300">通知ON</span>
+                  {% else %}
+                    <span class="rounded-full border border-slate-600 bg-slate-800 px-2 py-1 text-slate-300">通知OFF</span>
+                  {% endif %}
+
+                  <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">優先度 {{ item.priority }}</span>
+                </div>
+
+                {% if item.memo %}
+                  <div class="mt-3 text-sm leading-6 text-slate-300">{{ item.memo }}</div>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="mt-4 flex gap-2">
+              <form method="post" action="{% url 'tradeai_watchlist_toggle' item.pk %}" class="flex-1">
+                {% csrf_token %}
+                <button
+                  type="submit"
+                  class="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-200"
+                >
+                  {% if item.is_active %}監視を停止{% else %}監視を再開{% endif %}
+                </button>
+              </form>
+
+              <form method="post" action="{% url 'tradeai_watchlist_delete' item.pk %}" class="flex-1">
+                {% csrf_token %}
+                <button
+                  type="submit"
+                  class="w-full rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm font-semibold text-rose-300"
+                >
+                  削除
+                </button>
+              </form>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
+        まだウォッチリストはありません。上のフォームから追加してください。
+      </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
