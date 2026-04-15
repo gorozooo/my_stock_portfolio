@@ -5,6 +5,7 @@
 # このファイルは何？
 # - 保有銘柄監視を実行し、必要なものだけ SignalEvent に保存するコマンドです。
 # - 継続保有は保存せず、警戒/候補だけ履歴化します。
+# - 今回は GC/DC と ATR の情報も一緒に保存します。
 # =========================================================
 
 from __future__ import annotations
@@ -89,6 +90,13 @@ class Command(BaseCommand):
                     "hold_days": row["hold_days"],
                     "pnl_pct": row["pnl_pct"],
                     "pnl_yen": row["pnl_yen"],
+                    "ma_state": row["ma_state"],
+                    "ma_label": row["ma_label"],
+                    "short_ma": row["short_ma"],
+                    "long_ma": row["long_ma"],
+                    "atr": row["atr"],
+                    "atr_pct": row["atr_pct"],
+                    "technical_summary": row["technical_summary"],
                 },
                 event_at=now,
             )
