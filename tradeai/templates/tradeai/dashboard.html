@@ -5,7 +5,7 @@
 
 このファイルは何？
 - tradeai のトップ画面です。
-- 今回は保有監視への導線とプレビューを追加しています。
+- 今回は保有監視プレビューに GC/DC と ATR の情報を追加しています。
 =========================================================
 -->
 
@@ -26,7 +26,7 @@
         </p>
       </div>
       <div class="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-300">
-        Phase 3
+        Phase 4
       </div>
     </div>
 
@@ -146,6 +146,16 @@
                   {% else %}
                     <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">{{ row.action_label }}</span>
                   {% endif %}
+
+                  {% if row.ma_state == "GOLDEN_CROSS" %}
+                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">GC発生</span>
+                  {% elif row.ma_state == "ABOVE_GC" %}
+                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">GC上</span>
+                  {% elif row.ma_state == "DEAD_CROSS" %}
+                    <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">DC発生</span>
+                  {% elif row.ma_state == "BELOW_DC" %}
+                    <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">DC下</span>
+                  {% endif %}
                 </div>
 
                 <div class="mt-2 text-xs text-slate-400">
@@ -154,6 +164,9 @@
                     <span class="font-semibold text-white">{{ row.pnl_pct|floatformat:2 }}%</span>
                   {% else %}
                     <span class="font-semibold text-slate-500">未取得</span>
+                  {% endif %}
+                  {% if row.atr_pct is not None %}
+                    <span class="ml-2 text-slate-500">ATR {{ row.atr_pct|floatformat:2 }}%</span>
                   {% endif %}
                 </div>
               </div>
@@ -264,9 +277,9 @@
     <h2 class="text-sm font-bold text-white">この段階で入った土台</h2>
     <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-300">
       <li>・保有ロング / 保有ショートの監視</li>
-      <li>・継続 / 利確警戒 / 利確候補 / 損切り警戒 / 踏み上げ警戒の判定</li>
+      <li>・5日線 / 25日線 による GC / DC 判定</li>
+      <li>・ATR(14) による値幅の把握</li>
       <li>・警戒系だけ SignalEvent に保存するコマンド</li>
-      <li>・保有監視ページの追加</li>
     </ul>
   </div>
 </section>
