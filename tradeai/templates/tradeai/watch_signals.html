@@ -7,6 +7,7 @@
 - tradeai のウォッチリスト監視画面です。
 - ウォッチ銘柄に対して、今はロング寄りかショート寄りか、
   まだ様子見かを初心者向けに表示します。
+- 今回は コスト帯 / 出来高 / 節目 の情報も追加しています。
 =========================================================
 -->
 
@@ -106,16 +107,6 @@
 
             <div class="mt-3 grid grid-cols-2 gap-2">
               <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
-                <div class="text-[11px] text-slate-400">ロング点</div>
-                <div class="mt-1 text-base font-bold text-cyan-300">{{ row.long_score }}</div>
-              </div>
-
-              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
-                <div class="text-[11px] text-slate-400">ショート点</div>
-                <div class="mt-1 text-base font-bold text-amber-300">{{ row.short_score }}</div>
-              </div>
-
-              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
                 <div class="text-[11px] text-slate-400">今の流れ</div>
                 <div class="mt-1 text-base font-bold text-white">{{ row.flow_label }}</div>
               </div>
@@ -127,12 +118,38 @@
 
               <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
                 <div class="text-[11px] text-slate-400">タイミング感</div>
-                <div class="mt-1 text-base font-bold text-white">{{ row.rsi_label }}</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.timing_label }}</div>
               </div>
 
               <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
                 <div class="text-[11px] text-slate-400">値動き</div>
                 <div class="mt-1 text-base font-bold text-white">{{ row.volatility_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">コスト帯との位置</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.cost_position_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">出来高の勢い</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.volume_human_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">節目</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.breakout_human_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">現在値</div>
+                <div class="mt-1 text-base font-bold text-white">
+                  {% if row.last_close is not None %}
+                    {{ row.last_close|floatformat:2 }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
               </div>
             </div>
 
@@ -151,17 +168,6 @@
               <div class="border-t border-slate-800 px-3 py-3">
                 <div class="grid grid-cols-2 gap-2">
                   <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
-                    <div class="text-[11px] text-slate-400">現在値</div>
-                    <div class="mt-1 text-sm font-bold text-white">
-                      {% if row.last_close is not None %}
-                        {{ row.last_close|floatformat:2 }}
-                      {% else %}
-                        -
-                      {% endif %}
-                    </div>
-                  </div>
-
-                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
                     <div class="text-[11px] text-slate-400">RSI</div>
                     <div class="mt-1 text-sm font-bold text-white">
                       {% if row.rsi is not None %}
@@ -173,21 +179,65 @@
                   </div>
 
                   <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
-                    <div class="text-[11px] text-slate-400">流れの内部判定</div>
-                    <div class="mt-1 text-sm font-bold text-white">{{ row.ma_label }}</div>
-                  </div>
-
-                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
-                    <div class="text-[11px] text-slate-400">勢いの内部判定</div>
-                    <div class="mt-1 text-sm font-bold text-white">{{ row.macd_label }}</div>
-                  </div>
-
-                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
                     <div class="text-[11px] text-slate-400">ATR(14)</div>
                     <div class="mt-1 text-sm font-bold text-white">
                       {% if row.atr is not None %}
                         {{ row.atr|floatformat:2 }}
                         <span class="ml-1 text-xs text-slate-400">({{ row.atr_pct|floatformat:2 }}%)</span>
+                      {% else %}
+                        -
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">内部の流れ判定</div>
+                    <div class="mt-1 text-sm font-bold text-white">{{ row.ma_label }}</div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">内部の勢い判定</div>
+                    <div class="mt-1 text-sm font-bold text-white">{{ row.macd_label }}</div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">VWAP</div>
+                    <div class="mt-1 text-sm font-bold text-white">
+                      {% if row.vwap is not None %}
+                        {{ row.vwap|floatformat:2 }}
+                      {% else %}
+                        -
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">出来高倍率</div>
+                    <div class="mt-1 text-sm font-bold text-white">
+                      {% if row.volume_ratio is not None %}
+                        {{ row.volume_ratio|floatformat:2 }} 倍
+                      {% else %}
+                        -
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">直近高値の節目</div>
+                    <div class="mt-1 text-sm font-bold text-white">
+                      {% if row.range_high is not None %}
+                        {{ row.range_high|floatformat:2 }}
+                      {% else %}
+                        -
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">直近安値の節目</div>
+                    <div class="mt-1 text-sm font-bold text-white">
+                      {% if row.range_low is not None %}
+                        {{ row.range_low|floatformat:2 }}
                       {% else %}
                         -
                       {% endif %}
