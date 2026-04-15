@@ -4,25 +4,34 @@
 #
 # このファイルは何？
 # - tradeai のモデルを Django 管理画面で見られるようにするファイルです。
+# - 今回はまとめimportをやめて、各モデルを直接importする形にしています。
 # =========================================================
 
 from django.contrib import admin
 
-from .models import (
-    DemoTrade,
-    LearningResult,
-    LearningSnapshot,
-    NotifyLog,
-    RegimeSnapshot,
-    SignalEvent,
-    UniverseTicker,
-    WatchlistItem,
-)
+from tradeai.models.demo_trade import DemoTrade
+from tradeai.models.learning_result import LearningResult
+from tradeai.models.learning_snapshot import LearningSnapshot
+from tradeai.models.notify_log import NotifyLog
+from tradeai.models.regime_snapshot import RegimeSnapshot
+from tradeai.models.signal_event import SignalEvent
+from tradeai.models.universe import UniverseTicker
+from tradeai.models.watchlist import WatchlistItem
 
 
 @admin.register(UniverseTicker)
 class UniverseTickerAdmin(admin.ModelAdmin):
-    list_display = ("ticker", "name", "user", "in_nikkei225", "in_topix", "from_watchlist", "from_holding", "is_active", "priority")
+    list_display = (
+        "ticker",
+        "name",
+        "user",
+        "in_nikkei225",
+        "in_topix",
+        "from_watchlist",
+        "from_holding",
+        "is_active",
+        "priority",
+    )
     list_filter = ("is_active", "in_nikkei225", "in_topix", "from_watchlist", "from_holding")
     search_fields = ("ticker", "name", "user__username")
     ordering = ("priority", "ticker")
@@ -30,7 +39,16 @@ class UniverseTickerAdmin(admin.ModelAdmin):
 
 @admin.register(WatchlistItem)
 class WatchlistItemAdmin(admin.ModelAdmin):
-    list_display = ("ticker", "name", "user", "long_enabled", "short_enabled", "notify_enabled", "is_active", "priority")
+    list_display = (
+        "ticker",
+        "name",
+        "user",
+        "long_enabled",
+        "short_enabled",
+        "notify_enabled",
+        "is_active",
+        "priority",
+    )
     list_filter = ("long_enabled", "short_enabled", "notify_enabled", "is_active")
     search_fields = ("ticker", "name", "user__username")
     ordering = ("priority", "ticker")
@@ -46,7 +64,17 @@ class RegimeSnapshotAdmin(admin.ModelAdmin):
 
 @admin.register(SignalEvent)
 class SignalEventAdmin(admin.ModelAdmin):
-    list_display = ("event_at", "ticker", "name", "user", "scope", "direction", "level", "status", "score_total")
+    list_display = (
+        "event_at",
+        "ticker",
+        "name",
+        "user",
+        "scope",
+        "direction",
+        "level",
+        "status",
+        "score_total",
+    )
     list_filter = ("scope", "direction", "level", "status")
     search_fields = ("ticker", "name", "reason_text", "user__username")
     ordering = ("-event_at",)
@@ -54,7 +82,18 @@ class SignalEventAdmin(admin.ModelAdmin):
 
 @admin.register(DemoTrade)
 class DemoTradeAdmin(admin.ModelAdmin):
-    list_display = ("entry_at", "ticker", "name", "user", "direction", "source_scope", "status", "result_label", "entry_price", "close_price")
+    list_display = (
+        "entry_at",
+        "ticker",
+        "name",
+        "user",
+        "direction",
+        "source_scope",
+        "status",
+        "result_label",
+        "entry_price",
+        "close_price",
+    )
     list_filter = ("direction", "source_scope", "status", "result_label")
     search_fields = ("ticker", "name", "entry_reason_text", "user__username")
     ordering = ("-entry_at",)
@@ -62,7 +101,17 @@ class DemoTradeAdmin(admin.ModelAdmin):
 
 @admin.register(LearningSnapshot)
 class LearningSnapshotAdmin(admin.ModelAdmin):
-    list_display = ("snapshot_at", "ticker", "name", "user", "direction", "source_scope", "signal_score", "was_notified", "was_entered")
+    list_display = (
+        "snapshot_at",
+        "ticker",
+        "name",
+        "user",
+        "direction",
+        "source_scope",
+        "signal_score",
+        "was_notified",
+        "was_entered",
+    )
     list_filter = ("direction", "source_scope", "was_notified", "was_entered")
     search_fields = ("ticker", "name", "user__username")
     ordering = ("-snapshot_at",)
