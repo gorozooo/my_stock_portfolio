@@ -6,11 +6,7 @@
 # - Django全体の設定ファイルです（DB/アプリ/cron/各種定数など）。
 #
 # 今回の修正：
-# 1) autotrade だけ別SQLite（autotrade.sqlite3）へ分離
-# 2) SQLite を WAL + busy_timeout に
-# 3) router（DATABASE_ROUTERS）で autotrade のDBを自動切替
-# 4) 引け後STOP救済ジョブ（eod_stop_rescue）を cron に追加
-# 5) 全ノブ試行チューニング用の探索範囲を settings に明示
+# 1) tradeai アプリを追加
 # =========================================================
 
 """
@@ -71,6 +67,7 @@ INSTALLED_APPS = [
     # 自作アプリ
     "portfolio",
     "aiapp.apps.AiappConfig",
+    "tradeai.apps.TradeaiConfig",
 
     # 自動売買
     "autotrade.apps.AutotradeConfig",
