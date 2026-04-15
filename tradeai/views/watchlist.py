@@ -4,6 +4,9 @@
 #
 # このファイルは何？
 # - tradeai のウォッチリスト画面と登録/停止/削除を担当する view です。
+#
+# 今回の修正：
+# - 名前が空のまま保存された場合でも、サーバー側で銘柄名を自動補完する
 # =========================================================
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from tradeai.forms import TradeaiWatchlistForm
 from tradeai.models.watchlist import WatchlistItem
+from tradeai.services.common.stock_lookup import lookup_stock_name_and_sector
 from tradeai.services.common.ticker_normalizer import normalize_ticker
 
 
@@ -31,6 +35,12 @@ def watchlist_page(request):
             notify_enabled = form.cleaned_data["notify_enabled"]
             priority = form.cleaned_data["priority"]
             memo = (form.cleaned_data["memo"] or "").strip()
+
+            if ticker and not name:
+                lookup = lookup_stock_name_and_sector(ticker)
+                auto_name = (lookup.get("name") or "").strip()
+                if auto_name:
+                    name = auto_name
 
             item, created = WatchlistItem.objects.update_or_create(
                 user=user,
