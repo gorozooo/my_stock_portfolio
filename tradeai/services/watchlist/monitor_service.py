@@ -5,7 +5,7 @@
 # このファイルは何？
 # - ウォッチリスト銘柄を監視して、
 #   ロング注目 / ショート注目 / 様子見 を作るサービスです。
-# - GC/DC・MACD・RSI・ATR を使いますが、
+# - GC/DC・MACD・RSI・ATR・VWAP・出来高急増・高値/安値ブレイクを使いますが、
 #   画面表示は初心者向けの言葉へ翻訳します。
 # =========================================================
 
@@ -15,10 +15,13 @@ from typing import Any
 
 from tradeai.models.watchlist import WatchlistItem
 from tradeai.services.indicators.atr_service import analyze_atr
+from tradeai.services.indicators.breakout_service import analyze_breakout
 from tradeai.services.indicators.daily_price_service import get_daily_ohlc
 from tradeai.services.indicators.ma_cross_service import analyze_ma_cross
 from tradeai.services.indicators.macd_service import analyze_macd
 from tradeai.services.indicators.rsi_service import analyze_rsi
+from tradeai.services.indicators.volume_spike_service import analyze_volume_spike
+from tradeai.services.indicators.vwap_service import analyze_vwap
 
 
 LEVEL_RANK = {
@@ -43,12 +46,25 @@ def _build_technical_snapshot(ticker: str) -> dict[str, Any]:
             "rsi": None,
             "atr": None,
             "atr_pct": None,
+            "vwap": None,
+            "vwap_state": "UNKNOWN",
+            "vwap_label": "不明",
+            "volume_ratio": None,
+            "volume_state": "UNKNOWN",
+            "volume_label": "不明",
+            "breakout_state": "UNKNOWN",
+            "breakout_label": "不明",
+            "range_high": None,
+            "range_low": None,
         }
 
     ma_info = analyze_ma_cross(ohlc["closes"], short_window=5, long_window=25)
     macd_info = analyze_macd(ohlc["closes"])
     rsi_info = analyze_rsi(ohlc["closes"], period=14)
     atr_info = analyze_atr(ohlc["highs"], ohlc["lows"], ohlc["closes"], period=14)
+    vwap_info = analyze_vwap(ohlc["closes"], ohlc["volumes"], lookback=20)
+    volume_info = analyze_volume_spike(ohlc["volumes"], lookback=20)
+    breakout_info = analyze_breakout(ohlc["highs"], ohlc["lows"], ohlc["closes"], lookback=20)
 
     return {
         "has_technical": True,
@@ -57,6 +73,9 @@ def _build_technical_snapshot(ticker: str) -> dict[str, Any]:
         **macd_info,
         **rsi_info,
         **atr_info,
+        **vwap_info,
+        **volume_info,
+        **breakout_info,
     }
 
 
@@ -87,6 +106,41 @@ def _score_long(tech: dict[str, Any]) -> tuple[int, list[str]]:
     elif tech["rsi_state"] == "OVERBOUGHT":
         score -= 1
         reasons.append("少し上がりすぎには注意です")
+
+    if tech["vwap_state"] == "CROSS_UP":
+        score += 2
+        reasons.append("最近の売買コスト帯を上抜けています")
+    elif tech["vwap_state"] == "ABOVE_VWAP":
+        score += 1
+        reasons.append("価格は最近の売買コスト帯より上です")
+    elif tech["vwap_state"] == "CROSS_DOWN":
+        score -= 2
+        reasons.append("コスト帯を下抜けていて少し弱いです")
+    elif tech["vwap_state"] == "BELOW_VWAP":
+        score -= 1
+
+    if tech["breakout_state"] == "HIGH_BREAKOUT":
+        score += 3
+        reasons.append("直近の高値をぬけています")
+    elif tech["breakout_state"] == "NEAR_HIGH":
+        score += 1
+        reasons.append("高値に近く、もう一段上を試しやすい位置です")
+    elif tech["breakout_state"] == "LOW_BREAKDOWN":
+        score -= 3
+        reasons.append("安値を割っていて逆風です")
+
+    if tech["volume_state"] == "SPIKE":
+        score += 2
+        reasons.append("出来高も急増していて注目が集まっています")
+    elif tech["volume_state"] == "ACTIVE":
+        score += 1
+        reasons.append("出来高もやや増えています")
+    elif tech["volume_state"] == "QUIET":
+        score -= 1
+
+    if tech["volume_state"] == "SPIKE" and tech["breakout_state"] == "HIGH_BREAKOUT":
+        score += 1
+        reasons.append("高値ぬけに出来高が伴っています")
 
     return score, reasons
 
@@ -119,13 +173,48 @@ def _score_short(tech: dict[str, Any]) -> tuple[int, list[str]]:
         score -= 1
         reasons.append("少し下がりすぎには注意です")
 
+    if tech["vwap_state"] == "CROSS_DOWN":
+        score += 2
+        reasons.append("最近の売買コスト帯を下抜けています")
+    elif tech["vwap_state"] == "BELOW_VWAP":
+        score += 1
+        reasons.append("価格は最近の売買コスト帯より下です")
+    elif tech["vwap_state"] == "CROSS_UP":
+        score -= 2
+        reasons.append("コスト帯を上抜けていて逆風です")
+    elif tech["vwap_state"] == "ABOVE_VWAP":
+        score -= 1
+
+    if tech["breakout_state"] == "LOW_BREAKDOWN":
+        score += 3
+        reasons.append("直近の安値を割っています")
+    elif tech["breakout_state"] == "NEAR_LOW":
+        score += 1
+        reasons.append("安値に近く、もう一段下を試しやすい位置です")
+    elif tech["breakout_state"] == "HIGH_BREAKOUT":
+        score -= 3
+        reasons.append("高値をぬけていて逆風です")
+
+    if tech["volume_state"] == "SPIKE":
+        score += 2
+        reasons.append("出来高も急増していて注目が集まっています")
+    elif tech["volume_state"] == "ACTIVE":
+        score += 1
+        reasons.append("出来高もやや増えています")
+    elif tech["volume_state"] == "QUIET":
+        score -= 1
+
+    if tech["volume_state"] == "SPIKE" and tech["breakout_state"] == "LOW_BREAKDOWN":
+        score += 1
+        reasons.append("安値わりに出来高が伴っています")
+
     return score, reasons
 
 
 def _level_from_score(score: int) -> str:
-    if score >= 7:
+    if score >= 9:
         return "STRONG"
-    if score >= 4:
+    if score >= 5:
         return "ATTENTION"
     return "REFERENCE"
 
@@ -144,14 +233,14 @@ def _pick_direction(item: WatchlistItem, long_score: int, short_score: int, tech
     if short_score > long_score:
         return "SHORT"
 
+    if tech["breakout_state"] == "HIGH_BREAKOUT":
+        return "LONG"
+    if tech["breakout_state"] == "LOW_BREAKDOWN":
+        return "SHORT"
+
     if tech["ma_state"] in ("GOLDEN_CROSS", "ABOVE_GC"):
         return "LONG"
     if tech["ma_state"] in ("DEAD_CROSS", "BELOW_DC"):
-        return "SHORT"
-
-    if tech["macd_state"] in ("BULLISH_CROSS", "BULLISH_ABOVE"):
-        return "LONG"
-    if tech["macd_state"] in ("BEARISH_CROSS", "BEARISH_BELOW"):
         return "SHORT"
 
     return None
@@ -181,6 +270,22 @@ def _momentum_label(macd_state: str) -> str:
     return "まだ不明"
 
 
+def _timing_label(rsi_label: str) -> str:
+    if rsi_label == "売られすぎから持ち直し":
+        return "押し目反発寄り"
+    if rsi_label == "買われすぎから失速":
+        return "反落寄り"
+    if rsi_label == "買われすぎ":
+        return "上がりすぎ注意"
+    if rsi_label == "売られすぎ":
+        return "下がりすぎ注意"
+    if rsi_label == "買い優勢":
+        return "買い優勢"
+    if rsi_label == "売り優勢":
+        return "売り優勢"
+    return "まだ不明"
+
+
 def _volatility_label(atr_pct: float | None) -> str:
     if atr_pct is None:
         return "まだ不明"
@@ -193,22 +298,60 @@ def _volatility_label(atr_pct: float | None) -> str:
     return "小さめ"
 
 
+def _cost_position_label(vwap_state: str) -> str:
+    if vwap_state == "CROSS_UP":
+        return "コスト帯を上抜け"
+    if vwap_state == "ABOVE_VWAP":
+        return "コスト帯より上"
+    if vwap_state == "CROSS_DOWN":
+        return "コスト帯を下抜け"
+    if vwap_state == "BELOW_VWAP":
+        return "コスト帯より下"
+    return "まだ不明"
+
+
+def _volume_label(volume_label: str) -> str:
+    if volume_label == "出来高急増":
+        return "かなり活発"
+    if volume_label == "やや活発":
+        return "やや活発"
+    if volume_label == "かなり静か":
+        return "かなり静か"
+    if volume_label == "ふつう":
+        return "ふつう"
+    return "まだ不明"
+
+
+def _breakout_label(breakout_label: str) -> str:
+    if breakout_label == "高値ぬけ":
+        return "高値ぬけ"
+    if breakout_label == "安値わり":
+        return "安値わり"
+    if breakout_label == "高値に近い":
+        return "高値に近い"
+    if breakout_label == "安値に近い":
+        return "安値に近い"
+    if breakout_label == "まだ節目内":
+        return "まだ節目内"
+    return "まだ不明"
+
+
 def _summary_for(direction: str | None, level: str, reasons: list[str], atr_pct: float | None) -> str:
     if direction is None or level == "REFERENCE":
         text = "今は強い重なりが少ないので、まだ様子見しやすい状態です。"
     elif direction == "LONG":
         if level == "STRONG":
-            text = "上向きの流れと勢いが重なっています。ロング側でかなり注目したい状態です。"
+            text = "上向きの流れ・勢い・節目ぬけが重なっています。ロング側でかなり注目したい状態です。"
         else:
             text = "ややロング寄りです。上向きシグナルが少しずつ重なっています。"
     else:
         if level == "STRONG":
-            text = "下向きの流れと勢いが重なっています。ショート側でかなり注目したい状態です。"
+            text = "下向きの流れ・勢い・節目わりが重なっています。ショート側でかなり注目したい状態です。"
         else:
             text = "ややショート寄りです。下向きシグナルが少しずつ重なっています。"
 
     if reasons:
-        text += " " + " / ".join(reasons[:2]) + "。"
+        text += " " + " / ".join(reasons[:3]) + "。"
 
     if atr_pct is not None:
         if atr_pct >= 4:
@@ -273,7 +416,11 @@ def build_watch_signal_row(item: WatchlistItem) -> dict[str, Any]:
         "short_score": short_score,
         "flow_label": _flow_label(tech["ma_state"]),
         "momentum_label": _momentum_label(tech["macd_state"]),
+        "timing_label": _timing_label(tech["rsi_label"]),
         "volatility_label": _volatility_label(tech["atr_pct"]),
+        "cost_position_label": _cost_position_label(tech["vwap_state"]),
+        "volume_human_label": _volume_label(tech["volume_label"]),
+        "breakout_human_label": _breakout_label(tech["breakout_label"]),
         "summary_text": summary_text,
         "last_close": tech["last_close"],
         "ma_state": tech["ma_state"],
@@ -285,6 +432,16 @@ def build_watch_signal_row(item: WatchlistItem) -> dict[str, Any]:
         "rsi": tech["rsi"],
         "atr": tech["atr"],
         "atr_pct": tech["atr_pct"],
+        "vwap": tech["vwap"],
+        "vwap_state": tech["vwap_state"],
+        "vwap_label": tech["vwap_label"],
+        "volume_ratio": tech["volume_ratio"],
+        "volume_state": tech["volume_state"],
+        "volume_label": tech["volume_label"],
+        "breakout_state": tech["breakout_state"],
+        "breakout_label": tech["breakout_label"],
+        "range_high": tech["range_high"],
+        "range_low": tech["range_low"],
         "selected_reasons": selected_reasons,
     }
 
