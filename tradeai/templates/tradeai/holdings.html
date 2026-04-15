@@ -1,0 +1,177 @@
+<!--
+=========================================================
+[FILE] holdings.html
+[PATH] <project_root>/tradeai/templates/tradeai/holdings.html
+
+このファイルは何？
+- tradeai の保有監視画面です。
+- 現在保有している銘柄に対して、ロング/ショート別の扱い方を表示します。
+=========================================================
+-->
+
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}TradeAI 保有監視{% endblock %}
+
+{% block content %}
+<section class="space-y-4">
+  <div class="rounded-3xl border border-slate-800 bg-slate-900/80 p-5 shadow-2xl">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <p class="text-xs font-semibold tracking-widest text-rose-300">TRADEAI HOLDINGS</p>
+        <h1 class="mt-1 text-2xl font-bold text-white">保有監視</h1>
+        <p class="mt-2 text-sm leading-6 text-slate-300">
+          今ある保有銘柄を、ロング / ショート別に 継続・利確・損切りの観点で整理して表示します。
+        </p>
+      </div>
+      <a
+        href="{% url 'tradeai_dashboard' %}"
+        class="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200"
+      >
+        ダッシュボードへ
+      </a>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-3 gap-3">
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">強い警戒</div>
+      <div class="mt-2 text-2xl font-bold text-rose-300">{{ strong_count|intcomma }}</div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">注意</div>
+      <div class="mt-2 text-2xl font-bold text-yellow-300">{{ attention_count|intcomma }}</div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">継続 / 参考</div>
+      <div class="mt-2 text-2xl font-bold text-emerald-300">{{ reference_count|intcomma }}</div>
+    </div>
+  </div>
+
+  <div class="rounded-3xl border border-slate-800 bg-slate-900 p-5">
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-bold text-white">保有中の銘柄一覧</h2>
+      <div class="text-xs text-slate-400">{{ rows|length|intcomma }} 件</div>
+    </div>
+
+    {% if rows %}
+      <div class="mt-4 space-y-3">
+        {% for row in rows %}
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="text-base font-bold text-white">
+                  {{ row.ticker }}
+                  {% if row.name %}
+                    <span class="ml-2 text-sm font-medium text-slate-300">{{ row.name }}</span>
+                  {% endif %}
+                </div>
+
+                <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                  {% if row.direction == "LONG" %}
+                    <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-300">ロング</span>
+                  {% else %}
+                    <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-300">ショート</span>
+                  {% endif %}
+
+                  {% if row.level == "STRONG" %}
+                    <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">{{ row.action_label }}</span>
+                  {% elif row.level == "ATTENTION" %}
+                    <span class="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-1 text-yellow-300">{{ row.action_label }}</span>
+                  {% else %}
+                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">{{ row.action_label }}</span>
+                  {% endif %}
+
+                  <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ row.broker_label }}</span>
+                  <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ row.account_label }}</span>
+                </div>
+              </div>
+
+              <div class="text-right text-xs text-slate-400">
+                {% if row.hold_days is not None %}
+                  <div>{{ row.hold_days }} 日保有</div>
+                {% else %}
+                  <div>保有日数 -</div>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="mt-4 grid grid-cols-2 gap-3">
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
+                <div class="text-[11px] text-slate-400">数量</div>
+                <div class="mt-1 text-sm font-bold text-white">{{ row.quantity|intcomma }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
+                <div class="text-[11px] text-slate-400">取得単価</div>
+                <div class="mt-1 text-sm font-bold text-white">{{ row.avg_cost|floatformat:2 }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
+                <div class="text-[11px] text-slate-400">現在値</div>
+                <div class="mt-1 text-sm font-bold text-white">
+                  {% if row.last_price is not None %}
+                    {{ row.last_price|floatformat:2 }}
+                  {% else %}
+                    未取得
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
+                <div class="text-[11px] text-slate-400">損益率</div>
+                <div class="mt-1 text-sm font-bold
+                  {% if row.pnl_pct is None %}
+                    text-slate-500
+                  {% elif row.pnl_pct >= 0 %}
+                    text-emerald-300
+                  {% else %}
+                    text-rose-300
+                  {% endif %}
+                ">
+                  {% if row.pnl_pct is not None %}
+                    {{ row.pnl_pct|floatformat:2 }}%
+                  {% else %}
+                    未取得
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
+              <div class="text-[11px] text-slate-400">損益額</div>
+              <div class="mt-1 text-sm font-bold
+                {% if row.pnl_yen is None %}
+                  text-slate-500
+                {% elif row.pnl_yen >= 0 %}
+                  text-emerald-300
+                {% else %}
+                  text-rose-300
+                {% endif %}
+              ">
+                {% if row.pnl_yen is not None %}
+                  {{ row.pnl_yen|floatformat:0|intcomma }} 円
+                {% else %}
+                  未取得
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
+              <div class="text-[11px] text-slate-400">AIメモ</div>
+              <div class="mt-1 text-sm leading-6 text-slate-200">{{ row.reason_text }}</div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
+        まだ保有銘柄がありません。
+      </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
