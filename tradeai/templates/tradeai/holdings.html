@@ -6,6 +6,7 @@
 このファイルは何？
 - tradeai の保有監視画面です。
 - 現在保有している銘柄に対して、ロング/ショート別の扱い方を表示します。
+- 今回は GC/DC と ATR も表示します。
 =========================================================
 -->
 
@@ -87,6 +88,18 @@
 
                   <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ row.broker_label }}</span>
                   <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ row.account_label }}</span>
+
+                  {% if row.ma_state == "GOLDEN_CROSS" %}
+                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">GC発生</span>
+                  {% elif row.ma_state == "ABOVE_GC" %}
+                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">GC上</span>
+                  {% elif row.ma_state == "DEAD_CROSS" %}
+                    <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">DC発生</span>
+                  {% elif row.ma_state == "BELOW_DC" %}
+                    <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">DC下</span>
+                  {% else %}
+                    <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">GC/DC不明</span>
+                  {% endif %}
                 </div>
               </div>
 
@@ -139,6 +152,45 @@
                   {% endif %}
                 </div>
               </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
+                <div class="text-[11px] text-slate-400">5日線</div>
+                <div class="mt-1 text-sm font-bold text-white">
+                  {% if row.short_ma is not None %}
+                    {{ row.short_ma|floatformat:2 }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
+                <div class="text-[11px] text-slate-400">25日線</div>
+                <div class="mt-1 text-sm font-bold text-white">
+                  {% if row.long_ma is not None %}
+                    {{ row.long_ma|floatformat:2 }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
+                <div class="text-[11px] text-slate-400">GC/DC判定</div>
+                <div class="mt-1 text-sm font-bold text-white">{{ row.ma_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
+                <div class="text-[11px] text-slate-400">ATR(14)</div>
+                <div class="mt-1 text-sm font-bold text-white">
+                  {% if row.atr is not None %}
+                    {{ row.atr|floatformat:2 }}
+                    <span class="ml-1 text-xs text-slate-400">({{ row.atr_pct|floatformat:2 }}%)</span>
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
             </div>
 
             <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
@@ -159,6 +211,13 @@
                 {% endif %}
               </div>
             </div>
+
+            {% if row.technical_summary %}
+              <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
+                <div class="text-[11px] text-slate-400">テクニカル概要</div>
+                <div class="mt-1 text-sm leading-6 text-slate-200">{{ row.technical_summary }}</div>
+              </div>
+            {% endif %}
 
             <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
               <div class="text-[11px] text-slate-400">AIメモ</div>
