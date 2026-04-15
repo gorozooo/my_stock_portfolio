@@ -3,8 +3,8 @@
 # [PATH] <project_root>/tradeai/services/indicators/daily_price_service.py
 #
 # このファイルは何？
-# - 日足のOHLCデータを取得するサービスです。
-# - 保有監視で GC/DC や ATR を計算するための元データを返します。
+# - 日足のOHLCVデータを取得するサービスです。
+# - GC/DC, ATR, RSI, MACD, VWAP, 出来高急増, ブレイク判定の元データを返します。
 # =========================================================
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ def get_daily_ohlc(ticker: str, period: str = "6mo") -> dict[str, Any] | None:
         return None
 
     try:
-        df = df.dropna(subset=["High", "Low", "Close"])
+        df = df.dropna(subset=["Open", "High", "Low", "Close"])
     except Exception:
         _PRICE_CACHE[symbol] = (now_ts, None)
         return None
@@ -58,13 +58,25 @@ def get_daily_ohlc(ticker: str, period: str = "6mo") -> dict[str, Any] | None:
         _PRICE_CACHE[symbol] = (now_ts, None)
         return None
 
+    opens = [float(v) for v in df["Open"].fillna(0).tolist()]
+    highs = [float(v) for v in df["High"].fillna(0).tolist()]
+    lows = [float(v) for v in df["Low"].fillna(0).tolist()]
+    closes = [float(v) for v in df["Close"].fillna(0).tolist()]
+    volumes = [float(v) for v in df["Volume"].fillna(0).tolist()] if "Volume" in df.columns else [0.0] * len(df)
+
     result = {
         "symbol": symbol,
         "dates": [idx.to_pydatetime() for idx in df.index],
-        "highs": [float(v) for v in df["High"].tolist()],
-        "lows": [float(v) for v in df["Low"].tolist()],
-        "closes": [float(v) for v in df["Close"].tolist()],
-        "last_close": float(df["Close"].iloc[-1]),
+        "opens": opens,
+        "highs": highs,
+        "lows": lows,
+        "closes": closes,
+        "volumes": volumes,
+        "last_open": opens[-1] if opens else None,
+        "last_close": closes[-1] if closes else None,
+        "last_high": highs[-1] if highs else None,
+        "last_low": lows[-1] if lows else None,
+        "last_volume": volumes[-1] if volumes else None,
     }
 
     _PRICE_CACHE[symbol] = (now_ts, result)
