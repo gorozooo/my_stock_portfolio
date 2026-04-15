@@ -5,6 +5,7 @@
 # このファイルは何？
 # - ウォッチリスト監視を実行し、
 #   注目シグナルだけ SignalEvent に保存するコマンドです。
+# - 今回は VWAP・出来高急増・高値/安値ブレイク も保存します。
 # =========================================================
 
 from __future__ import annotations
@@ -85,7 +86,11 @@ class Command(BaseCommand):
                     "short_score": row["short_score"],
                     "flow_label": row["flow_label"],
                     "momentum_label": row["momentum_label"],
+                    "timing_label": row["timing_label"],
                     "volatility_label": row["volatility_label"],
+                    "cost_position_label": row["cost_position_label"],
+                    "volume_human_label": row["volume_human_label"],
+                    "breakout_human_label": row["breakout_human_label"],
                     "ma_state": row["ma_state"],
                     "ma_label": row["ma_label"],
                     "macd_state": row["macd_state"],
@@ -95,6 +100,16 @@ class Command(BaseCommand):
                     "rsi": row["rsi"],
                     "atr": row["atr"],
                     "atr_pct": row["atr_pct"],
+                    "vwap": row["vwap"],
+                    "vwap_state": row["vwap_state"],
+                    "vwap_label": row["vwap_label"],
+                    "volume_ratio": row["volume_ratio"],
+                    "volume_state": row["volume_state"],
+                    "volume_label": row["volume_label"],
+                    "breakout_state": row["breakout_state"],
+                    "breakout_label": row["breakout_label"],
+                    "range_high": row["range_high"],
+                    "range_low": row["range_low"],
                     "selected_reasons": row["selected_reasons"],
                     "last_close": row["last_close"],
                 },
