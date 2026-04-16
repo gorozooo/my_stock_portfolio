@@ -5,8 +5,9 @@
 # このファイルは何？
 # - ウォッチリスト銘柄を監視して、
 #   ロング注目 / ショート注目 / 様子見 を作るサービスです。
-# - GC/DC・MACD・RSI・ATR・VWAP・出来高急増・高値/安値ブレイクを使いますが、
-#   画面表示は初心者向けの言葉へ翻訳します。
+# - GC/DC・MACD・RSI・ATR・VWAP・出来高急増・高値/安値ブレイク
+#   に加えて、一目均衡表・移動平均乖離・ヒゲ・ギャップも使います。
+# - 画面表示は初心者向けの言葉へ翻訳します。
 # =========================================================
 
 from __future__ import annotations
@@ -17,11 +18,15 @@ from tradeai.models.watchlist import WatchlistItem
 from tradeai.services.indicators.atr_service import analyze_atr
 from tradeai.services.indicators.breakout_service import analyze_breakout
 from tradeai.services.indicators.daily_price_service import get_daily_ohlc
+from tradeai.services.indicators.gap_service import analyze_gap
+from tradeai.services.indicators.ichimoku_service import analyze_ichimoku
 from tradeai.services.indicators.ma_cross_service import analyze_ma_cross
+from tradeai.services.indicators.ma_distance_service import analyze_ma_distance
 from tradeai.services.indicators.macd_service import analyze_macd
 from tradeai.services.indicators.rsi_service import analyze_rsi
 from tradeai.services.indicators.volume_spike_service import analyze_volume_spike
 from tradeai.services.indicators.vwap_service import analyze_vwap
+from tradeai.services.indicators.wick_ratio_service import analyze_wick_ratio
 
 
 LEVEL_RANK = {
@@ -56,6 +61,23 @@ def _build_technical_snapshot(ticker: str) -> dict[str, Any]:
             "breakout_label": "不明",
             "range_high": None,
             "range_low": None,
+            "ichimoku_state": "UNKNOWN",
+            "ichimoku_label": "不明",
+            "tenkan": None,
+            "kijun": None,
+            "span_a": None,
+            "span_b": None,
+            "ma_distance_state": "UNKNOWN",
+            "ma_distance_label": "不明",
+            "ma_value": None,
+            "distance_pct": None,
+            "wick_state": "UNKNOWN",
+            "wick_label": "不明",
+            "upper_wick_pct": None,
+            "lower_wick_pct": None,
+            "gap_state": "UNKNOWN",
+            "gap_label": "不明",
+            "gap_pct": None,
         }
 
     ma_info = analyze_ma_cross(ohlc["closes"], short_window=5, long_window=25)
@@ -65,6 +87,10 @@ def _build_technical_snapshot(ticker: str) -> dict[str, Any]:
     vwap_info = analyze_vwap(ohlc["closes"], ohlc["volumes"], lookback=20)
     volume_info = analyze_volume_spike(ohlc["volumes"], lookback=20)
     breakout_info = analyze_breakout(ohlc["highs"], ohlc["lows"], ohlc["closes"], lookback=20)
+    ichimoku_info = analyze_ichimoku(ohlc["highs"], ohlc["lows"], ohlc["closes"])
+    ma_distance_info = analyze_ma_distance(ohlc["closes"], window=25)
+    wick_info = analyze_wick_ratio(ohlc["opens"], ohlc["highs"], ohlc["lows"], ohlc["closes"])
+    gap_info = analyze_gap(ohlc["opens"], ohlc["closes"])
 
     return {
         "has_technical": True,
@@ -76,6 +102,10 @@ def _build_technical_snapshot(ticker: str) -> dict[str, Any]:
         **vwap_info,
         **volume_info,
         **breakout_info,
+        **ichimoku_info,
+        **ma_distance_info,
+        **wick_info,
+        **gap_info,
     }
 
 
@@ -141,6 +171,38 @@ def _score_long(tech: dict[str, Any]) -> tuple[int, list[str]]:
     if tech["volume_state"] == "SPIKE" and tech["breakout_state"] == "HIGH_BREAKOUT":
         score += 1
         reasons.append("高値ぬけに出来高が伴っています")
+
+    if tech["ichimoku_state"] == "ABOVE_CLOUD_BULLISH":
+        score += 3
+        reasons.append("大きな流れも上向きです")
+    elif tech["ichimoku_state"] == "ABOVE_CLOUD":
+        score += 2
+        reasons.append("大きな流れは上向きです")
+    elif tech["ichimoku_state"] == "BELOW_CLOUD_BEARISH":
+        score -= 3
+        reasons.append("大きな流れは下向きで逆風です")
+    elif tech["ichimoku_state"] == "BELOW_CLOUD":
+        score -= 2
+
+    if tech["ma_distance_state"] == "STRETCHED_UP":
+        score -= 2
+        reasons.append("少し上がりすぎで飛びつき注意です")
+    elif tech["ma_distance_state"] == "SLIGHTLY_STRETCHED_UP":
+        score -= 1
+
+    if tech["wick_state"] == "LOWER_HEAVY":
+        score += 1
+        reasons.append("下ヒゲが強く、押し返しの形です")
+    elif tech["wick_state"] == "UPPER_HEAVY":
+        score -= 1
+        reasons.append("上ヒゲが強く、戻り売りに注意です")
+
+    if tech["gap_state"] == "GAP_UP":
+        score += 1
+        reasons.append("寄り付きは強めでした")
+    elif tech["gap_state"] == "GAP_DOWN":
+        score -= 1
+        reasons.append("寄り付きは弱めでした")
 
     return score, reasons
 
@@ -208,13 +270,45 @@ def _score_short(tech: dict[str, Any]) -> tuple[int, list[str]]:
         score += 1
         reasons.append("安値わりに出来高が伴っています")
 
+    if tech["ichimoku_state"] == "BELOW_CLOUD_BEARISH":
+        score += 3
+        reasons.append("大きな流れも下向きです")
+    elif tech["ichimoku_state"] == "BELOW_CLOUD":
+        score += 2
+        reasons.append("大きな流れは下向きです")
+    elif tech["ichimoku_state"] == "ABOVE_CLOUD_BULLISH":
+        score -= 3
+        reasons.append("大きな流れは上向きで逆風です")
+    elif tech["ichimoku_state"] == "ABOVE_CLOUD":
+        score -= 2
+
+    if tech["ma_distance_state"] == "STRETCHED_DOWN":
+        score -= 2
+        reasons.append("少し下がりすぎで戻りに注意です")
+    elif tech["ma_distance_state"] == "SLIGHTLY_STRETCHED_DOWN":
+        score -= 1
+
+    if tech["wick_state"] == "UPPER_HEAVY":
+        score += 1
+        reasons.append("上ヒゲが強く、押し戻されやすい形です")
+    elif tech["wick_state"] == "LOWER_HEAVY":
+        score -= 1
+        reasons.append("下ヒゲが強く、反発に注意です")
+
+    if tech["gap_state"] == "GAP_DOWN":
+        score += 1
+        reasons.append("寄り付きは弱めでした")
+    elif tech["gap_state"] == "GAP_UP":
+        score -= 1
+        reasons.append("寄り付きは強めで逆風です")
+
     return score, reasons
 
 
 def _level_from_score(score: int) -> str:
-    if score >= 9:
+    if score >= 11:
         return "STRONG"
-    if score >= 5:
+    if score >= 6:
         return "ATTENTION"
     return "REFERENCE"
 
@@ -336,6 +430,54 @@ def _breakout_label(breakout_label: str) -> str:
     return "まだ不明"
 
 
+def _big_flow_label(ichimoku_label: str) -> str:
+    if ichimoku_label == "雲の上で上向き":
+        return "大きな流れも上向き"
+    if ichimoku_label == "雲の上":
+        return "大きな流れは上向き"
+    if ichimoku_label == "雲の下で下向き":
+        return "大きな流れも下向き"
+    if ichimoku_label == "雲の下":
+        return "大きな流れは下向き"
+    if ichimoku_label == "雲の中":
+        return "大きな流れははっきりしない"
+    return "まだ不明"
+
+
+def _distance_human_label(ma_distance_label: str) -> str:
+    if ma_distance_label == "かなり上がりすぎ":
+        return "かなり上がりすぎ"
+    if ma_distance_label == "やや上がりすぎ":
+        return "やや上がりすぎ"
+    if ma_distance_label == "かなり下がりすぎ":
+        return "かなり下がりすぎ"
+    if ma_distance_label == "やや下がりすぎ":
+        return "やや下がりすぎ"
+    if ma_distance_label == "離れすぎではない":
+        return "行きすぎなし"
+    return "まだ不明"
+
+
+def _wick_human_label(wick_label: str) -> str:
+    if wick_label == "上ヒゲ強め":
+        return "上ヒゲ強め"
+    if wick_label == "下ヒゲ強め":
+        return "下ヒゲ強め"
+    if wick_label == "ヒゲはふつう":
+        return "ヒゲふつう"
+    return "まだ不明"
+
+
+def _gap_human_label(gap_label: str) -> str:
+    if gap_label == "ギャップアップ":
+        return "ギャップアップ"
+    if gap_label == "ギャップダウン":
+        return "ギャップダウン"
+    if gap_label == "大きなギャップなし":
+        return "大きなギャップなし"
+    return "まだ不明"
+
+
 def _summary_for(direction: str | None, level: str, reasons: list[str], atr_pct: float | None) -> str:
     if direction is None or level == "REFERENCE":
         text = "今は強い重なりが少ないので、まだ様子見しやすい状態です。"
@@ -351,7 +493,7 @@ def _summary_for(direction: str | None, level: str, reasons: list[str], atr_pct:
             text = "ややショート寄りです。下向きシグナルが少しずつ重なっています。"
 
     if reasons:
-        text += " " + " / ".join(reasons[:3]) + "。"
+        text += " " + " / ".join(reasons[:4]) + "。"
 
     if atr_pct is not None:
         if atr_pct >= 4:
@@ -421,6 +563,10 @@ def build_watch_signal_row(item: WatchlistItem) -> dict[str, Any]:
         "cost_position_label": _cost_position_label(tech["vwap_state"]),
         "volume_human_label": _volume_label(tech["volume_label"]),
         "breakout_human_label": _breakout_label(tech["breakout_label"]),
+        "big_flow_label": _big_flow_label(tech["ichimoku_label"]),
+        "distance_human_label": _distance_human_label(tech["ma_distance_label"]),
+        "wick_human_label": _wick_human_label(tech["wick_label"]),
+        "gap_human_label": _gap_human_label(tech["gap_label"]),
         "summary_text": summary_text,
         "last_close": tech["last_close"],
         "ma_state": tech["ma_state"],
@@ -442,6 +588,23 @@ def build_watch_signal_row(item: WatchlistItem) -> dict[str, Any]:
         "breakout_label": tech["breakout_label"],
         "range_high": tech["range_high"],
         "range_low": tech["range_low"],
+        "ichimoku_state": tech["ichimoku_state"],
+        "ichimoku_label": tech["ichimoku_label"],
+        "tenkan": tech["tenkan"],
+        "kijun": tech["kijun"],
+        "span_a": tech["span_a"],
+        "span_b": tech["span_b"],
+        "ma_distance_state": tech["ma_distance_state"],
+        "ma_distance_label": tech["ma_distance_label"],
+        "ma_value": tech["ma_value"],
+        "distance_pct": tech["distance_pct"],
+        "wick_state": tech["wick_state"],
+        "wick_label": tech["wick_label"],
+        "upper_wick_pct": tech["upper_wick_pct"],
+        "lower_wick_pct": tech["lower_wick_pct"],
+        "gap_state": tech["gap_state"],
+        "gap_label": tech["gap_label"],
+        "gap_pct": tech["gap_pct"],
         "selected_reasons": selected_reasons,
     }
 
