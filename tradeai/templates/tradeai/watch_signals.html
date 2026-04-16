@@ -7,7 +7,7 @@
 - tradeai のウォッチリスト監視画面です。
 - ウォッチ銘柄に対して、今はロング寄りかショート寄りか、
   まだ様子見かを初心者向けに表示します。
-- 今回は コスト帯 / 出来高 / 節目 の情報も追加しています。
+- 今回は コスト帯 / 出来高 / 節目 / 大きな流れ / 行きすぎ感 / ヒゲ / ギャップ も追加しています。
 =========================================================
 -->
 
@@ -142,6 +142,26 @@
               </div>
 
               <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">大きな流れ</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.big_flow_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">行きすぎ感</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.distance_human_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">ヒゲの形</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.wick_human_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">寄り付き</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.gap_human_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
                 <div class="text-[11px] text-slate-400">現在値</div>
                 <div class="mt-1 text-base font-bold text-white">
                   {% if row.last_close is not None %}
@@ -238,6 +258,55 @@
                     <div class="mt-1 text-sm font-bold text-white">
                       {% if row.range_low is not None %}
                         {{ row.range_low|floatformat:2 }}
+                      {% else %}
+                        -
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">一目の内部判定</div>
+                    <div class="mt-1 text-sm font-bold text-white">{{ row.ichimoku_label }}</div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">25日線からの距離</div>
+                    <div class="mt-1 text-sm font-bold text-white">
+                      {% if row.distance_pct is not None %}
+                        {{ row.distance_pct|floatformat:2 }}%
+                      {% else %}
+                        -
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">上ヒゲ比率</div>
+                    <div class="mt-1 text-sm font-bold text-white">
+                      {% if row.upper_wick_pct is not None %}
+                        {{ row.upper_wick_pct|floatformat:2 }}%
+                      {% else %}
+                        -
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">下ヒゲ比率</div>
+                    <div class="mt-1 text-sm font-bold text-white">
+                      {% if row.lower_wick_pct is not None %}
+                        {{ row.lower_wick_pct|floatformat:2 }}%
+                      {% else %}
+                        -
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+                    <div class="text-[11px] text-slate-400">ギャップ率</div>
+                    <div class="mt-1 text-sm font-bold text-white">
+                      {% if row.gap_pct is not None %}
+                        {{ row.gap_pct|floatformat:2 }}%
                       {% else %}
                         -
                       {% endif %}
