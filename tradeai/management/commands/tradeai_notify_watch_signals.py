@@ -6,6 +6,7 @@
 # - ウォッチ監視の結果から、LINE通知を送るコマンドです。
 # - 同じ内容が短時間に何度も送られないよう、重複抑制も行います。
 # - 送信対象は「emit_event=True」のものだけです。
+# - 今回は、見やすい Flex Message を優先して送信します。
 # =========================================================
 
 from __future__ import annotations
@@ -19,10 +20,11 @@ from tradeai.services.notify.dedupe_store import (
     mark_sent,
     was_sent_recently,
 )
-from tradeai.services.notify.line_push_service import send_line_text
+from tradeai.services.notify.line_push_service import send_line_flex, send_line_text
 from tradeai.services.watchlist.monitor_service import build_watch_signal_rows
 from tradeai.services.watchlist.notify_builder import (
     build_watch_notify_dedupe_key,
+    build_watch_notify_flex,
     build_watch_notify_message,
 )
 
@@ -101,21 +103,37 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("送信対象はありませんでした。"))
             return
 
-        message = build_watch_notify_message(sendable_rows, max_items=max_items)
+        text_message = build_watch_notify_message(sendable_rows, max_items=max_items)
+        flex_payload = build_watch_notify_flex(sendable_rows, max_items=max_items)
 
         if dry_run:
             self.stdout.write(self.style.SUCCESS("dry-run なので送信はしていません。"))
-            self.stdout.write("----- message preview -----")
-            self.stdout.write(message)
+            self.stdout.write("----- text preview -----")
+            self.stdout.write(text_message)
             self.stdout.write("----- end -----")
+            self.stdout.write(f"flex_bubbles       : {len(flex_payload.get('contents', {}).get('contents', []))}")
             return
 
-        ok, detail = send_line_text(message)
-        if not ok:
-            raise CommandError(f"LINE送信に失敗しました: {detail}")
+        ok, detail = send_line_flex(
+            alt_text=flex_payload["alt_text"],
+            contents=flex_payload["contents"],
+        )
+
+        if ok:
+            mark_sent(sendable_keys)
+            self.stdout.write(self.style.SUCCESS("Flex Message を送信しました。"))
+            self.stdout.write(f"sent_items         : {len(sendable_rows)}")
+            self.stdout.write(f"detail             : {detail}")
+            return
+
+        self.stdout.write(self.style.WARNING(f"Flex送信に失敗したのでテキストへ切り替えます: {detail}"))
+
+        ok_text, detail_text = send_line_text(text_message)
+        if not ok_text:
+            raise CommandError(f"LINE送信に失敗しました。Flex: {detail} / Text: {detail_text}")
 
         mark_sent(sendable_keys)
 
-        self.stdout.write(self.style.SUCCESS("LINE通知を送信しました。"))
+        self.stdout.write(self.style.SUCCESS("テキスト通知で送信しました。"))
         self.stdout.write(f"sent_items         : {len(sendable_rows)}")
-        self.stdout.write(f"detail             : {detail}")
+        self.stdout.write(f"detail             : {detail_text}")
