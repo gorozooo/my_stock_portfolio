@@ -5,7 +5,7 @@
 # このファイルは何？
 # - ウォッチリスト監視を実行し、
 #   注目シグナルだけ SignalEvent に保存するコマンドです。
-# - 今回は VWAP・出来高急増・高値/安値ブレイク も保存します。
+# - 今回は VWAP・出来高急増・高値/安値ブレイク・一目・乖離・ヒゲ・ギャップ も保存します。
 # =========================================================
 
 from __future__ import annotations
@@ -91,6 +91,10 @@ class Command(BaseCommand):
                     "cost_position_label": row["cost_position_label"],
                     "volume_human_label": row["volume_human_label"],
                     "breakout_human_label": row["breakout_human_label"],
+                    "big_flow_label": row["big_flow_label"],
+                    "distance_human_label": row["distance_human_label"],
+                    "wick_human_label": row["wick_human_label"],
+                    "gap_human_label": row["gap_human_label"],
                     "ma_state": row["ma_state"],
                     "ma_label": row["ma_label"],
                     "macd_state": row["macd_state"],
@@ -110,6 +114,23 @@ class Command(BaseCommand):
                     "breakout_label": row["breakout_label"],
                     "range_high": row["range_high"],
                     "range_low": row["range_low"],
+                    "ichimoku_state": row["ichimoku_state"],
+                    "ichimoku_label": row["ichimoku_label"],
+                    "tenkan": row["tenkan"],
+                    "kijun": row["kijun"],
+                    "span_a": row["span_a"],
+                    "span_b": row["span_b"],
+                    "ma_distance_state": row["ma_distance_state"],
+                    "ma_distance_label": row["ma_distance_label"],
+                    "ma_value": row["ma_value"],
+                    "distance_pct": row["distance_pct"],
+                    "wick_state": row["wick_state"],
+                    "wick_label": row["wick_label"],
+                    "upper_wick_pct": row["upper_wick_pct"],
+                    "lower_wick_pct": row["lower_wick_pct"],
+                    "gap_state": row["gap_state"],
+                    "gap_label": row["gap_label"],
+                    "gap_pct": row["gap_pct"],
                     "selected_reasons": row["selected_reasons"],
                     "last_close": row["last_close"],
                 },
