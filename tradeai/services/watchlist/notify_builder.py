@@ -5,6 +5,7 @@
 # このファイルは何？
 # - ウォッチ監視の結果を、LINE通知用の見やすい形へ整えるサービスです。
 # - テキスト通知の文面だけでなく、Flex Message のカードも作ります。
+# - 今回は Flex Message のバッジ表現を LINE 仕様に合わせて修正しています。
 # =========================================================
 
 from __future__ import annotations
@@ -127,7 +128,13 @@ def _reasons_for_card(row: dict) -> list[str]:
     return cleaned[:3]
 
 
-def _make_flex_text(text: str, size: str = "sm", color: str = "#E5E7EB", weight: str = "regular", wrap: bool = True) -> dict:
+def _make_flex_text(
+    text: str,
+    size: str = "sm",
+    color: str = "#E5E7EB",
+    weight: str = "regular",
+    wrap: bool = True,
+) -> dict:
     return {
         "type": "text",
         "text": text,
@@ -146,6 +153,33 @@ def _make_meta_row(label: str, value: str) -> dict:
         "contents": [
             _make_flex_text(label, size="xs", color="#94A3B8"),
             _make_flex_text(value, size="sm", color="#FFFFFF", weight="bold"),
+        ],
+    }
+
+
+def _make_badge(text: str, bg_color: str, fg_color: str) -> dict:
+    return {
+        "type": "box",
+        "layout": "horizontal",
+        "flex": 0,
+        "backgroundColor": bg_color,
+        "cornerRadius": "12px",
+        "paddingTop": "4px",
+        "paddingBottom": "4px",
+        "paddingStart": "10px",
+        "paddingEnd": "10px",
+        "contents": [
+            {
+                "type": "text",
+                "text": text,
+                "size": "xs",
+                "color": fg_color,
+                "weight": "bold",
+                "wrap": False,
+                "align": "center",
+                "gravity": "center",
+                "flex": 0,
+            }
         ],
     }
 
@@ -194,23 +228,11 @@ def _build_bubble(row: dict) -> dict:
         },
         {
             "type": "box",
-            "layout": "baseline",
+            "layout": "horizontal",
             "margin": "sm",
+            "spacing": "sm",
             "contents": [
-                {
-                    "type": "text",
-                    "text": _level_label(row),
-                    "size": "xs",
-                    "color": chip_fg,
-                    "weight": "bold",
-                    "flex": 0,
-                    "backgroundColor": chip_bg,
-                    "paddingAll": "6px",
-                    "cornerRadius": "12px",
-                    "wrap": False,
-                    "align": "center",
-                    "gravity": "center",
-                }
+                _make_badge(_level_label(row), chip_bg, chip_fg),
             ],
         },
         {
