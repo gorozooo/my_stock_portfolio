@@ -5,7 +5,8 @@
 
 このファイルは何？
 - tradeai の候補抽出ページです。
-- まだ本実装前なので、現状の位置づけを正直に表示します。
+- ユニバース全体から、ロング候補 / ショート候補を本実装で表示します。
+- 地合い補正をかけた上で、理由つきで並べます。
 =========================================================
 -->
 
@@ -22,11 +23,12 @@
         <p class="text-xs font-semibold tracking-widest text-emerald-300">TRADEAI CANDIDATES</p>
         <h1 class="mt-1 text-2xl font-bold text-white">候補抽出</h1>
         <p class="mt-2 text-sm leading-6 text-slate-300">
-          ここは
-          <span class="font-semibold text-white">次に本実装する段階</span>
-          です。まだ正式な候補抽出エンジンは入っていません。
+          ユニバース全体から、
+          <span class="font-semibold text-white">地合い補正込み</span>
+          でロング候補 / ショート候補を抽出しています。
         </p>
       </div>
+
       <a
         href="{% url 'tradeai_dashboard' %}"
         class="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200"
@@ -34,70 +36,266 @@
         戻る
       </a>
     </div>
+
+    {% if last_regime %}
+      <div class="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+        <div class="flex items-center justify-between gap-3">
+          <div class="text-xs text-slate-400">現在の地合い</div>
+
+          {% if last_regime.market_bias == "LONG_TAILWIND" %}
+            <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+              ロング追い風
+            </span>
+          {% elif last_regime.market_bias == "SHORT_TAILWIND" %}
+            <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-300">
+              ショート追い風
+            </span>
+          {% elif last_regime.market_bias == "NOISY" %}
+            <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300">
+              ノイズ警戒
+            </span>
+          {% else %}
+            <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-300">
+              中立
+            </span>
+          {% endif %}
+        </div>
+
+        <div class="mt-2 text-sm leading-6 text-slate-200">
+          {{ last_regime.summary_text }}
+        </div>
+      </div>
+    {% endif %}
   </div>
 
-  <div class="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-    <div class="text-sm font-bold text-white">いま言えること</div>
-    <div class="mt-2 text-sm leading-6 text-slate-200">
-      正式な候補抽出はまだですが、
-      <span class="font-semibold text-white">ウォッチ監視の強い注目 / 注目</span>
-      は、暫定的な参考候補として見られます。
+  <div class="grid grid-cols-2 gap-3">
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">監視ユニバース</div>
+      <div class="mt-2 text-2xl font-bold text-white">{{ universe_count|intcomma }}</div>
     </div>
-    <div class="mt-3">
-      <a
-        href="{% url 'tradeai_watch_signals' %}"
-        class="inline-flex rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-sm font-bold text-cyan-300"
-      >
-        いまはウォッチ監視を見る
-      </a>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">候補合計</div>
+      <div class="mt-2 text-2xl font-bold text-white">{{ candidate_total|intcomma }}</div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">ロング候補</div>
+      <div class="mt-2 text-2xl font-bold text-cyan-300">{{ long_candidate_count|intcomma }}</div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">ショート候補</div>
+      <div class="mt-2 text-2xl font-bold text-amber-300">{{ short_candidate_count|intcomma }}</div>
     </div>
   </div>
 
   <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-    <h2 class="text-sm font-bold text-white">暫定の参考候補</h2>
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-bold text-white">ロング候補</h2>
+      <div class="text-xs text-slate-400">{{ long_candidate_count|intcomma }} 件</div>
+    </div>
 
-    {% if provisional_rows %}
-      <div class="mt-3 space-y-2">
-        {% for row in provisional_rows %}
-          <div class="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+    {% if long_rows %}
+      <div class="mt-3 space-y-3">
+        {% for row in long_rows %}
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
             <div class="flex items-start justify-between gap-3">
-              <div>
-                <div class="text-sm font-bold text-white">
+              <div class="min-w-0">
+                <div class="text-base font-bold text-white">
                   {{ row.ticker }}
                   {% if row.name %}
-                    <span class="ml-2 text-xs font-medium text-slate-400">{{ row.name }}</span>
+                    <span class="ml-2 text-sm font-medium text-slate-300">{{ row.name }}</span>
                   {% endif %}
                 </div>
-                <div class="mt-1 flex flex-wrap gap-2 text-[11px]">
-                  {% if row.chosen_direction == "LONG" %}
-                    <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-300">ロング寄り</span>
-                  {% elif row.chosen_direction == "SHORT" %}
-                    <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-300">ショート寄り</span>
-                  {% else %}
-                    <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">様子見</span>
-                  {% endif %}
+
+                <div class="mt-2 flex flex-wrap gap-2 text-[11px]">
+                  <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-300">ロング候補</span>
 
                   {% if row.level == "STRONG" %}
                     <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">{{ row.action_label }}</span>
                   {% else %}
-                    <span class="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-1 text-yellow-300">{{ row.action_label }}</span>
+                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">{{ row.action_label }}</span>
+                  {% endif %}
+
+                  <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ row.regime_relation_label }}</span>
+
+                  {% for label in row.source_labels %}
+                    <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ label }}</span>
+                  {% endfor %}
+                </div>
+              </div>
+
+              <div class="text-right">
+                <div class="text-xs text-slate-500">総合点</div>
+                <div class="mt-1 text-lg font-bold text-cyan-300">{{ row.score_total }}</div>
+              </div>
+            </div>
+
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">現在値</div>
+                <div class="mt-1 text-base font-bold text-white">
+                  {% if row.last_close %}
+                    {{ row.last_close|floatformat:2 }}
+                  {% else %}
+                    -
                   {% endif %}
                 </div>
               </div>
-              <div class="text-xs text-slate-500">
-                {% if row.last_close %}
-                  {{ row.last_close|floatformat:2 }}
-                {% else %}
-                  -
-                {% endif %}
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">流れ</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.flow_label }}</div>
               </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">勢い</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.momentum_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">大きな流れ</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.big_flow_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">節目</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.breakout_human_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">値動き</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.volatility_label }}</div>
+              </div>
+            </div>
+
+            {% if row.selected_reasons_short %}
+              <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">根拠</div>
+                <ul class="mt-2 space-y-1 text-sm leading-6 text-slate-200">
+                  {% for reason in row.selected_reasons_short %}
+                    <li>・{{ reason }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% endif %}
+
+            <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+              <div class="text-[11px] text-slate-400">どう見るか</div>
+              <div class="mt-1 text-sm leading-6 text-slate-200">{{ row.decision_text }}</div>
             </div>
           </div>
         {% endfor %}
       </div>
     {% else %}
       <div class="mt-3 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
-        まだ暫定の参考候補もありません。
+        今はロング候補が出ていません。
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-bold text-white">ショート候補</h2>
+      <div class="text-xs text-slate-400">{{ short_candidate_count|intcomma }} 件</div>
+    </div>
+
+    {% if short_rows %}
+      <div class="mt-3 space-y-3">
+        {% for row in short_rows %}
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-base font-bold text-white">
+                  {{ row.ticker }}
+                  {% if row.name %}
+                    <span class="ml-2 text-sm font-medium text-slate-300">{{ row.name }}</span>
+                  {% endif %}
+                </div>
+
+                <div class="mt-2 flex flex-wrap gap-2 text-[11px]">
+                  <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-300">ショート候補</span>
+
+                  {% if row.level == "STRONG" %}
+                    <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">{{ row.action_label }}</span>
+                  {% else %}
+                    <span class="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-1 text-yellow-300">{{ row.action_label }}</span>
+                  {% endif %}
+
+                  <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ row.regime_relation_label }}</span>
+
+                  {% for label in row.source_labels %}
+                    <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ label }}</span>
+                  {% endfor %}
+                </div>
+              </div>
+
+              <div class="text-right">
+                <div class="text-xs text-slate-500">総合点</div>
+                <div class="mt-1 text-lg font-bold text-amber-300">{{ row.score_total }}</div>
+              </div>
+            </div>
+
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">現在値</div>
+                <div class="mt-1 text-base font-bold text-white">
+                  {% if row.last_close %}
+                    {{ row.last_close|floatformat:2 }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">流れ</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.flow_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">勢い</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.momentum_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">大きな流れ</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.big_flow_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">節目</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.breakout_human_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">値動き</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.volatility_label }}</div>
+              </div>
+            </div>
+
+            {% if row.selected_reasons_short %}
+              <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">根拠</div>
+                <ul class="mt-2 space-y-1 text-sm leading-6 text-slate-200">
+                  {% for reason in row.selected_reasons_short %}
+                    <li>・{{ reason }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% endif %}
+
+            <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+              <div class="text-[11px] text-slate-400">どう見るか</div>
+              <div class="mt-1 text-sm leading-6 text-slate-200">{{ row.decision_text }}</div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="mt-3 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
+        今はショート候補が出ていません。
       </div>
     {% endif %}
   </div>
