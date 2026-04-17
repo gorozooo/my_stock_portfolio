@@ -5,7 +5,8 @@
 
 このファイルは何？
 - tradeai のトップ画面です。
-- 今回は保有監視プレビューに GC/DC と ATR の情報を追加しています。
+- ダッシュボード導線を整理し、最新の地合いを本当に表示します。
+- いま何ができていて、何がまだなのかも見えるようにします。
 =========================================================
 -->
 
@@ -22,11 +23,13 @@
         <p class="text-xs font-semibold tracking-widest text-cyan-300">TRADEAI</p>
         <h1 class="mt-1 text-2xl font-bold text-white">監視AIの土台</h1>
         <p class="mt-2 text-sm leading-6 text-slate-300">
-          ここから先は、保有監視 → ウォッチ監視 → 候補抽出 → デモ → 学習 の順で積み上げていきます。
+          いまは
+          <span class="font-semibold text-white">保有監視・ウォッチ監視・通知・地合い表示</span>
+          まで動いています。候補抽出とデモは次の段階です。
         </p>
       </div>
-      <div class="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-300">
-        Phase 4
+      <div class="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs font-semibold text-cyan-300">
+        監視段階
       </div>
     </div>
 
@@ -39,11 +42,50 @@
       </a>
 
       <a
-        href="{% url 'tradeai_watchlist' %}"
+        href="{% url 'tradeai_watch_signals' %}"
         class="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-center text-sm font-bold text-cyan-300"
       >
-        ウォッチリストへ
+        ウォッチ監視へ
       </a>
+
+      <a
+        href="{% url 'tradeai_candidates' %}"
+        class="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-center text-sm font-bold text-emerald-300"
+      >
+        候補抽出へ
+      </a>
+
+      <a
+        href="{% url 'tradeai_demo' %}"
+        class="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-center text-sm font-bold text-amber-300"
+      >
+        デモへ
+      </a>
+    </div>
+  </div>
+
+  <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-bold text-white">現在の進捗</h2>
+      <div class="text-xs text-slate-400">順番を整理して表示</div>
+    </div>
+
+    <div class="mt-3 flex flex-wrap gap-2">
+      {% for item in progress_items %}
+        {% if item.state == "done" %}
+          <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+            {{ item.label }} ✓
+          </span>
+        {% elif item.state == "prep" %}
+          <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-semibold text-cyan-300">
+            {{ item.label }} 準備中
+          </span>
+        {% else %}
+          <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-semibold text-slate-300">
+            {{ item.label }} 未着手
+          </span>
+        {% endif %}
+      {% endfor %}
     </div>
   </div>
 
@@ -67,6 +109,16 @@
       <div class="text-xs text-slate-400">保有監視の警戒件数</div>
       <div class="mt-2 text-2xl font-bold text-rose-300">{{ holding_alert_count|intcomma }}</div>
     </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">ウォッチ監視の注目件数</div>
+      <div class="mt-2 text-2xl font-bold text-cyan-300">{{ watch_alert_count|intcomma }}</div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">デモ建玉</div>
+      <div class="mt-2 text-2xl font-bold text-amber-300">{{ open_demo_count|intcomma }}</div>
+    </div>
   </div>
 
   <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
@@ -80,35 +132,167 @@
   </div>
 
   <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-    <h2 class="text-sm font-bold text-white">最新の地合い</h2>
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-bold text-white">最新の地合い</h2>
+      {% if last_regime %}
+        {% if last_regime.market_bias == "LONG_TAILWIND" %}
+          <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+            ロング追い風
+          </span>
+        {% elif last_regime.market_bias == "SHORT_TAILWIND" %}
+          <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-300">
+            ショート追い風
+          </span>
+        {% elif last_regime.market_bias == "NOISY" %}
+          <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300">
+            ノイズ警戒
+          </span>
+        {% else %}
+          <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-semibold text-slate-300">
+            中立
+          </span>
+        {% endif %}
+      {% endif %}
+    </div>
+
     {% if last_regime %}
       <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
         <div class="text-xs text-slate-400">判定日時</div>
         <div class="mt-1 text-sm font-semibold text-white">{{ last_regime.as_of|date:"Y-m-d H:i" }}</div>
 
-        <div class="mt-3 text-xs text-slate-400">地合い</div>
-        <div class="mt-1 text-base font-bold text-amber-300">{{ last_regime.get_market_bias_display }}</div>
+        <div class="mt-4 text-xs text-slate-400">AI要約</div>
+        <div class="mt-1 text-sm leading-6 text-slate-100">{{ last_regime.summary_text }}</div>
 
-        <div class="mt-3 grid grid-cols-2 gap-3">
-          <div>
-            <div class="text-xs text-slate-400">ロング点数</div>
+        <div class="mt-4 grid grid-cols-2 gap-3">
+          <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
+            <div class="text-[11px] text-slate-400">ロング点数</div>
             <div class="mt-1 text-lg font-bold text-white">{{ last_regime.long_score }}</div>
           </div>
-          <div>
-            <div class="text-xs text-slate-400">ショート点数</div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
+            <div class="text-[11px] text-slate-400">ショート点数</div>
             <div class="mt-1 text-lg font-bold text-white">{{ last_regime.short_score }}</div>
           </div>
         </div>
 
-        {% if last_regime.summary_text %}
-          <div class="mt-3 text-xs text-slate-400">要約</div>
-          <div class="mt-1 text-sm leading-6 text-slate-200">{{ last_regime.summary_text }}</div>
+        {% if regime_long_reasons or regime_short_reasons %}
+          <div class="mt-4 grid grid-cols-1 gap-3">
+            {% if regime_long_reasons %}
+              <div class="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
+                <div class="text-[11px] font-semibold text-emerald-300">ロング追い風の理由</div>
+                <ul class="mt-2 space-y-1 text-sm leading-6 text-slate-200">
+                  {% for reason in regime_long_reasons %}
+                    <li>・{{ reason }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% endif %}
+
+            {% if regime_short_reasons %}
+              <div class="rounded-2xl border border-rose-500/20 bg-rose-500/5 px-4 py-3">
+                <div class="text-[11px] font-semibold text-rose-300">ショート追い風の理由</div>
+                <ul class="mt-2 space-y-1 text-sm leading-6 text-slate-200">
+                  {% for reason in regime_short_reasons %}
+                    <li>・{{ reason }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% endif %}
+          </div>
+        {% endif %}
+
+        {% if regime_components %}
+          <details class="mt-4 group rounded-2xl border border-slate-800 bg-slate-900">
+            <summary class="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold text-slate-200">
+              <span>地合いの内訳を見る</span>
+              <span class="text-xs text-slate-500 group-open:hidden">開く</span>
+              <span class="hidden text-xs text-slate-500 group-open:inline">閉じる</span>
+            </summary>
+
+            <div class="border-t border-slate-800 px-4 py-3 space-y-2">
+              {% for item in regime_components %}
+                <div class="rounded-2xl border border-slate-800 bg-slate-950/60 px-3 py-3">
+                  <div class="text-sm font-bold text-white">{{ item.label }}</div>
+                  <div class="mt-2 text-xs leading-6 text-slate-300">
+                    終値 {{ item.last_close }} /
+                    1日 {{ item.pct_1d }}% /
+                    5日 {{ item.pct_5d }}% /
+                    {% if item.above_ma20 %}
+                      20日線より上
+                    {% else %}
+                      20日線より下
+                    {% endif %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </details>
         {% endif %}
       </div>
     {% else %}
       <div class="mt-3 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
-        まだ地合いスナップショットはありません。  
-        次の実装でここに「ロング追い風 / ショート追い風 / 中立 / ノイズ警戒」が入ります。
+        地合いの取得に失敗しました。時間を置いて再読み込みするか、手動で地合い作成コマンドを実行してください。
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-bold text-white">今のウォッチ監視プレビュー</h2>
+      <a href="{% url 'tradeai_watch_signals' %}" class="text-xs font-semibold text-cyan-300">詳しく見る</a>
+    </div>
+
+    {% if watch_signal_preview %}
+      <div class="mt-3 space-y-2">
+        {% for row in watch_signal_preview %}
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="text-sm font-bold text-white">
+                  {{ row.ticker }}
+                  {% if row.name %}
+                    <span class="ml-2 text-xs font-medium text-slate-400">{{ row.name }}</span>
+                  {% endif %}
+                </div>
+
+                <div class="mt-1 flex flex-wrap gap-2 text-[11px]">
+                  {% if row.chosen_direction == "LONG" %}
+                    <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-300">ロング寄り</span>
+                  {% elif row.chosen_direction == "SHORT" %}
+                    <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-300">ショート寄り</span>
+                  {% else %}
+                    <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">様子見</span>
+                  {% endif %}
+
+                  {% if row.level == "STRONG" %}
+                    <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">{{ row.action_label }}</span>
+                  {% else %}
+                    <span class="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-1 text-yellow-300">{{ row.action_label }}</span>
+                  {% endif %}
+                </div>
+
+                <div class="mt-2 text-xs text-slate-400">
+                  流れ <span class="font-semibold text-white">{{ row.flow_label }}</span>
+                  <span class="ml-2 text-slate-500">節目 {{ row.breakout_human_label }}</span>
+                </div>
+              </div>
+
+              <div class="text-right text-xs text-slate-500">
+                <div>優先度 {{ row.priority }}</div>
+                <div class="mt-1">
+                  {% if row.last_close %}
+                    {{ row.last_close|floatformat:2 }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="mt-3 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
+        まだウォッチ監視の注目候補はありません。
       </div>
     {% endif %}
   </div>
@@ -146,16 +330,6 @@
                   {% else %}
                     <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">{{ row.action_label }}</span>
                   {% endif %}
-
-                  {% if row.ma_state == "GOLDEN_CROSS" %}
-                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">GC発生</span>
-                  {% elif row.ma_state == "ABOVE_GC" %}
-                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">GC上</span>
-                  {% elif row.ma_state == "DEAD_CROSS" %}
-                    <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">DC発生</span>
-                  {% elif row.ma_state == "BELOW_DC" %}
-                    <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">DC下</span>
-                  {% endif %}
                 </div>
 
                 <div class="mt-2 text-xs text-slate-400">
@@ -166,7 +340,7 @@
                     <span class="font-semibold text-slate-500">未取得</span>
                   {% endif %}
                   {% if row.atr_pct is not None %}
-                    <span class="ml-2 text-slate-500">ATR {{ row.atr_pct|floatformat:2 }}%</span>
+                    <span class="ml-2 text-slate-500">値動き {{ row.atr_pct|floatformat:2 }}%</span>
                   {% endif %}
                 </div>
               </div>
@@ -271,16 +445,6 @@
         まずウォッチリストを登録してから、コマンドでユニバースを構築します。
       </div>
     {% endif %}
-  </div>
-
-  <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-    <h2 class="text-sm font-bold text-white">この段階で入った土台</h2>
-    <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-300">
-      <li>・保有ロング / 保有ショートの監視</li>
-      <li>・5日線 / 25日線 による GC / DC 判定</li>
-      <li>・ATR(14) による値幅の把握</li>
-      <li>・警戒系だけ SignalEvent に保存するコマンド</li>
-    </ul>
   </div>
 </section>
 {% endblock %}
