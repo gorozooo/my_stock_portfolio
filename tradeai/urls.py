@@ -4,15 +4,15 @@
 #
 # このファイルは何？
 # - tradeai アプリのURL設定です。
-#
-# 今回の修正：
-# - ウォッチ監視画面を追加
+# - ダッシュボード導線として、候補抽出ページとデモページも追加しています。
 # =========================================================
 
 from django.urls import path
 
 from .views.api import api_ticker_name
+from .views.candidates import candidates_page
 from .views.dashboard import dashboard
+from .views.demo import demo_page
 from .views.holdings import holdings_page
 from .views.watch_signals import watch_signals_page
 from .views.watchlist import (
@@ -29,4 +29,6 @@ urlpatterns = [
     path("api/ticker-name/", api_ticker_name, name="tradeai_api_ticker_name"),
     path("holdings/", holdings_page, name="tradeai_holdings"),
     path("watch-signals/", watch_signals_page, name="tradeai_watch_signals"),
+    path("candidates/", candidates_page, name="tradeai_candidates"),
+    path("demo/", demo_page, name="tradeai_demo"),
 ]
