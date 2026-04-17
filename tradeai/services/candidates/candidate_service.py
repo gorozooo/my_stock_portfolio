@@ -8,6 +8,7 @@
 # - 候補ページで使う表示用データ
 #   （100点満点換算、セクター、Entry/TP/SL、ピル表示、事実ベース根拠）
 #   もここでまとめて作ります。
+# - 今回は、銘柄名を日本語優先で取得するように修正しています。
 # =========================================================
 
 from __future__ import annotations
@@ -16,8 +17,10 @@ from typing import Any
 
 import pandas as pd
 import yfinance as yf
+from django.conf import settings
 
 from portfolio.models import Holding
+from portfolio.services import trend as svc_trend
 from tradeai.models.regime_snapshot import RegimeSnapshot
 from tradeai.models.universe import UniverseTicker
 from tradeai.services.indicators.atr_service import analyze_atr
@@ -375,6 +378,54 @@ def _sector_en_to_jp(value: str) -> str:
     return mapping.get(text, text)
 
 
+def _fetch_profile_from_trend(ticker: str) -> dict[str, str]:
+    """
+    watchlist / holding と同じ方向で、日本語名を優先取得する。
+    """
+    code = _base_ticker(ticker)
+    norm = _to_symbol(ticker)
+
+    name = ""
+    sector = ""
+
+    override = getattr(settings, "TSE_NAME_OVERRIDES", {}).get(code)
+    if override:
+        name = override
+
+    try:
+        if code.isdigit():
+            master_name, master_sector = svc_trend.lookup_master_name_and_sector(norm)
+            if master_name and not name:
+                name = master_name
+            if master_sector and not sector:
+                sector = master_sector
+    except Exception:
+        pass
+
+    if not name:
+        try:
+            name = svc_trend._lookup_name_jp_from_list(norm) or ""
+        except Exception:
+            name = ""
+
+    if not name:
+        try:
+            name = svc_trend._fetch_name_prefer_jp(norm) or ""
+        except Exception:
+            name = ""
+
+    if not sector:
+        try:
+            sector = svc_trend._fetch_sector_prefer_jp(norm) or ""
+        except Exception:
+            sector = ""
+
+    return {
+        "name": str(name or "").strip(),
+        "sector": str(sector or "").strip(),
+    }
+
+
 def _fetch_profile_from_yfinance(ticker: str) -> dict[str, str]:
     symbol = _to_symbol(ticker)
     try:
@@ -397,6 +448,22 @@ def _fetch_profile_from_yfinance(ticker: str) -> dict[str, str]:
     return {"name": name, "sector": sector}
 
 
+def _fetch_profile_jp_first(ticker: str) -> dict[str, str]:
+    profile = _fetch_profile_from_trend(ticker)
+
+    if profile.get("name") and profile.get("sector"):
+        return profile
+
+    fallback = _fetch_profile_from_yfinance(ticker)
+
+    if not profile.get("name"):
+        profile["name"] = fallback.get("name", "")
+    if not profile.get("sector"):
+        profile["sector"] = fallback.get("sector", "")
+
+    return profile
+
+
 def _enrich_profiles_for_rows(user, rows: list[dict[str, Any]]) -> None:
     if not rows:
         return
@@ -415,7 +482,7 @@ def _enrich_profiles_for_rows(user, rows: list[dict[str, Any]]) -> None:
             profile["sector"] = ""
 
         if (not profile.get("name") or not profile.get("sector")) and base not in cache:
-            cache[base] = _fetch_profile_from_yfinance(ticker)
+            cache[base] = _fetch_profile_jp_first(ticker)
 
         fetched = cache.get(base, {})
         if not profile.get("name"):
