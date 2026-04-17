@@ -8,7 +8,7 @@
 # - 候補ページで使う表示用データ
 #   （100点満点換算、セクター、Entry/TP/SL、ピル表示、事実ベース根拠）
 #   もここでまとめて作ります。
-# - 今回は、銘柄名を日本語優先で取得するように修正しています。
+# - 今回は、セクター表示をJPX/TSEの33業種へ寄せるように修正しています。
 # =========================================================
 
 from __future__ import annotations
@@ -60,6 +60,42 @@ LEVEL_RANK = {
 
 MAX_SCORE_RAW = 28.0
 
+SECTOR33_EXACT = {
+    "水産・農林業",
+    "鉱業",
+    "建設業",
+    "食料品",
+    "繊維製品",
+    "パルプ・紙",
+    "化学",
+    "医薬品",
+    "石油・石炭製品",
+    "ゴム製品",
+    "ガラス・土石製品",
+    "鉄鋼",
+    "非鉄金属",
+    "金属製品",
+    "機械",
+    "電気機器",
+    "輸送用機器",
+    "精密機器",
+    "その他製品",
+    "電気・ガス業",
+    "陸運業",
+    "海運業",
+    "空運業",
+    "倉庫・運輸関連業",
+    "情報・通信業",
+    "卸売業",
+    "小売業",
+    "銀行業",
+    "証券、商品先物取引業",
+    "保険業",
+    "その他金融業",
+    "不動産業",
+    "サービス業",
+}
+
 
 def _to_symbol(raw_ticker: str) -> str:
     value = (raw_ticker or "").strip().upper()
@@ -91,6 +127,122 @@ def _trim_text(text: str, max_len: int) -> str:
     if len(safe) <= max_len:
         return safe
     return safe[: max_len - 1] + "…"
+
+
+def _normalize_text_for_match(value: str) -> str:
+    return (
+        (value or "")
+        .strip()
+        .lower()
+        .replace("　", "")
+        .replace(" ", "")
+        .replace("・", "")
+        .replace("/", "")
+        .replace("(", "")
+        .replace(")", "")
+    )
+
+
+def _contains_any(value: str, keywords: list[str]) -> bool:
+    normalized = _normalize_text_for_match(value)
+    return any(_normalize_text_for_match(keyword) in normalized for keyword in keywords)
+
+
+def _normalize_to_sector33(value: str) -> str:
+    text = (value or "").strip()
+    if not text:
+        return ""
+
+    if text in SECTOR33_EXACT:
+        return text
+
+    # よくある日本語ブレを先に吸収
+    alias_map = {
+        "情報・通信": "情報・通信業",
+        "情報通信": "情報・通信業",
+        "電気ガス": "電気・ガス業",
+        "電気・ガス": "電気・ガス業",
+        "倉庫運輸関連": "倉庫・運輸関連業",
+        "証券・商品先物取引": "証券、商品先物取引業",
+        "証券商品先物取引業": "証券、商品先物取引業",
+        "その他金融": "その他金融業",
+        "不動産": "不動産業",
+        "サービス": "サービス業",
+        "小売": "小売業",
+        "卸売": "卸売業",
+        "銀行": "銀行業",
+        "保険": "保険業",
+        "陸運": "陸運業",
+        "海運": "海運業",
+        "空運": "空運業",
+        "機械": "機械",
+        "電気機器": "電気機器",
+        "輸送用機器": "輸送用機器",
+        "精密機器": "精密機器",
+        "その他製品": "その他製品",
+        "金属製品": "金属製品",
+        "非鉄金属": "非鉄金属",
+        "鉄鋼": "鉄鋼",
+        "ガラス土石製品": "ガラス・土石製品",
+        "ガラス・土石": "ガラス・土石製品",
+        "石油石炭製品": "石油・石炭製品",
+        "パルプ紙": "パルプ・紙",
+        "繊維": "繊維製品",
+        "食料": "食料品",
+        "鉱業": "鉱業",
+        "建設": "建設業",
+        "化学": "化学",
+        "医薬": "医薬品",
+        "ゴム": "ゴム製品",
+        "水産農林": "水産・農林業",
+    }
+
+    normalized = _normalize_text_for_match(text)
+    for alias, mapped in alias_map.items():
+        if _normalize_text_for_match(alias) == normalized:
+            return mapped
+
+    checks = [
+        (["水産", "農林", "fishery", "agriculture", "forestry"], "水産・農林業"),
+        (["mining", "鉱業"], "鉱業"),
+        (["construction", "建設"], "建設業"),
+        (["food", "beverage", "brew", "食品", "食料", "飲料"], "食料品"),
+        (["textile", "apparel", "繊維"], "繊維製品"),
+        (["paper", "pulp", "パルプ", "紙"], "パルプ・紙"),
+        (["pharmaceutical", "drug", "biotech", "healthcare", "医薬"], "医薬品"),
+        (["oil", "gas", "petroleum", "石油", "石炭"], "石油・石炭製品"),
+        (["rubber", "タイヤ", "ゴム"], "ゴム製品"),
+        (["glass", "ceramic", "cement", "ガラス", "土石"], "ガラス・土石製品"),
+        (["steel", "鉄鋼"], "鉄鋼"),
+        (["non-ferrous", "nonferrous", "aluminum", "copper", "非鉄"], "非鉄金属"),
+        (["metalproduct", "metalfabrication", "金属製品"], "金属製品"),
+        (["machinery", "industrialmachinery", "機械"], "機械"),
+        (["semiconductor", "electronics", "electronic", "電機", "電気機器", "電子", "半導体", "家電"], "電気機器"),
+        (["automobile", "autoparts", "transportationequipment", "aerospace", "defense", "shipbuilding", "輸送用機器", "自動車", "造船", "航空宇宙"], "輸送用機器"),
+        (["precision", "medicaldevice", "精密"], "精密機器"),
+        (["otherproducts", "furnishing", "toy", "music", "家具", "楽器", "その他製品"], "その他製品"),
+        (["utilities", "utility", "electricpower", "電力", "ガス", "電気ガス"], "電気・ガス業"),
+        (["rail", "railroad", "truck", "bus", "logistics", "陸運"], "陸運業"),
+        (["shipping", "marine", "海運"], "海運業"),
+        (["airline", "airtransport", "空運"], "空運業"),
+        (["warehouse", "storage", "倉庫", "運輸関連"], "倉庫・運輸関連業"),
+        (["telecom", "internet", "software", "itservices", "communicationservices", "media", "情報通信", "通信", "ソフトウェア", "インターネット"], "情報・通信業"),
+        (["wholesale", "tradingcompany", "卸売", "商社"], "卸売業"),
+        (["retail", "restaurant", "specialtyretail", "小売", "百貨店", "スーパー", "コンビニ", "外食"], "小売業"),
+        (["bank", "banks", "銀行"], "銀行業"),
+        (["brokerage", "securities", "commodityfutures", "証券", "商品先物"], "証券、商品先物取引業"),
+        (["insurance", "保険"], "保険業"),
+        (["consumerfinance", "creditservices", "leasing", "assetmanagement", "ノンバンク", "リース", "クレジット", "その他金融"], "その他金融業"),
+        (["realestate", "reit", "不動産"], "不動産業"),
+        (["chemical", "specialtychemicals", "basicmaterials", "materials", "chemicals", "化学"], "化学"),
+        (["service", "services", "consulting", "staffing", "humanresources", "travelservices", "広告", "人材", "介護", "教育", "サービス"], "サービス業"),
+    ]
+
+    for keywords, mapped in checks:
+        if _contains_any(text, keywords):
+            return mapped
+
+    return text
 
 
 def _batch_download_ohlc(items: list[UniverseTicker], period: str = "6mo") -> dict[str, dict[str, Any]]:
@@ -352,35 +504,15 @@ def _profile_map_from_holdings(user) -> dict[str, dict[str, str]]:
             continue
         result[ticker] = {
             "name": str(row.get("name") or "").strip(),
-            "sector": str(row.get("sector") or "").strip(),
+            "sector": _normalize_to_sector33(str(row.get("sector") or "").strip()),
         }
     return result
-
-
-def _sector_en_to_jp(value: str) -> str:
-    mapping = {
-        "Technology": "情報・通信業",
-        "Communication Services": "情報・通信業",
-        "Consumer Cyclical": "小売業",
-        "Consumer Defensive": "食料品",
-        "Financial Services": "銀行業",
-        "Banks": "銀行業",
-        "Industrials": "機械",
-        "Basic Materials": "化学",
-        "Healthcare": "医薬品",
-        "Energy": "石油・石炭製品",
-        "Utilities": "電気・ガス業",
-        "Real Estate": "不動産業",
-        "Materials": "化学",
-        "Transportation": "陸運業",
-    }
-    text = (value or "").strip()
-    return mapping.get(text, text)
 
 
 def _fetch_profile_from_trend(ticker: str) -> dict[str, str]:
     """
     watchlist / holding と同じ方向で、日本語名を優先取得する。
+    セクターは最終的に33業種へ寄せる。
     """
     code = _base_ticker(ticker)
     norm = _to_symbol(ticker)
@@ -420,6 +552,8 @@ def _fetch_profile_from_trend(ticker: str) -> dict[str, str]:
         except Exception:
             sector = ""
 
+    sector = _normalize_to_sector33(sector)
+
     return {
         "name": str(name or "").strip(),
         "sector": str(sector or "").strip(),
@@ -442,10 +576,14 @@ def _fetch_profile_from_yfinance(ticker: str) -> dict[str, str]:
         or str(info.get("displayName") or "")
     ).strip()
 
-    sector = str(info.get("sector") or info.get("industry") or "").strip()
-    sector = _sector_en_to_jp(sector)
+    industry = str(info.get("industry") or "").strip()
+    sector = str(info.get("sector") or "").strip()
 
-    return {"name": name, "sector": sector}
+    mapped_sector = _normalize_to_sector33(industry)
+    if not mapped_sector:
+        mapped_sector = _normalize_to_sector33(sector)
+
+    return {"name": name, "sector": mapped_sector}
 
 
 def _fetch_profile_jp_first(ticker: str) -> dict[str, str]:
@@ -461,6 +599,7 @@ def _fetch_profile_jp_first(ticker: str) -> dict[str, str]:
     if not profile.get("sector"):
         profile["sector"] = fallback.get("sector", "")
 
+    profile["sector"] = _normalize_to_sector33(profile.get("sector", ""))
     return profile
 
 
@@ -491,7 +630,7 @@ def _enrich_profiles_for_rows(user, rows: list[dict[str, Any]]) -> None:
             profile["sector"] = fetched.get("sector", "")
 
         row["display_name"] = profile.get("name") or (row.get("name") or "") or "銘柄名未取得"
-        row["sector_name"] = profile.get("sector") or "セクター未取得"
+        row["sector_name"] = _normalize_to_sector33(profile.get("sector", "")) or "セクター未取得"
 
 
 def _count_universe_sources(items: list[UniverseTicker]) -> dict[str, int]:
@@ -725,7 +864,7 @@ def build_candidate_rows(user, limit_per_side: int = 8) -> dict[str, Any]:
             continue
 
         selected_reasons = long_reasons if chosen_direction == "LONG" else short_reasons
-        fact_reasons = _build_fact_reasons(chosen_direction, tech)
+        fact_reasons = _buildFact_reasons(chosen_direction, tech) if False else _build_fact_reasons(chosen_direction, tech)
         entry_price, tp_price, sl_price = _build_trade_plan(chosen_direction, tech)
 
         if chosen_direction == "LONG":
