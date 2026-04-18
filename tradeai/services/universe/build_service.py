@@ -4,7 +4,7 @@
 #
 # このファイルは何？
 # - ユーザーごとの監視対象ユニバースを構築するサービスです。
-# - 保有銘柄 / ウォッチリスト / 日経225 / TOPIX を統合して
+# - 保有銘柄 / ウォッチリスト / 日経225 / TOPIX / グロース を統合して
 #   UniverseTicker へ反映します。
 # =========================================================
 
@@ -18,6 +18,7 @@ from tradeai.models.universe import UniverseTicker
 from tradeai.models.watchlist import WatchlistItem
 from tradeai.services.common.ticker_normalizer import normalize_ticker
 from tradeai.services.universe.source_loader import (
+    load_growth_tickers,
     load_nikkei225_tickers,
     load_topix_tickers,
 )
@@ -37,6 +38,7 @@ def _priority_for(
     watch_priority: int | None,
     in_nikkei225: bool,
     in_topix: bool,
+    in_growth: bool,
 ) -> int:
     candidates: list[int] = []
 
@@ -55,6 +57,9 @@ def _priority_for(
     if in_topix:
         candidates.append(80)
 
+    if in_growth:
+        candidates.append(90)
+
     if not candidates:
         return 999
 
@@ -68,6 +73,7 @@ def build_universe_for_user(user) -> dict:
 
     nikkei225_tickers = load_nikkei225_tickers(settings.BASE_DIR)
     topix_tickers = load_topix_tickers(settings.BASE_DIR)
+    growth_tickers = load_growth_tickers(settings.BASE_DIR)
 
     holding_map: dict[str, Holding] = {}
     for holding in holdings:
@@ -88,6 +94,7 @@ def build_universe_for_user(user) -> dict:
     target_tickers |= set(watchlist_map.keys())
     target_tickers |= nikkei225_tickers
     target_tickers |= topix_tickers
+    target_tickers |= growth_tickers
 
     existing_by_ticker = {
         obj.ticker: obj
@@ -106,6 +113,7 @@ def build_universe_for_user(user) -> dict:
         in_watchlist = watch_item is not None
         in_nikkei225 = ticker in nikkei225_tickers
         in_topix = ticker in topix_tickers
+        in_growth = ticker in growth_tickers
 
         name = _best_name(
             holding.name if holding else "",
@@ -117,6 +125,7 @@ def build_universe_for_user(user) -> dict:
             watch_priority=(watch_item.priority if watch_item else None),
             in_nikkei225=in_nikkei225,
             in_topix=in_topix,
+            in_growth=in_growth,
         )
 
         obj = existing_by_ticker.get(ticker)
@@ -129,6 +138,7 @@ def build_universe_for_user(user) -> dict:
                 market="JP",
                 in_nikkei225=in_nikkei225,
                 in_topix=in_topix,
+                in_growth=in_growth,
                 from_watchlist=in_watchlist,
                 from_holding=in_holding,
                 is_active=True,
@@ -153,6 +163,10 @@ def build_universe_for_user(user) -> dict:
 
         if obj.in_topix != in_topix:
             obj.in_topix = in_topix
+            changed = True
+
+        if obj.in_growth != in_growth:
+            obj.in_growth = in_growth
             changed = True
 
         if obj.from_watchlist != in_watchlist:
@@ -185,6 +199,7 @@ def build_universe_for_user(user) -> dict:
         row.is_active = False
         row.in_nikkei225 = False
         row.in_topix = False
+        row.in_growth = False
         row.from_watchlist = False
         row.from_holding = False
         row.priority = 999
@@ -199,5 +214,6 @@ def build_universe_for_user(user) -> dict:
         "watchlist_count": len(watchlist_map),
         "nikkei225_count": len(nikkei225_tickers),
         "topix_count": len(topix_tickers),
+        "growth_count": len(growth_tickers),
         "total_active_count": UniverseTicker.objects.filter(user=user, is_active=True).count(),
     }
