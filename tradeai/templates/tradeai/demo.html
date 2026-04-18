@@ -5,7 +5,9 @@
 
 このファイルは何？
 - tradeai のデモページです。
-- まだ本実装前なので、現状の位置づけを正直に表示します。
+- 候補から作成したデモ建玉を一覧表示し、
+  保有中 / 終了 / 損益 を確認できます。
+- 今回は手動クローズもここから行えます。
 =========================================================
 -->
 
@@ -22,9 +24,9 @@
         <p class="text-xs font-semibold tracking-widest text-amber-300">TRADEAI DEMO</p>
         <h1 class="mt-1 text-2xl font-bold text-white">デモ</h1>
         <p class="mt-2 text-sm leading-6 text-slate-300">
-          ここは
-          <span class="font-semibold text-white">次の次に本実装する段階</span>
-          です。まだ正式なデモ売買エンジンは入っていません。
+          候補ページから作った
+          <span class="font-semibold text-white">仮想建玉</span>
+          をここで管理します。まずは手動クローズ方式で、結果ログを貯めていきます。
         </p>
       </div>
       <a
@@ -38,34 +40,226 @@
 
   <div class="grid grid-cols-2 gap-3">
     <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <div class="text-xs text-slate-400">現在のデモ建玉</div>
-      <div class="mt-2 text-2xl font-bold text-white">{{ open_demo_count|intcomma }}</div>
+      <div class="text-xs text-slate-400">保有中デモ</div>
+      <div class="mt-2 text-2xl font-bold text-amber-300">{{ open_demo_count|intcomma }}</div>
     </div>
 
     <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <div class="text-xs text-slate-400">デモ履歴合計</div>
+      <div class="text-xs text-slate-400">クローズ済み</div>
+      <div class="mt-2 text-2xl font-bold text-white">{{ closed_demo_count|intcomma }}</div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">履歴合計</div>
       <div class="mt-2 text-2xl font-bold text-white">{{ total_demo_count|intcomma }}</div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">クローズ損益合計</div>
+      <div class="mt-2 text-2xl font-bold {% if total_closed_pnl_yen >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+        {{ total_closed_pnl_yen|floatformat:0|intcomma }} 円
+      </div>
     </div>
   </div>
 
-  <div class="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
-    <div class="text-sm font-bold text-white">ここで次にやること</div>
-    <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-200">
-      <li>・候補抽出から、仮想エントリー対象を作る</li>
-      <li>・エントリー時の状況と理由を保存する</li>
-      <li>・手仕舞い結果を残して、後から評価できるようにする</li>
-      <li>・見送りも含めて学習の材料にする</li>
-    </ul>
+  <div class="grid grid-cols-3 gap-3">
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">勝ち</div>
+      <div class="mt-2 text-xl font-bold text-emerald-300">{{ win_count|intcomma }}</div>
+    </div>
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">負け</div>
+      <div class="mt-2 text-xl font-bold text-rose-300">{{ loss_count|intcomma }}</div>
+    </div>
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">勝率</div>
+      <div class="mt-2 text-xl font-bold text-cyan-300">{{ win_rate_pct|floatformat:2 }}%</div>
+    </div>
   </div>
 
   <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-    <div class="text-sm font-bold text-white">いまの位置づけ</div>
-    <div class="mt-2 text-sm leading-6 text-slate-200">
-      まだ正式なデモは動いていないので、
-      先に
-      <span class="font-semibold text-white">地合い → 監視 → 候補抽出</span>
-      を固めてから、このページを本格化します。
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-bold text-white">保有中のデモ建玉</h2>
+      <div class="text-xs text-slate-400">{{ open_demo_count|intcomma }} 件</div>
     </div>
+
+    {% if open_trades %}
+      <div class="mt-3 space-y-3">
+        {% for trade in open_trades %}
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-base font-bold text-white">
+                  {{ trade.ticker }}
+                  {% if trade.name %}
+                    <span class="ml-2 text-sm font-medium text-slate-200">{{ trade.name }}</span>
+                  {% endif %}
+                </div>
+
+                {% if trade.entry_payload.sector_name %}
+                  <div class="mt-1 text-xs text-slate-400">{{ trade.entry_payload.sector_name }}</div>
+                {% endif %}
+
+                <div class="mt-2 flex flex-wrap gap-2 text-[11px]">
+                  {% if trade.direction == "LONG" %}
+                    <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-300">ロング</span>
+                  {% else %}
+                    <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-300">ショート</span>
+                  {% endif %}
+
+                  <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ trade.get_source_scope_display }}</span>
+
+                  {% if trade.entry_payload.regime_relation_label %}
+                    <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ trade.entry_payload.regime_relation_label }}</span>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="shrink-0 text-right text-xs text-slate-400">
+                <div>{{ trade.entry_at|date:"Y-m-d H:i" }}</div>
+                <div class="mt-1">{{ trade.qty|intcomma }} 株</div>
+              </div>
+            </div>
+
+            <div class="mt-3 flex flex-wrap gap-2 text-[11px]">
+              <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-200">Entry {{ trade.entry_price|floatformat:2 }}</span>
+              {% if trade.take_profit_price %}
+                <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-emerald-300">利確 {{ trade.take_profit_price|floatformat:2 }}</span>
+              {% endif %}
+              {% if trade.stop_price %}
+                <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-rose-300">損切 {{ trade.stop_price|floatformat:2 }}</span>
+              {% endif %}
+            </div>
+
+            {% if trade.entry_reason_text %}
+              <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">エントリー理由</div>
+                <div class="mt-1 whitespace-pre-line text-sm leading-6 text-slate-200">{{ trade.entry_reason_text }}</div>
+              </div>
+            {% endif %}
+
+            {% if trade.entry_payload.indicator_pills %}
+              <div class="mt-3 flex flex-wrap gap-2 text-[11px]">
+                {% for pill in trade.entry_payload.indicator_pills %}
+                  <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-300">{{ pill }}</span>
+                {% endfor %}
+              </div>
+            {% endif %}
+
+            <form method="post" action="{% url 'tradeai_demo_close' trade.pk %}" class="mt-4 space-y-3">
+              {% csrf_token %}
+              <div class="grid grid-cols-1 gap-3">
+                <div>
+                  <label class="mb-2 block text-xs font-semibold text-slate-400">終了価格</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    name="close_price"
+                    inputmode="decimal"
+                    class="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none"
+                    placeholder="例: 1234.56"
+                    required
+                  >
+                </div>
+
+                <div>
+                  <label class="mb-2 block text-xs font-semibold text-slate-400">終了理由（任意）</label>
+                  <input
+                    type="text"
+                    name="exit_reason"
+                    class="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none"
+                    placeholder="例: 利確 / 損切 / 逆行 / 時間切れ"
+                  >
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                class="w-full rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm font-bold text-rose-300"
+              >
+                このデモ建玉をクローズ
+              </button>
+            </form>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="mt-3 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
+        まだ保有中のデモ建玉はありません。候補ページから追加してください。
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-bold text-white">最近クローズしたデモ</h2>
+      <div class="text-xs text-slate-400">{{ closed_demo_count|intcomma }} 件</div>
+    </div>
+
+    {% if recent_closed_trades %}
+      <div class="mt-3 space-y-3">
+        {% for trade in recent_closed_trades %}
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-base font-bold text-white">
+                  {{ trade.ticker }}
+                  {% if trade.name %}
+                    <span class="ml-2 text-sm font-medium text-slate-200">{{ trade.name }}</span>
+                  {% endif %}
+                </div>
+
+                {% if trade.entry_payload.sector_name %}
+                  <div class="mt-1 text-xs text-slate-400">{{ trade.entry_payload.sector_name }}</div>
+                {% endif %}
+
+                <div class="mt-2 flex flex-wrap gap-2 text-[11px]">
+                  {% if trade.direction == "LONG" %}
+                    <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-300">ロング</span>
+                  {% else %}
+                    <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-300">ショート</span>
+                  {% endif %}
+
+                  {% if trade.result_label == "WIN" %}
+                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">勝ち</span>
+                  {% elif trade.result_label == "LOSS" %}
+                    <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">負け</span>
+                  {% else %}
+                    <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">引き分け</span>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="shrink-0 text-right text-xs text-slate-400">
+                <div>{{ trade.close_at|date:"Y-m-d H:i" }}</div>
+                <div class="mt-1 {% if trade.pnl_yen >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+                  {{ trade.pnl_yen|floatformat:0|intcomma }} 円
+                </div>
+                <div class="mt-1 {% if trade.pnl_pct >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+                  {{ trade.pnl_pct|floatformat:2 }}%
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-3 flex flex-wrap gap-2 text-[11px]">
+              <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-200">Entry {{ trade.entry_price|floatformat:2 }}</span>
+              <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-200">Close {{ trade.close_price|floatformat:2 }}</span>
+            </div>
+
+            {% if trade.exit_reason %}
+              <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">終了理由</div>
+                <div class="mt-1 text-sm leading-6 text-slate-200">{{ trade.exit_reason }}</div>
+              </div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="mt-3 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
+        まだクローズ済みデモはありません。
+      </div>
+    {% endif %}
   </div>
 </section>
 {% endblock %}
