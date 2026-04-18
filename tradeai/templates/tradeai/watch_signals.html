@@ -8,6 +8,7 @@
 - ウォッチ銘柄に対して、今はロング寄りかショート寄りか、
   まだ様子見かを初心者向けに表示します。
 - 今回は コスト帯 / 出来高 / 節目 / 大きな流れ / 行きすぎ感 / ヒゲ / ギャップ も追加しています。
+- あわせて、銘柄名の下に33業種セクターを表示します。
 =========================================================
 -->
 
@@ -69,10 +70,10 @@
               <div class="min-w-0">
                 <div class="flex items-center gap-2">
                   <div class="text-lg font-bold text-white">{{ row.ticker }}</div>
-                  {% if row.name %}
-                    <div class="truncate text-sm font-medium text-slate-300">{{ row.name }}</div>
-                  {% endif %}
+                  <div class="truncate text-sm font-medium text-slate-300">{{ row.display_name }}</div>
                 </div>
+
+                <div class="mt-1 text-xs text-slate-500">{{ row.sector_name }}</div>
 
                 <div class="mt-2 flex flex-wrap gap-2 text-[11px]">
                   {% if row.chosen_direction == "LONG" %}
