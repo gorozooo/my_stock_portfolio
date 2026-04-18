@@ -9,6 +9,7 @@
 
 今回の修正：
 - 証券コードを入力すると、銘柄名を自動補完する
+- 登録済み一覧で、33業種セクターを表示する
 =========================================================
 -->
 
@@ -127,10 +128,10 @@
               <div>
                 <div class="text-base font-bold text-white">
                   {{ item.ticker }}
-                  {% if item.name %}
-                    <span class="ml-2 text-sm font-medium text-slate-300">{{ item.name }}</span>
-                  {% endif %}
+                  <span class="ml-2 text-sm font-medium text-slate-300">{{ item.display_name }}</span>
                 </div>
+
+                <div class="mt-1 text-xs text-slate-500">{{ item.sector_name }}</div>
 
                 <div class="mt-2 flex flex-wrap gap-2 text-xs">
                   {% if item.is_active %}
