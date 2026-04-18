@@ -4,11 +4,12 @@
 #
 # このファイルは何？
 # - tradeai のモデルを Django 管理画面で見られるようにするファイルです。
-# - 今回はまとめimportをやめて、各モデルを直接importする形にしています。
+# - 今回は CandidateSnapshot も管理画面から見られるようにします。
 # =========================================================
 
 from django.contrib import admin
 
+from tradeai.models.candidate_snapshot import CandidateSnapshot
 from tradeai.models.demo_trade import DemoTrade
 from tradeai.models.learning_result import LearningResult
 from tradeai.models.learning_snapshot import LearningSnapshot
@@ -131,3 +132,18 @@ class NotifyLogAdmin(admin.ModelAdmin):
     list_filter = ("direction", "level", "channel", "was_sent")
     search_fields = ("ticker", "name", "message_text", "user__username", "dedupe_key")
     ordering = ("-sent_at",)
+
+
+@admin.register(CandidateSnapshot)
+class CandidateSnapshotAdmin(admin.ModelAdmin):
+    list_display = (
+        "built_at",
+        "user",
+        "universe_count",
+        "candidate_total",
+        "long_candidate_count",
+        "short_candidate_count",
+    )
+    list_filter = ("built_at",)
+    search_fields = ("user__username",)
+    ordering = ("-built_at",)
