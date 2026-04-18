@@ -4,7 +4,7 @@
 #
 # このファイルは何？
 # - tradeai が実際に監視対象として使う「対象銘柄集合」を保存するモデルです。
-# - 日経225 / TOPIX / ウォッチリスト / 保有銘柄 を統合した結果を持ちます。
+# - 日経225 / TOPIX / グロース / ウォッチリスト / 保有銘柄 を統合した結果を持ちます。
 # =========================================================
 
 from django.conf import settings
@@ -24,6 +24,7 @@ class UniverseTicker(models.Model):
 
     in_nikkei225 = models.BooleanField("日経225採用", default=False)
     in_topix = models.BooleanField("TOPIX採用", default=False)
+    in_growth = models.BooleanField("グロース採用", default=False)
     from_watchlist = models.BooleanField("ウォッチリスト由来", default=False)
     from_holding = models.BooleanField("保有銘柄由来", default=False)
 
