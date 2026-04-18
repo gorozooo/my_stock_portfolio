@@ -9,6 +9,7 @@
 - いま何ができていて、何がまだなのかも見えるようにします。
 - 各プレビューで、銘柄名の下に33業種セクターを表示します。
 - 今回は監視対象プレビューにグロース由来バッジも表示します。
+- さらに、デモ建玉プレビューも追加しています。
 =========================================================
 -->
 
@@ -26,8 +27,8 @@
         <h1 class="mt-1 text-2xl font-bold text-white">監視AIの土台</h1>
         <p class="mt-2 text-sm leading-6 text-slate-300">
           いまは
-          <span class="font-semibold text-white">保有監視・ウォッチ監視・通知・地合い表示</span>
-          まで動いています。候補抽出とデモは次の段階です。
+          <span class="font-semibold text-white">保有監視・ウォッチ監視・通知・地合い表示・候補抽出・デモ</span>
+          まで動いています。
         </p>
       </div>
       <div class="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs font-semibold text-cyan-300">
@@ -233,6 +234,65 @@
     {% else %}
       <div class="mt-3 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
         地合いの取得に失敗しました。時間を置いて再読み込みするか、手動で地合い作成コマンドを実行してください。
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-bold text-white">今のデモ建玉プレビュー</h2>
+      <a href="{% url 'tradeai_demo' %}" class="text-xs font-semibold text-amber-300">詳しく見る</a>
+    </div>
+
+    {% if open_demo_preview %}
+      <div class="mt-3 space-y-2">
+        {% for trade in open_demo_preview %}
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="text-sm font-bold text-white">
+                  {{ trade.ticker }}
+                  {% if trade.name %}
+                    <span class="ml-2 text-xs font-medium text-slate-400">{{ trade.name }}</span>
+                  {% endif %}
+                </div>
+
+                {% if trade.entry_payload.sector_name %}
+                  <div class="mt-1 text-[11px] text-slate-500">{{ trade.entry_payload.sector_name }}</div>
+                {% endif %}
+
+                <div class="mt-1 flex flex-wrap gap-2 text-[11px]">
+                  {% if trade.direction == "LONG" %}
+                    <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-300">ロング</span>
+                  {% else %}
+                    <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-300">ショート</span>
+                  {% endif %}
+
+                  <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ trade.get_source_scope_display }}</span>
+                </div>
+
+                <div class="mt-2 text-xs text-slate-400">
+                  Entry <span class="font-semibold text-white">{{ trade.entry_price|floatformat:2 }}</span>
+                  {% if trade.take_profit_price %}
+                    <span class="ml-2 text-slate-500">利確 {{ trade.take_profit_price|floatformat:2 }}</span>
+                  {% endif %}
+                  {% if trade.stop_price %}
+                    <span class="ml-2 text-slate-500">損切 {{ trade.stop_price|floatformat:2 }}</span>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="text-right text-xs text-slate-500">
+                <div>{{ trade.entry_at|date:"Y-m-d H:i" }}</div>
+                <div class="mt-1">{{ trade.qty|intcomma }} 株</div>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="mt-3 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
+        まだデモ建玉はありません。候補ページから追加してください。
       </div>
     {% endif %}
   </div>
