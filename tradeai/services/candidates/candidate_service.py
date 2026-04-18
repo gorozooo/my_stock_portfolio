@@ -8,7 +8,8 @@
 # - 候補ページで使う表示用データ
 #   （100点満点換算、セクター、Entry/TP/SL、ピル表示、事実ベース根拠）
 #   もここでまとめて作ります。
-# - 今回は、セクター表示をJPX/TSEの33業種へ寄せるように修正しています。
+# - 今回は、2250銘柄規模でも落ちにくいように
+#   yfinance の取得を分割ダウンロードへ変更しています。
 # =========================================================
 
 from __future__ import annotations
@@ -59,6 +60,9 @@ LEVEL_RANK = {
 }
 
 MAX_SCORE_RAW = 28.0
+
+# 一気に取りすぎると yfinance が空返りしやすいので分割
+DOWNLOAD_CHUNK_SIZE = 80
 
 SECTOR33_EXACT = {
     "水産・農林業",
@@ -156,7 +160,6 @@ def _normalize_to_sector33(value: str) -> str:
     if text in SECTOR33_EXACT:
         return text
 
-    # よくある日本語ブレを先に吸収
     alias_map = {
         "情報・通信": "情報・通信業",
         "情報通信": "情報・通信業",
@@ -245,7 +248,55 @@ def _normalize_to_sector33(value: str) -> str:
     return text
 
 
-def _batch_download_ohlc(items: list[UniverseTicker], period: str = "6mo") -> dict[str, dict[str, Any]]:
+def _iter_chunks(items: list[Any], size: int):
+    for i in range(0, len(items), size):
+        yield items[i : i + size]
+
+
+def _extract_ohlc_from_frame(part: pd.DataFrame, symbol: str) -> dict[str, Any] | None:
+    if part is None or part.empty:
+        return None
+
+    required_cols = {"Open", "High", "Low", "Close"}
+    if not required_cols.issubset(set(part.columns)):
+        return None
+
+    try:
+        part = part.dropna(subset=["Open", "High", "Low", "Close"])
+    except Exception:
+        return None
+
+    if part.empty:
+        return None
+
+    try:
+        opens = [float(v) for v in part["Open"].fillna(0).tolist()]
+        highs = [float(v) for v in part["High"].fillna(0).tolist()]
+        lows = [float(v) for v in part["Low"].fillna(0).tolist()]
+        closes = [float(v) for v in part["Close"].fillna(0).tolist()]
+        volumes = [float(v) for v in part["Volume"].fillna(0).tolist()] if "Volume" in part.columns else [0.0] * len(part)
+    except Exception:
+        return None
+
+    if not closes:
+        return None
+
+    return {
+        "symbol": symbol,
+        "opens": opens,
+        "highs": highs,
+        "lows": lows,
+        "closes": closes,
+        "volumes": volumes,
+        "last_open": opens[-1] if opens else None,
+        "last_close": closes[-1] if closes else None,
+        "last_high": highs[-1] if highs else None,
+        "last_low": lows[-1] if lows else None,
+        "last_volume": volumes[-1] if volumes else None,
+    }
+
+
+def _download_chunk_ohlc(items: list[UniverseTicker], period: str = "6mo") -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     if not items:
         return result
@@ -263,7 +314,7 @@ def _batch_download_ohlc(items: list[UniverseTicker], period: str = "6mo") -> di
             auto_adjust=False,
             progress=False,
             group_by="ticker",
-            threads=True,
+            threads=False,
         )
     except Exception:
         return result
@@ -285,34 +336,45 @@ def _batch_download_ohlc(items: list[UniverseTicker], period: str = "6mo") -> di
             else:
                 part = data.copy()
 
-            if part is None or part.empty:
-                continue
-
-            part = part.dropna(subset=["Open", "High", "Low", "Close"])
-            if part.empty:
-                continue
-
-            opens = [float(v) for v in part["Open"].fillna(0).tolist()]
-            highs = [float(v) for v in part["High"].fillna(0).tolist()]
-            lows = [float(v) for v in part["Low"].fillna(0).tolist()]
-            closes = [float(v) for v in part["Close"].fillna(0).tolist()]
-            volumes = [float(v) for v in part["Volume"].fillna(0).tolist()] if "Volume" in part.columns else [0.0] * len(part)
-
-            result[raw_ticker] = {
-                "symbol": symbol,
-                "opens": opens,
-                "highs": highs,
-                "lows": lows,
-                "closes": closes,
-                "volumes": volumes,
-                "last_open": opens[-1] if opens else None,
-                "last_close": closes[-1] if closes else None,
-                "last_high": highs[-1] if highs else None,
-                "last_low": lows[-1] if lows else None,
-                "last_volume": volumes[-1] if volumes else None,
-            }
+            parsed = _extract_ohlc_from_frame(part, symbol)
+            if parsed:
+                result[raw_ticker] = parsed
         except Exception:
             continue
+
+    return result
+
+
+def _download_single_ohlc(ticker: str, period: str = "6mo") -> dict[str, Any] | None:
+    symbol = _to_symbol(ticker)
+    try:
+        df = yf.Ticker(symbol).history(period=period, interval="1d", auto_adjust=False)
+    except Exception:
+        return None
+    return _extract_ohlc_from_frame(df, symbol)
+
+
+def _batch_download_ohlc(items: list[UniverseTicker], period: str = "6mo") -> dict[str, dict[str, Any]]:
+    """
+    2250銘柄規模でも全滅しにくいように、
+    小分け取得 + 取りこぼしの単体再取得で組み立てる。
+    """
+    result: dict[str, dict[str, Any]] = {}
+    if not items:
+        return result
+
+    for chunk in _iter_chunks(items, DOWNLOAD_CHUNK_SIZE):
+        chunk_result = _download_chunk_ohlc(chunk, period=period)
+        result.update(chunk_result)
+
+        # まとめ取得で漏れたぶんは、優先度が高いものだけ単体再取得
+        missing_items = [item for item in chunk if item.ticker not in chunk_result]
+        for item in missing_items:
+            if not (item.from_holding or item.from_watchlist or item.priority <= 20):
+                continue
+            single = _download_single_ohlc(item.ticker, period=period)
+            if single:
+                result[item.ticker] = single
 
     return result
 
@@ -411,9 +473,10 @@ def _pick_direction(long_score: int, short_score: int, tech: dict[str, Any]) -> 
 
 
 def _level_from_score(score: int) -> str:
-    if score >= 13:
+    # 以前より少し現実寄りに緩める
+    if score >= 11:
         return "STRONG"
-    if score >= 9:
+    if score >= 7:
         return "ATTENTION"
     return "REFERENCE"
 
@@ -428,6 +491,8 @@ def _source_labels(item: UniverseTicker) -> list[str]:
         labels.append("日経225")
     if item.in_topix:
         labels.append("TOPIX")
+    if getattr(item, "in_growth", False):
+        labels.append("グロース")
     return labels
 
 
@@ -440,7 +505,9 @@ def _source_rank(item: UniverseTicker) -> int:
         return 2
     if item.in_topix:
         return 3
-    return 4
+    if getattr(item, "in_growth", False):
+        return 4
+    return 5
 
 
 def _source_bonus(item: UniverseTicker) -> int:
@@ -510,10 +577,6 @@ def _profile_map_from_holdings(user) -> dict[str, dict[str, str]]:
 
 
 def _fetch_profile_from_trend(ticker: str) -> dict[str, str]:
-    """
-    watchlist / holding と同じ方向で、日本語名を優先取得する。
-    セクターは最終的に33業種へ寄せる。
-    """
     code = _base_ticker(ticker)
     norm = _to_symbol(ticker)
 
@@ -639,6 +702,7 @@ def _count_universe_sources(items: list[UniverseTicker]) -> dict[str, int]:
         "watchlist": sum(1 for item in items if item.from_watchlist),
         "nikkei225": sum(1 for item in items if item.in_nikkei225),
         "topix": sum(1 for item in items if item.in_topix),
+        "growth": sum(1 for item in items if getattr(item, "in_growth", False)),
     }
 
 
@@ -648,6 +712,7 @@ def _count_candidate_sources(rows: list[dict[str, Any]]) -> dict[str, int]:
         "watchlist": sum(1 for row in rows if "ウォッチ" in row.get("source_labels", [])),
         "nikkei225": sum(1 for row in rows if "日経225" in row.get("source_labels", [])),
         "topix": sum(1 for row in rows if "TOPIX" in row.get("source_labels", [])),
+        "growth": sum(1 for row in rows if "グロース" in row.get("source_labels", [])),
     }
 
 
@@ -836,18 +901,25 @@ def build_candidate_rows(user, limit_per_side: int = 8) -> dict[str, Any]:
         UniverseTicker.objects.filter(user=user, is_active=True).order_by("priority", "ticker")
     )
 
+    universe_source_counts = _count_universe_sources(universe_items)
     ohlc_map = _batch_download_ohlc(universe_items, period="6mo")
     long_adj, short_adj = _regime_adjustments(last_regime)
 
-    universe_source_counts = _count_universe_sources(universe_items)
-
     all_rows: list[dict[str, Any]] = []
+
+    technical_success_count = 0
+    no_technical_count = 0
+    no_direction_count = 0
+    reference_filtered_count = 0
 
     for item in universe_items:
         ohlc = ohlc_map.get(item.ticker)
         tech = _build_technical_snapshot_from_ohlc(ohlc)
         if not tech.get("has_technical"):
+            no_technical_count += 1
             continue
+
+        technical_success_count += 1
 
         base_long_score, long_reasons = _score_long(tech)
         base_short_score, short_reasons = _score_short(tech)
@@ -857,14 +929,18 @@ def build_candidate_rows(user, limit_per_side: int = 8) -> dict[str, Any]:
         short_score = base_short_score + short_adj + source_bonus
 
         chosen_direction = _pick_direction(long_score, short_score, tech)
+        if not chosen_direction:
+            no_direction_count += 1
+            continue
+
         score_total = max(long_score, short_score)
         level = _level_from_score(score_total)
-
-        if not chosen_direction or level == "REFERENCE":
+        if level == "REFERENCE":
+            reference_filtered_count += 1
             continue
 
         selected_reasons = long_reasons if chosen_direction == "LONG" else short_reasons
-        fact_reasons = _buildFact_reasons(chosen_direction, tech) if False else _build_fact_reasons(chosen_direction, tech)
+        fact_reasons = _build_fact_reasons(chosen_direction, tech)
         entry_price, tp_price, sl_price = _build_trade_plan(chosen_direction, tech)
 
         if chosen_direction == "LONG":
@@ -931,6 +1007,16 @@ def build_candidate_rows(user, limit_per_side: int = 8) -> dict[str, Any]:
 
     candidate_source_counts = _count_candidate_sources(all_rows)
 
+    debug_stats = {
+        "universe_count": len(universe_items),
+        "download_success_count": len(ohlc_map),
+        "technical_success_count": technical_success_count,
+        "no_technical_count": no_technical_count,
+        "no_direction_count": no_direction_count,
+        "reference_filtered_count": reference_filtered_count,
+        "candidate_count": len(all_rows),
+    }
+
     return {
         "last_regime": last_regime,
         "score_max": 100,
@@ -942,6 +1028,7 @@ def build_candidate_rows(user, limit_per_side: int = 8) -> dict[str, Any]:
         "attention_candidate_count": sum(1 for row in all_rows if row["level"] == "ATTENTION"),
         "universe_source_counts": universe_source_counts,
         "candidate_source_counts": candidate_source_counts,
+        "debug_stats": debug_stats,
         "long_rows": long_rows,
         "short_rows": short_rows,
         "all_rows": all_rows,
