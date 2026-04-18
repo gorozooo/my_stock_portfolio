@@ -13,6 +13,7 @@
 - 結論先出しにする
 - KPIを4つに圧縮してコンパクト化
 - 詳細は折りたたみ表示にする
+- 銘柄名の下に33業種セクターを表示する
 =========================================================
 -->
 
@@ -74,10 +75,10 @@
               <div class="min-w-0">
                 <div class="flex items-center gap-2">
                   <div class="text-lg font-bold text-white">{{ row.ticker }}</div>
-                  {% if row.name %}
-                    <div class="truncate text-sm font-medium text-slate-300">{{ row.name }}</div>
-                  {% endif %}
+                  <div class="truncate text-sm font-medium text-slate-300">{{ row.display_name }}</div>
                 </div>
+
+                <div class="mt-1 text-xs text-slate-500">{{ row.sector_name }}</div>
 
                 <div class="mt-2 flex flex-wrap gap-2 text-[11px]">
                   {% if row.direction == "LONG" %}
