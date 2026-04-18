@@ -8,6 +8,7 @@
 - ダッシュボード導線を整理し、最新の地合いを本当に表示します。
 - いま何ができていて、何がまだなのかも見えるようにします。
 - 各プレビューで、銘柄名の下に33業種セクターを表示します。
+- 今回は監視対象プレビューにグロース由来バッジも表示します。
 =========================================================
 -->
 
@@ -434,6 +435,9 @@
                   {% endif %}
                   {% if item.in_topix %}
                     <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-300">TOPIX</span>
+                  {% endif %}
+                  {% if item.in_growth %}
+                    <span class="rounded-full border border-fuchsia-500/30 bg-fuchsia-500/10 px-2 py-1 text-fuchsia-300">グロース</span>
                   {% endif %}
                 </div>
               </div>
