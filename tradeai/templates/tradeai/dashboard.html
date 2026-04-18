@@ -7,6 +7,7 @@
 - tradeai のトップ画面です。
 - ダッシュボード導線を整理し、最新の地合いを本当に表示します。
 - いま何ができていて、何がまだなのかも見えるようにします。
+- 各プレビューで、銘柄名の下に33業種セクターを表示します。
 =========================================================
 -->
 
@@ -249,10 +250,10 @@
               <div>
                 <div class="text-sm font-bold text-white">
                   {{ row.ticker }}
-                  {% if row.name %}
-                    <span class="ml-2 text-xs font-medium text-slate-400">{{ row.name }}</span>
-                  {% endif %}
+                  <span class="ml-2 text-xs font-medium text-slate-400">{{ row.display_name }}</span>
                 </div>
+
+                <div class="mt-1 text-[11px] text-slate-500">{{ row.sector_name }}</div>
 
                 <div class="mt-1 flex flex-wrap gap-2 text-[11px]">
                   {% if row.chosen_direction == "LONG" %}
@@ -311,10 +312,10 @@
               <div>
                 <div class="text-sm font-bold text-white">
                   {{ row.ticker }}
-                  {% if row.name %}
-                    <span class="ml-2 text-xs font-medium text-slate-400">{{ row.name }}</span>
-                  {% endif %}
+                  <span class="ml-2 text-xs font-medium text-slate-400">{{ row.display_name }}</span>
                 </div>
+
+                <div class="mt-1 text-[11px] text-slate-500">{{ row.sector_name }}</div>
 
                 <div class="mt-1 flex flex-wrap gap-2 text-[11px]">
                   {% if row.direction == "LONG" %}
@@ -374,10 +375,11 @@
               <div>
                 <div class="text-sm font-bold text-white">
                   {{ item.ticker }}
-                  {% if item.name %}
-                    <span class="ml-2 text-xs font-medium text-slate-400">{{ item.name }}</span>
-                  {% endif %}
+                  <span class="ml-2 text-xs font-medium text-slate-400">{{ item.display_name }}</span>
                 </div>
+
+                <div class="mt-1 text-[11px] text-slate-500">{{ item.sector_name }}</div>
+
                 <div class="mt-1 flex flex-wrap gap-2 text-[11px]">
                   {% if item.long_enabled %}
                     <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-300">LONG</span>
@@ -415,10 +417,11 @@
               <div>
                 <div class="text-sm font-bold text-white">
                   {{ item.ticker }}
-                  {% if item.name %}
-                    <span class="ml-2 text-xs font-medium text-slate-400">{{ item.name }}</span>
-                  {% endif %}
+                  <span class="ml-2 text-xs font-medium text-slate-400">{{ item.display_name }}</span>
                 </div>
+
+                <div class="mt-1 text-[11px] text-slate-500">{{ item.sector_name }}</div>
+
                 <div class="mt-1 flex flex-wrap gap-2 text-[11px]">
                   {% if item.from_holding %}
                     <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">保有</span>
