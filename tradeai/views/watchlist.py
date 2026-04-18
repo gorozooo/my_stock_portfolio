@@ -7,6 +7,7 @@
 #
 # 今回の修正：
 # - 名前が空のまま保存された場合でも、サーバー側で銘柄名を自動補完する
+# - 一覧表示で、日本語名優先 + 33業種セクターを表示できるようにする
 # =========================================================
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from tradeai.forms import TradeaiWatchlistForm
 from tradeai.models.watchlist import WatchlistItem
+from tradeai.services.common.sector33_service import enrich_model_items_with_profile
 from tradeai.services.common.stock_lookup import lookup_stock_name_and_sector
 from tradeai.services.common.ticker_normalizer import normalize_ticker
 
@@ -66,7 +68,8 @@ def watchlist_page(request):
     else:
         form = TradeaiWatchlistForm()
 
-    items = WatchlistItem.objects.filter(user=user).order_by("priority", "ticker")
+    items = list(WatchlistItem.objects.filter(user=user).order_by("priority", "ticker"))
+    enrich_model_items_with_profile(items)
 
     context = {
         "page_title": "ウォッチリスト",
