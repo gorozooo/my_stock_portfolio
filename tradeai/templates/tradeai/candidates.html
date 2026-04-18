@@ -5,10 +5,9 @@
 
 このファイルは何？
 - tradeai の候補抽出ページです。
-- 今回は保存済み CandidateSnapshot を読むだけにして、
-  画面表示時の重い計算をやめています。
-- そのため 504 を避けながら、
-  候補一覧・地合い・内訳・根拠を軽く表示します。
+- 保存済み CandidateSnapshot を読み込み、
+  ロング候補 / ショート候補を軽く表示します。
+- 今回は各候補からデモ建玉を作成できるようにしています。
 =========================================================
 -->
 
@@ -236,6 +235,44 @@
               <div class="text-[11px] text-slate-400">どう見るか</div>
               <div class="mt-1 text-sm leading-6 text-slate-200">{{ row.decision_text }}</div>
             </div>
+
+            <form method="post" action="{% url 'tradeai_demo_create' %}" class="mt-3">
+              {% csrf_token %}
+              <input type="hidden" name="ticker" value="{{ row.ticker }}">
+              <input type="hidden" name="name" value="{{ row.display_name }}">
+              <input type="hidden" name="direction" value="LONG">
+              <input type="hidden" name="qty" value="100">
+              <input type="hidden" name="entry_price" value="{{ row.entry_price|floatformat:2 }}">
+              <input type="hidden" name="tp_price" value="{{ row.tp_price|floatformat:2 }}">
+              <input type="hidden" name="sl_price" value="{{ row.sl_price|floatformat:2 }}">
+              <input type="hidden" name="sector_name" value="{{ row.sector_name }}">
+              <input type="hidden" name="action_label" value="{{ row.action_label }}">
+              <input type="hidden" name="regime_relation_label" value="{{ row.regime_relation_label }}">
+              <input type="hidden" name="decision_text" value="{{ row.decision_text }}">
+              <input type="hidden" name="score_100" value="{{ row.score_100 }}">
+
+              {% if "保有" in row.source_labels %}
+                <input type="hidden" name="source_scope" value="HOLDING">
+              {% elif "ウォッチ" in row.source_labels %}
+                <input type="hidden" name="source_scope" value="WATCHLIST">
+              {% else %}
+                <input type="hidden" name="source_scope" value="UNIVERSE">
+              {% endif %}
+
+              {% for reason in row.fact_reasons %}
+                <input type="hidden" name="fact_reason" value="{{ reason }}">
+              {% endfor %}
+              {% for pill in row.indicator_pills %}
+                <input type="hidden" name="indicator_pill" value="{{ pill }}">
+              {% endfor %}
+
+              <button
+                type="submit"
+                class="w-full rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm font-bold text-amber-300"
+              >
+                この候補をデモ建玉に追加
+              </button>
+            </form>
           </div>
         {% endfor %}
       </div>
@@ -315,6 +352,44 @@
               <div class="text-[11px] text-slate-400">どう見るか</div>
               <div class="mt-1 text-sm leading-6 text-slate-200">{{ row.decision_text }}</div>
             </div>
+
+            <form method="post" action="{% url 'tradeai_demo_create' %}" class="mt-3">
+              {% csrf_token %}
+              <input type="hidden" name="ticker" value="{{ row.ticker }}">
+              <input type="hidden" name="name" value="{{ row.display_name }}">
+              <input type="hidden" name="direction" value="SHORT">
+              <input type="hidden" name="qty" value="100">
+              <input type="hidden" name="entry_price" value="{{ row.entry_price|floatformat:2 }}">
+              <input type="hidden" name="tp_price" value="{{ row.tp_price|floatformat:2 }}">
+              <input type="hidden" name="sl_price" value="{{ row.sl_price|floatformat:2 }}">
+              <input type="hidden" name="sector_name" value="{{ row.sector_name }}">
+              <input type="hidden" name="action_label" value="{{ row.action_label }}">
+              <input type="hidden" name="regime_relation_label" value="{{ row.regime_relation_label }}">
+              <input type="hidden" name="decision_text" value="{{ row.decision_text }}">
+              <input type="hidden" name="score_100" value="{{ row.score_100 }}">
+
+              {% if "保有" in row.source_labels %}
+                <input type="hidden" name="source_scope" value="HOLDING">
+              {% elif "ウォッチ" in row.source_labels %}
+                <input type="hidden" name="source_scope" value="WATCHLIST">
+              {% else %}
+                <input type="hidden" name="source_scope" value="UNIVERSE">
+              {% endif %}
+
+              {% for reason in row.fact_reasons %}
+                <input type="hidden" name="fact_reason" value="{{ reason }}">
+              {% endfor %}
+              {% for pill in row.indicator_pills %}
+                <input type="hidden" name="indicator_pill" value="{{ pill }}">
+              {% endfor %}
+
+              <button
+                type="submit"
+                class="w-full rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm font-bold text-amber-300"
+              >
+                この候補をデモ建玉に追加
+              </button>
+            </form>
           </div>
         {% endfor %}
       </div>
