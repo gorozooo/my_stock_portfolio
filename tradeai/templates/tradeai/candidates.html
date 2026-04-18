@@ -5,9 +5,10 @@
 
 このファイルは何？
 - tradeai の候補抽出ページです。
-- ユニバース全体から、ロング候補 / ショート候補を表示します。
-- 総合点は100点満点換算で表示し、
-  Entry / TP / SL、銘柄名、セクター、事実ベース根拠も出します。
+- 今回は保存済み CandidateSnapshot を読むだけにして、
+  画面表示時の重い計算をやめています。
+- そのため 504 を避けながら、
+  候補一覧・地合い・内訳・根拠を軽く表示します。
 =========================================================
 -->
 
@@ -24,9 +25,9 @@
         <p class="text-xs font-semibold tracking-widest text-emerald-300">TRADEAI CANDIDATES</p>
         <h1 class="mt-1 text-2xl font-bold text-white">候補抽出</h1>
         <p class="mt-2 text-sm leading-6 text-slate-300">
-          ユニバース全体から、
-          <span class="font-semibold text-white">地合い補正 + 保有/ウォッチ優先</span>
-          で候補を並べています。
+          候補は
+          <span class="font-semibold text-white">事前計算して保存した結果</span>
+          を表示しています。ページを開くたびに重い計算はしません。
         </p>
       </div>
 
@@ -37,6 +38,20 @@
         戻る
       </a>
     </div>
+
+    {% if snapshot_exists %}
+      <div class="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+        <div class="text-xs text-slate-400">最終更新</div>
+        <div class="mt-1 text-sm font-semibold text-white">{{ snapshot_built_at|date:"Y-m-d H:i" }}</div>
+      </div>
+    {% else %}
+      <div class="mt-4 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm leading-6 text-amber-200">
+        まだ候補スナップショットがありません。  
+        先に
+        <span class="font-semibold text-white">tradeai_build_candidate_snapshot</span>
+        を実行してから、このページを開いてください。
+      </div>
+    {% endif %}
 
     {% if last_regime %}
       <div class="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
@@ -105,30 +120,52 @@
   <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
     <div class="text-sm font-bold text-white">ユニバース内訳</div>
     <div class="mt-3 flex flex-wrap gap-2 text-xs">
-      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">保有 {{ universe_source_counts.holding|intcomma }}</span>
-      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">ウォッチ {{ universe_source_counts.watchlist|intcomma }}</span>
-      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">日経225 {{ universe_source_counts.nikkei225|intcomma }}</span>
-      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">TOPIX {{ universe_source_counts.topix|intcomma }}</span>
+      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">保有 {{ universe_source_counts.holding|default:0|intcomma }}</span>
+      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">ウォッチ {{ universe_source_counts.watchlist|default:0|intcomma }}</span>
+      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">日経225 {{ universe_source_counts.nikkei225|default:0|intcomma }}</span>
+      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">TOPIX {{ universe_source_counts.topix|default:0|intcomma }}</span>
+      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">グロース {{ universe_source_counts.growth|default:0|intcomma }}</span>
     </div>
 
     <div class="mt-4 text-sm font-bold text-white">候補の由来</div>
     <div class="mt-3 flex flex-wrap gap-2 text-xs">
-      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">保有由来 {{ candidate_source_counts.holding|intcomma }}</span>
-      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">ウォッチ由来 {{ candidate_source_counts.watchlist|intcomma }}</span>
-      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">日経225由来 {{ candidate_source_counts.nikkei225|intcomma }}</span>
-      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">TOPIX由来 {{ candidate_source_counts.topix|intcomma }}</span>
+      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">保有由来 {{ candidate_source_counts.holding|default:0|intcomma }}</span>
+      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">ウォッチ由来 {{ candidate_source_counts.watchlist|default:0|intcomma }}</span>
+      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">日経225由来 {{ candidate_source_counts.nikkei225|default:0|intcomma }}</span>
+      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">TOPIX由来 {{ candidate_source_counts.topix|default:0|intcomma }}</span>
+      <span class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">グロース由来 {{ candidate_source_counts.growth|default:0|intcomma }}</span>
     </div>
-
-    {% if universe_source_counts.topix == 0 %}
-      <div class="mt-4 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm leading-6 text-amber-200">
-        いま
-        <span class="font-semibold text-white">TOPIX由来が 0件</span>
-        です。候補ページの問題ではなく、
-        <span class="font-semibold text-white">ユニバース元データ側</span>
-        の確認が必要な可能性があります。
-      </div>
-    {% endif %}
   </div>
+
+  {% if debug_stats %}
+    <details class="rounded-2xl border border-slate-800 bg-slate-900">
+      <summary class="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold text-slate-200">
+        <span>内部の集計を見る</span>
+        <span class="text-xs text-slate-500">debug</span>
+      </summary>
+
+      <div class="border-t border-slate-800 px-4 py-3">
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+            <div class="text-[11px] text-slate-400">価格取得成功</div>
+            <div class="mt-1 text-sm font-bold text-white">{{ debug_stats.download_success_count|default:0|intcomma }}</div>
+          </div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+            <div class="text-[11px] text-slate-400">テクニカル成功</div>
+            <div class="mt-1 text-sm font-bold text-white">{{ debug_stats.technical_success_count|default:0|intcomma }}</div>
+          </div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+            <div class="text-[11px] text-slate-400">テクニカル失敗</div>
+            <div class="mt-1 text-sm font-bold text-white">{{ debug_stats.no_technical_count|default:0|intcomma }}</div>
+          </div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3">
+            <div class="text-[11px] text-slate-400">REFERENCE落ち</div>
+            <div class="mt-1 text-sm font-bold text-white">{{ debug_stats.reference_filtered_count|default:0|intcomma }}</div>
+          </div>
+        </div>
+      </div>
+    </details>
+  {% endif %}
 
   <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
     <div class="flex items-center justify-between gap-3">
