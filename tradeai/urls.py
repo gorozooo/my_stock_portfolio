@@ -4,7 +4,7 @@
 #
 # このファイルは何？
 # - tradeai アプリのURL設定です。
-# - 今回はデモ作成・デモクローズのURLも追加しています。
+# - 今回は自動デモ運用に合わせて、手動作成/手動クローズURLを外した版です。
 # =========================================================
 
 from django.urls import path
@@ -12,11 +12,7 @@ from django.urls import path
 from .views.api import api_ticker_name
 from .views.candidates import candidates_page
 from .views.dashboard import dashboard
-from .views.demo import (
-    demo_close,
-    demo_create_from_candidate,
-    demo_page,
-)
+from .views.demo import demo_page
 from .views.holdings import holdings_page
 from .views.watch_signals import watch_signals_page
 from .views.watchlist import (
@@ -35,6 +31,4 @@ urlpatterns = [
     path("watch-signals/", watch_signals_page, name="tradeai_watch_signals"),
     path("candidates/", candidates_page, name="tradeai_candidates"),
     path("demo/", demo_page, name="tradeai_demo"),
-    path("demo/create/", demo_create_from_candidate, name="tradeai_demo_create"),
-    path("demo/<int:pk>/close/", demo_close, name="tradeai_demo_close"),
 ]
