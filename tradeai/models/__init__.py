@@ -15,3 +15,4 @@ from .demo_trade import DemoTrade
 from .learning_snapshot import LearningSnapshot
 from .learning_result import LearningResult
 from .notify_log import NotifyLog
+from .candidate_snapshot import CandidateSnapshot
