@@ -8,7 +8,7 @@
 - 保存済み CandidateSnapshot を読み込み、
   ロング候補 / ショート候補を軽く表示します。
 - 今回は手動デモ追加ボタンを外し、
-  候補確認専用ページとして表示します。
+  自動デモ連動 + 学習バイアス表示に対応しています。
 =========================================================
 -->
 
@@ -82,15 +82,6 @@
         </div>
       </div>
     {% endif %}
-
-    <div class="mt-4 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4 text-sm leading-6 text-cyan-100">
-      このページは
-      <span class="font-semibold text-white">候補確認専用</span>
-      です。  
-      デモ建玉はこの画面から手動追加せず、
-      <span class="font-semibold text-white">自動処理側で作成する前提</span>
-      に切り替えています。
-    </div>
   </div>
 
   <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
@@ -101,6 +92,18 @@
       です。点数が高いほど、
       <span class="font-semibold text-white">個別の形 + 地合い + 優先度</span>
       が揃っている候補です。
+    </div>
+  </div>
+
+  <div class="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
+    <div class="text-sm font-bold text-white">自動デモ連動</div>
+    <div class="mt-2 text-sm leading-6 text-slate-200">
+      このページは
+      <span class="font-semibold text-white">閲覧専用</span>
+      です。  
+      デモ建玉はここで手動追加するのではなく、
+      <span class="font-semibold text-white">朝の自動コマンドで上位候補から自動作成</span>
+      されます。
     </div>
   </div>
 
@@ -205,6 +208,24 @@
 
                   <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ row.regime_relation_label }}</span>
 
+                  {% if row.learning_score_band %}
+                    <span class="rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-violet-300">
+                      学習参照 {{ row.learning_score_band }}
+                    </span>
+                  {% endif %}
+
+                  {% if row.learning_bias_total %}
+                    {% if row.learning_bias_total > 0 %}
+                      <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">
+                        学習追い風 +{{ row.learning_bias_total }}
+                      </span>
+                    {% else %}
+                      <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">
+                        学習向かい風 {{ row.learning_bias_total }}
+                      </span>
+                    {% endif %}
+                  {% endif %}
+
                   {% for label in row.source_labels %}
                     <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ label }}</span>
                   {% endfor %}
@@ -214,6 +235,11 @@
               <div class="text-right shrink-0">
                 <div class="text-[11px] text-slate-500">総合点 / 100</div>
                 <div class="mt-1 text-xl font-bold text-cyan-300">{{ row.score_100 }}</div>
+
+                {% if row.adjusted_score_100 and row.adjusted_score_100 != row.score_100 %}
+                  <div class="mt-2 text-[11px] text-slate-500">学習補正後</div>
+                  <div class="mt-1 text-lg font-bold text-emerald-300">{{ row.adjusted_score_100 }}</div>
+                {% endif %}
               </div>
             </div>
 
@@ -245,6 +271,17 @@
               <div class="text-[11px] text-slate-400">どう見るか</div>
               <div class="mt-1 text-sm leading-6 text-slate-200">{{ row.decision_text }}</div>
             </div>
+
+            {% if row.learning_bias_notes %}
+              <div class="mt-3 rounded-2xl border border-violet-500/20 bg-violet-500/5 px-3 py-3">
+                <div class="text-[11px] text-violet-300">学習メモ</div>
+                <ul class="mt-2 space-y-1 text-sm leading-6 text-slate-200">
+                  {% for note in row.learning_bias_notes %}
+                    <li>・{{ note }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% endif %}
           </div>
         {% endfor %}
       </div>
@@ -284,6 +321,24 @@
 
                   <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ row.regime_relation_label }}</span>
 
+                  {% if row.learning_score_band %}
+                    <span class="rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-violet-300">
+                      学習参照 {{ row.learning_score_band }}
+                    </span>
+                  {% endif %}
+
+                  {% if row.learning_bias_total %}
+                    {% if row.learning_bias_total > 0 %}
+                      <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">
+                        学習追い風 +{{ row.learning_bias_total }}
+                      </span>
+                    {% else %}
+                      <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">
+                        学習向かい風 {{ row.learning_bias_total }}
+                      </span>
+                    {% endif %}
+                  {% endif %}
+
                   {% for label in row.source_labels %}
                     <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ label }}</span>
                   {% endfor %}
@@ -293,6 +348,11 @@
               <div class="text-right shrink-0">
                 <div class="text-[11px] text-slate-500">総合点 / 100</div>
                 <div class="mt-1 text-xl font-bold text-amber-300">{{ row.score_100 }}</div>
+
+                {% if row.adjusted_score_100 and row.adjusted_score_100 != row.score_100 %}
+                  <div class="mt-2 text-[11px] text-slate-500">学習補正後</div>
+                  <div class="mt-1 text-lg font-bold text-emerald-300">{{ row.adjusted_score_100 }}</div>
+                {% endif %}
               </div>
             </div>
 
@@ -324,6 +384,17 @@
               <div class="text-[11px] text-slate-400">どう見るか</div>
               <div class="mt-1 text-sm leading-6 text-slate-200">{{ row.decision_text }}</div>
             </div>
+
+            {% if row.learning_bias_notes %}
+              <div class="mt-3 rounded-2xl border border-violet-500/20 bg-violet-500/5 px-3 py-3">
+                <div class="text-[11px] text-violet-300">学習メモ</div>
+                <ul class="mt-2 space-y-1 text-sm leading-6 text-slate-200">
+                  {% for note in row.learning_bias_notes %}
+                    <li>・{{ note }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% endif %}
           </div>
         {% endfor %}
       </div>
