@@ -5,12 +5,14 @@
 # このファイルは何？
 # - tradeai のトップ画面を表示する view です。
 # - ダッシュボードの導線整理と、最新の地合いの自動表示を担当します。
-# - 今回はデモ建玉プレビューも表示します。
+# - 今回はデモ建玉プレビューに加えて、
+#   「今日のデモ状況」も表示します。
 # =========================================================
 
 from datetime import timedelta
 
 from django.contrib.auth.decorators import login_required
+from django.db.models import Sum
 from django.shortcuts import render
 from django.utils import timezone
 
@@ -29,6 +31,8 @@ def dashboard(request):
     user = request.user
     now = timezone.now()
     recent_from = now - timedelta(days=7)
+
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     recent_watchlist = WatchlistItem.objects.filter(user=user).order_by("priority", "ticker")[:6]
     active_universe = UniverseTicker.objects.filter(user=user, is_active=True).order_by("priority", "ticker")[:8]
@@ -64,8 +68,32 @@ def dashboard(request):
         user=user,
         status=DemoTrade.StatusChoices.OPEN,
     ).order_by("-entry_at", "-id")
-
     open_demo_preview = list(open_demo_qs[:4])
+
+    today_opened_qs = DemoTrade.objects.filter(
+        user=user,
+        entry_at__gte=today_start,
+    )
+    today_closed_qs = DemoTrade.objects.filter(
+        user=user,
+        status=DemoTrade.StatusChoices.CLOSED,
+        close_at__gte=today_start,
+    ).order_by("-close_at", "-id")
+
+    today_opened_count = today_opened_qs.count()
+    today_closed_count = today_closed_qs.count()
+    today_win_count = today_closed_qs.filter(
+        result_label=DemoTrade.ResultLabelChoices.WIN
+    ).count()
+    today_loss_count = today_closed_qs.filter(
+        result_label=DemoTrade.ResultLabelChoices.LOSS
+    ).count()
+    today_flat_count = today_closed_qs.filter(
+        result_label=DemoTrade.ResultLabelChoices.FLAT
+    ).count()
+    today_pnl_total = today_closed_qs.aggregate(total=Sum("pnl_yen")).get("total") or 0
+
+    today_closed_preview = list(today_closed_qs[:4])
 
     context = {
         "page_title": "TradeAI",
@@ -89,5 +117,12 @@ def dashboard(request):
         "watch_alert_count": watch_alert_count,
         "progress_items": progress_items,
         "open_demo_preview": open_demo_preview,
+        "today_opened_count": today_opened_count,
+        "today_closed_count": today_closed_count,
+        "today_win_count": today_win_count,
+        "today_loss_count": today_loss_count,
+        "today_flat_count": today_flat_count,
+        "today_pnl_total": today_pnl_total,
+        "today_closed_preview": today_closed_preview,
     }
     return render(request, "tradeai/dashboard.html", context)
