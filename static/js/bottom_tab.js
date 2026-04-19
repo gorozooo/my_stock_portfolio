@@ -67,7 +67,7 @@ document.addEventListener("DOMContentLoaded", () => {
       home_panel_trend : "/?panel=trend",
 
       // AI (aiapp)
-      aiapp_dashboard     : "/aiapp/",
+      dashboard           : "/tradeai/",
       aiapp_root          : "/aiapp/",
       aiapp_picks         : "/aiapp/picks/",
       aiapp_behavior      : "/aiapp/behavior/",
@@ -151,6 +151,10 @@ document.addEventListener("DOMContentLoaded", () => {
     ],
     // 🧠 AIタブ → aiapp メニュー
     advisor: [
+      
+      { section:"新AI" },
+      { label:"ダッシュボード", href: URLS.tradeai,     icon:"🧠", tone:"info" },
+      
       { section:"AI" },
       { label:"ダッシュボード", href: URLS.aiapp_dashboard,     icon:"🧠", tone:"info" },
       { label:"ピックアップ10選",         href: URLS.aiapp_picks,         icon:"🎯", tone:"info" },
