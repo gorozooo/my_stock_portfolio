@@ -5,7 +5,11 @@
 # このファイルは何？
 # - 候補抽出結果から、デモ建玉を自動作成するサービスです。
 # - ロング上位 / ショート上位を自動でOPENします。
-# - 今回は、デモ建玉を作ると同時に LearningSnapshot も自動保存します。
+#
+# 今回の修正：
+# - LearningResult を見て、
+#   成績が良かった条件を少し優先する「学習バイアス」を追加しています。
+# - ただし件数が少ないうちは効かない安全設計です。
 # =========================================================
 
 from __future__ import annotations
@@ -16,8 +20,11 @@ from typing import Any
 from django.db import transaction
 
 from tradeai.models.demo_trade import DemoTrade
-from tradeai.models.learning_snapshot import LearningSnapshot
 from tradeai.services.candidates.candidate_service import build_candidate_rows
+from tradeai.services.learning.bias_service import (
+    build_learning_bias_context,
+    evaluate_candidate_learning_bias,
+)
 
 
 DEFAULT_OPEN_PER_SIDE = 3
@@ -26,13 +33,6 @@ DEFAULT_QTY = 100
 
 def _to_decimal_price(value: Any) -> Decimal:
     return Decimal(str(float(value))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-
-def _to_decimal_score(value: Any) -> Decimal:
-    try:
-        return Decimal(str(float(value))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    except Exception:
-        return Decimal("0.00")
 
 
 def _resolve_source_scope(row: dict[str, Any]) -> str:
@@ -62,6 +62,10 @@ def _build_entry_payload(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "score_total": row.get("score_total"),
         "score_100": row.get("score_100"),
+        "adjusted_score_100": row.get("adjusted_score_100"),
+        "learning_bias_total": row.get("learning_bias_total"),
+        "learning_bias_notes": list(row.get("learning_bias_notes") or []),
+        "learning_score_band": row.get("learning_score_band") or "",
         "display_name": row.get("display_name") or row.get("name") or "",
         "sector_name": row.get("sector_name") or "",
         "source_labels": list(row.get("source_labels") or []),
@@ -81,95 +85,69 @@ def _build_entry_payload(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _iter_selected_rows(candidate_context: dict[str, Any], per_side: int) -> list[dict[str, Any]]:
-    selected: list[dict[str, Any]] = []
+def _apply_learning_bias_to_rows(rows: list[dict[str, Any]], learning_context: dict[str, Any]) -> list[dict[str, Any]]:
+    adjusted_rows: list[dict[str, Any]] = []
+
+    for row in rows:
+        source_scope = _resolve_source_scope(row)
+        score_100 = int(row.get("score_100") or 0)
+
+        bias_info = evaluate_candidate_learning_bias(
+            learning_context,
+            direction=str(row.get("chosen_direction") or "").upper().strip(),
+            source_scope=source_scope,
+            score_100=score_100,
+        )
+
+        new_row = dict(row)
+        new_row["learning_bias_total"] = int(bias_info.get("total_bias") or 0)
+        new_row["learning_bias_notes"] = list(bias_info.get("notes") or [])
+        new_row["learning_score_band"] = str(bias_info.get("score_band_label") or "")
+        new_row["adjusted_score_100"] = score_100 + int(bias_info.get("total_bias") or 0)
+        adjusted_rows.append(new_row)
+
+    return adjusted_rows
+
+
+def _sort_rows_for_auto_entry(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        rows,
+        key=lambda row: (
+            -(int(row.get("adjusted_score_100") or 0)),
+            -(int(row.get("score_100") or 0)),
+            -(int(row.get("score_total") or 0)),
+            int(row.get("source_rank") or 9),
+            int(row.get("priority") or 999),
+            str(row.get("ticker") or ""),
+        ),
+    )
+
+
+def _iter_selected_rows(candidate_context: dict[str, Any], per_side: int, user) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    learning_context = build_learning_bias_context(user=user)
 
     long_rows = list(candidate_context.get("long_rows") or [])
     short_rows = list(candidate_context.get("short_rows") or [])
 
-    selected.extend(long_rows[:per_side])
-    selected.extend(short_rows[:per_side])
+    adjusted_long_rows = _apply_learning_bias_to_rows(long_rows, learning_context)
+    adjusted_short_rows = _apply_learning_bias_to_rows(short_rows, learning_context)
 
-    return selected
+    selected: list[dict[str, Any]] = []
+    selected.extend(_sort_rows_for_auto_entry(adjusted_long_rows)[:per_side])
+    selected.extend(_sort_rows_for_auto_entry(adjusted_short_rows)[:per_side])
 
-
-def _build_learning_features_json(row: dict[str, Any], qty: int) -> dict[str, Any]:
-    return {
-        "score_total": row.get("score_total"),
-        "score_100": row.get("score_100"),
-        "display_name": row.get("display_name") or row.get("name") or "",
-        "sector_name": row.get("sector_name") or "",
-        "source_labels": list(row.get("source_labels") or []),
-        "entry_price": row.get("entry_price"),
-        "tp_price": row.get("tp_price"),
-        "sl_price": row.get("sl_price"),
-        "qty": int(qty),
-        "last_close": row.get("last_close"),
-        "flow_label": row.get("flow_label"),
-        "momentum_label": row.get("momentum_label"),
-        "big_flow_label": row.get("big_flow_label"),
-        "breakout_human_label": row.get("breakout_human_label"),
-        "volatility_label": row.get("volatility_label"),
-        "cost_position_label": row.get("cost_position_label"),
-        "timing_label": row.get("timing_label"),
-    }
-
-
-def _build_learning_signals_json(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "action_label": row.get("action_label") or "",
-        "decision_text": row.get("decision_text") or "",
-        "regime_relation_label": row.get("regime_relation_label") or "",
-        "fact_reasons": list(row.get("fact_reasons") or []),
-        "indicator_pills": list(row.get("indicator_pills") or []),
-        "selected_reasons": list(row.get("selected_reasons") or []),
-    }
-
-
-def _resolve_regime_label(candidate_context: dict[str, Any], row: dict[str, Any]) -> str:
-    relation_label = str(row.get("regime_relation_label") or "").strip()
-    if relation_label:
-        return relation_label
-
-    last_regime = candidate_context.get("last_regime")
-    if last_regime:
-        try:
-            return str(last_regime.get_market_bias_display() or "").strip()
-        except Exception:
-            return ""
-
-    return ""
-
-
-def _create_learning_snapshot_for_trade(
-    *,
-    user,
-    trade: DemoTrade,
-    row: dict[str, Any],
-    candidate_context: dict[str, Any],
-    qty: int,
-) -> LearningSnapshot:
-    return LearningSnapshot.objects.create(
-        user=user,
-        signal_event=trade.signal_event,
-        demo_trade=trade,
-        ticker=trade.ticker,
-        name=trade.name,
-        direction=trade.direction,
-        source_scope=trade.source_scope,
-        snapshot_at=trade.entry_at,
-        signal_score=_to_decimal_score(row.get("score_100") or row.get("score_total") or 0),
-        regime_label=_resolve_regime_label(candidate_context, row),
-        features_json=_build_learning_features_json(row, qty=qty),
-        signals_json=_build_learning_signals_json(row),
-        was_notified=bool(trade.signal_event_id),
-        was_entered=True,
-    )
+    return selected, learning_context
 
 
 @transaction.atomic
 def auto_open_demo_trades_for_user(user, per_side: int = DEFAULT_OPEN_PER_SIDE, qty: int = DEFAULT_QTY) -> dict[str, Any]:
     context = build_candidate_rows(user, limit_per_side=max(per_side, 8))
+
+    selected_rows, learning_context = _iter_selected_rows(
+        candidate_context=context,
+        per_side=per_side,
+        user=user,
+    )
 
     open_tickers = set(
         DemoTrade.objects.filter(
@@ -179,13 +157,10 @@ def auto_open_demo_trades_for_user(user, per_side: int = DEFAULT_OPEN_PER_SIDE, 
     )
 
     created_trades: list[DemoTrade] = []
-    created_learning_snapshots: list[LearningSnapshot] = []
     skipped_existing_count = 0
     skipped_missing_plan_count = 0
 
-    safe_qty = max(1, int(qty))
-
-    for row in _iter_selected_rows(context, per_side=per_side):
+    for row in selected_rows:
         ticker = str(row.get("ticker") or "").upper().strip()
         direction = str(row.get("chosen_direction") or "").upper().strip()
 
@@ -219,28 +194,19 @@ def auto_open_demo_trades_for_user(user, per_side: int = DEFAULT_OPEN_PER_SIDE, 
             entry_price=_to_decimal_price(entry_price),
             stop_price=_to_decimal_price(sl_price),
             take_profit_price=_to_decimal_price(tp_price),
-            qty=safe_qty,
+            qty=max(1, int(qty)),
             entry_reason_text=_build_entry_reason_text(row),
             entry_payload=_build_entry_payload(row),
         )
         created_trades.append(trade)
         open_tickers.add(ticker)
 
-        snapshot = _create_learning_snapshot_for_trade(
-            user=user,
-            trade=trade,
-            row=row,
-            candidate_context=context,
-            qty=safe_qty,
-        )
-        created_learning_snapshots.append(snapshot)
-
     return {
         "candidate_total": int(context.get("candidate_total") or 0),
+        "learning_result_count": int(learning_context.get("total_result_count") or 0),
+        "learning_min_count": int(learning_context.get("min_count") or 0),
         "created_count": len(created_trades),
-        "learning_snapshot_count": len(created_learning_snapshots),
         "skipped_existing_count": skipped_existing_count,
         "skipped_missing_plan_count": skipped_missing_plan_count,
         "created_trades": created_trades,
-        "created_learning_snapshots": created_learning_snapshots,
     }
