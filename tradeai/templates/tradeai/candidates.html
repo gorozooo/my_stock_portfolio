@@ -9,6 +9,8 @@
   ロング候補 / ショート候補を軽く表示します。
 - 今回は手動デモ追加ボタンを外し、
   自動デモ連動 + 学習バイアス表示に対応しています。
+- さらにカード表示を見やすく整理し、
+  重複表示を減らしています。
 =========================================================
 -->
 
@@ -243,17 +245,52 @@
               </div>
             </div>
 
-            <div class="mt-3 flex flex-wrap gap-2 text-[11px]">
-              <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-200">現在値 {{ row.last_close|floatformat:2 }}</span>
-              <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-cyan-300">Entry {{ row.entry_price|floatformat:2 }}</span>
-              <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-emerald-300">利確 {{ row.tp_price|floatformat:2 }}</span>
-              <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-rose-300">損切 {{ row.sl_price|floatformat:2 }}</span>
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">現在値</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.last_close|floatformat:2 }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">Entry</div>
+                <div class="mt-1 text-base font-bold text-cyan-300">{{ row.entry_price|floatformat:2 }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">利確</div>
+                <div class="mt-1 text-base font-bold text-emerald-300">{{ row.tp_price|floatformat:2 }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">損切</div>
+                <div class="mt-1 text-base font-bold text-rose-300">{{ row.sl_price|floatformat:2 }}</div>
+              </div>
             </div>
 
-            <div class="mt-3 flex flex-wrap gap-2 text-[11px]">
-              {% for pill in row.indicator_pills %}
-                <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-300">{{ pill }}</span>
-              {% endfor %}
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">今の流れ</div>
+                <div class="mt-1 text-sm font-bold text-white">{{ row.flow_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">勢い</div>
+                <div class="mt-1 text-sm font-bold text-white">{{ row.momentum_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">大きな流れ</div>
+                <div class="mt-1 text-sm font-bold text-white">{{ row.big_flow_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">値動き / 位置</div>
+                <div class="mt-1 text-sm font-bold text-white">
+                  {{ row.volatility_label }}
+                  <span class="mx-1 text-slate-500">/</span>
+                  {{ row.cost_position_label }}
+                </div>
+              </div>
             </div>
 
             {% if row.fact_reasons %}
@@ -356,17 +393,52 @@
               </div>
             </div>
 
-            <div class="mt-3 flex flex-wrap gap-2 text-[11px]">
-              <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-200">現在値 {{ row.last_close|floatformat:2 }}</span>
-              <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-amber-300">Entry {{ row.entry_price|floatformat:2 }}</span>
-              <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-emerald-300">利確 {{ row.tp_price|floatformat:2 }}</span>
-              <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-rose-300">損切 {{ row.sl_price|floatformat:2 }}</span>
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">現在値</div>
+                <div class="mt-1 text-base font-bold text-white">{{ row.last_close|floatformat:2 }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">Entry</div>
+                <div class="mt-1 text-base font-bold text-amber-300">{{ row.entry_price|floatformat:2 }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">利確</div>
+                <div class="mt-1 text-base font-bold text-emerald-300">{{ row.tp_price|floatformat:2 }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">損切</div>
+                <div class="mt-1 text-base font-bold text-rose-300">{{ row.sl_price|floatformat:2 }}</div>
+              </div>
             </div>
 
-            <div class="mt-3 flex flex-wrap gap-2 text-[11px]">
-              {% for pill in row.indicator_pills %}
-                <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-300">{{ pill }}</span>
-              {% endfor %}
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">今の流れ</div>
+                <div class="mt-1 text-sm font-bold text-white">{{ row.flow_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">勢い</div>
+                <div class="mt-1 text-sm font-bold text-white">{{ row.momentum_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">大きな流れ</div>
+                <div class="mt-1 text-sm font-bold text-white">{{ row.big_flow_label }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">値動き / 位置</div>
+                <div class="mt-1 text-sm font-bold text-white">
+                  {{ row.volatility_label }}
+                  <span class="mx-1 text-slate-500">/</span>
+                  {{ row.cost_position_label }}
+                </div>
+              </div>
             </div>
 
             {% if row.fact_reasons %}
