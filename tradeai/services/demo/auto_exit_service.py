@@ -10,6 +10,7 @@
 # 今回の修正：
 # - 「まだ翌営業日足がなくて判定できない」と
 #   「本当に価格取得に失敗した」を分けて扱います。
+# - CLOSE時に LearningSnapshot / LearningResult も自動保存します。
 # =========================================================
 
 from __future__ import annotations
@@ -23,6 +24,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from tradeai.models.demo_trade import DemoTrade
+from tradeai.models.learning_result import LearningResult
+from tradeai.models.learning_snapshot import LearningSnapshot
 
 
 DEFAULT_MAX_HOLD_BARS = 10
@@ -245,6 +248,114 @@ def _judge_exit_for_trade(
     return None, evaluated_bars
 
 
+def _hold_days_from_bars(trade: DemoTrade, evaluated_bars: list[dict[str, Any]]) -> int:
+    if evaluated_bars:
+        return len(evaluated_bars)
+
+    if trade.close_at and trade.entry_at:
+        days = (trade.close_at.date() - trade.entry_at.date()).days
+        return max(0, days)
+
+    return 0
+
+
+def _ensure_learning_snapshot_for_trade(trade: DemoTrade) -> tuple[LearningSnapshot, bool]:
+    snapshot = (
+        LearningSnapshot.objects.filter(demo_trade=trade)
+        .order_by("-snapshot_at", "-id")
+        .first()
+    )
+    if snapshot:
+        update_fields: list[str] = []
+
+        if snapshot.signal_event_id != trade.signal_event_id:
+            snapshot.signal_event = trade.signal_event
+            update_fields.append("signal_event")
+
+        if snapshot.was_entered is not True:
+            snapshot.was_entered = True
+            update_fields.append("was_entered")
+
+        if not snapshot.name and trade.name:
+            snapshot.name = trade.name
+            update_fields.append("name")
+
+        if update_fields:
+            snapshot.save(update_fields=update_fields)
+
+        return snapshot, False
+
+    entry_payload = trade.entry_payload or {}
+
+    snapshot = LearningSnapshot.objects.create(
+        user=trade.user,
+        signal_event=trade.signal_event,
+        demo_trade=trade,
+        ticker=trade.ticker,
+        name=trade.name,
+        direction=trade.direction,
+        source_scope=trade.source_scope,
+        snapshot_at=trade.entry_at,
+        signal_score=_to_decimal(entry_payload.get("score_100") or entry_payload.get("score_total") or 0),
+        regime_label=str(entry_payload.get("regime_relation_label") or "").strip(),
+        features_json={
+            "entry_price": float(trade.entry_price) if trade.entry_price is not None else None,
+            "take_profit_price": float(trade.take_profit_price) if trade.take_profit_price is not None else None,
+            "stop_price": float(trade.stop_price) if trade.stop_price is not None else None,
+            "qty": int(trade.qty or 0),
+            "entry_payload": entry_payload,
+        },
+        signals_json={
+            "entry_reason_text": trade.entry_reason_text or "",
+            "signal_event_id": trade.signal_event_id,
+        },
+        was_notified=bool(trade.signal_event_id),
+        was_entered=True,
+    )
+    return snapshot, True
+
+
+def _upsert_learning_result_for_trade(trade: DemoTrade, evaluated_bars: list[dict[str, Any]]) -> tuple[LearningResult, bool, bool]:
+    snapshot, snapshot_created = _ensure_learning_snapshot_for_trade(trade)
+
+    hold_days = _hold_days_from_bars(trade, evaluated_bars)
+
+    result_payload = {
+        "ticker": trade.ticker,
+        "name": trade.name,
+        "direction": trade.direction,
+        "source_scope": trade.source_scope,
+        "entry_at": trade.entry_at.isoformat() if trade.entry_at else "",
+        "close_at": trade.close_at.isoformat() if trade.close_at else "",
+        "entry_price": float(trade.entry_price) if trade.entry_price is not None else None,
+        "close_price": float(trade.close_price) if trade.close_price is not None else None,
+        "take_profit_price": float(trade.take_profit_price) if trade.take_profit_price is not None else None,
+        "stop_price": float(trade.stop_price) if trade.stop_price is not None else None,
+        "qty": int(trade.qty or 0),
+        "entry_reason_text": trade.entry_reason_text or "",
+        "exit_reason": trade.exit_reason or "",
+        "signal_event_id": trade.signal_event_id,
+        "evaluated_bar_count": len(evaluated_bars),
+        "entry_payload": trade.entry_payload or {},
+    }
+
+    learning_result, created = LearningResult.objects.update_or_create(
+        snapshot=snapshot,
+        defaults={
+            "settled_at": trade.close_at or timezone.now(),
+            "result_label": trade.result_label,
+            "hold_days": hold_days,
+            "pnl_yen": trade.pnl_yen,
+            "pnl_pct": trade.pnl_pct,
+            "max_favorable_pct": trade.max_favorable_pct,
+            "max_adverse_pct": trade.max_adverse_pct,
+            "exit_reason": trade.exit_reason or "",
+            "result_payload": result_payload,
+        },
+    )
+    return learning_result, snapshot_created, created
+
+
 @transaction.atomic
 def auto_close_demo_trades_for_user(user, max_hold_bars: int = DEFAULT_MAX_HOLD_BARS) -> dict[str, Any]:
     open_trades = list(
@@ -261,6 +372,9 @@ def auto_close_demo_trades_for_user(user, max_hold_bars: int = DEFAULT_MAX_HOLD_
 
     not_ready_trades: list[DemoTrade] = []
     price_error_trades: list[DemoTrade] = []
+
+    learning_snapshot_created_count = 0
+    learning_result_count = 0
 
     for trade in open_trades:
         load_status, bars = _load_daily_bars_after_entry(trade)
@@ -327,6 +441,14 @@ def auto_close_demo_trades_for_user(user, max_hold_bars: int = DEFAULT_MAX_HOLD_
         )
         closed_trades.append(trade)
 
+        _, snapshot_created, _ = _upsert_learning_result_for_trade(
+            trade=trade,
+            evaluated_bars=evaluated_bars,
+        )
+        if snapshot_created:
+            learning_snapshot_created_count += 1
+        learning_result_count += 1
+
     return {
         "open_count_before": len(open_trades),
         "closed_count": len(closed_trades),
@@ -337,4 +459,6 @@ def auto_close_demo_trades_for_user(user, max_hold_bars: int = DEFAULT_MAX_HOLD_
         "not_ready_trades": not_ready_trades,
         "price_error_trades": price_error_trades,
         "closed_trades": closed_trades,
+        "learning_snapshot_created_count": learning_snapshot_created_count,
+        "learning_result_count": learning_result_count,
     }
