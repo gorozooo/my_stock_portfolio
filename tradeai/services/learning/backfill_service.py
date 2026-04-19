@@ -6,6 +6,7 @@
 # - 既存のデモ建玉に対して、LearningSnapshot を後付けで補完するサービスです。
 # - まずは「まだ LearningSnapshot が無い OPEN 建玉」を対象にします。
 # - 既に snapshot がある建玉は重複作成しません。
+# - 今回は、単一の DemoTrade から snapshot を確実に作る共通関数も追加しています。
 # =========================================================
 
 from __future__ import annotations
@@ -90,6 +91,43 @@ def _build_signals_json(trade: DemoTrade) -> dict[str, Any]:
 
 
 @transaction.atomic
+def ensure_learning_snapshot_for_trade(trade: DemoTrade) -> tuple[LearningSnapshot, bool]:
+    """
+    1つの DemoTrade に対して LearningSnapshot を必ず1つ持たせる。
+    戻り値:
+    - snapshot
+    - created_now: 今回新規作成したなら True
+    """
+    existing = (
+        LearningSnapshot.objects.filter(demo_trade=trade)
+        .order_by("-id")
+        .first()
+    )
+    if existing:
+        return existing, False
+
+    payload = trade.entry_payload if isinstance(trade.entry_payload, dict) else {}
+
+    snapshot = LearningSnapshot.objects.create(
+        user=trade.user,
+        signal_event=trade.signal_event,
+        demo_trade=trade,
+        ticker=trade.ticker,
+        name=(trade.name or payload.get("display_name") or "").strip(),
+        direction=trade.direction,
+        source_scope=trade.source_scope,
+        snapshot_at=trade.entry_at,
+        signal_score=_pick_signal_score(payload),
+        regime_label=_pick_regime_label(payload),
+        features_json=_build_features_json(trade),
+        signals_json=_build_signals_json(trade),
+        was_notified=bool(trade.signal_event_id),
+        was_entered=True,
+    )
+    return snapshot, True
+
+
+@transaction.atomic
 def backfill_learning_snapshots_for_user(user, open_only: bool = True) -> dict[str, Any]:
     qs = DemoTrade.objects.filter(user=user)
 
@@ -98,42 +136,15 @@ def backfill_learning_snapshots_for_user(user, open_only: bool = True) -> dict[s
 
     trades = list(qs.order_by("entry_at", "id"))
 
-    existing_demo_trade_ids = set(
-        LearningSnapshot.objects.filter(
-            user=user,
-            demo_trade__in=trades,
-        )
-        .exclude(demo_trade__isnull=True)
-        .values_list("demo_trade_id", flat=True)
-    )
-
     created_snapshots: list[LearningSnapshot] = []
     skipped_existing_count = 0
 
     for trade in trades:
-        if trade.id in existing_demo_trade_ids:
+        snapshot, created_now = ensure_learning_snapshot_for_trade(trade)
+        if created_now:
+            created_snapshots.append(snapshot)
+        else:
             skipped_existing_count += 1
-            continue
-
-        payload = trade.entry_payload if isinstance(trade.entry_payload, dict) else {}
-
-        snapshot = LearningSnapshot.objects.create(
-            user=user,
-            signal_event=trade.signal_event,
-            demo_trade=trade,
-            ticker=trade.ticker,
-            name=(trade.name or payload.get("display_name") or "").strip(),
-            direction=trade.direction,
-            source_scope=trade.source_scope,
-            snapshot_at=trade.entry_at,
-            signal_score=_pick_signal_score(payload),
-            regime_label=_pick_regime_label(payload),
-            features_json=_build_features_json(trade),
-            signals_json=_build_signals_json(trade),
-            was_notified=bool(trade.signal_event_id),
-            was_entered=True,
-        )
-        created_snapshots.append(snapshot)
 
     return {
         "target_trade_count": len(trades),
