@@ -6,6 +6,10 @@
 # - OPEN中のデモ建玉を自動終了するサービスです。
 # - 利確 / 損切 / 最大保有日数で CLOSED にします。
 # - 同日TP/SL両到達は、保守的に不利側（損切）を優先します。
+#
+# 今回の修正：
+# - 「まだ翌営業日足がなくて判定できない」と
+#   「本当に価格取得に失敗した」を分けて扱います。
 # =========================================================
 
 from __future__ import annotations
@@ -22,6 +26,10 @@ from tradeai.models.demo_trade import DemoTrade
 
 
 DEFAULT_MAX_HOLD_BARS = 10
+
+LOAD_STATUS_OK = "ok"
+LOAD_STATUS_NOT_READY = "not_ready"
+LOAD_STATUS_PRICE_ERROR = "price_error"
 
 
 def _to_symbol(raw_ticker: str) -> str:
@@ -42,7 +50,13 @@ def _aware_market_close(day_value) -> datetime:
     return timezone.make_aware(naive, timezone.get_current_timezone())
 
 
-def _load_daily_bars_after_entry(trade: DemoTrade) -> list[dict[str, Any]]:
+def _load_daily_bars_after_entry(trade: DemoTrade) -> tuple[str, list[dict[str, Any]]]:
+    """
+    戻り値:
+    - ("ok", bars)          : 翌営業日以降の足があり、判定可能
+    - ("not_ready", [])     : 銘柄データ自体はあるが、まだ翌営業日足がない
+    - ("price_error", [])   : 本当に価格取得失敗 / 解析不能
+    """
     symbol = _to_symbol(trade.ticker)
     start_date = trade.entry_at.date() - timedelta(days=7)
 
@@ -53,36 +67,46 @@ def _load_daily_bars_after_entry(trade: DemoTrade) -> list[dict[str, Any]]:
             auto_adjust=False,
         )
     except Exception:
-        return []
+        return LOAD_STATUS_PRICE_ERROR, []
 
     if df is None or df.empty:
-        return []
+        return LOAD_STATUS_PRICE_ERROR, []
 
     rows: list[dict[str, Any]] = []
+    parseable_count = 0
 
     for idx, row in df.iterrows():
         try:
             trade_date = idx.to_pydatetime().date()
+            open_price = float(row["Open"])
+            high_price = float(row["High"])
+            low_price = float(row["Low"])
+            close_price = float(row["Close"])
         except Exception:
             continue
+
+        parseable_count += 1
 
         if trade_date <= trade.entry_at.date():
             continue
 
-        try:
-            rows.append(
-                {
-                    "date": trade_date,
-                    "open": float(row["Open"]),
-                    "high": float(row["High"]),
-                    "low": float(row["Low"]),
-                    "close": float(row["Close"]),
-                }
-            )
-        except Exception:
-            continue
+        rows.append(
+            {
+                "date": trade_date,
+                "open": open_price,
+                "high": high_price,
+                "low": low_price,
+                "close": close_price,
+            }
+        )
 
-    return rows
+    if rows:
+        return LOAD_STATUS_OK, rows
+
+    if parseable_count > 0:
+        return LOAD_STATUS_NOT_READY, []
+
+    return LOAD_STATUS_PRICE_ERROR, []
 
 
 def _calc_mfe_mae(direction: str, entry_price: float, bars: list[dict[str, Any]]) -> tuple[float, float]:
@@ -125,7 +149,11 @@ def _result_label_from_pnl(pnl_yen: float) -> str:
     return DemoTrade.ResultLabelChoices.FLAT
 
 
-def _judge_exit_for_trade(trade: DemoTrade, bars: list[dict[str, Any]], max_hold_bars: int) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+def _judge_exit_for_trade(
+    trade: DemoTrade,
+    bars: list[dict[str, Any]],
+    max_hold_bars: int,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     direction = trade.direction
     take_profit_price = float(trade.take_profit_price) if trade.take_profit_price is not None else None
     stop_price = float(trade.stop_price) if trade.stop_price is not None else None
@@ -228,12 +256,23 @@ def auto_close_demo_trades_for_user(user, max_hold_bars: int = DEFAULT_MAX_HOLD_
 
     closed_trades: list[DemoTrade] = []
     kept_open_count = 0
-    no_data_count = 0
+    not_ready_count = 0
+    price_error_count = 0
+
+    not_ready_trades: list[DemoTrade] = []
+    price_error_trades: list[DemoTrade] = []
 
     for trade in open_trades:
-        bars = _load_daily_bars_after_entry(trade)
-        if not bars:
-            no_data_count += 1
+        load_status, bars = _load_daily_bars_after_entry(trade)
+
+        if load_status == LOAD_STATUS_NOT_READY:
+            not_ready_count += 1
+            not_ready_trades.append(trade)
+            continue
+
+        if load_status == LOAD_STATUS_PRICE_ERROR:
+            price_error_count += 1
+            price_error_trades.append(trade)
             continue
 
         decision, evaluated_bars = _judge_exit_for_trade(
@@ -292,6 +331,10 @@ def auto_close_demo_trades_for_user(user, max_hold_bars: int = DEFAULT_MAX_HOLD_
         "open_count_before": len(open_trades),
         "closed_count": len(closed_trades),
         "kept_open_count": kept_open_count,
-        "no_data_count": no_data_count,
+        "not_ready_count": not_ready_count,
+        "price_error_count": price_error_count,
+        "no_data_count": not_ready_count + price_error_count,
+        "not_ready_trades": not_ready_trades,
+        "price_error_trades": price_error_trades,
         "closed_trades": closed_trades,
     }
