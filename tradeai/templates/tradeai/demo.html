@@ -7,7 +7,8 @@
 - tradeai のデモ画面です。
 - 自動で作られたデモ建玉と、終了したデモ結果を
   スマホで見やすく確認する画面です。
-- 今回は学習補正の表示も追加しています。
+- 今回は「エントリー理由」を削除し、
+  根拠だけ残す形に整理しています。
 =========================================================
 -->
 
@@ -230,13 +231,6 @@
               </div>
             </div>
 
-            {% if trade.entry_reason_text %}
-              <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
-                <div class="text-[11px] text-slate-400">エントリー理由</div>
-                <div class="mt-1 text-sm leading-6 text-slate-200">{{ trade.entry_reason_text|truncatechars:120 }}</div>
-              </div>
-            {% endif %}
-
             {% if trade.entry_payload.fact_reasons %}
               <details class="mt-3 group rounded-2xl border border-slate-800 bg-slate-900">
                 <summary class="flex cursor-pointer list-none items-center justify-between px-3 py-3 text-sm font-semibold text-slate-200">
@@ -453,24 +447,6 @@
                 <div class="text-[11px] text-slate-400">終了理由</div>
                 <div class="mt-1 text-sm leading-6 text-slate-200">{{ trade.exit_reason }}</div>
               </div>
-            {% endif %}
-
-            {% if trade.entry_payload.learning_bias_notes %}
-              <details class="mt-3 group rounded-2xl border border-violet-500/20 bg-violet-500/5">
-                <summary class="flex cursor-pointer list-none items-center justify-between px-3 py-3 text-sm font-semibold text-slate-200">
-                  <span>学習メモを見る</span>
-                  <span class="text-xs text-slate-500 group-open:hidden">開く</span>
-                  <span class="hidden text-xs text-slate-500 group-open:inline">閉じる</span>
-                </summary>
-
-                <div class="border-t border-violet-500/10 px-3 py-3">
-                  <ul class="space-y-1 text-sm leading-6 text-slate-200">
-                    {% for note in trade.entry_payload.learning_bias_notes %}
-                      <li>・{{ note }}</li>
-                    {% endfor %}
-                  </ul>
-                </div>
-              </details>
             {% endif %}
           </div>
         {% endfor %}
