@@ -5,6 +5,10 @@
 # このファイルは何？
 # - OPEN中のデモ建玉を自動でCLOSEする管理コマンドです。
 # - 引け後などに実行する想定です。
+#
+# 今回の修正：
+# - 「まだ翌営業日足がなくて判定できない件数」と
+#   「本当に価格取得に失敗した件数」を分けて表示します。
 # =========================================================
 
 from __future__ import annotations
@@ -46,11 +50,30 @@ class Command(BaseCommand):
             )
 
             self.stdout.write("")
-            self.stdout.write(f"user             : {user.username}")
-            self.stdout.write(f"open_before      : {result['open_count_before']}")
-            self.stdout.write(f"closed_count     : {result['closed_count']}")
-            self.stdout.write(f"kept_open_count  : {result['kept_open_count']}")
-            self.stdout.write(f"no_data_count    : {result['no_data_count']}")
+            self.stdout.write(f"user              : {user.username}")
+            self.stdout.write(f"open_before       : {result['open_count_before']}")
+            self.stdout.write(f"closed_count      : {result['closed_count']}")
+            self.stdout.write(f"kept_open_count   : {result['kept_open_count']}")
+            self.stdout.write(f"not_ready_count   : {result['not_ready_count']}")
+            self.stdout.write(f"price_error_count : {result['price_error_count']}")
+
+            not_ready_trades = list(result.get("not_ready_trades") or [])
+            if not_ready_trades:
+                self.stdout.write("not_ready_trades:")
+                for trade in not_ready_trades:
+                    self.stdout.write(
+                        f"  - {trade.ticker} / {trade.direction} / "
+                        f"entry_at {trade.entry_at:%Y-%m-%d %H:%M}"
+                    )
+
+            price_error_trades = list(result.get("price_error_trades") or [])
+            if price_error_trades:
+                self.stdout.write("price_error_trades:")
+                for trade in price_error_trades:
+                    self.stdout.write(
+                        f"  - {trade.ticker} / {trade.direction} / "
+                        f"entry_at {trade.entry_at:%Y-%m-%d %H:%M}"
+                    )
 
             closed_trades = list(result.get("closed_trades") or [])
             if closed_trades:
