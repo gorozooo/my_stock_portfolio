@@ -9,6 +9,7 @@
 # 今回の修正：
 # - 「まだ翌営業日足がなくて判定できない件数」と
 #   「本当に価格取得に失敗した件数」を分けて表示します。
+# - LearningResult 保存件数も表示します。
 # =========================================================
 
 from __future__ import annotations
@@ -50,12 +51,14 @@ class Command(BaseCommand):
             )
 
             self.stdout.write("")
-            self.stdout.write(f"user              : {user.username}")
-            self.stdout.write(f"open_before       : {result['open_count_before']}")
-            self.stdout.write(f"closed_count      : {result['closed_count']}")
-            self.stdout.write(f"kept_open_count   : {result['kept_open_count']}")
-            self.stdout.write(f"not_ready_count   : {result['not_ready_count']}")
-            self.stdout.write(f"price_error_count : {result['price_error_count']}")
+            self.stdout.write(f"user                         : {user.username}")
+            self.stdout.write(f"open_before                  : {result['open_count_before']}")
+            self.stdout.write(f"closed_count                 : {result['closed_count']}")
+            self.stdout.write(f"learning_result_count        : {result['learning_result_count']}")
+            self.stdout.write(f"learning_snapshot_created    : {result['learning_snapshot_created_count']}")
+            self.stdout.write(f"kept_open_count              : {result['kept_open_count']}")
+            self.stdout.write(f"not_ready_count              : {result['not_ready_count']}")
+            self.stdout.write(f"price_error_count            : {result['price_error_count']}")
 
             not_ready_trades = list(result.get("not_ready_trades") or [])
             if not_ready_trades:
