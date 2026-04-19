@@ -1,0 +1,552 @@
+<!--
+=========================================================
+[FILE] learning.html
+[PATH] <project_root>/tradeai/templates/tradeai/learning.html
+
+このファイルは何？
+- tradeai の学習確認ページです。
+- LearningSnapshot / LearningResult の蓄積状況、
+  方向別・由来別・点数帯別の結果を
+  スマホで見やすく確認する画面です。
+=========================================================
+-->
+
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}TradeAI 学習{% endblock %}
+
+{% block content %}
+<section class="space-y-4">
+  <div class="rounded-3xl border border-slate-800 bg-slate-900/80 p-5 shadow-2xl">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <p class="text-xs font-semibold tracking-widest text-violet-300">TRADEAI LEARNING</p>
+        <h1 class="mt-1 text-2xl font-bold text-white">学習のたまり具合</h1>
+        <p class="mt-2 text-sm leading-6 text-slate-300">
+          ここでは
+          <span class="font-semibold text-white">建玉時の記録（Snapshot）と、終了後の結果（Result）</span>
+          をまとめて見ます。  
+          どの方向・どの由来・どの点数帯が良さそうかを確認するページです。
+        </p>
+      </div>
+
+      <a
+        href="{% url 'tradeai_dashboard' %}"
+        class="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200"
+      >
+        戻る
+      </a>
+    </div>
+
+    <div class="mt-4 flex flex-wrap gap-2 text-xs">
+      <span class="rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1 text-violet-300">Snapshot 蓄積</span>
+      <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-cyan-300">Result 集計</span>
+      <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-emerald-300">勝率・損益確認</span>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 gap-3">
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">LearningSnapshot</div>
+      <div class="mt-2 text-2xl font-bold text-white">{{ snapshot_count|intcomma }}</div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">LearningResult</div>
+      <div class="mt-2 text-2xl font-bold text-white">{{ result_count|intcomma }}</div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">未確定Snapshot</div>
+      <div class="mt-2 text-2xl font-bold text-amber-300">{{ pending_snapshot_count|intcomma }}</div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">勝率</div>
+      <div class="mt-2 text-2xl font-bold text-cyan-300">
+        {% if win_rate is not None %}
+          {{ win_rate|floatformat:1 }}%
+        {% else %}
+          -
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">平均損益</div>
+      <div class="mt-2 text-2xl font-bold
+        {% if avg_pnl and avg_pnl > 0 %}
+          text-emerald-300
+        {% elif avg_pnl and avg_pnl < 0 %}
+          text-rose-300
+        {% else %}
+          text-slate-200
+        {% endif %}
+      ">
+        {% if avg_pnl is not None %}
+          {{ avg_pnl|floatformat:0|intcomma }} 円
+        {% else %}
+          -
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-400">平均保有日数</div>
+      <div class="mt-2 text-2xl font-bold text-white">
+        {% if avg_hold_days is not None %}
+          {{ avg_hold_days|floatformat:1 }} 日
+        {% else %}
+          -
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+    <div class="flex items-center justify-between gap-3">
+      <div>
+        <h2 class="text-sm font-bold text-white">学習累計損益</h2>
+        <p class="mt-1 text-xs text-slate-400">LearningResult に入った確定結果だけを合計しています。</p>
+      </div>
+
+      <div class="text-right">
+        <div class="text-xs text-slate-500">TOTAL</div>
+        <div class="mt-1 text-2xl font-bold
+          {% if total_pnl > 0 %}
+            text-emerald-300
+          {% elif total_pnl < 0 %}
+            text-rose-300
+          {% else %}
+            text-slate-200
+          {% endif %}
+        ">
+          {{ total_pnl|floatformat:0|intcomma }} 円
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-bold text-white">方向別の結果</h2>
+      <div class="text-xs text-slate-400">LONG / SHORT</div>
+    </div>
+
+    <div class="mt-3 space-y-3">
+      {% for item in direction_summaries %}
+        <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="text-base font-bold text-white">{{ item.label }}</div>
+              <div class="mt-1 text-xs text-slate-500">{{ item.count|intcomma }} 件</div>
+            </div>
+
+            <div class="text-right">
+              <div class="text-xs text-slate-500">勝率</div>
+              <div class="mt-1 text-lg font-bold text-cyan-300">
+                {% if item.win_rate is not None %}
+                  {{ item.win_rate|floatformat:1 }}%
+                {% else %}
+                  -
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-3 grid grid-cols-3 gap-2">
+            <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+              <div class="text-[11px] text-slate-400">勝ち</div>
+              <div class="mt-1 text-base font-bold text-emerald-300">{{ item.win_count|intcomma }}</div>
+            </div>
+            <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+              <div class="text-[11px] text-slate-400">負け</div>
+              <div class="mt-1 text-base font-bold text-rose-300">{{ item.loss_count|intcomma }}</div>
+            </div>
+            <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+              <div class="text-[11px] text-slate-400">引分</div>
+              <div class="mt-1 text-base font-bold text-slate-200">{{ item.flat_count|intcomma }}</div>
+            </div>
+          </div>
+
+          <div class="mt-3 grid grid-cols-2 gap-2">
+            <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+              <div class="text-[11px] text-slate-400">累計損益</div>
+              <div class="mt-1 text-base font-bold
+                {% if item.total_pnl > 0 %}
+                  text-emerald-300
+                {% elif item.total_pnl < 0 %}
+                  text-rose-300
+                {% else %}
+                  text-slate-200
+                {% endif %}
+              ">
+                {{ item.total_pnl|floatformat:0|intcomma }} 円
+              </div>
+            </div>
+
+            <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+              <div class="text-[11px] text-slate-400">平均損益</div>
+              <div class="mt-1 text-base font-bold
+                {% if item.avg_pnl and item.avg_pnl > 0 %}
+                  text-emerald-300
+                {% elif item.avg_pnl and item.avg_pnl < 0 %}
+                  text-rose-300
+                {% else %}
+                  text-slate-200
+                {% endif %}
+              ">
+                {% if item.avg_pnl is not None %}
+                  {{ item.avg_pnl|floatformat:0|intcomma }} 円
+                {% else %}
+                  -
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-bold text-white">由来別の結果</h2>
+      <div class="text-xs text-slate-400">保有 / ウォッチ / 母集団</div>
+    </div>
+
+    <div class="mt-3 space-y-3">
+      {% for item in source_summaries %}
+        <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="text-base font-bold text-white">{{ item.label }}</div>
+              <div class="mt-1 text-xs text-slate-500">{{ item.count|intcomma }} 件</div>
+            </div>
+
+            <div class="text-right">
+              <div class="text-xs text-slate-500">勝率</div>
+              <div class="mt-1 text-lg font-bold text-cyan-300">
+                {% if item.win_rate is not None %}
+                  {{ item.win_rate|floatformat:1 }}%
+                {% else %}
+                  -
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-3 grid grid-cols-2 gap-2">
+            <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+              <div class="text-[11px] text-slate-400">累計損益</div>
+              <div class="mt-1 text-base font-bold
+                {% if item.total_pnl > 0 %}
+                  text-emerald-300
+                {% elif item.total_pnl < 0 %}
+                  text-rose-300
+                {% else %}
+                  text-slate-200
+                {% endif %}
+              ">
+                {{ item.total_pnl|floatformat:0|intcomma }} 円
+              </div>
+            </div>
+
+            <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+              <div class="text-[11px] text-slate-400">平均損益</div>
+              <div class="mt-1 text-base font-bold
+                {% if item.avg_pnl and item.avg_pnl > 0 %}
+                  text-emerald-300
+                {% elif item.avg_pnl and item.avg_pnl < 0 %}
+                  text-rose-300
+                {% else %}
+                  text-slate-200
+                {% endif %}
+              ">
+                {% if item.avg_pnl is not None %}
+                  {{ item.avg_pnl|floatformat:0|intcomma }} 円
+                {% else %}
+                  -
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-bold text-white">点数帯ごとの結果</h2>
+      <div class="text-xs text-slate-400">signal_score 基準</div>
+    </div>
+
+    <div class="mt-3 space-y-3">
+      {% for item in score_band_summaries %}
+        <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="text-base font-bold text-white">{{ item.label }}</div>
+              <div class="mt-1 text-xs text-slate-500">{{ item.count|intcomma }} 件</div>
+            </div>
+
+            <div class="text-right">
+              <div class="text-xs text-slate-500">勝率</div>
+              <div class="mt-1 text-lg font-bold text-cyan-300">
+                {% if item.win_rate is not None %}
+                  {{ item.win_rate|floatformat:1 }}%
+                {% else %}
+                  -
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-3 grid grid-cols-2 gap-2">
+            <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+              <div class="text-[11px] text-slate-400">累計損益</div>
+              <div class="mt-1 text-base font-bold
+                {% if item.total_pnl > 0 %}
+                  text-emerald-300
+                {% elif item.total_pnl < 0 %}
+                  text-rose-300
+                {% else %}
+                  text-slate-200
+                {% endif %}
+              ">
+                {{ item.total_pnl|floatformat:0|intcomma }} 円
+              </div>
+            </div>
+
+            <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+              <div class="text-[11px] text-slate-400">平均損益</div>
+              <div class="mt-1 text-base font-bold
+                {% if item.avg_pnl and item.avg_pnl > 0 %}
+                  text-emerald-300
+                {% elif item.avg_pnl and item.avg_pnl < 0 %}
+                  text-rose-300
+                {% else %}
+                  text-slate-200
+                {% endif %}
+              ">
+                {% if item.avg_pnl is not None %}
+                  {{ item.avg_pnl|floatformat:0|intcomma }} 円
+                {% else %}
+                  -
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-bold text-white">まだ結果未確定のSnapshot</h2>
+      <div class="text-xs text-slate-400">{{ pending_snapshot_count|intcomma }} 件</div>
+    </div>
+
+    {% if pending_snapshots %}
+      <div class="mt-3 space-y-3">
+        {% for snap in pending_snapshots %}
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-base font-bold text-white">
+                  {{ snap.ticker }}
+                  {% if snap.name %}
+                    <span class="ml-2 text-sm font-medium text-slate-300">{{ snap.name }}</span>
+                  {% endif %}
+                </div>
+
+                {% if snap.demo_trade and snap.demo_trade.entry_payload.sector_name %}
+                  <div class="mt-1 text-xs text-slate-500">{{ snap.demo_trade.entry_payload.sector_name }}</div>
+                {% endif %}
+
+                <div class="mt-2 flex flex-wrap gap-2 text-[11px]">
+                  {% if snap.direction == "LONG" %}
+                    <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-300">LONG</span>
+                  {% else %}
+                    <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-300">SHORT</span>
+                  {% endif %}
+
+                  <span class="rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-violet-300">
+                    {{ snap.get_source_scope_display }}
+                  </span>
+
+                  {% if snap.was_notified %}
+                    <span class="rounded-full border border-fuchsia-500/30 bg-fuchsia-500/10 px-2 py-1 text-fuchsia-300">通知あり</span>
+                  {% else %}
+                    <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">通知なし</span>
+                  {% endif %}
+
+                  {% if snap.was_entered %}
+                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">入った</span>
+                  {% else %}
+                    <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">見送り</span>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="text-right text-xs text-slate-500">
+                <div>記録日時</div>
+                <div class="mt-1 text-slate-300">{{ snap.snapshot_at|date:"Y-m-d H:i" }}</div>
+              </div>
+            </div>
+
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">記録スコア</div>
+                <div class="mt-1 text-base font-bold text-cyan-300">{{ snap.signal_score|floatformat:0 }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">地合い</div>
+                <div class="mt-1 text-base font-bold text-white">
+                  {% if snap.regime_label %}
+                    {{ snap.regime_label }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="mt-3 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
+        いま未確定の Snapshot はありません。
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-bold text-white">最近の学習結果</h2>
+      <div class="text-xs text-slate-400">{{ result_count|intcomma }} 件</div>
+    </div>
+
+    {% if recent_results %}
+      <div class="mt-3 space-y-3">
+        {% for result in recent_results %}
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-base font-bold text-white">
+                  {{ result.snapshot.ticker }}
+                  {% if result.snapshot.name %}
+                    <span class="ml-2 text-sm font-medium text-slate-300">{{ result.snapshot.name }}</span>
+                  {% endif %}
+                </div>
+
+                {% if result.snapshot.demo_trade and result.snapshot.demo_trade.entry_payload.sector_name %}
+                  <div class="mt-1 text-xs text-slate-500">{{ result.snapshot.demo_trade.entry_payload.sector_name }}</div>
+                {% endif %}
+
+                <div class="mt-2 flex flex-wrap gap-2 text-[11px]">
+                  {% if result.snapshot.direction == "LONG" %}
+                    <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-300">LONG</span>
+                  {% else %}
+                    <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-300">SHORT</span>
+                  {% endif %}
+
+                  {% if result.result_label == "WIN" %}
+                    <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">勝ち</span>
+                  {% elif result.result_label == "LOSS" %}
+                    <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">負け</span>
+                  {% elif result.result_label == "FLAT" %}
+                    <span class="rounded-full border border-slate-600 bg-slate-800 px-2 py-1 text-slate-300">引き分け</span>
+                  {% else %}
+                    <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">未判定</span>
+                  {% endif %}
+
+                  <span class="rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-violet-300">
+                    {{ result.snapshot.get_source_scope_display }}
+                  </span>
+                </div>
+              </div>
+
+              <div class="text-right text-xs text-slate-500">
+                <div>確定日時</div>
+                <div class="mt-1 text-slate-300">{{ result.settled_at|date:"Y-m-d H:i" }}</div>
+              </div>
+            </div>
+
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">記録スコア</div>
+                <div class="mt-1 text-base font-bold text-cyan-300">{{ result.snapshot.signal_score|floatformat:0 }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">損益額</div>
+                <div class="mt-1 text-base font-bold
+                  {% if result.pnl_yen > 0 %}
+                    text-emerald-300
+                  {% elif result.pnl_yen < 0 %}
+                    text-rose-300
+                  {% else %}
+                    text-slate-200
+                  {% endif %}
+                ">
+                  {% if result.pnl_yen is not None %}
+                    {{ result.pnl_yen|floatformat:0|intcomma }} 円
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">損益率</div>
+                <div class="mt-1 text-base font-bold
+                  {% if result.pnl_pct > 0 %}
+                    text-emerald-300
+                  {% elif result.pnl_pct < 0 %}
+                    text-rose-300
+                  {% else %}
+                    text-slate-200
+                  {% endif %}
+                ">
+                  {% if result.pnl_pct is not None %}
+                    {{ result.pnl_pct|floatformat:2 }}%
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">保有日数</div>
+                <div class="mt-1 text-base font-bold text-white">
+                  {% if result.hold_days is not None %}
+                    {{ result.hold_days }} 日
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+
+            {% if result.exit_reason %}
+              <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">終了理由</div>
+                <div class="mt-1 text-sm leading-6 text-slate-200">{{ result.exit_reason }}</div>
+              </div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="mt-3 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
+        まだ学習結果はありません。デモ建玉のクローズ後にここへ溜まっていきます。
+      </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
