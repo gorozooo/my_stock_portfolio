@@ -5,6 +5,7 @@
 # このファイルは何？
 # - 候補抽出からデモ建玉を自動でOPENする管理コマンドです。
 # - 毎朝などに実行する想定です。
+# - 今回は LearningSnapshot 自動作成件数も表示します。
 # =========================================================
 
 from __future__ import annotations
@@ -49,11 +50,12 @@ class Command(BaseCommand):
             )
 
             self.stdout.write("")
-            self.stdout.write(f"user                 : {user.username}")
-            self.stdout.write(f"candidate_total      : {result['candidate_total']}")
-            self.stdout.write(f"created_count        : {result['created_count']}")
-            self.stdout.write(f"skipped_existing     : {result['skipped_existing_count']}")
-            self.stdout.write(f"skipped_missing_plan : {result['skipped_missing_plan_count']}")
+            self.stdout.write(f"user                   : {user.username}")
+            self.stdout.write(f"candidate_total        : {result['candidate_total']}")
+            self.stdout.write(f"created_count          : {result['created_count']}")
+            self.stdout.write(f"learning_snapshot_count: {result['learning_snapshot_count']}")
+            self.stdout.write(f"skipped_existing       : {result['skipped_existing_count']}")
+            self.stdout.write(f"skipped_missing_plan   : {result['skipped_missing_plan_count']}")
 
             created_trades = list(result.get("created_trades") or [])
             if created_trades:
