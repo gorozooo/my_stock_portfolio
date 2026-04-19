@@ -4,8 +4,11 @@
 [PATH] <project_root>/tradeai/templates/tradeai/demo.html
 
 このファイルは何？
-- tradeai のデモページです。
-- 候補抽出から自動で入った紙トレードの現在状況と履歴を表示します。
+- tradeai のデモ画面です。
+- 自動で作られたデモ建玉と、終了したデモ結果を
+  スマホで見やすく確認する画面です。
+- 今回は「説明ページ」ではなく、
+  実際の運用確認ページとして見やすく整理しています。
 =========================================================
 -->
 
@@ -20,15 +23,15 @@
     <div class="flex items-start justify-between gap-3">
       <div>
         <p class="text-xs font-semibold tracking-widest text-amber-300">TRADEAI DEMO</p>
-        <h1 class="mt-1 text-2xl font-bold text-white">デモ</h1>
+        <h1 class="mt-1 text-2xl font-bold text-white">自動デモ売買</h1>
         <p class="mt-2 text-sm leading-6 text-slate-300">
-          候補抽出から
-          <span class="font-semibold text-white">自動で紙トレード</span>
-          を作り、
-          <span class="font-semibold text-white">利確 / 損切 / 最大保有日数</span>
-          で自動終了します。
+          この画面は
+          <span class="font-semibold text-white">手動で売買する場所ではなく、AIが自動で作ったデモ建玉の確認画面</span>
+          です。  
+          いま開いている建玉、終わった結果、勝率と累計損益をここでまとめて見ます。
         </p>
       </div>
+
       <a
         href="{% url 'tradeai_dashboard' %}"
         class="rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200"
@@ -36,42 +39,32 @@
         戻る
       </a>
     </div>
+
+    <div class="mt-4 flex flex-wrap gap-2 text-xs">
+      <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-cyan-300">候補 → 自動エントリー</span>
+      <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-amber-300">引け後に自動判定</span>
+      <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-emerald-300">結果をあとで学習材料化</span>
+    </div>
   </div>
 
   <div class="grid grid-cols-2 gap-3">
     <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <div class="text-xs text-slate-400">現在のOPEN</div>
+      <div class="text-xs text-slate-400">OPEN建玉</div>
       <div class="mt-2 text-2xl font-bold text-white">{{ open_demo_count|intcomma }}</div>
     </div>
 
     <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <div class="text-xs text-slate-400">累計デモ件数</div>
-      <div class="mt-2 text-2xl font-bold text-white">{{ total_demo_count|intcomma }}</div>
-    </div>
-
-    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <div class="text-xs text-slate-400">終了済み</div>
+      <div class="text-xs text-slate-400">CLOSED累計</div>
       <div class="mt-2 text-2xl font-bold text-white">{{ closed_demo_count|intcomma }}</div>
     </div>
 
     <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <div class="text-xs text-slate-400">勝率</div>
-      <div class="mt-2 text-2xl font-bold text-emerald-300">
-        {% if win_rate is not None %}
-          {{ win_rate|floatformat:1 }}%
-        {% else %}
-          -
-        {% endif %}
-      </div>
-    </div>
-
-    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <div class="text-xs text-slate-400">勝ち件数</div>
+      <div class="text-xs text-slate-400">勝ち</div>
       <div class="mt-2 text-2xl font-bold text-emerald-300">{{ win_count|intcomma }}</div>
     </div>
 
     <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <div class="text-xs text-slate-400">負け件数</div>
+      <div class="text-xs text-slate-400">負け</div>
       <div class="mt-2 text-2xl font-bold text-rose-300">{{ loss_count|intcomma }}</div>
     </div>
 
@@ -81,48 +74,65 @@
     </div>
 
     <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <div class="text-xs text-slate-400">累計損益</div>
-      <div class="mt-2 text-2xl font-bold
-        {% if total_pnl > 0 %}
-          text-emerald-300
-        {% elif total_pnl < 0 %}
-          text-rose-300
+      <div class="text-xs text-slate-400">勝率</div>
+      <div class="mt-2 text-2xl font-bold text-cyan-300">
+        {% if win_rate is not None %}
+          {{ win_rate|floatformat:1 }}%
         {% else %}
-          text-slate-200
+          -
         {% endif %}
-      ">
-        {{ total_pnl|floatformat:0|intcomma }} 円
       </div>
     </div>
   </div>
 
-  <div class="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
-    <div class="text-sm font-bold text-white">このページの見方</div>
-    <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-200">
-      <li>・OPEN は、まだ自動判定待ちの建玉です。</li>
-      <li>・CLOSED は、利確 / 損切 / 最大保有日数で自動終了した履歴です。</li>
-      <li>・同日に利確と損切の両方へ届いた場合は、保守的に損切を優先しています。</li>
-    </ul>
+  <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+    <div class="flex items-center justify-between gap-3">
+      <div>
+        <h2 class="text-sm font-bold text-white">累計損益</h2>
+        <p class="mt-1 text-xs text-slate-400">終了済みデモだけを合計しています。</p>
+      </div>
+
+      <div class="text-right">
+        <div class="text-xs text-slate-500">TOTAL</div>
+        <div class="mt-1 text-2xl font-bold
+          {% if total_pnl > 0 %}
+            text-emerald-300
+          {% elif total_pnl < 0 %}
+            text-rose-300
+          {% else %}
+            text-slate-200
+          {% endif %}
+        ">
+          {{ total_pnl|floatformat:0|intcomma }} 円
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
     <div class="flex items-center justify-between gap-3">
-      <h2 class="text-sm font-bold text-white">現在のOPEN建玉</h2>
+      <h2 class="text-sm font-bold text-white">いま開いているデモ建玉</h2>
       <div class="text-xs text-slate-400">{{ open_demo_count|intcomma }} 件</div>
     </div>
 
     {% if open_trades %}
       <div class="mt-3 space-y-3">
         {% for trade in open_trades %}
-          <div class="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
             <div class="flex items-start justify-between gap-3">
-              <div>
-                <div class="text-base font-bold text-white">
-                  {{ trade.ticker }}
-                  {% if trade.name %}
-                    <span class="ml-2 text-sm font-medium text-slate-300">{{ trade.name }}</span>
-                  {% endif %}
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <div class="text-base font-bold text-white">
+                    {{ trade.ticker }}
+                    {% if trade.name %}
+                      <span class="ml-2 text-sm font-medium text-slate-300">{{ trade.name }}</span>
+                    {% endif %}
+                  </div>
                 </div>
+
+                {% if trade.entry_payload.sector_name %}
+                  <div class="mt-1 text-xs text-slate-500">{{ trade.entry_payload.sector_name }}</div>
+                {% endif %}
 
                 <div class="mt-2 flex flex-wrap gap-2 text-[11px]">
                   {% if trade.direction == "LONG" %}
@@ -131,57 +141,114 @@
                     <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-300">SHORT</span>
                   {% endif %}
 
-                  <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ trade.get_source_scope_display }}</span>
-                  <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">OPEN</span>
+                  <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">保有中</span>
+
+                  {% if trade.source_scope == "HOLDING" %}
+                    <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">保有由来</span>
+                  {% elif trade.source_scope == "WATCHLIST" %}
+                    <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-300">ウォッチ由来</span>
+                  {% else %}
+                    <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">母集団由来</span>
+                  {% endif %}
                 </div>
               </div>
 
-              <div class="text-right text-xs text-slate-400">
-                {{ trade.entry_at|date:"Y-m-d H:i" }}
+              <div class="shrink-0 text-right text-xs text-slate-500">
+                <div>開始日時</div>
+                <div class="mt-1 text-slate-300">{{ trade.entry_at|date:"Y-m-d H:i" }}</div>
               </div>
             </div>
 
-            <div class="mt-3 flex flex-wrap gap-2 text-[11px]">
-              <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-200">Entry {{ trade.entry_price|floatformat:2 }}</span>
-              <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-emerald-300">利確 {{ trade.take_profit_price|floatformat:2 }}</span>
-              <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-rose-300">損切 {{ trade.stop_price|floatformat:2 }}</span>
-              <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-300">数量 {{ trade.qty|intcomma }}</span>
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">エントリー</div>
+                <div class="mt-1 text-base font-bold text-white">{{ trade.entry_price|floatformat:2 }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">数量</div>
+                <div class="mt-1 text-base font-bold text-white">{{ trade.qty|intcomma }}</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">利確</div>
+                <div class="mt-1 text-base font-bold text-emerald-300">
+                  {% if trade.take_profit_price is not None %}
+                    {{ trade.take_profit_price|floatformat:2 }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">損切</div>
+                <div class="mt-1 text-base font-bold text-rose-300">
+                  {% if trade.stop_price is not None %}
+                    {{ trade.stop_price|floatformat:2 }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
             </div>
 
             {% if trade.entry_reason_text %}
               <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
                 <div class="text-[11px] text-slate-400">エントリー理由</div>
-                <div class="mt-1 text-sm leading-6 text-slate-200">{{ trade.entry_reason_text }}</div>
+                <div class="mt-1 text-sm leading-6 text-slate-200">{{ trade.entry_reason_text|truncatechars:120 }}</div>
               </div>
+            {% endif %}
+
+            {% if trade.entry_payload.fact_reasons %}
+              <details class="mt-3 group rounded-2xl border border-slate-800 bg-slate-900">
+                <summary class="flex cursor-pointer list-none items-center justify-between px-3 py-3 text-sm font-semibold text-slate-200">
+                  <span>根拠を見る</span>
+                  <span class="text-xs text-slate-500 group-open:hidden">開く</span>
+                  <span class="hidden text-xs text-slate-500 group-open:inline">閉じる</span>
+                </summary>
+
+                <div class="border-t border-slate-800 px-3 py-3">
+                  <ul class="space-y-1 text-sm leading-6 text-slate-200">
+                    {% for reason in trade.entry_payload.fact_reasons %}
+                      <li>・{{ reason }}</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+              </details>
             {% endif %}
           </div>
         {% endfor %}
       </div>
     {% else %}
       <div class="mt-3 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
-        まだOPEN中のデモ建玉はありません。
+        いま開いているデモ建玉はありません。
       </div>
     {% endif %}
   </div>
 
   <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
     <div class="flex items-center justify-between gap-3">
-      <h2 class="text-sm font-bold text-white">最近CLOSEDした建玉</h2>
+      <h2 class="text-sm font-bold text-white">最近終了したデモ結果</h2>
       <div class="text-xs text-slate-400">{{ closed_demo_count|intcomma }} 件</div>
     </div>
 
     {% if recent_closed_trades %}
       <div class="mt-3 space-y-3">
         {% for trade in recent_closed_trades %}
-          <div class="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
             <div class="flex items-start justify-between gap-3">
-              <div>
+              <div class="min-w-0">
                 <div class="text-base font-bold text-white">
                   {{ trade.ticker }}
                   {% if trade.name %}
                     <span class="ml-2 text-sm font-medium text-slate-300">{{ trade.name }}</span>
                   {% endif %}
                 </div>
+
+                {% if trade.entry_payload.sector_name %}
+                  <div class="mt-1 text-xs text-slate-500">{{ trade.entry_payload.sector_name }}</div>
+                {% endif %}
 
                 <div class="mt-2 flex flex-wrap gap-2 text-[11px]">
                   {% if trade.direction == "LONG" %}
@@ -194,53 +261,110 @@
                     <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">勝ち</span>
                   {% elif trade.result_label == "LOSS" %}
                     <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">負け</span>
+                  {% elif trade.result_label == "FLAT" %}
+                    <span class="rounded-full border border-slate-600 bg-slate-800 px-2 py-1 text-slate-300">引き分け</span>
                   {% else %}
-                    <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">引き分け</span>
+                    <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">未判定</span>
                   {% endif %}
 
-                  <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{{ trade.get_source_scope_display }}</span>
+                  {% if trade.source_scope == "HOLDING" %}
+                    <span class="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-rose-300">保有由来</span>
+                  {% elif trade.source_scope == "WATCHLIST" %}
+                    <span class="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-300">ウォッチ由来</span>
+                  {% else %}
+                    <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">母集団由来</span>
+                  {% endif %}
                 </div>
               </div>
 
-              <div class="text-right text-xs text-slate-400">
-                {% if trade.close_at %}
-                  {{ trade.close_at|date:"Y-m-d H:i" }}
-                {% else %}
-                  -
-                {% endif %}
+              <div class="shrink-0 text-right text-xs text-slate-500">
+                <div>終了日時</div>
+                <div class="mt-1 text-slate-300">
+                  {% if trade.close_at %}
+                    {{ trade.close_at|date:"Y-m-d H:i" }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
               </div>
             </div>
 
-            <div class="mt-3 flex flex-wrap gap-2 text-[11px]">
-              <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-200">Entry {{ trade.entry_price|floatformat:2 }}</span>
-              <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-200">Exit {{ trade.close_price|floatformat:2 }}</span>
-              <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-300">数量 {{ trade.qty|intcomma }}</span>
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">エントリー</div>
+                <div class="mt-1 text-base font-bold text-white">{{ trade.entry_price|floatformat:2 }}</div>
+              </div>
 
-              <span class="rounded-full border
-                {% if trade.pnl_yen > 0 %}
-                  border-emerald-500/30 bg-emerald-500/10 text-emerald-300
-                {% elif trade.pnl_yen < 0 %}
-                  border-rose-500/30 bg-rose-500/10 text-rose-300
-                {% else %}
-                  border-slate-700 bg-slate-900 text-slate-300
-                {% endif %}
-                px-3 py-1
-              ">
-                損益 {{ trade.pnl_yen|floatformat:0|intcomma }} 円
-              </span>
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">クローズ</div>
+                <div class="mt-1 text-base font-bold text-white">
+                  {% if trade.close_price is not None %}
+                    {{ trade.close_price|floatformat:2 }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
 
-              <span class="rounded-full border
-                {% if trade.pnl_pct > 0 %}
-                  border-emerald-500/30 bg-emerald-500/10 text-emerald-300
-                {% elif trade.pnl_pct < 0 %}
-                  border-rose-500/30 bg-rose-500/10 text-rose-300
-                {% else %}
-                  border-slate-700 bg-slate-900 text-slate-300
-                {% endif %}
-                px-3 py-1
-              ">
-                損益率 {{ trade.pnl_pct|floatformat:2 }}%
-              </span>
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">損益額</div>
+                <div class="mt-1 text-base font-bold
+                  {% if trade.pnl_yen > 0 %}
+                    text-emerald-300
+                  {% elif trade.pnl_yen < 0 %}
+                    text-rose-300
+                  {% else %}
+                    text-slate-200
+                  {% endif %}
+                ">
+                  {% if trade.pnl_yen is not None %}
+                    {{ trade.pnl_yen|floatformat:0|intcomma }} 円
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">損益率</div>
+                <div class="mt-1 text-base font-bold
+                  {% if trade.pnl_pct > 0 %}
+                    text-emerald-300
+                  {% elif trade.pnl_pct < 0 %}
+                    text-rose-300
+                  {% else %}
+                    text-slate-200
+                  {% endif %}
+                ">
+                  {% if trade.pnl_pct is not None %}
+                    {{ trade.pnl_pct|floatformat:2 }}%
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">最大有利</div>
+                <div class="mt-1 text-base font-bold text-emerald-300">
+                  {% if trade.max_favorable_pct is not None %}
+                    {{ trade.max_favorable_pct|floatformat:2 }}%
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3">
+                <div class="text-[11px] text-slate-400">最大不利</div>
+                <div class="mt-1 text-base font-bold text-rose-300">
+                  {% if trade.max_adverse_pct is not None %}
+                    {{ trade.max_adverse_pct|floatformat:2 }}%
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
+              </div>
             </div>
 
             {% if trade.exit_reason %}
@@ -254,7 +378,7 @@
       </div>
     {% else %}
       <div class="mt-3 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
-        まだCLOSED履歴はありません。
+        まだ終了済みデモはありません。
       </div>
     {% endif %}
   </div>
