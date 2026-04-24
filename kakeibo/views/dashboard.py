@@ -7,11 +7,11 @@
 # - KPI：総資産 / 家の貯蓄 / 投資（評価額＋現金余力）
 # - 年度（選択可）の収支
 # - 月（選択可）の収入・支出・差額＋固定/変動内訳 + 先月比
-# - ✅ 銀行残高：登録済み口座を全部（HOUSE / B / G）で表示
+# - 銀行残高：登録済み口座を全部（HOUSE / B / G）で表示
 #   - 当月が無い口座は「最新月（選択月以前）」で表示
 #   - Bの楽天銀行はトップで見えてるため、銀行残高セクションから除外
 #
-# ✅ 資金移動（表示用の計算）
+# 資金移動（表示用の計算）
 # ① 千葉銀行（給与口座）：ローン後残高から「ATMで引き落とせる千円単位の上限」まで引き出す
 #    - withdrawable = floor(balance/1000)*1000
 #    - remain = balance - withdrawable
@@ -23,19 +23,15 @@
 #    - required_min = エポス(HOUSE) + イオンカード(HOUSE) + ヨドバシ(HOUSE) + 年金・保険
 #    - delta = required_min - balance  （+なら不足 / -なら余剰）
 #
-# 今回の追加：
-# - 月ごとの自由メモ（MonthlyDashboardMemo）を保存/表示
-# - 選択中の month に対応するメモを読み込み
-# - POST action=save_dashboard_memo でその月のメモを保存
-# - ✅ 月ごとのTODO（MonthlyTodo）を追加
-#   - POST action=add_monthly_todo で追加
-#   - POST action=toggle_monthly_todo_done で完了/未完了を切替
-#   - POST action=delete_monthly_todo で削除
-#   - 選択中の month に対応する TODO 一覧を context に渡す
-#
 # 今回の修正：
-# - HOUSE のカード請求集計で、memo/category だけでなく card フィールド側の名前も見るように修正
-#   → 「エポス」「イオン」「ヨドバシ」を資金移動のイオン銀行計算に正しく加算する
+# - 家の貯蓄を正式計算へ変更
+#   2025年12月終了時点の固定起点 -623,573
+#   + 2026年1月から選択月までの月次差額累計
+# - snapshot に古い kpi_rakuten_bank_actual が残っていても、表示では必ず正式計算を使う
+# - 先月比も正式計算で比較する
+# - 我が家の総資産も、snapshot の古い値に引っ張られないように
+#   楽天銀行(B) + イオン銀行(家) + 楽天評価額 で表示用に再計算する
+# - HOUSE のカード請求集計で、memo/category だけでなく card フィールド側の名前も見る
 # =========================================
 
 from decimal import Decimal
@@ -58,6 +54,13 @@ from ..models import (
     MonthlyDashboardMemo,
     MonthlyTodo,
 )
+
+
+# =========================================
+# 家の貯蓄：正式な固定起点
+# =========================================
+HOUSE_SAVINGS_BASE_MONTH = date(2025, 12, 1)
+HOUSE_SAVINGS_BASE_VALUE = -623_573
 
 
 def month_first(d):
@@ -594,6 +597,51 @@ def _house_pension_insurance_fixed_sum() -> int:
     return _sum_qs(qs, "amount")
 
 
+def _month_diff_for_house_savings(month: date) -> int:
+    """
+    何をする？
+    - 家の貯蓄の正式計算に使う「その月の差額」を返す。
+    - snapshot があれば snapshot.diff を使う。
+    - snapshot がなければ、その月の収入 - 支出を動的計算する。
+    """
+    snap = MonthlySnapshot.objects.filter(month=month).first()
+    if snap:
+        return _int(snap.diff)
+
+    income = _sum_qs(MonthlyIncome.objects.filter(month=month), "amount")
+
+    fixed = _sum_qs(
+        FixedExpenseTemplate.objects.filter(is_active=True),
+        "amount"
+    )
+
+    variable = _var_sum_for_expense(month)
+
+    return _int(income - fixed - variable)
+
+
+def _house_savings_actual(month: date) -> int:
+    """
+    何をする？
+    - 家の貯蓄を正式計算で返す。
+    - 2025年12月終了時点の固定値 -623,573 を起点にする。
+    - 2026年1月以降、選択月までの月次差額を累計する。
+    """
+    m = month_first(month)
+
+    if m <= HOUSE_SAVINGS_BASE_MONTH:
+        return HOUSE_SAVINGS_BASE_VALUE
+
+    total = HOUSE_SAVINGS_BASE_VALUE
+    cur = add_month(HOUSE_SAVINGS_BASE_MONTH, 1)
+
+    while cur <= m:
+        total += _month_diff_for_house_savings(cur)
+        cur = add_month(cur, 1)
+
+    return _int(total)
+
+
 def _next_todo_sort_order(month: date) -> int:
     """
     何をする？
@@ -632,9 +680,11 @@ def _build_dynamic_month_values(request, today: date, m: date) -> dict:
     rakuten_eval = _portfolio_rakuten_eval_like_rakuten(request.user)
     invest_total = _int(rakuten_cash_free + rakuten_eval)
 
+    # 表示用の総資産：楽天銀行(B) + イオン銀行(家) + 楽天評価額
     total_assets = _int(rakuten_bank_b + aeon_bank_house + rakuten_eval)
 
-    rakuten_bank_actual = _int(4_136_736 - rakuten_cash_free - rakuten_bank_b)
+    # 家の貯蓄：正式計算
+    rakuten_bank_actual = _house_savings_actual(m)
 
     okodukai_b = _calc_okodukai(m, "B")
     okodukai_g = _calc_okodukai(m, "G")
@@ -817,14 +867,16 @@ def dashboard(request):
         total_expense = _int(snap.expense_total)
         month_diff = _int(snap.diff)
 
-        total_assets = _int(snap.kpi_total_assets)
-        rakuten_bank_actual = _int(snap.kpi_rakuten_bank_actual)
-        invest_total = _int(snap.kpi_invest_total)
-
         rakuten_eval = _int(snap.rakuten_eval)
         rakuten_cash_free = _int(snap.rakuten_cash_free)
         rakuten_bank_b = _int(snap.rakuten_bank_b)
         aeon_bank_house = _int(snap.aeon_bank_house)
+
+        # ここが重要：
+        # snapshot に古いKPI値が残っていても、表示用は正式計算で上書きする
+        total_assets = _int(rakuten_bank_b + aeon_bank_house + rakuten_eval)
+        rakuten_bank_actual = _house_savings_actual(m)
+        invest_total = _int(rakuten_cash_free + rakuten_eval)
 
         rakuten_bank_month_used = None
         rakuten_bank_account_name_used = None
@@ -1004,11 +1056,17 @@ def dashboard(request):
     dp_fixed = _delta_pct(fixed_sum, prev_fixed)
     dp_var = _delta_pct(var_sum, prev_var)
 
+    # KPI 先月比：正式計算で比較する
     prev_snap = MonthlySnapshot.objects.filter(month=prev_m).first()
     if prev_snap:
-        prev_total_assets = _int(prev_snap.kpi_total_assets)
-        prev_rakuten_bank_actual = _int(prev_snap.kpi_rakuten_bank_actual)
-        prev_invest_total = _int(prev_snap.kpi_invest_total)
+        prev_rakuten_eval = _int(prev_snap.rakuten_eval)
+        prev_rakuten_cash_free = _int(prev_snap.rakuten_cash_free)
+        prev_rakuten_bank_b = _int(prev_snap.rakuten_bank_b)
+        prev_aeon_bank_house = _int(prev_snap.aeon_bank_house)
+
+        prev_total_assets = _int(prev_rakuten_bank_b + prev_aeon_bank_house + prev_rakuten_eval)
+        prev_rakuten_bank_actual = _house_savings_actual(prev_m)
+        prev_invest_total = _int(prev_rakuten_cash_free + prev_rakuten_eval)
     else:
         prev_dyn = _build_dynamic_month_values(request, today=today, m=prev_m)
         prev_total_assets = _int(prev_dyn["kpi_total_assets"])
