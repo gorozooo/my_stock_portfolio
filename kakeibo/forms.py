@@ -17,6 +17,9 @@
 # - BankBalanceForm で「ごろ × 千葉銀行」のように同名口座が複数ある場合でも、
 #   owner と account がズレて送信されたら、同じ口座名・正しいownerの口座へ自動補正する。
 # - BankBalanceForm の初期表示でも、owner が初期値にある場合は account 候補をその owner に絞る。
+# - BankBalanceForm では Django標準の unique_together チェックを無効化する。
+#   理由：銀行残高は「同じ月・同じ口座」が既にあれば新規追加ではなく更新したい。
+#   実際の重複処理は views/bank.py の get_or_create() 側で安全に処理する。
 # =========================================
 
 from django import forms
@@ -262,6 +265,16 @@ class BankBalanceForm(forms.ModelForm):
 
         self.fields["balance"].widget.attrs.update({"inputmode": "numeric"})
 
+    def validate_unique(self):
+        """
+        何をする？
+        - BankBalance の unique_together(month, account) のフォーム側チェックを無効化する。
+        - 理由：
+          銀行残高入力では、同じ対象月・同じ口座が既にある場合、
+          エラーにせず views/bank.py の get_or_create() で更新扱いにしたい。
+        """
+        return None
+
     def clean(self):
         cleaned = super().clean()
         owner = cleaned.get("owner")
@@ -272,7 +285,6 @@ class BankBalanceForm(forms.ModelForm):
                 self.add_error("account", "口座を選んでください（カードは不可）。")
                 return cleaned
 
-            # ここが今回の重要修正
             # 例：
             # owner=G なのに account=Bの千葉銀行 が送られてきた場合、
             # owner=G かつ name=千葉銀行 の口座があれば、そちらへ自動補正する。
