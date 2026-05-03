@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --kb-bg: #f0f4f8;
+  --kb-surface: #ffffff;
+  --kb-surface2: #f8fafc;
+  --kb-border: #e2e8f0;
+  --kb-income: #16a34a;
+  --kb-income-bg: #f0fdf4;
+  --kb-expense: #dc2626;
+  --kb-expense-bg: #fef2f2;
+  --kb-advance: #d97706;
+  --kb-advance-bg: #fffbeb;
+  --kb-fixed: #7c3aed;
+  --kb-fixed-bg: #f5f3ff;
+  --kb-bank: #2563eb;
+  --kb-bank-bg: #eff6ff;
+  --kb-text: #0f172a;
+  --kb-muted: #64748b;
+  --kb-accent: #3b82f6;
+  --kb-positive: #16a34a;
+  --kb-negative: #dc2626;
+}
+
+@layer base {
+  * {
+    border-color: var(--kb-border);
+    box-sizing: border-box;
+  }
+  body {
+    background-color: var(--kb-bg);
+    color: var(--kb-text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer utilities {
+  .text-muted { color: var(--kb-muted); }
+  .text-income { color: var(--kb-income); }
+  .text-expense { color: var(--kb-expense); }
+  .text-advance { color: var(--kb-advance); }
+  .text-fixed { color: var(--kb-fixed); }
+  .text-bank { color: var(--kb-bank); }
+  .bg-surface { background-color: var(--kb-surface); }
+  .bg-surface2 { background-color: var(--kb-surface2); }
+  .bg-income-light { background-color: var(--kb-income-bg); }
+  .bg-expense-light { background-color: var(--kb-expense-bg); }
+  .bg-advance-light { background-color: var(--kb-advance-bg); }
+  .bg-fixed-light { background-color: var(--kb-fixed-bg); }
+  .bg-bank-light { background-color: var(--kb-bank-bg); }
+  .card {
+    background-color: var(--kb-surface);
+    border-radius: 0.75rem;
+    border: 1px solid var(--kb-border);
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.05);
+  }
+  .card-p {
+    background-color: var(--kb-surface);
+    border-radius: 0.75rem;
+    border: 1px solid var(--kb-border);
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.05);
+    padding: 1rem;
+  }
+  .section-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--kb-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
+  }
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
