@@ -225,6 +225,15 @@ body{
   opacity: .95;
 }
 
+/* 管理画面：編集中の行ハイライト */
+.kb-list-item.is-editing{
+  border: 1px solid rgba(86,204,242,0.45);
+  border-radius: 14px;
+  background: rgba(86,204,242,0.06);
+  padding: 8px 10px;
+  margin: -8px -10px;
+}
+
 /* 画面が狭い時に詰まりすぎないよう微調整 */
 @media (max-width: 390px){
   .kb-tabs{

@@ -49,34 +49,13 @@
     </form>
   </section>
 
-  {% if edit_mode and form %}
-    <section class="kb-card">
-      <div class="kb-title">編集</div>
-      <form method="post" class="kb-form">
-        {% csrf_token %}
-        <input type="hidden" name="action" value="update">
-        <input type="hidden" name="id" value="{{ edit_obj.id }}">
-        {{ form.as_p }}
-        <button class="kb-btn kb-btn-primary" type="submit">更新</button>
-
-        {% if kind == "income" %}
-          <a class="kb-btn" href="{% url 'kakeibo:manage_income' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}" style="margin-left:8px;">キャンセル</a>
-        {% elif kind == "variable" %}
-          <a class="kb-btn" href="{% url 'kakeibo:manage_variable' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}" style="margin-left:8px;">キャンセル</a>
-        {% else %}
-          <a class="kb-btn" href="{% url 'kakeibo:manage_bank' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}" style="margin-left:8px;">キャンセル</a>
-        {% endif %}
-      </form>
-    </section>
-  {% endif %}
-
   <section class="kb-card">
     <div class="kb-title">登録済み（{{ month|date:'Y-m' }}）</div>
 
     {% if rows %}
       <ul class="kb-list">
         {% for r in rows %}
-          <li class="kb-list-item" style="align-items:flex-start;">
+          <li class="kb-list-item {% if edit_mode and edit_obj.id == r.id %}is-editing{% endif %}" style="align-items:flex-start;">
             <div style="display:flex; flex-direction:column; gap:6px;">
               {% if kind == "income" %}
                 <div>
@@ -114,12 +93,14 @@
               {% endif %}
 
               <div style="display:flex; gap:8px;">
-                {% if kind == "income" %}
-                  <a class="kb-btn" href="{% url 'kakeibo:manage_income' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}&edit={{ r.id }}">編集</a>
-                {% elif kind == "variable" %}
-                  <a class="kb-btn" href="{% url 'kakeibo:manage_variable' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}&edit={{ r.id }}">編集</a>
-                {% else %}
-                  <a class="kb-btn" href="{% url 'kakeibo:manage_bank' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}&edit={{ r.id }}">編集</a>
+                {% if not edit_mode or edit_obj.id != r.id %}
+                  {% if kind == "income" %}
+                    <a class="kb-btn" href="{% url 'kakeibo:manage_income' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}&edit={{ r.id }}#kb-inline-{{ r.id }}">編集</a>
+                  {% elif kind == "variable" %}
+                    <a class="kb-btn" href="{% url 'kakeibo:manage_variable' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}&edit={{ r.id }}#kb-inline-{{ r.id }}">編集</a>
+                  {% else %}
+                    <a class="kb-btn" href="{% url 'kakeibo:manage_bank' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}&edit={{ r.id }}#kb-inline-{{ r.id }}">編集</a>
+                  {% endif %}
                 {% endif %}
 
                 <form method="post" style="display:inline;">
@@ -131,6 +112,27 @@
               </div>
             </div>
           </li>
+
+          {% if edit_mode and form and edit_obj.id == r.id %}
+          <li id="kb-inline-{{ r.id }}" style="list-style:none; padding:14px 4px 4px;">
+            <form method="post" class="kb-form">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="update">
+              <input type="hidden" name="id" value="{{ edit_obj.id }}">
+              {{ form.as_p }}
+              <div style="display:flex; gap:8px; margin-top:12px;">
+                <button class="kb-btn kb-btn-primary" type="submit">更新</button>
+                {% if kind == "income" %}
+                  <a class="kb-btn" href="{% url 'kakeibo:manage_income' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}">キャンセル</a>
+                {% elif kind == "variable" %}
+                  <a class="kb-btn" href="{% url 'kakeibo:manage_variable' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}">キャンセル</a>
+                {% else %}
+                  <a class="kb-btn" href="{% url 'kakeibo:manage_bank' %}?month={{ month|date:'Y-m' }}&owner={{ owner }}">キャンセル</a>
+                {% endif %}
+              </div>
+            </form>
+          </li>
+          {% endif %}
         {% endfor %}
       </ul>
     {% else %}

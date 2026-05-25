@@ -30,6 +30,35 @@ def _owner_label(owner: str) -> str:
     return m.get(owner, owner or "不明")
 
 
+def _income_session_key_month() -> str:
+    return "kakeibo_income_last_month"
+
+
+def _income_session_key_owner() -> str:
+    return "kakeibo_income_last_owner"
+
+
+def _save_income_last_values(request, month, owner: str) -> None:
+    if month:
+        try:
+            request.session[_income_session_key_month()] = month.strftime("%Y-%m")
+        except Exception:
+            request.session[_income_session_key_month()] = str(month)
+    if owner:
+        request.session[_income_session_key_owner()] = owner
+
+
+def _income_initial_from_session(request) -> dict:
+    initial = {}
+    month = (request.session.get(_income_session_key_month()) or "").strip()
+    owner = (request.session.get(_income_session_key_owner()) or "").strip()
+    if month:
+        initial["month"] = month
+    if owner:
+        initial["owner"] = owner
+    return initial
+
+
 @login_required
 def income(request):
     if not kakeibo_access_required(request.user):
@@ -40,11 +69,12 @@ def income(request):
         if form.is_valid():
             obj = form.save()
 
-            # トースト文言（内容まで表示）
             month = getattr(obj, "month", None)
             owner = getattr(obj, "owner", "")
             category = getattr(getattr(obj, "category", None), "name", "")
             amount = getattr(obj, "amount", None)
+
+            _save_income_last_values(request, month=month, owner=owner)
 
             month_s = month.strftime("%Y-%m") if month else ""
             amount_s = f"{int(amount):,}" if amount is not None else ""
@@ -54,7 +84,7 @@ def income(request):
 
             return redirect("kakeibo:income")
     else:
-        form = MonthlyIncomeForm()
+        form = MonthlyIncomeForm(initial=_income_initial_from_session(request))
 
     return render(request, "kakeibo/income_manage.html", {
         "title": "収入（月次）",
