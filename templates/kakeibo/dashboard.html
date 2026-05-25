@@ -543,7 +543,7 @@
       {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
 
       <div style="display:flex; flex-direction:column; gap:10px;">
-        <div style="font-size:15px; font-weight:800; color:rgba(255,255,255,0.82);">タイトル</div>
+        <div style="font-size:15px; font-weight:800; color:rgba(0,0,0,0.70);">タイトル</div>
         <input
           type="text"
           name="todo_title"
@@ -552,12 +552,12 @@
           required
         >
 
-        <div style="font-size:15px; font-weight:800; color:rgba(255,255,255,0.82); margin-top:2px;">内容</div>
+        <div style="font-size:15px; font-weight:800; color:rgba(0,0,0,0.70); margin-top:2px;">内容</div>
         <textarea
           name="todo_note"
           rows="3"
           placeholder="内容を入力（任意）"
-          style="width:100%; box-sizing:border-box; padding:12px; border-radius:12px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.92); resize:vertical; font:inherit;"
+          style="width:100%; box-sizing:border-box; padding:12px; border-radius:12px; border:1px solid rgba(0,0,0,0.12); background:rgba(0,0,0,0.04); color:rgba(0,0,0,0.87); resize:vertical; font:inherit;"
         ></textarea>
 
         <div>
@@ -577,7 +577,7 @@
     <div class="kb-list">
       {% for todo in monthly_todos %}
         {% if todo.status != todo_status_done %}
-        <div style="padding:14px 0; border-bottom:1px solid rgba(255,255,255,0.08);">
+        <div style="padding:14px 0; border-bottom:1px solid rgba(0,0,0,0.08);">
           <div style="display:flex; align-items:flex-start; gap:12px;">
             <form method="post" style="margin:0; flex:0 0 auto;">
               {% csrf_token %}
@@ -593,12 +593,12 @@
                   width:54px;
                   height:54px;
                   border-radius:999px;
-                  border:1px solid rgba(255,255,255,0.14);
-                  background:rgba(255,255,255,0.05);
+                  border:1px solid rgba(0,0,0,0.12);
+                  background:rgba(0,0,0,0.04);
                   display:flex;
                   align-items:center;
                   justify-content:center;
-                  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 6px 14px rgba(0,0,0,0.18);
+                  box-shadow: 0 6px 14px rgba(0,0,0,0.10);
                 "
               >
                 <span
@@ -606,7 +606,7 @@
                     width:22px;
                     height:22px;
                     border-radius:999px;
-                    border:2px solid rgba(255,255,255,0.78);
+                    border:2px solid rgba(0,0,0,0.50);
                     display:block;
                     box-sizing:border-box;
                   "
@@ -620,7 +620,7 @@
               </div>
 
               {% if todo.note %}
-              <div style="font-size:17px; font-weight:900; line-height:1.45; word-break:break-word; margin-top:6px; color:rgba(255,255,255,0.78);">
+              <div style="font-size:17px; font-weight:900; line-height:1.45; word-break:break-word; margin-top:6px; color:rgba(0,0,0,0.70);">
                 {{ todo.note|linebreaksbr }}
               </div>
               {% endif %}
@@ -650,10 +650,10 @@
     <div class="kb-divider kb-divider-thin"></div>
 
     <!-- 完了済み（折りたたみ） -->
-    <details style="border:1px solid rgba(255,255,255,0.10); border-radius:16px; background:rgba(255,255,255,0.03); overflow:hidden;">
-      <summary style="padding:14px 16px; cursor:pointer; font-size:16px; font-weight:900; color:rgba(255,255,255,0.92); display:flex; justify-content:space-between; align-items:center;">
+    <details style="border:1px solid rgba(0,0,0,0.10); border-radius:16px; background:rgba(0,0,0,0.03); overflow:hidden;">
+      <summary style="padding:14px 16px; cursor:pointer; font-size:16px; font-weight:900; color:rgba(0,0,0,0.87); display:flex; justify-content:space-between; align-items:center;">
         <span>完了済み</span>
-        <span style="font-size:14px; font-weight:700; color:rgba(255,255,255,0.62);">{{ monthly_todo_count_done }}</span>
+        <span style="font-size:14px; font-weight:700; color:rgba(0,0,0,0.60);">{{ monthly_todo_count_done }}</span>
       </summary>
 
       <div style="padding:0 16px 8px 16px;">
@@ -662,7 +662,7 @@
         {% else %}
           {% for todo in monthly_todos %}
             {% if todo.status == todo_status_done %}
-            <div style="padding:14px 0; border-top:1px solid rgba(255,255,255,0.08);">
+            <div style="padding:14px 0; border-top:1px solid rgba(0,0,0,0.08);">
               <div style="display:flex; align-items:flex-start; gap:12px;">
                 <form method="post" style="margin:0; flex:0 0 auto;">
                   {% csrf_token %}
@@ -683,7 +683,7 @@
                       display:flex;
                       align-items:center;
                       justify-content:center;
-                      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 6px 14px rgba(0,0,0,0.18);
+                      box-shadow: 0 6px 14px rgba(0,0,0,0.10);
                     "
                   >
                     <span
@@ -698,19 +698,19 @@
                         display:flex;
                         align-items:center;
                         justify-content:center;
-                        box-shadow:0 0 0 2px rgba(255,255,255,0.10);
+                        box-shadow:0 0 0 2px rgba(0,0,0,0.10);
                       "
                     >✓</span>
                   </button>
                 </form>
 
                 <div style="flex:1; min-width:0;">
-                  <div style="font-size:17px; font-weight:900; line-height:1.45; word-break:break-word; color:rgba(255,255,255,0.72);">
+                  <div style="font-size:17px; font-weight:900; line-height:1.45; word-break:break-word; color:rgba(0,0,0,0.65);">
                     {{ todo.title }}
                   </div>
 
                   {% if todo.note %}
-                  <div style="font-size:17px; font-weight:900; line-height:1.45; word-break:break-word; margin-top:6px; color:rgba(255,255,255,0.58);">
+                  <div style="font-size:17px; font-weight:900; line-height:1.45; word-break:break-word; margin-top:6px; color:rgba(0,0,0,0.54);">
                     {{ todo.note|linebreaksbr }}
                   </div>
                   {% endif %}
