@@ -197,15 +197,19 @@
     <div class="kb-section-head">
       <div class="kb-head-left">
         <div class="kb-month-head">
-          <form method="get" class="kb-filter kb-filter-inline" id="kb-filter-month">
-            <input type="hidden" name="year" value="{{ selected_year }}">
-            {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
-            <select name="month" class="kb-select" data-autosubmit="1" aria-label="年月選択">
-              {% for m in month_options %}
-                <option value="{{ m.value }}" {% if m.value == selected_month %}selected{% endif %}>{{ m.label }}</option>
-              {% endfor %}
-            </select>
-          </form>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <a class="kb-btn" href="?month={{ prev_month_label }}&year={{ selected_year }}{% if debug %}&debug=1{% endif %}" style="padding:6px 10px; font-size:14px;">◀</a>
+            <form method="get" class="kb-filter kb-filter-inline" id="kb-filter-month">
+              <input type="hidden" name="year" value="{{ selected_year }}">
+              {% if debug %}<input type="hidden" name="debug" value="1">{% endif %}
+              <select name="month" class="kb-select" data-autosubmit="1" aria-label="年月選択">
+                {% for m in month_options %}
+                  <option value="{{ m.value }}" {% if m.value == selected_month %}selected{% endif %}>{{ m.label }}</option>
+                {% endfor %}
+              </select>
+            </form>
+            <a class="kb-btn" href="?month={{ next_month_label }}&year={{ selected_year }}{% if debug %}&debug=1{% endif %}" style="padding:6px 10px; font-size:14px;">▶</a>
+          </div>
 
           <div class="kb-section-title">月の収支</div>
         </div>
