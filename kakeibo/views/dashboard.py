@@ -739,6 +739,7 @@ def dashboard(request):
     selected_month_date = _parse_month_yyyy_mm(req_month) or month_first(today)
     m = month_first(selected_month_date)
     prev_m = add_month(m, -1)
+    next_m = add_month(m, 1)
     selected_month = f"{m.year}-{m.month:02d}"
 
     month_options = _month_options(today=today, months_back=24)
@@ -1119,6 +1120,7 @@ def dashboard(request):
 
         "month_label": f"{m.year}-{m.month:02d}",
         "prev_month_label": f"{prev_m.year}-{prev_m.month:02d}",
+        "next_month_label": f"{next_m.year}-{next_m.month:02d}",
 
         "kpi_total_assets": total_assets,
         "kpi_rakuten_bank_actual": rakuten_bank_actual,
