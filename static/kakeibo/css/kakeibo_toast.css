@@ -33,9 +33,9 @@
   padding: 12px 14px;
   border-radius: 14px;
 
-  background: rgba(18, 22, 28, 0.78);
-  border: 1px solid rgba(255,255,255,0.12);
-  box-shadow: 0 12px 28px rgba(0,0,0,0.35);
+  background: rgba(255,255,255,0.92);
+  border: 1px solid rgba(0,0,0,0.12);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.12);
   backdrop-filter: blur(14px);
 
   /* ✅ 上から出るアニメ */
@@ -52,7 +52,7 @@
 .kb-toast-msg{
   font-size: 14px;
   line-height: 1.45;
-  color: rgba(255,255,255,0.92);
+  color: rgba(0,0,0,0.87);
 
   /* ✅ 改行をそのまま表示＆複数行OK */
   white-space: pre-wrap;
@@ -63,9 +63,9 @@
 }
 
 .kb-toast-x{
-  border: 1px solid rgba(255,255,255,0.18);
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.92);
+  border: 1px solid rgba(0,0,0,0.15);
+  background: rgba(0,0,0,0.05);
+  color: rgba(0,0,0,0.70);
   width: 32px;
   height: 32px;
   border-radius: 999px;
